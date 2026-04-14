@@ -150,8 +150,12 @@ func (c *Controller) tick() {
 		pwm := clamp(*manualPWM, fan.MinPWM, fan.MaxPWM)
 		var writeErr error
 		if c.fanType == "nvidia" {
-			idx, _ := strconv.ParseUint(c.pwmPath, 10, 32)
-			writeErr = nvidia.WriteFanSpeed(uint(idx), pwm)
+			idx, err := parseNvidiaIndex(c.pwmPath)
+			if err != nil {
+				c.logger.Error("controller: invalid nvidia GPU index", "err", err)
+				return
+			}
+			writeErr = nvidia.WriteFanSpeed(idx, pwm)
 		} else if fan.ControlKind == "rpm_target" {
 			maxRPM := hwmon.ReadFanMaxRPM(c.pwmPath)
 			rpm := int(math.Round(float64(pwm) / 255.0 * float64(maxRPM)))
