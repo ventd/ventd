@@ -7,6 +7,7 @@ before:
     - go mod tidy
 
 builds:
+  # Default glibc build — includes NVML via purego (dynamically linked against glibc).
   - id: ventd
     main: ./cmd/ventd
     binary: ventd
@@ -25,9 +26,47 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
 
+  # musl-compatible build — fully static, NVIDIA support compiled out.
+  # Required for Alpine, Void-musl, and other musl-libc distros where
+  # purego's fakecgo shim would drag in glibc SONAMEs and fail to exec.
+  - id: ventd-musl
+    main: ./cmd/ventd
+    binary: ventd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - nonvidia
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
 archives:
   - id: default
+    ids:
+      - ventd
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - config.example.yaml
+      - deploy/ventd.service
+      - scripts/ventd.openrc
+      - scripts/ventd.runit
+      - scripts/install.sh
+  - id: musl
+    ids:
+      - ventd-musl
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_musl"
     formats: [tar.gz]
     files:
       - LICENSE
@@ -44,6 +83,8 @@ checksum:
 
 nfpms:
   - id: ventd-pkg
+    ids:
+      - ventd
     package_name: ventd
     vendor: ventd
     homepage: https://github.com/ventd/ventd

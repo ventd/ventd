@@ -113,9 +113,18 @@ if [[ -z "$BINARY" ]]; then
         fi
     fi
 
+    # libc detection. The default release asset is glibc-linked (for NVML via
+    # purego). musl distros (Alpine, Void-musl, etc.) need the `_musl` variant,
+    # which is built with -tags nonvidia and is fully static.
+    LIBC_SUFFIX=""
+    if ls /lib/ld-musl-*.so.1 >/dev/null 2>&1 || ls /lib64/ld-musl-*.so.1 >/dev/null 2>&1; then
+        LIBC_SUFFIX="_musl"
+        echo "Detected musl libc — using nonvidia static build."
+    fi
+
     # Tag is like v0.4.0; archive name uses the version without the leading v.
     VER="${VENTD_VERSION#v}"
-    ARCHIVE="ventd_${VER}_linux_${ARCH}.tar.gz"
+    ARCHIVE="ventd_${VER}_linux_${ARCH}${LIBC_SUFFIX}.tar.gz"
     BASE_URL="https://github.com/${VENTD_REPO}/releases/download/${VENTD_VERSION}"
 
     TMPDIR_CLEANUP="$(mktemp -d)"
@@ -292,6 +301,44 @@ EOF
         echo "  ! no init system detected — service not registered"
         ;;
 esac
+
+# ── Post-start verification ─────────────────────────────────────────────────
+#
+# Give the service a few seconds to settle, then confirm it's actually up.
+# Catches binary-exec failures (wrong libc, missing loader) that manifest
+# as an immediate restart-loop rather than a hard install error above.
+
+verify_running() {
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl is-active --quiet ventd.service
+            ;;
+        openrc)
+            rc-service ventd status 2>/dev/null | grep -qiE "started|running"
+            ;;
+        runit)
+            sv status ventd 2>/dev/null | grep -q "^run:"
+            ;;
+        *)
+            # No init system, nothing to verify.
+            return 0
+            ;;
+    esac
+}
+
+if [[ "$INIT_SYSTEM" != "unknown" ]]; then
+    sleep 3
+    if ! verify_running; then
+        echo ""
+        echo "error: ventd was installed but is not running." >&2
+        case "$INIT_SYSTEM" in
+            systemd) echo "  Inspect the log:  journalctl -u ventd -n 50 --no-pager" >&2 ;;
+            openrc)  echo "  Inspect the log:  tail -n 50 /var/log/ventd.log 2>/dev/null || rc-service ventd status" >&2 ;;
+            runit)   echo "  Inspect the log:  tail -n 50 /var/log/ventd/current" >&2 ;;
+        esac
+        exit 1
+    fi
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 

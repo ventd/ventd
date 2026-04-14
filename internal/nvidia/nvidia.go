@@ -1,3 +1,5 @@
+//go:build !nonvidia
+
 // Package nvidia provides GPU temperature and fan control via NVML.
 //
 // NVML is loaded at runtime from libnvidia-ml.so.1 via purego (no CGO).

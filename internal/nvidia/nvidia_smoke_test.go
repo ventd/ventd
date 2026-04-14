@@ -1,3 +1,5 @@
+//go:build !nonvidia
+
 package nvidia
 
 import (
