@@ -2,8 +2,10 @@ package watchdog
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -88,66 +90,90 @@ func (w *Watchdog) Restore() {
 	w.mu.Unlock()
 
 	for _, e := range entries {
-		if e.fanType == "nvidia" {
-			idx, _ := strconv.ParseUint(e.pwmPath, 10, 32)
-			if err := nvidia.ResetFanSpeed(uint(idx)); err != nil {
-				w.logger.Error("watchdog: nvidia fan reset failed",
-					"gpu_index", e.pwmPath, "err", err)
-			} else {
-				w.logger.Info("watchdog: nvidia fan restored to auto",
-					"gpu_index", e.pwmPath)
-			}
-			continue
-		}
+		// Restore is the daemon's last-line safety net. A panic inside any one
+		// entry must not abort the loop — remaining fans would be left at
+		// whatever PWM the daemon last wrote, potentially unsafe.
+		w.restoreOne(e)
+	}
+}
 
-		if e.rpmTarget {
-			enablePath := hwmon.RPMTargetEnablePath(e.pwmPath)
-			maxRPM := hwmon.ReadFanMaxRPM(e.pwmPath)
-			if e.origEnable < 0 {
-				if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
-					w.logger.Error("watchdog: pwm_enable unsupported and max-rpm fallback failed",
-						"target_path", e.pwmPath, "err", writeErr)
-				} else {
-					w.logger.Warn("watchdog: pwm_enable unsupported, wrote fan_target=max_rpm as safe fallback",
-						"target_path", e.pwmPath, "rpm", maxRPM)
-				}
-				continue
-			}
-			if err := hwmon.WritePWMEnablePath(enablePath, e.origEnable); err != nil {
-				w.logger.Error("watchdog: failed to restore pwm_enable for rpm_target fan",
-					"enable_path", enablePath, "value", e.origEnable, "err", err)
-				if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
-					w.logger.Error("watchdog: max-rpm fallback also failed",
-						"target_path", e.pwmPath, "err", writeErr)
-				}
-			} else {
-				w.logger.Info("watchdog: restored pwm_enable for rpm_target fan",
-					"enable_path", enablePath, "value", e.origEnable)
-			}
-			continue
+func (w *Watchdog) restoreOne(e entry) {
+	defer func() {
+		if r := recover(); r != nil {
+			w.logger.Error("watchdog: restore panic recovered, continuing with next fan",
+				"path", e.pwmPath,
+				"hwmon_dir", filepath.Dir(e.pwmPath),
+				"fan_type", e.fanType,
+				"rpm_target", e.rpmTarget,
+				"orig_enable", e.origEnable,
+				"panic", fmt.Sprintf("%v", r))
 		}
+	}()
 
+	if e.fanType == "nvidia" {
+		idx, err := strconv.ParseUint(e.pwmPath, 10, 32)
+		if err != nil {
+			w.logger.Error("watchdog: nvidia gpu index parse failed, skipping restore",
+				"gpu_index", e.pwmPath, "err", err)
+			return
+		}
+		if err := nvidia.ResetFanSpeed(uint(idx)); err != nil {
+			w.logger.Error("watchdog: nvidia fan reset failed",
+				"gpu_index", e.pwmPath, "err", err)
+		} else {
+			w.logger.Info("watchdog: nvidia fan restored to auto",
+				"gpu_index", e.pwmPath)
+		}
+		return
+	}
+
+	if e.rpmTarget {
+		enablePath := hwmon.RPMTargetEnablePath(e.pwmPath)
+		maxRPM := hwmon.ReadFanMaxRPM(e.pwmPath)
 		if e.origEnable < 0 {
-			if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
-				w.logger.Error("watchdog: pwm_enable unsupported and full-speed fallback failed",
-					"path", e.pwmPath, "err", writeErr)
+			if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
+				w.logger.Error("watchdog: pwm_enable unsupported and max-rpm fallback failed",
+					"target_path", e.pwmPath, "err", writeErr)
 			} else {
-				w.logger.Warn("watchdog: pwm_enable unsupported, wrote PWM=255 as safe fallback",
-					"path", e.pwmPath)
+				w.logger.Warn("watchdog: pwm_enable unsupported, wrote fan_target=max_rpm as safe fallback",
+					"target_path", e.pwmPath, "rpm", maxRPM)
 			}
-			continue
+			return
 		}
-
-		if err := hwmon.WritePWMEnable(e.pwmPath, e.origEnable); err != nil {
-			w.logger.Error("watchdog: failed to restore pwm_enable",
-				"path", e.pwmPath, "value", e.origEnable, "err", err)
-			if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
-				w.logger.Error("watchdog: full-speed fallback also failed",
-					"path", e.pwmPath, "err", writeErr)
+		if err := hwmon.WritePWMEnablePath(enablePath, e.origEnable); err != nil {
+			w.logger.Error("watchdog: failed to restore pwm_enable for rpm_target fan",
+				"enable_path", enablePath, "value", e.origEnable, "err", err)
+			if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
+				w.logger.Error("watchdog: max-rpm fallback also failed",
+					"target_path", e.pwmPath, "err", writeErr)
 			}
 		} else {
-			w.logger.Info("watchdog: restored pwm_enable",
-				"path", e.pwmPath, "value", e.origEnable)
+			w.logger.Info("watchdog: restored pwm_enable for rpm_target fan",
+				"enable_path", enablePath, "value", e.origEnable)
 		}
+		return
+	}
+
+	if e.origEnable < 0 {
+		if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
+			w.logger.Error("watchdog: pwm_enable unsupported and full-speed fallback failed",
+				"path", e.pwmPath, "err", writeErr)
+		} else {
+			w.logger.Warn("watchdog: pwm_enable unsupported, wrote PWM=255 as safe fallback",
+				"path", e.pwmPath)
+		}
+		return
+	}
+
+	if err := hwmon.WritePWMEnable(e.pwmPath, e.origEnable); err != nil {
+		w.logger.Error("watchdog: failed to restore pwm_enable",
+			"path", e.pwmPath, "value", e.origEnable, "err", err)
+		if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
+			w.logger.Error("watchdog: full-speed fallback also failed",
+				"path", e.pwmPath, "err", writeErr)
+		}
+	} else {
+		w.logger.Info("watchdog: restored pwm_enable",
+			"path", e.pwmPath, "value", e.origEnable)
 	}
 }

@@ -53,6 +53,12 @@ func ReadValue(path string) (float64, error) {
 // WritePWM writes a PWM duty cycle value (0–255) to a hwmon pwm* sysfs file.
 // The caller is responsible for clamping value to the channel's configured
 // [min_pwm, max_pwm] range before calling this function.
+//
+// WritePWM does not check pwm*_enable. Callers that are *not* the controller
+// (which already manages mode transitions explicitly) should prefer
+// WritePWMSafe so a write never lands in a mode that ignores or flips it.
+// The watchdog is the documented exception: its mode=unsupported fallback
+// writes PWM=255 through this function as the last-line safety net.
 func WritePWM(path string, value uint8) error {
 	data := strconv.AppendUint(nil, uint64(value), 10)
 	data = append(data, '\n')
@@ -60,6 +66,39 @@ func WritePWM(path string, value uint8) error {
 		return fmt.Errorf("hwmon: write pwm %s=%d: %w", path, value, err)
 	}
 	return nil
+}
+
+// ErrPWMModeUnsafe is returned by WritePWMSafe when pwm_enable is in a mode
+// that makes a duty-cycle write either ignored (0 = full speed) or
+// auto-overridden (2 = BIOS/kernel auto). Callers should set pwm_enable=1
+// first via WritePWMEnable.
+var ErrPWMModeUnsafe = errors.New("hwmon: pwm_enable not in manual mode")
+
+// WritePWMSafe is WritePWM plus a pwm_enable mode guard.
+//
+//   - mode 1 (manual)       → write proceeds.
+//   - mode 0 (full speed)   → returns ErrPWMModeUnsafe; writing would be ignored.
+//   - mode 2 (auto)         → returns ErrPWMModeUnsafe; the kernel will flip
+//     the value back moments later.
+//   - pwm_enable missing    → write proceeds (some drivers, e.g. nct6683 for
+//     NCT6687D, don't expose the file; behaviour matches WritePWM).
+//   - pwm_enable unreadable → returns the wrapped read error without writing.
+//
+// Non-controller callers (calibration, diagnostics, etc.) should use this in
+// preference to WritePWM so that a mis-sequenced call surfaces as an error
+// instead of a silent no-op or an invisible auto-flip.
+func WritePWMSafe(path string, value uint8) error {
+	mode, err := ReadPWMEnable(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return WritePWM(path, value)
+		}
+		return fmt.Errorf("hwmon: check pwm_enable before safe write to %s: %w", path, err)
+	}
+	if mode == 0 || mode == 2 {
+		return fmt.Errorf("hwmon: refuse pwm write to %s (mode=%d): %w", path, mode, ErrPWMModeUnsafe)
+	}
+	return WritePWM(path, value)
 }
 
 // ReadPWMEnable reads the current pwm*_enable value for a PWM path.

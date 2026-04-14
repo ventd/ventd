@@ -4,6 +4,7 @@ package monitor
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,7 +59,14 @@ func scanHwmon() []Device {
 }
 
 func scanInputs(dir, prefix, unit string, divisor float64) []Reading {
-	matches, _ := filepath.Glob(filepath.Join(dir, prefix+"*_input"))
+	pattern := filepath.Join(dir, prefix+"*_input")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		// filepath.Glob only fails on a malformed pattern, which would indicate
+		// a bug here (the pattern is constructed from a fixed prefix list).
+		// Log and continue with whatever partial result we have.
+		slog.Default().Warn("monitor: glob failed", "pattern", pattern, "err", err)
+	}
 	naturalSortPaths(matches)
 	var readings []Reading
 	for _, path := range matches {

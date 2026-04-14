@@ -436,6 +436,11 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		if isNvidia {
 			_ = nvidia.ResetFanSpeed(uint(gpuIdx))
 		} else {
+			// Intentionally WritePWM (not WritePWMSafe): this is the cleanup path.
+			// If pwm_enable has somehow flipped to 0/2 mid-sweep, WritePWMSafe would
+			// refuse and leave the fan at whatever duty the last forward write set —
+			// the opposite of safe. The controller or watchdog will reassert mode=2
+			// on the next tick; this write is just a best-effort knock-down.
 			_ = hwmon.WritePWM(pwmPath, minPWM)
 		}
 		rs.mu.Lock()
@@ -558,7 +563,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		if isNvidia {
 			writeErr = nvidia.WriteFanSpeed(uint(gpuIdx), pwm)
 		} else {
-			writeErr = hwmon.WritePWM(pwmPath, pwm)
+			writeErr = hwmon.WritePWMSafe(pwmPath, pwm)
 		}
 		if writeErr != nil {
 			rs.mu.Lock()
@@ -625,7 +630,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			if ctx.Err() != nil {
 				return snapshot(uint8(p), steps+1), ctx.Err()
 			}
-			if err := hwmon.WritePWM(pwmPath, uint8(p)); err != nil {
+			if err := hwmon.WritePWMSafe(pwmPath, uint8(p)); err != nil {
 				break
 			}
 			if ctxSleep(1500 * time.Millisecond) {
@@ -945,6 +950,10 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 
 	// Always restore the original PWM when we're done.
+	// Intentionally WritePWM (not WritePWMSafe): cleanup path. See the matching
+	// comment in runSync — a safety-guarded restore that refuses on mode 0/2 is
+	// worse than a best-effort one, because the fan would otherwise stay at the
+	// test PWM until the next controller tick.
 	defer func() { _ = hwmon.WritePWM(pwmPath, origPWM) }()
 
 	_ = hwmon.WritePWMEnable(pwmPath, 1) // ignore — some drivers don't expose this
@@ -965,7 +974,7 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 
 	// Write test PWM and wait for the fan to settle.
-	if err := hwmon.WritePWM(pwmPath, testPWM); err != nil {
+	if err := hwmon.WritePWMSafe(pwmPath, testPWM); err != nil {
 		return DetectResult{}, fmt.Errorf("detect: write test pwm: %w", err)
 	}
 	time.Sleep(2 * time.Second)
@@ -1096,13 +1105,24 @@ func (m *Manager) save() {
 		m.logger.Warn("calibrate: marshal results failed", "err", err)
 		return
 	}
+	// Ensure the parent directory exists — on a fresh install or after
+	// /etc/ventd is wiped, WriteFile would otherwise fail with ENOENT and the
+	// checkpoint would silently vanish.
+	dir := filepath.Dir(m.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		m.logger.Warn("calibrate: mkdir parent failed", "path", dir,
+			"err", fmt.Errorf("mkdir %s: %w", dir, err))
+		return
+	}
 	tmp := m.path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		m.logger.Warn("calibrate: write tmp failed", "path", tmp, "err", err)
+		m.logger.Warn("calibrate: write tmp failed", "path", tmp,
+			"err", fmt.Errorf("write %s: %w", tmp, err))
 		return
 	}
 	if err := os.Rename(tmp, m.path); err != nil {
-		m.logger.Warn("calibrate: rename tmp failed", "path", m.path, "err", err)
+		m.logger.Warn("calibrate: rename tmp failed", "path", m.path,
+			"err", fmt.Errorf("rename %s -> %s: %w", tmp, m.path, err))
 	}
 }
 

@@ -168,7 +168,7 @@ func run() error {
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
-	webSrv := web.New(&liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	webSrv := web.New(ctx, &liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
 	go func() {
 		if err := webSrv.ListenAndServe(cfg.Web.Listen, cfg.Web.TLSCert, cfg.Web.TLSKey); err != nil {
 			errCh <- fmt.Errorf("web server: %w", err)

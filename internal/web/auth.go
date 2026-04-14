@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -23,12 +24,14 @@ type sessionStore struct {
 	ttl      time.Duration
 }
 
-func newSessionStore(ttl time.Duration) *sessionStore {
+// newSessionStore starts a reaper goroutine that exits when ctx is cancelled,
+// so the session store does not leak past daemon shutdown.
+func newSessionStore(ctx context.Context, ttl time.Duration) *sessionStore {
 	s := &sessionStore{
 		sessions: make(map[string]time.Time),
 		ttl:      ttl,
 	}
-	go s.reap()
+	go s.reap(ctx)
 	return s
 }
 
@@ -62,19 +65,24 @@ func (s *sessionStore) delete(token string) {
 	s.mu.Unlock()
 }
 
-// reap periodically removes expired sessions.
-func (s *sessionStore) reap() {
+// reap periodically removes expired sessions and exits when ctx is done.
+func (s *sessionStore) reap(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		s.mu.Lock()
-		for tok, exp := range s.sessions {
-			if now.After(exp) {
-				delete(s.sessions, tok)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			now := time.Now()
+			s.mu.Lock()
+			for tok, exp := range s.sessions {
+				if now.After(exp) {
+					delete(s.sessions, tok)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
 

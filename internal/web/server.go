@@ -34,11 +34,12 @@ type Server struct {
 	sessions   *sessionStore
 	setupToken string // one-time first-boot token; empty once password is set
 	diag       *hwdiag.Store
+	ctx        context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
 // printed to the terminal; pass "" if a password is already configured.
-func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
+func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
 	live := cfg.Load()
 	if diag == nil {
 		diag = hwdiag.NewStore()
@@ -51,9 +52,10 @@ func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Log
 		cal:        cal,
 		setup:      sm,
 		restartCh:  restartCh,
-		sessions:   newSessionStore(live.Web.SessionTTL.Duration),
+		sessions:   newSessionStore(ctx, live.Web.SessionTTL.Duration),
 		setupToken: setupToken,
 		diag:       diag,
+		ctx:        ctx,
 	}
 
 	// Unauthenticated endpoints.
@@ -608,7 +610,12 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 	go func() {
-		time.Sleep(300 * time.Millisecond)
+		// Ctx-aware delay so daemon shutdown isn't blocked by a pending reboot dispatch.
+		select {
+		case <-time.After(300 * time.Millisecond):
+		case <-s.ctx.Done():
+			return
+		}
 		// Try init-system reboot commands in order. All of these go through a
 		// proper shutdown sequence that syncs filesystems before rebooting.
 		for _, cmd := range [][]string{
