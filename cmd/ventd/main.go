@@ -32,17 +32,18 @@ var errRestart = errors.New("restart")
 
 func main() {
 	if err := run(); err != nil {
+		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 		if errors.Is(err, errRestart) {
 			// All defers in run() have fired (PWM restored, NVML shut down).
 			// Replace the current process image with a fresh instance.
 			if execErr := syscall.Exec(os.Args[0], os.Args, os.Environ()); execErr != nil {
-				fmt.Fprintf(os.Stderr, "ventd: restart failed: %v\n", execErr)
+				logger.Error("ventd: restart failed", "err", execErr)
 				os.Exit(1)
 			}
 		}
 		// At this point, run()'s defers have already fired (including wd.Restore),
 		// so it is safe to os.Exit.
-		fmt.Fprintf(os.Stderr, "ventd: %v\n", err)
+		logger.Error("ventd: fatal", "err", err)
 		os.Exit(1)
 	}
 }
