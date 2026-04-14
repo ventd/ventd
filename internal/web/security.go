@@ -280,16 +280,84 @@ func (l *loginLimiter) recordSuccess(key string) {
 	l.mu.Unlock()
 }
 
-// clientIP extracts the IP portion of r.RemoteAddr. X-Forwarded-For is
-// intentionally NOT consulted unless the operator has opted in to a
-// trusted-proxy configuration — otherwise the limiter is trivially
-// bypassed by spoofing the header. The hook is here for future use.
-func clientIP(r *http.Request) string {
+// parseTrustedProxies parses CIDRs from config.Web.TrustProxy. Validation
+// already rejects invalid entries at Load time; a failure here means a
+// hand-constructed test config — log and drop the bad entry rather than
+// panic.
+func parseTrustedProxies(cidrs []string, logger *slog.Logger) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			logger.Warn("web: invalid trust_proxy CIDR, skipping", "cidr", c, "err", err)
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func isTrustedProxy(ip net.IP, proxies []*net.IPNet) bool {
+	if ip == nil {
+		return false
+	}
+	for _, n := range proxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteIP returns the IP half of r.RemoteAddr, with the port stripped.
+func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// resolveClientIP returns the IP the rate limiter and access logs should
+// treat as the caller. When proxies is empty, X-Forwarded-For is ignored
+// — otherwise a hostile client bypasses the limiter by setting the
+// header itself.
+//
+// When the peer IS inside a trusted proxy CIDR, walk XFF right-to-left
+// and return the first entry whose IP is NOT itself a trusted proxy.
+// That entry is the real client; hops to its left are attacker-controlled
+// and would let a client prepend a spoofed address. If every XFF entry is
+// trusted, fall back to the leftmost entry. This matches nginx real_ip
+// and Rails RemoteIp and is the standard secure XFF algorithm.
+func resolveClientIP(r *http.Request, proxies []*net.IPNet) string {
+	peer := remoteIP(r)
+	if len(proxies) == 0 {
+		return peer
+	}
+	peerIP := net.ParseIP(peer)
+	if !isTrustedProxy(peerIP, proxies) {
+		return peer
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return peer
+	}
+	parts := strings.Split(xff, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(parts[i])
+		ip := net.ParseIP(candidate)
+		if ip == nil {
+			continue
+		}
+		if !isTrustedProxy(ip, proxies) {
+			return candidate
+		}
+	}
+	first := strings.TrimSpace(parts[0])
+	if net.ParseIP(first) != nil {
+		return first
+	}
+	return peer
 }
 
 // --- Body size guard -----------------------------------------------------
