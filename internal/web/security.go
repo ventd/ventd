@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net"
@@ -30,8 +31,12 @@ func securityHeaders() func(http.Handler) http.Handler {
 			// Over plain HTTP it is a no-op; behind a non-TLS proxy it
 			// poisons clients if the deployment later downgrades. Operators
 			// terminating TLS at a proxy should inject HSTS at the proxy.
+			//
+			// max-age starts at 5 minutes so an operator who misconfigures
+			// a cert can recover by serving plain HTTP for a short window.
+			// TODO: raise to 31536000 (1 year) once deployments are stable.
 			if r.TLS != nil {
-				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+				h.Set("Strict-Transport-Security", "max-age=300")
 			}
 			next.ServeHTTP(w, r)
 		})
@@ -123,25 +128,94 @@ func isLoopbackHost(h string) bool {
 // loginLimiter tracks consecutive failed logins per client IP and locks
 // the key out for cooldown after threshold failures. Successful auth
 // clears the counter. A nil limiter is a no-op so tests can opt out.
+//
+// The state map is bounded: an attacker who walks source IPs (cheap on
+// IPv6) cannot grow it without limit. A background reaper sweeps expired
+// entries; on write, an over-cap map evicts its least-recently-seen key.
 type loginLimiter struct {
 	mu        sync.Mutex
 	state     map[string]*ipAttempt
 	threshold int
 	cooldown  time.Duration
+	maxKeys   int
 	now       func() time.Time // overridable for tests
 }
 
 type ipAttempt struct {
 	failures    int
 	lockedUntil time.Time
+	lastSeen    time.Time
 }
 
-func newLoginLimiter(threshold int, cooldown time.Duration) *loginLimiter {
-	return &loginLimiter{
+// loginLimiterMaxKeys caps the tracked IPs. 4096 is generous for any
+// realistic LAN deployment and cheap — each entry is ~64 bytes.
+const loginLimiterMaxKeys = 4096
+
+// newLoginLimiter starts a reaper goroutine scoped to ctx so the limiter
+// does not leak state past daemon shutdown. Pass the daemon-lifetime
+// context; the reaper exits when that context cancels.
+func newLoginLimiter(ctx context.Context, threshold int, cooldown time.Duration) *loginLimiter {
+	l := &loginLimiter{
 		state:     make(map[string]*ipAttempt),
 		threshold: threshold,
 		cooldown:  cooldown,
+		maxKeys:   loginLimiterMaxKeys,
 		now:       time.Now,
+	}
+	go l.reap(ctx)
+	return l
+}
+
+// reap periodically evicts entries whose cooldown has expired and any
+// pre-lock records older than one cooldown window. The tick is half the
+// cooldown so we converge quickly after a burst without spinning.
+func (l *loginLimiter) reap(ctx context.Context) {
+	interval := l.cooldown / 2
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			l.sweep()
+		}
+	}
+}
+
+// sweep removes entries whose lockout expired or whose last activity was
+// more than one cooldown ago. Exposed (lowercase) for tests.
+func (l *loginLimiter) sweep() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	cutoff := now.Add(-l.cooldown)
+	for k, s := range l.state {
+		if !s.lockedUntil.IsZero() && now.After(s.lockedUntil) {
+			delete(l.state, k)
+			continue
+		}
+		if s.lockedUntil.IsZero() && s.lastSeen.Before(cutoff) {
+			delete(l.state, k)
+		}
+	}
+}
+
+// evictOldestLocked drops the single entry with the oldest lastSeen so a
+// new key can be inserted. Caller must hold l.mu.
+func (l *loginLimiter) evictOldestLocked() {
+	var oldestKey string
+	var oldestSeen time.Time
+	for k, s := range l.state {
+		if oldestKey == "" || s.lastSeen.Before(oldestSeen) {
+			oldestKey, oldestSeen = k, s.lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(l.state, oldestKey)
 	}
 }
 
@@ -176,14 +250,21 @@ func (l *loginLimiter) recordFailure(key string) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	now := l.now()
 	s, ok := l.state[key]
 	if !ok {
+		// Cap check before insert — one synchronous eviction is cheaper
+		// than letting the map grow unbounded, and O(n) on n≤4096 is fine.
+		if len(l.state) >= l.maxKeys {
+			l.evictOldestLocked()
+		}
 		s = &ipAttempt{}
 		l.state[key] = s
 	}
 	s.failures++
+	s.lastSeen = now
 	if s.failures >= l.threshold {
-		s.lockedUntil = l.now().Add(l.cooldown)
+		s.lockedUntil = now.Add(l.cooldown)
 		return true
 	}
 	return false

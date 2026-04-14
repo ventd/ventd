@@ -40,6 +40,16 @@ type Web struct {
 	// TLS-terminating reverse proxy; set to false only when testing over
 	// plain HTTP on localhost — leaving session tokens unprotected on LAN.
 	SecureCookies *bool `yaml:"secure_cookies,omitempty" json:"secure_cookies,omitempty"`
+
+	// LoginFailThreshold is the number of consecutive failed logins from
+	// the same peer IP that triggers a cooldown lockout. Zero → default
+	// (see DefaultLoginFailThreshold). Tune up on shared homelabs where a
+	// fat-finger admin shouldn't be locked out after 5 tries.
+	LoginFailThreshold int `yaml:"login_fail_threshold,omitempty" json:"login_fail_threshold,omitempty"`
+	// LoginLockoutCooldown is how long a locked-out peer must wait before
+	// trying again. Zero → default (15m). Short enough to forgive human
+	// error, long enough to make online guessing unproductive.
+	LoginLockoutCooldown Duration `yaml:"login_lockout_cooldown,omitempty" json:"login_lockout_cooldown,omitempty"`
 }
 
 // UseSecureCookies reports whether the session cookie should set Secure.
@@ -138,6 +148,14 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // DefaultSessionTTL is the lifetime of an authenticated web session.
 const DefaultSessionTTL = 24 * time.Hour
+
+// Login brute-force guard defaults. Applied in validate() when the
+// operator leaves the fields zero, and exported so the web package can
+// reuse them in tests.
+const (
+	DefaultLoginFailThreshold   = 5
+	DefaultLoginLockoutCooldown = 15 * time.Minute
+)
 
 // Empty returns a minimal valid config with no fans, sensors, or controls.
 // Used when starting the daemon before first-boot setup is complete.
@@ -315,6 +333,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Web.Listen == "" {
 		cfg.Web.Listen = "0.0.0.0:9999"
+	}
+	if cfg.Web.LoginFailThreshold <= 0 {
+		cfg.Web.LoginFailThreshold = DefaultLoginFailThreshold
+	}
+	if cfg.Web.LoginLockoutCooldown.Duration <= 0 {
+		cfg.Web.LoginLockoutCooldown.Duration = DefaultLoginLockoutCooldown
 	}
 	if cfg.Web.SessionTTL.Duration <= 0 {
 		cfg.Web.SessionTTL.Duration = DefaultSessionTTL

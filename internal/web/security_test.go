@@ -112,7 +112,9 @@ func TestSecurityHeadersOnAllResponses(t *testing.T) {
 
 func TestLoginLimiterLockoutAndReset(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	l := newLoginLimiter(3, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := newLoginLimiter(ctx, 3, time.Minute)
 	l.now = func() time.Time { return now }
 
 	// Below threshold: allowed.
@@ -154,6 +156,44 @@ func TestLoginLimiterLockoutAndReset(t *testing.T) {
 	}
 }
 
+func TestLoginLimiterEvictsOverCap(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l := newLoginLimiter(ctx, 10, time.Minute)
+	l.now = func() time.Time { return now }
+	l.maxKeys = 3
+
+	// Walk 5 IPs, one failure each. Cap is 3, so two must be evicted.
+	// Advance time so lastSeen is ordered — the two oldest get dropped.
+	ips := []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"}
+	for _, ip := range ips {
+		l.recordFailure(ip)
+		now = now.Add(time.Second)
+	}
+	if got := len(l.state); got != 3 {
+		t.Fatalf("state size=%d want 3", got)
+	}
+	// The last three IPs should survive; the first two were oldest.
+	for _, ip := range ips[:2] {
+		if _, ok := l.state[ip]; ok {
+			t.Errorf("oldest %q still present", ip)
+		}
+	}
+	for _, ip := range ips[2:] {
+		if _, ok := l.state[ip]; !ok {
+			t.Errorf("recent %q was evicted", ip)
+		}
+	}
+
+	// sweep() drops expired-cooldown and stale pre-lock entries.
+	now = now.Add(2 * time.Minute) // past cooldown + staleness window
+	l.sweep()
+	if got := len(l.state); got != 0 {
+		t.Fatalf("sweep left %d entries, want 0", got)
+	}
+}
+
 func TestLoginHandlerLocksOutThenResets(t *testing.T) {
 	srv, _ := newSecuritySrv(t)
 	// Install a password so the normal login branch runs.
@@ -177,7 +217,7 @@ func TestLoginHandlerLocksOutThenResets(t *testing.T) {
 		srv.handler.ServeHTTP(rr, req)
 		return rr.Code
 	}
-	for i := 0; i < LoginFailThreshold; i++ {
+	for i := 0; i < config.DefaultLoginFailThreshold; i++ {
 		if got := post("wrong"); got != http.StatusUnauthorized {
 			t.Fatalf("iter %d: status=%d want 401", i, got)
 		}

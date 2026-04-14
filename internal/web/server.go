@@ -30,13 +30,26 @@ import (
 // restart the daemon to mint a new one.
 const SetupTokenTTL = 15 * time.Minute
 
-// LoginFailThreshold and LoginLockoutDuration tune the per-IP brute
-// force guard on /login. Values chosen to deter online guessing without
-// locking out a user who mistypes their password a couple of times.
-const (
-	LoginFailThreshold   = 5
-	LoginLockoutDuration = 15 * time.Minute
-)
+// The per-IP brute-force guard thresholds live on config.Web so operators
+// can tune them without a rebuild. See config.DefaultLoginFailThreshold
+// and config.DefaultLoginLockoutCooldown for the baked-in defaults.
+
+// loginThresholdOrDefault / loginCooldownOrDefault apply the config
+// defaults when the daemon is running with a minimal (pre-validate)
+// config, e.g. during first-boot before a config file exists.
+func loginThresholdOrDefault(n int) int {
+	if n <= 0 {
+		return config.DefaultLoginFailThreshold
+	}
+	return n
+}
+
+func loginCooldownOrDefault(d time.Duration) time.Duration {
+	if d <= 0 {
+		return config.DefaultLoginLockoutCooldown
+	}
+	return d
+}
 
 type Server struct {
 	cfg        *atomic.Pointer[config.Config]
@@ -77,7 +90,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		setupToken: setupToken,
 		diag:       diag,
 		ctx:        ctx,
-		loginLim:   newLoginLimiter(LoginFailThreshold, LoginLockoutDuration),
+		loginLim:   newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
 	}
 	if setupToken != "" {
 		s.setupExp = time.Now().Add(SetupTokenTTL)
@@ -274,7 +287,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if !checkPassword(live.Web.PasswordHash, password) {
 			locked := s.loginLim.recordFailure(ipKey)
 			if locked {
-				s.logger.Warn("web: login lockout", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", LoginLockoutDuration)
+				s.logger.Warn("web: login lockout", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", live.Web.LoginLockoutCooldown.Duration)
 			} else {
 				s.logger.Warn("web: failed login attempt", "remote", r.RemoteAddr)
 			}
@@ -307,7 +320,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 	if !s.consumeSetupToken(token) {
 		locked := s.loginLim.recordFailure(ipKey)
 		if locked {
-			s.logger.Warn("web: login lockout after bad setup tokens", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", LoginLockoutDuration)
+			s.logger.Warn("web: login lockout after bad setup tokens", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", live.Web.LoginLockoutCooldown.Duration)
 		} else {
 			s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
 		}
