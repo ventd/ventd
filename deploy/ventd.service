@@ -39,6 +39,13 @@ PrivateTmp=yes
 # directory and guarantees 0700 perms (the token must not be world-readable).
 RuntimeDirectory=ventd
 RuntimeDirectoryMode=0700
+# systemd creates /etc/ventd before ExecStart (and before any namespace
+# setup) with the mode below, so the installer does not pre-create it and
+# a stop/rm -rf/start cycle no longer trips status=226/NAMESPACE from the
+# ReadWritePaths below. Mode stays at 0700 (root-owned) until the
+# User=ventd migration introduces a group that needs read access.
+ConfigurationDirectory=ventd
+ConfigurationDirectoryMode=0700
 # Enumerate every path ventd writes to.
 #   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
 #   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)

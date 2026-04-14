@@ -374,9 +374,6 @@ install -d -m 755 "$VENTD_PREFIX"
 install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
 echo "  ✓ binary → $VENTD_PREFIX/ventd"
 
-install -d -m 755 /etc/ventd
-echo "  ✓ config dir → /etc/ventd/"
-
 case "$INIT_SYSTEM" in
 
     systemd)
@@ -388,6 +385,7 @@ case "$INIT_SYSTEM" in
         ;;
 
     openrc)
+        install -d -m 0700 /etc/ventd
         install -m 755 "$OPENRC_SRC" /etc/init.d/ventd
         rc-update add ventd default
         rc-service ventd start
@@ -395,6 +393,7 @@ case "$INIT_SYSTEM" in
         ;;
 
     runit)
+        install -d -m 0700 /etc/ventd
         install -d -m 755 /etc/sv/ventd
         install -d -m 755 /etc/sv/ventd/log
         install -m 755 "$RUNIT_SRC" /etc/sv/ventd/run
@@ -422,6 +421,7 @@ EOF
         ;;
 
     unknown)
+        install -d -m 0700 /etc/ventd
         echo "  ! no init system detected — service not registered"
         ;;
 esac
