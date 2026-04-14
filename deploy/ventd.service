@@ -2,8 +2,6 @@
 Description=Fan Control Daemon
 Documentation=https://github.com/ventd/ventd
 After=local-fs.target
-# Restart if the daemon crashes; systemd will call Restore via the binary's
-# deferred cleanup, but a future milestone will add ExecStopPost for SIGKILL safety.
 
 [Service]
 Type=simple
@@ -11,13 +9,73 @@ ExecStart=/usr/local/bin/ventd -config /etc/ventd/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
-# Route stdout/stderr to journald. View with: journalctl -u ventd -f
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ventd
-# Needs root to write to /sys/class/hwmon.
-# Future milestone: drop to a dedicated user with targeted udev rules.
+
+# Service user.
+# Runs as root today. The hardening below assumes root; if you migrate to a
+# dedicated ventd user, pair it with a udev rule that grants that user/group
+# write access to the pwm sysfs files (see deploy/README.md).
 User=root
+
+# --- Sandbox: process isolation -------------------------------------------
+# ventd has no legitimate need to gain privileges or keep capabilities at
+# runtime. Sysfs pwm writes are permission-checked at open() by the kernel
+# against the file's DAC, not against capabilities. If opens fail in the
+# field, fix it with a udev rule (see deploy/README.md), not by restoring
+# CAP_DAC_OVERRIDE here.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- Sandbox: filesystem --------------------------------------------------
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# systemd creates /run/ventd before ExecStart with the mode below, and
+# removes it on stop. Replaces the manual os.MkdirAll for the setup-token
+# directory and guarantees 0700 perms (the token must not be world-readable).
+RuntimeDirectory=ventd
+RuntimeDirectoryMode=0700
+# Enumerate every path ventd writes to.
+#   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
+#   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)
+#   /sys/class/hwmon  — pwm<N>, pwm<N>_enable
+# /sys/class/hwmon entries are symlinks into /sys/devices; systemd resolves
+# these when applying ReadWritePaths. If on a given kernel the resolved
+# inode is not covered (rare), add the matching /sys/devices/... prefix.
+ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon
+
+# --- Sandbox: network -----------------------------------------------------
+# AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,
+# AF_NETLINK for the hwmon uevent watcher (NETLINK_KOBJECT_UEVENT). Without
+# AF_NETLINK the watcher silently falls back to 5-minute periodic rescans
+# and loses hot-plug detection (fans/sensors added after boot).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# --- Sandbox: kernel and syscalls ----------------------------------------
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+
+# --- Sandbox: defence-in-depth -------------------------------------------
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RemoveIPC=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
