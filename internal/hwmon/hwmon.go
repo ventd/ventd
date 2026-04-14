@@ -176,6 +176,56 @@ func ReadFanMaxRPM(targetPath string) int {
 	return v
 }
 
+// ReadFanMinRPM reads the minimum advertised RPM for a fan*_target channel
+// from its companion fan*_min file. Returns 0 when the file is absent, which
+// effectively means "no driver-advertised floor" — callers should still clamp
+// to any per-fan minimum from config.
+func ReadFanMinRPM(targetPath string) int {
+	base := filepath.Base(targetPath)
+	num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+	minPath := filepath.Join(filepath.Dir(targetPath), "fan"+num+"_min")
+	data, err := os.ReadFile(minPath)
+	if err != nil {
+		return 0
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+// ReadPWMEnablePath reads a pwm*_enable value from an explicit path (no
+// "_enable" suffix is appended). Mirror of WritePWMEnablePath.
+func ReadPWMEnablePath(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("hwmon: read pwm_enable %s: %w", path, err)
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("hwmon: parse pwm_enable %s: %w", path, err)
+	}
+	return v, nil
+}
+
+// RPMTargetInputPath derives the fan*_input path from a fan*_target path.
+// e.g. /sys/class/hwmon/hwmon0/fan1_target → /sys/class/hwmon/hwmon0/fan1_input.
+func RPMTargetInputPath(targetPath string) string {
+	base := filepath.Base(targetPath)
+	num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+	return filepath.Join(filepath.Dir(targetPath), "fan"+num+"_input")
+}
+
+// IsRPMTargetPath reports whether path looks like a fan*_target sysfs file.
+// Used by the watchdog and controller to dispatch between PWM-duty and
+// RPM-setpoint write paths without threading an explicit ControlKind through
+// every call site.
+func IsRPMTargetPath(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasPrefix(base, "fan") && strings.HasSuffix(base, "_target")
+}
+
 // RPMTargetEnablePath derives the pwm*_enable path for a fan*_target sysfs
 // file. Taking manual control of an RPM-target channel requires setting its
 // companion pwm*_enable file, not a (non-existent) fan*_target_enable file.

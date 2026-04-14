@@ -414,6 +414,368 @@ func TestConcurrentAllResults(t *testing.T) {
 	}
 }
 
+// TestResumeDiscardedOnFingerprintMismatch seeds a partial checkpoint whose
+// fan_fingerprint doesn't match the live fan (MaxPWM changed). The sweep must
+// ignore the checkpoint and start fresh — an aggressive resume would apply a
+// curve shaped for hardware that no longer exists.
+func TestResumeDiscardedOnFingerprintMismatch(t *testing.T) {
+	pwmPath := makeFakeHwmon(t, 0, 2, 1500)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	prev := Result{
+		PWMPath:        pwmPath,
+		StartPWM:       50,
+		MinRPM:         800,
+		MaxRPM:         1500,
+		Curve:          []PWMRPMPoint{{PWM: 50, RPM: 800}},
+		Partial:        true,
+		CompletedSteps: 10,
+		FanFingerprint: "hwmon|" + pwmPath + "|0|200", // old MaxPWM=200
+	}
+	env := onDiskEnvelope{SchemaVersion: SchemaVersion, Results: map[string]Result{pwmPath: prev}}
+	data, _ := json.MarshalIndent(env, "", "  ")
+	if err := os.WriteFile(calPath, data, 0644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	m := New(calPath, logger, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	fan := &config.Fan{Name: "test", Type: "hwmon", PWMPath: pwmPath, MinPWM: 0, MaxPWM: 255}
+	result, err := m.RunSync(ctx, fan)
+	if err == nil {
+		t.Fatal("expected ctx cancel error")
+	}
+
+	logs := logBuf.String()
+	if !strings.Contains(logs, "fingerprint mismatch") {
+		t.Errorf("expected fingerprint mismatch log; got:\n%s", logs)
+	}
+	if strings.Contains(logs, "resuming from checkpoint") {
+		t.Errorf("did not expect resume log; got:\n%s", logs)
+	}
+	if result.StartPWM != 0 || result.MaxRPM != 0 || len(result.Curve) != 0 {
+		t.Errorf("expected fresh state, got %+v", result)
+	}
+}
+
+// TestAbortPersistsTerminalState ensures that after an abort, the on-disk
+// record is a terminal aborted state (Partial=false, Aborted=true). A daemon
+// restart must NOT try to resume a user-aborted sweep.
+func TestAbortPersistsTerminalState(t *testing.T) {
+	pwmPath := makeFakeHwmon(t, 100, 2, 1500)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	wd := watchdog.New(logger)
+	wd.Register(pwmPath, "hwmon")
+	m := New(calPath, logger, wd)
+
+	fan := &config.Fan{Name: "test", Type: "hwmon", PWMPath: pwmPath, MinPWM: 0, MaxPWM: 255}
+	if err := m.Start(fan); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !waitFor(t, 500*time.Millisecond, func() bool { return m.IsCalibrating(pwmPath) }) {
+		t.Fatal("calibration did not start")
+	}
+
+	m.Abort(pwmPath)
+	if !waitFor(t, 2*time.Second, func() bool { return !m.IsCalibrating(pwmPath) }) {
+		t.Fatal("calibration did not terminate")
+	}
+
+	// Re-load from disk and confirm the on-disk record is terminal.
+	data, err := os.ReadFile(calPath)
+	if err != nil {
+		t.Fatalf("read calibration.json: %v", err)
+	}
+	var env onDiskEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	r, ok := env.Results[pwmPath]
+	if !ok {
+		t.Fatalf("no record for %s on disk", pwmPath)
+	}
+	if r.Partial {
+		t.Errorf("expected Partial=false on disk after abort, got true")
+	}
+	if !r.Aborted {
+		t.Errorf("expected Aborted=true on disk after abort")
+	}
+	if r.CompletedSteps != 0 || r.DownRampPWM != 0 {
+		t.Errorf("expected resume anchors cleared, got steps=%d down=%d",
+			r.CompletedSteps, r.DownRampPWM)
+	}
+
+	// Startup-equivalent: a fresh Manager loading this file must not resume.
+	var logBuf bytes.Buffer
+	logger2 := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	m2 := New(calPath, logger2, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := m2.RunSync(ctx, fan); err == nil {
+		t.Fatal("expected ctx cancel")
+	}
+	if strings.Contains(logBuf.String(), "resuming from checkpoint") {
+		t.Errorf("aborted record was resumed on next startup; logs:\n%s", logBuf.String())
+	}
+}
+
+// makeFakeRPMTargetHwmon creates a temp directory with fan1_target,
+// fan1_input, fan1_min, fan1_max, and pwm1_enable populated. rpmResponder, if
+// non-nil, is invoked whenever fan*_target is written and should compute the
+// fan*_input value the next read will return. This lets tests drive the
+// settle loop: a clean responder echoes target→actual for instant settle; a
+// non-responsive responder holds fan1_input at a fixed value to force
+// "never settled" behaviour.
+func makeFakeRPMTargetHwmon(t *testing.T, initialEnable int, minRPM, maxRPM, initialActual int) (targetPath string, inputPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	targetPath = filepath.Join(dir, "fan1_target")
+	inputPath = filepath.Join(dir, "fan1_input")
+	enablePath := filepath.Join(dir, "pwm1_enable")
+	minPath := filepath.Join(dir, "fan1_min")
+	maxPath := filepath.Join(dir, "fan1_max")
+	mustWrite := func(p string, v int) {
+		if err := os.WriteFile(p, []byte(itoa(v)+"\n"), 0644); err != nil {
+			t.Fatalf("write %s: %v", p, err)
+		}
+	}
+	mustWrite(targetPath, minRPM)
+	mustWrite(inputPath, initialActual)
+	mustWrite(enablePath, initialEnable)
+	mustWrite(minPath, minRPM)
+	mustWrite(maxPath, maxRPM)
+	return targetPath, inputPath
+}
+
+// rpmResponderLoop runs in a goroutine: reads fan1_target periodically and
+// mirrors its value into fan1_input so the calibrate settle loop observes a
+// "clean" fan that instantly matches setpoint. Stops when ctx is done.
+func rpmResponderLoop(ctx context.Context, targetPath, inputPath string) {
+	go func() {
+		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				data, err := os.ReadFile(targetPath)
+				if err != nil {
+					continue
+				}
+				_ = os.WriteFile(inputPath, data, 0644)
+			}
+		}
+	}()
+}
+
+// TestSelectSweepMode — capability-based mode dispatch. ControlKind="rpm_target"
+// maps to the RPM sweep; everything else defaults to PWM.
+func TestSelectSweepMode(t *testing.T) {
+	cases := []struct {
+		name string
+		fan  *config.Fan
+		want string
+	}{
+		{"pwm default", &config.Fan{Type: "hwmon", PWMPath: "/sys/.../pwm1"}, SweepModePWM},
+		{"explicit pwm ControlKind", &config.Fan{Type: "hwmon", ControlKind: "pwm"}, SweepModePWM},
+		{"rpm_target ControlKind", &config.Fan{Type: "hwmon", ControlKind: "rpm_target"}, SweepModeRPM},
+		{"nvidia is pwm", &config.Fan{Type: "nvidia", PWMPath: "0"}, SweepModePWM},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := selectSweepMode(tc.fan); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRPMSweepHappyPath runs the RPM-target calibration against a clean mock
+// fan (fan1_input mirrors fan1_target via responder). All 10 steps should
+// settle, and the final Result should record SweepMode="rpm", a populated
+// RPMCurve, and MinRPM/MaxRPM pulled from the first/last settled samples.
+func TestRPMSweepHappyPath(t *testing.T) {
+	targetPath, inputPath := makeFakeRPMTargetHwmon(t, 2, 500, 2500, 500)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rpmResponderLoop(ctx, targetPath, inputPath)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := New(calPath, logger, nil)
+
+	fan := &config.Fan{
+		Name:        "amd",
+		Type:        "hwmon",
+		ControlKind: "rpm_target",
+		PWMPath:     targetPath,
+	}
+
+	result, err := m.RunSync(ctx, fan)
+	if err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	if result.SweepMode != SweepModeRPM {
+		t.Errorf("expected SweepMode=%q, got %q", SweepModeRPM, result.SweepMode)
+	}
+	if len(result.RPMCurve) != 10 {
+		t.Fatalf("expected 10 rpm samples, got %d", len(result.RPMCurve))
+	}
+	settled := 0
+	for _, p := range result.RPMCurve {
+		if p.Settled {
+			settled++
+		}
+	}
+	if settled != 10 {
+		t.Errorf("expected all 10 samples settled under clean responder, got %d", settled)
+	}
+	if result.MinRPM <= 0 || result.MaxRPM <= 0 || result.MinRPM > result.MaxRPM {
+		t.Errorf("expected sensible MinRPM/MaxRPM, got min=%d max=%d", result.MinRPM, result.MaxRPM)
+	}
+	if result.Partial {
+		t.Errorf("final result should not be Partial")
+	}
+	// pwm1_enable should have been taken to manual control.
+	enableData, _ := os.ReadFile(filepath.Dir(targetPath) + "/pwm1_enable")
+	if strings.TrimSpace(string(enableData)) != "1" {
+		t.Errorf("expected pwm1_enable=1 after calibration (manual control), got %q", enableData)
+	}
+}
+
+// TestRPMSweepAbortPersistsTerminalState — abort mid-RPM-sweep. The on-disk
+// record must carry SweepMode="rpm", Aborted=true, Partial=false so that
+// restart doesn't attempt to resume a user-cancelled sweep.
+func TestRPMSweepAbortPersistsTerminalState(t *testing.T) {
+	// No responder — fan1_input never matches target, so every step spends the
+	// full 5s settle window. Plenty of headroom to abort mid-sweep.
+	targetPath, _ := makeFakeRPMTargetHwmon(t, 2, 500, 2500, 100)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	wd := watchdog.New(logger)
+	wd.Register(targetPath, "hwmon")
+	m := New(calPath, logger, wd)
+
+	fan := &config.Fan{
+		Name:        "amd",
+		Type:        "hwmon",
+		ControlKind: "rpm_target",
+		PWMPath:     targetPath,
+	}
+
+	if err := m.Start(fan); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !waitFor(t, 500*time.Millisecond, func() bool { return m.IsCalibrating(targetPath) }) {
+		t.Fatal("calibration did not start")
+	}
+
+	// Let at least one step complete so there's a sample to inspect.
+	time.Sleep(700 * time.Millisecond)
+	m.Abort(targetPath)
+	if !waitFor(t, 2*time.Second, func() bool { return !m.IsCalibrating(targetPath) }) {
+		t.Fatal("calibration did not terminate within 2s of abort")
+	}
+
+	data, err := os.ReadFile(calPath)
+	if err != nil {
+		t.Fatalf("read calibration.json: %v", err)
+	}
+	var env onDiskEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	r, ok := env.Results[targetPath]
+	if !ok {
+		t.Fatalf("no record for %s on disk", targetPath)
+	}
+	if r.SweepMode != SweepModeRPM {
+		t.Errorf("expected SweepMode=%q on aborted record, got %q", SweepModeRPM, r.SweepMode)
+	}
+	if r.Partial {
+		t.Error("expected Partial=false after abort")
+	}
+	if !r.Aborted {
+		t.Error("expected Aborted=true after abort")
+	}
+	if r.CompletedSteps != 0 {
+		t.Errorf("expected CompletedSteps=0 after abort, got %d", r.CompletedSteps)
+	}
+}
+
+// TestLoadV1EnvelopeUnderV2 — a checkpoint file written by a v1 daemon (no
+// SweepMode field on records) must load cleanly under the v2 loader with
+// SweepMode defaulted to "pwm", and a subsequent resume must treat it as a
+// PWM sweep.
+func TestLoadV1EnvelopeUnderV2(t *testing.T) {
+	pwmPath := makeFakeHwmon(t, 0, 2, 1500)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	// Hand-craft a v1-shaped envelope: schema_version=1 and records lack the
+	// sweep_mode field entirely. Fingerprint matches the live fan so the
+	// resume path is exercised (not discarded as mismatched).
+	fan := &config.Fan{Name: "test", Type: "hwmon", PWMPath: pwmPath, MinPWM: 0, MaxPWM: 255}
+	fp := fanFingerprint(fan)
+	const resumeAt = 15
+	v1 := `{
+  "schema_version": 1,
+  "results": {
+    "` + pwmPath + `": {
+      "pwm_path": "` + pwmPath + `",
+      "start_pwm": 50,
+      "max_rpm": 1500,
+      "min_rpm": 800,
+      "partial": true,
+      "completed_steps": ` + itoa(resumeAt) + `,
+      "fan_fingerprint": "` + fp + `"
+    }
+  }
+}`
+	if err := os.WriteFile(calPath, []byte(v1), 0644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	m := New(calPath, logger, nil)
+
+	loaded, ok := m.results[pwmPath]
+	if !ok {
+		t.Fatal("v1 record did not load")
+	}
+	if loaded.SweepMode != SweepModePWM {
+		t.Errorf("expected SweepMode defaulted to %q on v1 record, got %q",
+			SweepModePWM, loaded.SweepMode)
+	}
+	if !loaded.Partial || loaded.CompletedSteps != resumeAt {
+		t.Errorf("partial/completed_steps not preserved: %+v", loaded)
+	}
+
+	// Resume must use the PWM path, not RPM.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err := m.RunSync(ctx, fan)
+	if err == nil {
+		t.Fatal("expected ctx.Canceled")
+	}
+	if result.SweepMode != SweepModePWM {
+		t.Errorf("resumed result SweepMode=%q, expected pwm", result.SweepMode)
+	}
+	if !strings.Contains(logBuf.String(), "resuming from checkpoint") {
+		t.Errorf("expected resume log; got:\n%s", logBuf.String())
+	}
+}
+
 // waitFor polls cond every 5ms up to timeout. Returns true once cond is true.
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 	t.Helper()

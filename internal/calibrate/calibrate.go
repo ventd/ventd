@@ -23,7 +23,11 @@ import (
 
 // SchemaVersion is the current on-disk format for calibration.json.
 // Bump when the structure of Result or its envelope changes incompatibly.
-const SchemaVersion = 1
+//
+//	v1 — PWM-only sweep. Result has no SweepMode field.
+//	v2 — adds SweepMode + RPMCurve to Result. v1 records load cleanly; loader
+//	     defaults missing SweepMode to "pwm".
+const SchemaVersion = 2
 
 // AutoFixID identifies a remediation the UI can surface for a HardwareDiagnostic.
 // Tier 5 will generalise this enum; the values defined here are scoped to calibrate.
@@ -55,6 +59,23 @@ type PWMRPMPoint struct {
 	RPM int   `json:"rpm"`
 }
 
+// RPMTargetPoint is a single sample from an RPM-target sweep (pre-RDNA AMD).
+// TargetRPM is the value written to fan*_target; ActualRPM is the observed
+// reading after settling. Settled is true if ActualRPM stabilised within ±5%
+// of TargetRPM within the per-step timeout.
+type RPMTargetPoint struct {
+	TargetRPM int  `json:"target_rpm"`
+	ActualRPM int  `json:"actual_rpm"`
+	Settled   bool `json:"settled"`
+}
+
+// SweepModePWM is the default mode: write pwm*, record RPM per step.
+// SweepModeRPM writes fan*_target, polls fan*_input for settle per step.
+const (
+	SweepModePWM = "pwm"
+	SweepModeRPM = "rpm"
+)
+
 // Result holds the outcome of a completed calibration run.
 //
 // The Partial / CompletedSteps / DownRampPWM fields make calibration crash-safe.
@@ -73,6 +94,43 @@ type Result struct {
 	Partial        bool          `json:"partial,omitempty"`         // true while sweep is in progress
 	CompletedSteps int           `json:"completed_steps,omitempty"` // up-ramp steps completed (resume anchor)
 	DownRampPWM    uint8         `json:"down_ramp_pwm,omitempty"`   // last PWM tested in down-ramp; 0 = down-ramp not started
+	// FanFingerprint captures fan identity (type, pwm path, min/max PWM) at
+	// checkpoint time. On resume, a mismatch means the underlying hardware or
+	// config changed and the partial is discarded rather than blindly applied.
+	FanFingerprint string `json:"fan_fingerprint,omitempty"`
+	// Aborted is set on the on-disk record when a sweep terminated because the
+	// user fired Abort. It tells startup to treat the record as final (do not
+	// resume) rather than as an in-flight checkpoint.
+	Aborted bool `json:"aborted,omitempty"`
+	// SweepMode records how this fan was calibrated. "pwm" (default, empty on
+	// v1 records → normalised by load()) or "rpm". Consumers that only care
+	// about Curve can ignore this field; consumers that need to control the
+	// fan must dispatch on it to pick the correct sysfs attribute.
+	SweepMode string `json:"sweep_mode,omitempty"`
+	// RPMCurve holds the per-step samples for an RPM-target sweep. Unused in
+	// PWM mode.
+	RPMCurve []RPMTargetPoint `json:"rpm_curve,omitempty"`
+}
+
+// fanFingerprint produces the identity string compared on resume. Any field
+// that would change the shape of the sweep belongs here. ControlKind is
+// included so a config flip between pwm and rpm_target invalidates old
+// checkpoints — the two modes produce incompatible sweep shapes.
+func fanFingerprint(fan *config.Fan) string {
+	return fmt.Sprintf("%s|%s|%s|%d|%d",
+		fan.Type, fan.ControlKind, fan.PWMPath, fan.MinPWM, fan.MaxPWM)
+}
+
+// selectSweepMode decides which sweep to run for a given fan. Capability-first:
+// a fan configured with ControlKind="rpm_target" (detected at scan time because
+// it exposes fan*_target and fan*_min/fan*_max instead of pwm*) sweeps in RPM
+// mode; everything else uses PWM. The controller uses the same ControlKind to
+// pick its write path at runtime, so calibration and control stay in sync.
+func selectSweepMode(fan *config.Fan) string {
+	if fan.ControlKind == "rpm_target" {
+		return SweepModeRPM
+	}
+	return SweepModePWM
 }
 
 // Status describes the current state of a calibration run.
@@ -265,6 +323,9 @@ func (m *Manager) run(ctx context.Context, fan *config.Fan, rs *runState) {
 		}
 	}()
 	result, _ := m.runSync(ctx, fan, rs)
+	if ctx.Err() != nil {
+		result = markAborted(result)
+	}
 
 	m.mu.Lock()
 	m.results[fan.PWMPath] = result
@@ -303,6 +364,13 @@ func (m *Manager) RunSync(ctx context.Context, fan *config.Fan) (Result, error) 
 
 	result, err := m.runSync(derivedCtx, fan, rs)
 	if err != nil {
+		if derivedCtx.Err() != nil {
+			aborted := markAborted(result)
+			m.mu.Lock()
+			m.results[fan.PWMPath] = aborted
+			m.mu.Unlock()
+			m.save()
+		}
 		return result, err
 	}
 
@@ -315,7 +383,17 @@ func (m *Manager) RunSync(ctx context.Context, fan *config.Fan) (Result, error) 
 
 // runSync is the core calibration implementation shared by run (goroutine) and
 // RunSync (blocking). It sets rs.running, does the ramp, and clears rs.running.
+// Dispatches on sweep mode: RPM-target fans (pre-RDNA AMD) use runSyncRPM; the
+// rest use the default PWM up-ramp / down-ramp path.
 func (m *Manager) runSync(ctx context.Context, fan *config.Fan, rs *runState) (Result, error) {
+	if selectSweepMode(fan) == SweepModeRPM {
+		return m.runSyncRPM(ctx, fan, rs)
+	}
+	return m.runSyncPWM(ctx, fan, rs)
+}
+
+// runSyncPWM is the original PWM-duty-cycle calibration path.
+func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState) (Result, error) {
 	pwmPath := fan.PWMPath
 	minPWM := fan.MinPWM
 	maxPWM := fan.MaxPWM
@@ -394,15 +472,25 @@ func (m *Manager) runSync(ctx context.Context, fan *config.Fan, rs *runState) (R
 	stopPWM := uint8(0)
 	var points []PWMRPMPoint
 
+	fingerprint := fanFingerprint(fan)
+
 	// Resume from last checkpoint, if any. After a daemon crash mid-sweep,
 	// m.results carries Partial=true with up-ramp/down-ramp progress; load()
-	// already rehydrated it from disk.
+	// already rehydrated it from disk. The FanFingerprint guards against
+	// resuming onto hardware or config that no longer matches the checkpoint.
 	resumeStep := 0
 	resumeDownPWM := uint8(0)
 	m.mu.Lock()
 	prev, hasPrev := m.results[pwmPath]
 	m.mu.Unlock()
-	if hasPrev && prev.Partial {
+	switch {
+	case hasPrev && prev.Partial && prev.FanFingerprint != "" && prev.FanFingerprint != fingerprint:
+		m.logger.Warn("calibrate: checkpoint fingerprint mismatch, starting fresh",
+			"pwm_path", pwmPath,
+			"checkpoint_fingerprint", prev.FanFingerprint,
+			"current_fingerprint", fingerprint,
+		)
+	case hasPrev && prev.Partial:
 		resumeStep = prev.CompletedSteps
 		resumeDownPWM = prev.DownRampPWM
 		startPWM = prev.StartPWM
@@ -433,6 +521,8 @@ func (m *Manager) runSync(ctx context.Context, fan *config.Fan, rs *runState) (R
 			Partial:        true,
 			CompletedSteps: completedSteps,
 			DownRampPWM:    downPWM,
+			FanFingerprint: fingerprint,
+			SweepMode:      SweepModePWM,
 		}
 	}
 
@@ -562,14 +652,216 @@ func (m *Manager) runSync(ctx context.Context, fan *config.Fan, rs *runState) (R
 	}
 
 	return Result{
-		PWMPath:  pwmPath,
-		StartPWM: startPWM,
-		StopPWM:  stopPWM,
-		MaxRPM:   maxRPM,
-		MinRPM:   minRPM,
-		Curve:    points,
-		FanType:  fanType,
+		PWMPath:        pwmPath,
+		StartPWM:       startPWM,
+		StopPWM:        stopPWM,
+		MaxRPM:         maxRPM,
+		MinRPM:         minRPM,
+		Curve:          points,
+		FanType:        fanType,
+		FanFingerprint: fingerprint,
+		SweepMode:      SweepModePWM,
 	}, nil
+}
+
+// runSyncRPM calibrates an RPM-target fan (pre-RDNA AMD, fan*_target channel).
+// It reads fan*_min/fan*_max, sweeps fan*_target in ~10 steps across that
+// range, and at each step polls fan*_input up to 5 seconds for the actual RPM
+// to settle within ±5% of the setpoint. Records per-step samples, achievable
+// min/max RPM (first and last settled steps), and emits a diagnostic if the
+// fan never reached any setpoint.
+//
+// Checkpointing, watchdog registration, abort handling, and fingerprint reuse
+// the same machinery as the PWM path — the only divergence is the inner write
+// path (fan*_target instead of pwm*) and the per-step settle loop.
+func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState) (Result, error) {
+	targetPath := fan.PWMPath
+
+	rs.mu.Lock()
+	rs.running = true
+	rs.state = "running"
+	rs.errMsg = ""
+	rs.mu.Unlock()
+
+	if m.wd != nil {
+		m.wd.Register(targetPath, fan.Type)
+		defer m.wd.Deregister(targetPath)
+	}
+
+	// Discover the driver-advertised RPM range. Fall back to a conservative
+	// window if fan*_min is absent (ReadFanMinRPM returns 0) — we don't want
+	// to spin at 0 RPM for more than a moment.
+	minRPMRange := hwmon.ReadFanMinRPM(targetPath)
+	maxRPMRange := hwmon.ReadFanMaxRPM(targetPath)
+	if minRPMRange <= 0 {
+		minRPMRange = maxRPMRange / 4 // safe floor: 25% of max
+	}
+	if maxRPMRange <= minRPMRange {
+		maxRPMRange = minRPMRange + 100 // degenerate; will still emit a diagnostic below
+	}
+
+	enablePath := hwmon.RPMTargetEnablePath(targetPath)
+	defer func() {
+		// On exit, write fan*_min as a safe floor. Watchdog handles the
+		// pwm_enable restore on abnormal termination; this is the normal-exit
+		// path where we just leave the fan at a low but non-zero RPM.
+		_ = hwmon.WriteFanTarget(targetPath, minRPMRange)
+		rs.mu.Lock()
+		rs.running = false
+		switch {
+		case ctx.Err() != nil:
+			rs.state = "aborted"
+		case rs.errMsg != "":
+			rs.state = "error"
+		default:
+			rs.state = "complete"
+		}
+		rs.mu.Unlock()
+	}()
+
+	// Take manual control. Some drivers don't expose pwm_enable for the
+	// companion fan channel — log and continue.
+	if err := hwmon.WritePWMEnablePath(enablePath, 1); err != nil {
+		m.logger.Warn("calibrate: take manual control (rpm_target) failed",
+			"target_path", targetPath, "enable_path", enablePath, "err", err)
+	}
+
+	ctxSleep := func(d time.Duration) bool {
+		select {
+		case <-ctx.Done():
+			return true
+		case <-time.After(d):
+			return false
+		}
+	}
+
+	const steps = 10
+	const settleTimeout = 5 * time.Second
+	const settlePoll = 500 * time.Millisecond
+
+	fingerprint := fanFingerprint(fan)
+	var samples []RPMTargetPoint
+	resumeStep := 0
+
+	m.mu.Lock()
+	prev, hasPrev := m.results[targetPath]
+	m.mu.Unlock()
+	switch {
+	case hasPrev && prev.Partial && prev.FanFingerprint != "" && prev.FanFingerprint != fingerprint:
+		m.logger.Warn("calibrate: rpm checkpoint fingerprint mismatch, starting fresh",
+			"target_path", targetPath,
+			"checkpoint_fingerprint", prev.FanFingerprint,
+			"current_fingerprint", fingerprint,
+		)
+	case hasPrev && prev.Partial && prev.SweepMode == SweepModeRPM:
+		resumeStep = prev.CompletedSteps
+		samples = prev.RPMCurve
+		m.logger.Info("calibrate: resuming rpm sweep from checkpoint",
+			"target_path", targetPath, "completed_steps", resumeStep)
+	}
+
+	snapshot := func(completedSteps int) Result {
+		samplesCopy := make([]RPMTargetPoint, len(samples))
+		copy(samplesCopy, samples)
+		r := Result{
+			PWMPath:        targetPath,
+			RPMCurve:       samplesCopy,
+			Partial:        true,
+			CompletedSteps: completedSteps,
+			FanFingerprint: fingerprint,
+			SweepMode:      SweepModeRPM,
+		}
+		// MinRPM / MaxRPM are the achievable extremes: first and last settled samples.
+		for _, s := range samplesCopy {
+			if s.Settled {
+				if r.MinRPM == 0 || s.ActualRPM < r.MinRPM {
+					r.MinRPM = s.ActualRPM
+				}
+				if s.ActualRPM > r.MaxRPM {
+					r.MaxRPM = s.ActualRPM
+				}
+			}
+		}
+		return r
+	}
+
+	rangeSpan := maxRPMRange - minRPMRange
+	for step := resumeStep; step < steps; step++ {
+		if err := ctx.Err(); err != nil {
+			return snapshot(step), err
+		}
+		frac := float64(step) / float64(steps-1)
+		target := minRPMRange + int(frac*float64(rangeSpan))
+
+		rs.mu.Lock()
+		rs.progress = step * 100 / steps
+		rs.mu.Unlock()
+
+		if err := hwmon.WriteFanTarget(targetPath, target); err != nil {
+			rs.mu.Lock()
+			rs.errMsg = err.Error()
+			rs.mu.Unlock()
+			m.logger.Error("calibrate: write fan_target failed",
+				"target_path", targetPath, "target_rpm", target, "err", err)
+			return snapshot(step), err
+		}
+
+		// Settle loop: poll fan*_input every 500ms up to 5s for ±5% match.
+		deadline := time.Now().Add(settleTimeout)
+		var last int
+		settled := false
+		for time.Now().Before(deadline) {
+			if ctxSleep(settlePoll) {
+				return snapshot(step), ctx.Err()
+			}
+			if fan.RPMPath != "" {
+				last, _ = hwmon.ReadRPMPath(fan.RPMPath)
+			} else {
+				last, _ = hwmon.ReadRPMPath(hwmon.RPMTargetInputPath(targetPath))
+			}
+			delta := last - target
+			if delta < 0 {
+				delta = -delta
+			}
+			// ±5% of target (guard target==0 with a fixed 50 RPM window).
+			tolerance := target / 20
+			if tolerance < 50 {
+				tolerance = 50
+			}
+			if delta <= tolerance {
+				settled = true
+				break
+			}
+		}
+
+		samples = append(samples, RPMTargetPoint{
+			TargetRPM: target,
+			ActualRPM: last,
+			Settled:   settled,
+		})
+		m.logger.Debug("calibrate: rpm step",
+			"target_path", targetPath, "target", target, "actual", last, "settled", settled)
+
+		m.checkpoint(targetPath, snapshot(step+1))
+	}
+
+	final := snapshot(steps)
+	final.Partial = false
+	final.CompletedSteps = 0
+	return final, nil
+}
+
+// markAborted transforms a partial result into a terminal aborted record.
+// Called by run / RunSync after runSync returns with ctx.Err() != nil: the
+// checkpoint that would otherwise be resumed on next startup is flipped to a
+// terminal "aborted" state so the user's cancellation is honoured across
+// daemon restarts.
+func markAborted(r Result) Result {
+	r.Partial = false
+	r.Aborted = true
+	r.CompletedSteps = 0
+	r.DownRampPWM = 0
+	return r
 }
 
 // DetectResult is returned by DetectRPMSensor.
@@ -717,14 +1009,20 @@ func (m *Manager) load() {
 	}
 
 	if _, hasSchema := probe["schema_version"]; !hasSchema {
-		// Legacy bare map → migrate in-memory; next save() rewrites as v1 envelope.
+		// Legacy bare map → migrate in-memory; next save() rewrites as current envelope.
 		var bare map[string]Result
 		if err := json.Unmarshal(data, &bare); err != nil {
 			m.logger.Warn("calibrate: load legacy results failed", "path", m.path, "err", err)
 			return
 		}
+		for k, r := range bare {
+			if r.SweepMode == "" {
+				r.SweepMode = SweepModePWM
+				bare[k] = r
+			}
+		}
 		m.results = bare
-		m.logger.Info("calibrate: migrated legacy bare map to schema v1",
+		m.logger.Info("calibrate: migrated legacy bare map to current schema",
 			"path", m.path, "fans", len(bare))
 		return
 	}
@@ -755,6 +1053,15 @@ func (m *Manager) load() {
 		m.logger.Warn("calibrate: future schema_version, results withheld",
 			"found", env.SchemaVersion, "supported", SchemaVersion)
 		return
+	}
+	// v1 → v2 migration: v1 records have no SweepMode field; treat them as PWM.
+	// JSON unmarshals the missing field to "", so we just fill it in. RPMCurve
+	// is already nil which is the correct v1 shape.
+	for k, r := range env.Results {
+		if r.SweepMode == "" {
+			r.SweepMode = SweepModePWM
+			env.Results[k] = r
+		}
 	}
 	m.results = env.Results
 }

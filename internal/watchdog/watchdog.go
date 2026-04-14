@@ -15,6 +15,12 @@ type entry struct {
 	pwmPath    string
 	fanType    string // "hwmon" or "nvidia"
 	origEnable int    // hwmon only; -1 if unsupported
+	// rpmTarget is true when pwmPath is a fan*_target RPM-setpoint file
+	// (pre-RDNA AMD). Dictates which sysfs attributes Restore reads/writes:
+	// the enable file is pwm*_enable in the same directory, and the failsafe
+	// on enable-missing is WriteFanTarget(fan*_max) rather than WritePWM(255),
+	// since writing "255" to fan*_target would mean 255 RPM, not full speed.
+	rpmTarget bool
 }
 
 type Watchdog struct {
@@ -29,9 +35,22 @@ func New(logger *slog.Logger) *Watchdog {
 
 func (w *Watchdog) Register(pwmPath string, fanType string) {
 	e := entry{pwmPath: pwmPath, fanType: fanType}
-	if fanType == "nvidia" {
+	switch {
+	case fanType == "nvidia":
 		e.origEnable = -1
-	} else {
+	case hwmon.IsRPMTargetPath(pwmPath):
+		e.rpmTarget = true
+		enablePath := hwmon.RPMTargetEnablePath(pwmPath)
+		orig, err := hwmon.ReadPWMEnablePath(enablePath)
+		if err != nil {
+			orig = -1
+			if !errors.Is(err, fs.ErrNotExist) {
+				w.logger.Warn("watchdog: could not read initial pwm_enable for rpm_target fan, will use max-rpm fallback on restore",
+					"target_path", pwmPath, "enable_path", enablePath, "err", err)
+			}
+		}
+		e.origEnable = orig
+	default:
 		orig, err := hwmon.ReadPWMEnable(pwmPath)
 		if err != nil {
 			orig = -1
@@ -77,6 +96,33 @@ func (w *Watchdog) Restore() {
 			} else {
 				w.logger.Info("watchdog: nvidia fan restored to auto",
 					"gpu_index", e.pwmPath)
+			}
+			continue
+		}
+
+		if e.rpmTarget {
+			enablePath := hwmon.RPMTargetEnablePath(e.pwmPath)
+			maxRPM := hwmon.ReadFanMaxRPM(e.pwmPath)
+			if e.origEnable < 0 {
+				if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
+					w.logger.Error("watchdog: pwm_enable unsupported and max-rpm fallback failed",
+						"target_path", e.pwmPath, "err", writeErr)
+				} else {
+					w.logger.Warn("watchdog: pwm_enable unsupported, wrote fan_target=max_rpm as safe fallback",
+						"target_path", e.pwmPath, "rpm", maxRPM)
+				}
+				continue
+			}
+			if err := hwmon.WritePWMEnablePath(enablePath, e.origEnable); err != nil {
+				w.logger.Error("watchdog: failed to restore pwm_enable for rpm_target fan",
+					"enable_path", enablePath, "value", e.origEnable, "err", err)
+				if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
+					w.logger.Error("watchdog: max-rpm fallback also failed",
+						"target_path", e.pwmPath, "err", writeErr)
+				}
+			} else {
+				w.logger.Info("watchdog: restored pwm_enable for rpm_target fan",
+					"enable_path", enablePath, "value", e.origEnable)
 			}
 			continue
 		}
