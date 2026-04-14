@@ -34,9 +34,14 @@ AmbientCapabilities=
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+# systemd creates /run/ventd before ExecStart with the mode below, and
+# removes it on stop. Replaces the manual os.MkdirAll for the setup-token
+# directory and guarantees 0700 perms (the token must not be world-readable).
+RuntimeDirectory=ventd
+RuntimeDirectoryMode=0700
 # Enumerate every path ventd writes to.
 #   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
-#   /run/ventd        — first-boot setup token
+#   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)
 #   /sys/class/hwmon  — pwm<N>, pwm<N>_enable
 # /sys/class/hwmon entries are symlinks into /sys/devices; systemd resolves
 # these when applying ReadWritePaths. If on a given kernel the resolved
@@ -44,8 +49,11 @@ PrivateTmp=yes
 ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon
 
 # --- Sandbox: network -----------------------------------------------------
-# AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener.
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,
+# AF_NETLINK for the hwmon uevent watcher (NETLINK_KOBJECT_UEVENT). Without
+# AF_NETLINK the watcher silently falls back to 5-minute periodic rescans
+# and loses hot-plug detection (fans/sensors added after boot).
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 # --- Sandbox: kernel and syscalls ----------------------------------------
 ProtectKernelTunables=yes
