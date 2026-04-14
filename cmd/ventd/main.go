@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
@@ -233,6 +234,22 @@ func run() error {
 			logger.Error("controller failure, initiating emergency shutdown", "err", ctrlErr)
 			cancel()
 			wg.Wait()
+			// Drain any additional errors that other goroutines sent before
+			// (or during) shutdown — otherwise concurrent failures are silent.
+			// First error still determines the exit status.
+			drainDeadline := time.After(2 * time.Second)
+		drain:
+			for {
+				select {
+				case extra, ok := <-errCh:
+					if !ok {
+						break drain
+					}
+					logger.Error("additional failure during shutdown", "err", fmt.Errorf("additional shutdown error: %w", extra))
+				case <-drainDeadline:
+					break drain
+				}
+			}
 			// wd.Restore() runs via defer.
 			return ctrlErr
 

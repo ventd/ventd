@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -88,6 +89,16 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	return s
 }
 
+// writeJSON sets Content-Type to application/json, encodes v as JSON, and
+// logs any encode failure at warn level with the request path. Callers that
+// need a non-200 status must call w.WriteHeader before invoking writeJSON.
+func (s *Server) writeJSON(r *http.Request, w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		s.logger.Warn("web: encode response failed", "path", r.URL.Path, "err", fmt.Errorf("encode %s: %w", r.URL.Path, err))
+	}
+}
+
 // requireAuth wraps h so that only authenticated requests pass through.
 // Unauthenticated API requests get 401 JSON; unauthenticated page requests
 // redirect to /login.
@@ -100,7 +111,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			s.writeJSON(r, w, map[string]string{"error": "unauthorized"})
 			return
 		}
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -110,8 +121,7 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 // handlePing is an unauthenticated health-check used by the UI to detect when
 // the daemon is back up after a restart.
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
 // handleLogin handles GET (serve login page) and POST (authenticate).
@@ -141,7 +151,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "first boot", "first_boot": true})
+			s.writeJSON(r, w, map[string]interface{}{"error": "first boot", "first_boot": true})
 			return
 		}
 
@@ -151,7 +161,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("web: failed login attempt", "remote", r.RemoteAddr)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "incorrect password"})
+			s.writeJSON(r, w, map[string]string{"error": "incorrect password"})
 			return
 		}
 
@@ -162,8 +172,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		setSessionCookie(w, tok, live.Web.SessionTTL.Duration)
 		s.logger.Info("web: login successful", "remote", r.RemoteAddr)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		s.writeJSON(r, w, map[string]string{"status": "ok"})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -179,13 +188,13 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid setup token"})
+		s.writeJSON(r, w, map[string]string{"error": "invalid setup token"})
 		return
 	}
 	if len(newPassword) < 8 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password must be at least 8 characters"})
+		s.writeJSON(r, w, map[string]string{"error": "password must be at least 8 characters"})
 		return
 	}
 
@@ -223,8 +232,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		return
 	}
 	setSessionCookie(w, tok, live.Web.SessionTTL.Duration)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
 // writePasswordHash writes a minimal config file containing just the password
@@ -358,19 +366,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Fans = append(resp.Fans, fs)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		s.logger.Warn("web: encode response failed", "err", err)
-	}
+	s.writeJSON(r, w, resp)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(s.cfg.Load())
+		s.writeJSON(r, w, s.cfg.Load())
 	case http.MethodPut:
 		s.handleConfigPut(w, r)
 	default:
@@ -394,8 +398,7 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Store(validated)
 	s.logger.Info("config updated via web UI", "controls", len(validated.Controls))
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
 // sensorUnit returns the display unit for a configured sensor.
@@ -428,9 +431,8 @@ func sensorUnit(s config.Sensor) string {
 }
 
 func (s *Server) handleHardware(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(monitor.Scan())
+	s.writeJSON(r, w, monitor.Scan())
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
@@ -466,22 +468,19 @@ func (s *Server) handleCalibrateStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+	s.writeJSON(r, w, map[string]string{"status": "started"})
 }
 
 // handleCalibrateStatus GET /api/calibrate/status
 func (s *Server) handleCalibrateStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(s.cal.AllStatus())
+	s.writeJSON(r, w, s.cal.AllStatus())
 }
 
 // handleCalibrateResults GET /api/calibrate/results
 func (s *Server) handleCalibrateResults(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(s.cal.AllResults())
+	s.writeJSON(r, w, s.cal.AllResults())
 }
 
 // handleCalibrateAbort POST /api/calibrate/abort?fan=<pwmPath>
@@ -516,10 +515,9 @@ func (s *Server) handleSetupCalibrateAbort(w http.ResponseWriter, r *http.Reques
 // handleSetupStatus GET /api/setup/status
 // Returns the current setup wizard progress, or needed=false if setup is done.
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	p := s.setup.ProgressNeeded(s.cfg.Load())
-	_ = json.NewEncoder(w).Encode(p)
+	s.writeJSON(r, w, p)
 }
 
 // handleSetupStart POST /api/setup/start
@@ -533,8 +531,7 @@ func (s *Server) handleSetupStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+	s.writeJSON(r, w, map[string]string{"status": "started"})
 }
 
 // handleSetupApply POST /api/setup/apply
@@ -568,9 +565,8 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("setup: config written via web UI", "path", s.configPath,
 		"fans", len(cfg.Fans), "controls", len(cfg.Controls))
 
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Connection", "close")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 	s.triggerRestart()
 }
 
@@ -587,9 +583,8 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("setup: config removed, restarting for fresh setup", "path", s.configPath)
 
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Connection", "close")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 	s.triggerRestart()
 }
 
@@ -603,8 +598,7 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("web: system reboot requested via setup wizard")
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "rebooting"})
+	s.writeJSON(r, w, map[string]string{"status": "rebooting"})
 	// Flush the response before rebooting so the browser receives it.
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
@@ -658,8 +652,7 @@ func (s *Server) handleDetectRPM(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(result)
+	s.writeJSON(r, w, result)
 }
 
 // handleHwdiag GET /api/hwdiag
@@ -676,9 +669,8 @@ func (s *Server) handleHwdiag(w http.ResponseWriter, r *http.Request) {
 		Component: hwdiag.Component(r.URL.Query().Get("component")),
 		Severity:  hwdiag.Severity(r.URL.Query().Get("severity")),
 	}
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(s.diag.Snapshot(f))
+	s.writeJSON(r, w, s.diag.Snapshot(f))
 }
 
 // installLogResponse is the shape returned by install-kernel-headers and
@@ -711,8 +703,7 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 	} else {
 		s.diag.Remove(clearID)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	s.writeJSON(r, w, resp)
 }
 
 // handleInstallKernelHeaders POST /api/hwdiag/install-kernel-headers
@@ -765,8 +756,7 @@ func (s *Server) handleMOKEnroll(w http.ResponseWriter, r *http.Request) {
 			"boot time — we cannot automate it. After your MOK is enrolled, " +
 			"re-run the driver install from the setup wizard.",
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	s.writeJSON(r, w, resp)
 }
 
 // handleSetPassword POST /api/set-password
@@ -791,13 +781,13 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 	if live.Web.PasswordHash != "" && !checkPassword(live.Web.PasswordHash, req.Current) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "current password is incorrect"})
+		s.writeJSON(r, w, map[string]string{"error": "current password is incorrect"})
 		return
 	}
 	if len(req.New) < 8 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password must be at least 8 characters"})
+		s.writeJSON(r, w, map[string]string{"error": "password must be at least 8 characters"})
 		return
 	}
 
@@ -823,6 +813,5 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("web: password changed", "remote", r.RemoteAddr)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
