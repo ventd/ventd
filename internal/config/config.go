@@ -102,11 +102,18 @@ func (w Web) ListenIsLoopback() bool {
 // plaintext sessions across the network: a non-loopback Listen with no TLS
 // and no trusted proxy fronting it. The error is operator-facing: keep it
 // multi-line and actionable.
+//
+// When TLS is configured, both files must exist and be regular files.
+// Surfacing the misconfiguration here is deliberately louder than letting
+// the HTTPS listener crash at bind time — the operator sees a clear startup
+// error naming the missing path instead of a generic open() failure buried
+// in the journal. No silent fallback to loopback: explicit tls_cert/tls_key
+// = explicit operator responsibility.
 func (w Web) RequireTransportSecurity() error {
-	if w.ListenIsLoopback() {
-		return nil
-	}
 	if w.TLSEnabled() {
+		return w.verifyTLSFiles()
+	}
+	if w.ListenIsLoopback() {
 		return nil
 	}
 	if len(w.TrustProxy) > 0 {
@@ -125,6 +132,40 @@ func (w Web) RequireTransportSecurity() error {
 			"  3. Bind web.listen to 127.0.0.1:9999 for loopback-only access.",
 		w.Listen,
 	)
+}
+
+// verifyTLSFiles checks that both configured TLS paths resolve to readable
+// regular files. It is called from RequireTransportSecurity only when
+// TLSEnabled() — auto-gen at first boot writes real files before the guard
+// runs, so that flow is unaffected.
+func (w Web) verifyTLSFiles() error {
+	for _, f := range []struct{ field, path string }{
+		{"web.tls_cert", w.TLSCert},
+		{"web.tls_key", w.TLSKey},
+	} {
+		fi, err := os.Stat(f.path)
+		if err != nil {
+			return fmt.Errorf( //nolint:staticcheck // ST1005: operator-facing multi-line
+				"web: %s configured at %q but not readable: %w.\n"+
+					"Fix: create the file, or remove %s (and the matching key/cert) from\n"+
+					"config and ventd will auto-generate a self-signed pair on first boot.",
+				f.field, f.path, err, f.field,
+			)
+		}
+		if fi.IsDir() {
+			return fmt.Errorf( //nolint:staticcheck // ST1005: operator-facing multi-line
+				"web: %s at %q is a directory, expected a PEM file",
+				f.field, f.path,
+			)
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf( //nolint:staticcheck // ST1005: operator-facing multi-line
+				"web: %s at %q is not a regular file",
+				f.field, f.path,
+			)
+		}
+	}
+	return nil
 }
 
 type Sensor struct {
