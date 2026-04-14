@@ -346,11 +346,11 @@ func publishSetupToken(tok string, logger *slog.Logger) {
 	// no controlling TTY, which is intentional — the file path below
 	// covers that case.
 	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
-		fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-		fmt.Fprintf(tty, "  Ventd — First Boot\n")
-		fmt.Fprintf(tty, "  Open your browser to %s\n", url)
-		fmt.Fprintf(tty, "  Setup token: %s\n", tok)
-		fmt.Fprintf(tty, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+		_, _ = fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		_, _ = fmt.Fprintf(tty, "  Ventd — First Boot\n")
+		_, _ = fmt.Fprintf(tty, "  Open your browser to %s\n", url)
+		_, _ = fmt.Fprintf(tty, "  Setup token: %s\n", tok)
+		_, _ = fmt.Fprintf(tty, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 		_ = tty.Close()
 	}
 
