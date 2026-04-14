@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -33,6 +34,36 @@ type Web struct {
 	TLSCert      string   `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TLSKey       string   `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
 	SessionTTL   Duration `yaml:"session_ttl,omitempty" json:"session_ttl,omitempty"`
+	// SecureCookies forces the Secure flag on the session cookie. When nil
+	// (default), the flag is set automatically iff TLS is configured
+	// (tls_cert/tls_key present). Set to true explicitly when fronted by a
+	// TLS-terminating reverse proxy; set to false only when testing over
+	// plain HTTP on localhost — leaving session tokens unprotected on LAN.
+	SecureCookies *bool `yaml:"secure_cookies,omitempty" json:"secure_cookies,omitempty"`
+
+	// LoginFailThreshold is the number of consecutive failed logins from
+	// the same peer IP that triggers a cooldown lockout. Zero → default
+	// (see DefaultLoginFailThreshold). Tune up on shared homelabs where a
+	// fat-finger admin shouldn't be locked out after 5 tries.
+	LoginFailThreshold int `yaml:"login_fail_threshold,omitempty" json:"login_fail_threshold,omitempty"`
+	// LoginLockoutCooldown is how long a locked-out peer must wait before
+	// trying again. Zero → default (15m). Short enough to forgive human
+	// error, long enough to make online guessing unproductive.
+	LoginLockoutCooldown Duration `yaml:"login_lockout_cooldown,omitempty" json:"login_lockout_cooldown,omitempty"`
+}
+
+// UseSecureCookies reports whether the session cookie should set Secure.
+// Explicit override wins; otherwise derive from TLS configuration.
+func (w Web) UseSecureCookies() bool {
+	if w.SecureCookies != nil {
+		return *w.SecureCookies
+	}
+	return w.TLSCert != "" && w.TLSKey != ""
+}
+
+// TLSEnabled reports whether TLS serving is configured on this server.
+func (w Web) TLSEnabled() bool {
+	return w.TLSCert != "" && w.TLSKey != ""
 }
 
 type Sensor struct {
@@ -118,6 +149,14 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 // DefaultSessionTTL is the lifetime of an authenticated web session.
 const DefaultSessionTTL = 24 * time.Hour
 
+// Login brute-force guard defaults. Applied in validate() when the
+// operator leaves the fields zero, and exported so the web package can
+// reuse them in tests.
+const (
+	DefaultLoginFailThreshold   = 5
+	DefaultLoginLockoutCooldown = 15 * time.Minute
+)
+
 // Empty returns a minimal valid config with no fans, sensors, or controls.
 // Used when starting the daemon before first-boot setup is complete.
 func Empty() *Config {
@@ -162,7 +201,10 @@ func Save(cfg *Config, path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := writeFileSync(path, data, 0644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, fmt.Errorf("create config dir: %w", err)
+	}
+	if err := writeFileSync(path, data, 0600); err != nil {
 		return nil, err
 	}
 	return validated, nil
@@ -179,10 +221,10 @@ func SavePasswordHash(hash, path string) error {
 	if err != nil {
 		return fmt.Errorf("marshal minimal config: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	return writeFileSync(path, data, 0644)
+	return writeFileSync(path, data, 0600)
 }
 
 // writeFileSync writes data to path atomically (via a .tmp rename) and calls
@@ -210,6 +252,53 @@ func writeFileSync(path string, data []byte, perm os.FileMode) error {
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename config: %w", err)
+	}
+	return nil
+}
+
+// validateHwmonPWMPath restricts hwmon pwm_path values to real sysfs
+// locations so an authenticated user cannot direct calibration writes at
+// an arbitrary file. The path must:
+//   - live under /sys/class/hwmon/ or /sys/devices/
+//   - clean to a location that still has that prefix (blocks .. traversal)
+//   - have a basename starting with "pwm" (optionally with digits)
+//   - if present on disk, be a regular file
+func validateHwmonPWMPath(p string) error {
+	return validateHwmonSysfsPath(p, "pwm", "")
+}
+
+func validateHwmonSysfsPath(p, basePrefix, baseSuffix string) error {
+	const (
+		rootClass  = "/sys/class/hwmon/"
+		rootDevice = "/sys/devices/"
+	)
+	if !strings.HasPrefix(p, rootClass) && !strings.HasPrefix(p, rootDevice) {
+		return fmt.Errorf("pwm_path %q must start with %s or %s", p, rootClass, rootDevice)
+	}
+	cleaned := filepath.Clean(p)
+	if !strings.HasPrefix(cleaned, rootClass) && !strings.HasPrefix(cleaned, rootDevice) {
+		return fmt.Errorf("pwm_path %q escapes sysfs after cleaning (got %q)", p, cleaned)
+	}
+	base := filepath.Base(cleaned)
+	if !strings.HasPrefix(base, basePrefix) {
+		return fmt.Errorf("pwm_path %q basename %q must start with %q", p, base, basePrefix)
+	}
+	if baseSuffix != "" && !strings.HasSuffix(base, baseSuffix) {
+		return fmt.Errorf("pwm_path %q basename %q must end with %q", p, base, baseSuffix)
+	}
+	// Stat is best-effort: if the file exists it must be regular.
+	// Non-existent paths are allowed so configs survive transient hwmon
+	// renumbering and resolveHwmonPaths() runs before controllers start.
+	if fi, err := os.Lstat(cleaned); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			fi, err = os.Stat(cleaned)
+			if err != nil {
+				return fmt.Errorf("stat %q: %w", cleaned, err)
+			}
+		}
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("pwm_path %q is not a regular file", cleaned)
+		}
 	}
 	return nil
 }
@@ -244,6 +333,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Web.Listen == "" {
 		cfg.Web.Listen = "0.0.0.0:9999"
+	}
+	if cfg.Web.LoginFailThreshold <= 0 {
+		cfg.Web.LoginFailThreshold = DefaultLoginFailThreshold
+	}
+	if cfg.Web.LoginLockoutCooldown.Duration <= 0 {
+		cfg.Web.LoginLockoutCooldown.Duration = DefaultLoginLockoutCooldown
 	}
 	if cfg.Web.SessionTTL.Duration <= 0 {
 		cfg.Web.SessionTTL.Duration = DefaultSessionTTL
@@ -292,6 +387,14 @@ func validate(cfg *Config) error {
 		case "hwmon":
 			if f.PWMPath == "" {
 				return fmt.Errorf("config: fan %q: pwm_path is required", f.Name)
+			}
+			if err := validateHwmonPWMPath(f.PWMPath); err != nil {
+				return fmt.Errorf("config: fan %q: %w", f.Name, err)
+			}
+			if f.RPMPath != "" {
+				if err := validateHwmonSysfsPath(f.RPMPath, "fan", "_input"); err != nil {
+					return fmt.Errorf("config: fan %q: rpm_path: %w", f.Name, err)
+				}
 			}
 		case "nvidia":
 			if f.PWMPath == "" {

@@ -122,14 +122,18 @@ func sessionToken(r *http.Request) string {
 	return c.Value
 }
 
-// setSessionCookie writes the session token cookie to w.
-func setSessionCookie(w http.ResponseWriter, token string, ttl time.Duration) {
+// setSessionCookie writes the session token cookie to w. secure controls
+// the Secure flag — callers should pass true whenever TLS is active or a
+// trusted TLS-terminating proxy is in front, so session tokens never
+// travel in plaintext.
+func setSessionCookie(w http.ResponseWriter, token string, ttl time.Duration, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }

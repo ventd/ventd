@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -74,7 +75,11 @@ func run() error {
 	}
 
 	// Generate a one-time setup token if no password is configured yet.
-	// Printed clearly to stdout so the user can find it via journalctl.
+	// The token is a first-boot credential: anyone who can read it can set
+	// the admin password. Never write the plaintext to slog/journald — it
+	// would be retrievable by any journal reader. Instead: print to the
+	// controlling TTY when present (operator running ventd manually), and
+	// always drop a 0600 file under /run/ventd for systemd deployments.
 	var setupToken string
 	if cfg.Web.PasswordHash == "" {
 		tok, tokErr := web.GenerateSetupToken()
@@ -82,11 +87,7 @@ func run() error {
 			return fmt.Errorf("generate setup token: %w", tokErr)
 		}
 		setupToken = tok
-		logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		logger.Info("  Ventd — First Boot")
-		logger.Info("  Open your browser to http://" + localIP() + ":9999")
-		logger.Info("  Setup token: " + setupToken)
-		logger.Info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		publishSetupToken(setupToken, logger)
 	}
 
 	// Probe and load the kernel module that exposes hwmon PWM channels.
@@ -309,6 +310,56 @@ func resolveControl(cfg *config.Config, ctrl config.Control) (config.Fan, error)
 		}
 	}
 	return config.Fan{}, fmt.Errorf("fan %q not found (should have been caught by validation)", ctrl.Fan)
+}
+
+// setupTokenPath is where the first-boot setup token is persisted for
+// operators who can read files owned by the daemon user but cannot watch
+// the TTY (the systemd case). Deleted automatically when the token TTL
+// expires inside the web package, but the file itself lives for the
+// lifetime of the daemon — /run is a tmpfs so the token never reaches
+// persistent storage.
+const setupTokenPath = "/run/ventd/setup-token"
+
+// publishSetupToken makes the first-boot token available to the operator
+// without leaking it into journald. It always logs the retrieval paths;
+// the plaintext goes only to /dev/tty (if one is attached to the daemon)
+// and to setupTokenPath with 0600 perms.
+func publishSetupToken(tok string, logger *slog.Logger) {
+	url := "http://" + localIP() + ":9999"
+	writtenToFile := false
+	if err := os.MkdirAll(filepath.Dir(setupTokenPath), 0700); err != nil {
+		logger.Warn("first-boot: create setup-token dir", "err", fmt.Errorf("mkdir %s: %w", filepath.Dir(setupTokenPath), err))
+	} else {
+		f, err := os.OpenFile(setupTokenPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			logger.Warn("first-boot: write setup token file", "path", setupTokenPath, "err", err)
+		} else {
+			if _, err := f.WriteString(tok + "\n"); err != nil {
+				logger.Warn("first-boot: write setup token", "err", err)
+			}
+			_ = f.Close()
+			writtenToFile = true
+		}
+	}
+
+	// Best-effort TTY print. Fails silently under systemd where there is
+	// no controlling TTY, which is intentional — the file path below
+	// covers that case.
+	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		_, _ = fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		_, _ = fmt.Fprintf(tty, "  Ventd — First Boot\n")
+		_, _ = fmt.Fprintf(tty, "  Open your browser to %s\n", url)
+		_, _ = fmt.Fprintf(tty, "  Setup token: %s\n", tok)
+		_, _ = fmt.Fprintf(tty, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+		_ = tty.Close()
+	}
+
+	logger.Info("first-boot: setup pending", "url", url, "ttl", web.SetupTokenTTL)
+	if writtenToFile {
+		logger.Info("first-boot: setup token written", "path", setupTokenPath, "hint", "sudo cat "+setupTokenPath)
+	} else {
+		logger.Warn("first-boot: setup token only available on the controlling TTY (file write failed)")
+	}
 }
 
 // localIP returns the machine's preferred outbound IP address.
