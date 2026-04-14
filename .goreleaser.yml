@@ -60,9 +60,12 @@ archives:
       - README.md
       - config.example.yaml
       - deploy/ventd.service
+      - deploy/90-ventd-hwmon.rules
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
+      - scripts/postinstall.sh
+      - scripts/_ventd_account.sh
   - id: musl
     ids:
       - ventd-musl
@@ -73,9 +76,12 @@ archives:
       - README.md
       - config.example.yaml
       - deploy/ventd.service
+      - deploy/90-ventd-hwmon.rules
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
+      - scripts/postinstall.sh
+      - scripts/_ventd_account.sh
 
 checksum:
   name_template: "checksums.txt"
@@ -100,6 +106,10 @@ nfpms:
     contents:
       - src: deploy/ventd.service
         dst: /lib/systemd/system/ventd.service
+      - src: deploy/90-ventd-hwmon.rules
+        dst: /lib/udev/rules.d/90-ventd-hwmon.rules
+      - src: scripts/_ventd_account.sh
+        dst: /usr/share/ventd/_ventd_account.sh
       - src: config.example.yaml
         dst: /etc/ventd/config.example.yaml
         type: config
