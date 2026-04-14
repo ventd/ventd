@@ -1,0 +1,53 @@
+# ventd — grant the ventd group write access to hwmon pwm control files.
+#
+# The daemon runs unprivileged (see deploy/ventd.service, User=ventd) and
+# relies on DAC to open pwm<N> / pwm<N>_enable for write. This rule
+# chgrp's those files to the ventd group and sets g+w whenever a hwmon
+# device appears — on boot, hot-plug, or driver rebind.
+#
+# Installed location:
+#   /etc/udev/rules.d/90-ventd-hwmon.rules   (preferred — local override)
+#
+# Reload after editing:
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=hwmon
+#
+# ──────────────────────────────────────────────────────────────────────
+#
+# Keying: match on the chip's NAME attribute (ATTR{name}), not on the
+# hwmonN index. Indices (hwmon0, hwmon6, ...) shift across reboots
+# whenever driver load order changes; the chip name does not.
+#
+# Discover your chip names:
+#   for n in /sys/class/hwmon/hwmon*/name; do echo "$(dirname "$n"): $(cat "$n")"; done
+#
+# Then uncomment the matching line below (or add your own). The commented
+# examples cover the chips ventd most commonly targets. Leave the rest
+# commented; matching extra chips is harmless but widens the surface.
+#
+# Safety:
+#   - Group write only (g+w). Never world-writable, never setuid.
+#   - Keyed on ATTR{name}, not KERNEL=="hwmon*" — must survive a hwmon
+#     index reshuffle. Do not change this.
+
+# --- motherboard super-I/O chips (Nuvoton, ITE) -----------------------
+# All four entries below consistently expose pwm on boards that use
+# them. Uncomment the one that matches your chip name.
+
+#SUBSYSTEM=="hwmon", ATTR{name}=="nct6687", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+#SUBSYSTEM=="hwmon", ATTR{name}=="nct6775", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+#SUBSYSTEM=="hwmon", ATTR{name}=="nct6779", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+#SUBSYSTEM=="hwmon", ATTR{name}=="it87", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+
+# ----------------------------------------------------------------------
+#
+# Footnote — discrete GPUs (amdgpu):
+#   Some discrete Radeon cards expose pwm1 under their hwmon device;
+#   most iGPUs and many dGPUs do not. Only uncomment the amdgpu line
+#   below if `ls /sys/class/hwmon/hwmon*/pwm*` on your system lists a
+#   pwm file owned by the amdgpu device.
+#
+#SUBSYSTEM=="hwmon", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+#
+# Temperature-only chips (k10temp, coretemp, acpitz) have no pwm* files
+# and are intentionally omitted — uncommenting them would match nothing.
