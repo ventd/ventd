@@ -83,6 +83,6 @@ release:
   github:
     owner: ventd
     name: ventd
-  draft: true
+  draft: false
   prerelease: auto
   name_template: "ventd {{.Version}}"
