@@ -129,10 +129,21 @@ if [[ -z "$BINARY" ]]; then
         exit 1
     fi
 
-    # Verify. sha256sum --ignore-missing so other archive lines don't error.
+    # Verify. BusyBox sha256sum (Alpine, embedded) lacks --ignore-missing,
+    # so extract the expected hash for our archive and compare manually.
     echo "Verifying SHA-256..."
-    ( cd "$TMPDIR_CLEANUP" && sha256sum --ignore-missing -c checksums.txt ) \
-        || { echo "error: checksum mismatch for ${ARCHIVE}" >&2; exit 1; }
+    EXPECTED_SHA="$(awk -v a="${ARCHIVE}" '$2 == a || $2 == "*"a {print $1; exit}' "${TMPDIR_CLEANUP}/checksums.txt")"
+    if [[ -z "$EXPECTED_SHA" ]]; then
+        echo "error: ${ARCHIVE} not listed in checksums.txt" >&2
+        exit 1
+    fi
+    ACTUAL_SHA="$(sha256sum "${TMPDIR_CLEANUP}/${ARCHIVE}" | awk '{print $1}')"
+    if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then
+        echo "error: checksum mismatch for ${ARCHIVE}" >&2
+        echo "  expected: ${EXPECTED_SHA}" >&2
+        echo "  actual:   ${ACTUAL_SHA}" >&2
+        exit 1
+    fi
 
     echo "Extracting..."
     tar -xzf "${TMPDIR_CLEANUP}/${ARCHIVE}" -C "$TMPDIR_CLEANUP"
