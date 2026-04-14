@@ -300,7 +300,7 @@ func (w *Watcher) check(now time.Time) bool {
 // diagnostic is a single rolled-up entry (ID is constant) so the UI never
 // accumulates per-device banners — the latest change wins.
 func (w *Watcher) promote(key string, prev DeviceFingerprint, cur *DeviceFingerprint, now time.Time) {
-	action := "changed"
+	var action string
 	switch {
 	case cur == nil:
 		action = "removed"
