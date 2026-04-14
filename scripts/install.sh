@@ -242,6 +242,130 @@ case "$INIT_SYSTEM" in
         ;;
 esac
 
+# ── Conflict preflight ───────────────────────────────────────────────────────
+#
+# Refuse to install if another daemon is already controlling fans or is bound
+# to port 9999. Two daemons writing the same pwm<N> files race, and at least
+# one will lose — leaving fans at whatever PWM the loser last wrote.
+
+# Known fan-control daemons. Names cover systemd unit names and OpenRC
+# service names; some projects ship under multiple names across distros.
+FAN_DAEMON_CANDIDATES=(
+    fancontrol
+    fancontrold
+    thinkfan
+    nbfc
+    nbfc_service
+    nbfc-linux
+    i8kmon
+    dell-bios-fan-control
+    asusd
+    liquidctl
+    coolercontrold
+)
+
+service_is_active() {
+    local name="$1"
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl is-active --quiet "$name" 2>/dev/null
+            ;;
+        openrc)
+            rc-service "$name" status 2>/dev/null | grep -qiE "started|running"
+            ;;
+        runit)
+            [ -d "/var/service/$name" ] && sv status "$name" 2>/dev/null | grep -q "^run:"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+check_conflicting_daemon() {
+    for svc in "${FAN_DAEMON_CANDIDATES[@]}"; do
+        if service_is_active "$svc"; then
+            echo "error: another fan-control daemon is running: $svc" >&2
+            echo "" >&2
+            echo "  Two daemons writing the same pwm files will race and your fans" >&2
+            echo "  will end up at whatever PWM the loser last wrote. Stop and" >&2
+            echo "  disable $svc before installing ventd:" >&2
+            case "$INIT_SYSTEM" in
+                systemd)
+                    echo "    sudo systemctl disable --now $svc" >&2
+                    ;;
+                openrc)
+                    echo "    sudo rc-service $svc stop" >&2
+                    echo "    sudo rc-update del $svc" >&2
+                    ;;
+                runit)
+                    echo "    sudo rm /var/service/$svc" >&2
+                    ;;
+            esac
+            echo "" >&2
+            echo "  Then re-run this installer." >&2
+            exit 1
+        fi
+    done
+}
+
+check_pwm_holders() {
+    # Best-effort: fuser on sysfs is unreliable on some kernels but catches
+    # the common case where a fan daemon not in the list above has a pwm
+    # file open for write.
+    if ! command -v fuser >/dev/null 2>&1; then
+        return 0
+    fi
+    local holders
+    holders="$(fuser /sys/class/hwmon/*/pwm[0-9]* 2>/dev/null || true)"
+    if [[ -n "$holders" ]]; then
+        echo "error: another process is holding /sys/class/hwmon/*/pwm<N> open:" >&2
+        echo "" >&2
+        fuser -v /sys/class/hwmon/*/pwm[0-9]* 2>&1 | grep -vE '^\s*$' >&2 || true
+        echo "" >&2
+        echo "  This is almost always another fan-control daemon. Identify it" >&2
+        echo "  from the PID list above and stop it before installing ventd." >&2
+        exit 1
+    fi
+}
+
+check_port_9999() {
+    # If ventd is being reinstalled over itself, its own listener will be
+    # on 9999 and that's fine — the install step below will restart it.
+    # Skip the check if our own unit is the current owner.
+    if service_is_active "ventd"; then
+        return 0
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        local occupant
+        occupant="$(ss -Hltnp 'sport = :9999' 2>/dev/null || true)"
+        if [[ -n "$occupant" ]]; then
+            echo "error: port 9999 is already bound:" >&2
+            echo "" >&2
+            echo "$occupant" >&2
+            echo "" >&2
+            echo "  ventd's web UI binds 0.0.0.0:9999 by default. Stop the" >&2
+            echo "  process above, or set web.listen to a different port in" >&2
+            echo "  /etc/ventd/config.yaml before re-running this installer." >&2
+            exit 1
+        fi
+    fi
+    # ss-less fallback: best-effort via bash /dev/tcp. A successful connect
+    # means something is listening; we don't know what, but we can refuse.
+    if (exec 3<>/dev/tcp/127.0.0.1/9999) 2>/dev/null; then
+        exec 3<&- 3>&-
+        echo "error: port 9999 is already accepting connections on localhost." >&2
+        echo "  Install ss (iproute2) to see what owns it, or stop the" >&2
+        echo "  conflicting service before re-running this installer." >&2
+        exit 1
+    fi
+}
+
+echo "Checking for conflicting services..."
+check_conflicting_daemon
+check_pwm_holders
+check_port_9999
+
 # ── Install ──────────────────────────────────────────────────────────────────
 
 echo "Installing ventd..."
