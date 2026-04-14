@@ -62,6 +62,22 @@ type DriverNeed struct {
 	// build against. Empty means unbounded. Used by PreflightOOT to surface a
 	// kernel-too-new diagnostic before the build fails.
 	MaxSupportedKernel string `json:"max_supported_kernel,omitempty"`
+	// DMITriggers lets Tier 3 propose this driver when no Primary/OpenLoop
+	// hwmon device was found but the board's DMI identifiers match. Any
+	// trigger matching is sufficient. Never causes auto-modprobe — a diagnostic
+	// is surfaced and the user clicks to try loading.
+	DMITriggers []DMITrigger `json:"-"`
+}
+
+// DMITrigger is a conjunction of substring matches against DMIInfo fields.
+// Empty fields are wildcards (always match). A trigger with every field empty
+// never matches, to avoid accidental blanket proposals. Matching is
+// case-insensitive; needles are lowercased at compare time.
+type DMITrigger struct {
+	BoardVendorContains string
+	BoardNameContains   string
+	ProductContains     string
+	SysVendorContains   string
 }
 
 // knownDriverNeeds maps chip detection keys to their DriverNeed definitions.
@@ -75,6 +91,13 @@ var knownDriverNeeds = map[string]DriverNeed{
 		RepoURL: "https://github.com/frankcrawford/it87",
 		Branch:  "master",
 		Module:  "it87",
+		// Gigabyte AMD boards almost universally route fan headers through an
+		// ITE Super I/O the in-kernel it87 driver does not recognise. Board-vendor
+		// match is the only reliable signal when the chip exposes no hwmon entry
+		// at all (the in-kernel driver simply refuses to bind).
+		DMITriggers: []DMITrigger{
+			{BoardVendorContains: "gigabyte"},
+		},
 	},
 	"it8689e": {
 		Key:      "it8689e",
@@ -95,6 +118,18 @@ var knownDriverNeeds = map[string]DriverNeed{
 		RepoURL: "https://github.com/Fred78290/nct6687d",
 		Branch:  "main",
 		Module:  "nct6687", // module file is nct6687.ko, not nct6687d.ko
+		// NCT6687D is the fan controller on MSI MAG and MPG series boards.
+		// DMI board_vendor reports "Micro-Star International Co., Ltd." on most
+		// MSI systems; MAG/MPG boards set board_name to include the series.
+		// Narrow to MAG/MPG so MSI boards with a classic NCT6775 don't get
+		// misrouted. Two triggers cover both DMI vendor spellings seen in the
+		// wild.
+		DMITriggers: []DMITrigger{
+			{BoardVendorContains: "micro-star", BoardNameContains: "mag"},
+			{BoardVendorContains: "micro-star", BoardNameContains: "mpg"},
+			{BoardVendorContains: "msi", BoardNameContains: "mag"},
+			{BoardVendorContains: "msi", BoardNameContains: "mpg"},
+		},
 	},
 }
 

@@ -57,6 +57,7 @@ const (
 	AutoFixMOKEnroll         AutoFixID = "MOK_ENROLL"
 	AutoFixNvidiaPersistence AutoFixID = "NVIDIA_PERSISTENCE_MODE"
 	AutoFixIPMIFanFull       AutoFixID = "IPMI_FAN_MODE_FULL"
+	AutoFixTryModuleLoad     AutoFixID = "TRY_MODULE_LOAD"
 )
 
 // Remediation describes the structured action attached to a diagnostic. The
@@ -228,4 +229,10 @@ const (
 	IDOOTSecureBoot           = "oot.secureboot_blocks"
 	IDOOTKernelTooNew         = "oot.kernel_too_new"
 	IDOOTBuildFailed          = "oot.build_failed"
+
+	// Tier 3 — DMI-triggered candidate modules. Only emitted when the
+	// capability-first pass found no controllable hwmon device. Per-candidate
+	// IDs are dmi.candidate.<driver-key> so the UI can render one button each.
+	IDDMINoMatch         = "dmi.no_match"
+	IDDMICandidatePrefix = "dmi.candidate." // append DriverNeed.Key
 )

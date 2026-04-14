@@ -362,7 +362,8 @@ func (m *Manager) run(ctx context.Context) {
 	m.setPhase("scanning_fans", "Detecting fan controllers...")
 	var initial []FanState
 
-	for _, ctrl := range discoverHwmonControls() {
+	hwmonCtrls := discoverHwmonControls()
+	for _, ctrl := range hwmonCtrls {
 		initial = append(initial, FanState{
 			Name:        hwmonFanName(ctrl.path),
 			Type:        "hwmon",
@@ -371,6 +372,13 @@ func (m *Manager) run(ctx context.Context) {
 			DetectPhase: "pending",
 			CalPhase:    "pending",
 		})
+	}
+
+	// Tier 3 — DMI-triggered candidate modules. Only fires when the
+	// capability-first pass produced no controllable hwmon fan. Emits
+	// diagnostics only; never auto-modprobes.
+	if len(hwmonCtrls) == 0 {
+		m.emitDMICandidates()
 	}
 
 	if nvmlOK {
@@ -931,52 +939,45 @@ type discoveredControl struct {
 // discoverHwmonControls returns all writable hwmon fan control channels, sorted
 // numerically so hwmon2/pwm1 always comes before hwmon10/pwm2.
 //
+// Discovery is capability-first: hwmonpkg.EnumerateDevices classifies every
+// /sys/class/hwmon/hwmonN entry by what files it exposes, independent of chip
+// name. This pass then promotes every Primary/OpenLoop PWM candidate that
+// survives a writability probe, and every fanN_target channel whose companion
+// pwmN is not already a writable candidate.
+//
 // Two control types are discovered:
 //   - pwm[N]      — standard PWM duty-cycle (0–255), the common case
 //   - fan[N]_target — RPM setpoint (pre-RDNA AMD amdgpu cards); only included
 //     when no writable pwm[N] covers the same channel index
 func discoverHwmonControls() []discoveredControl {
-	entries, err := os.ReadDir("/sys/class/hwmon")
-	if err != nil {
-		return nil
-	}
 	var ctrls []discoveredControl
-	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
-		// Skip NVIDIA GPU hwmon entries — those fans are controlled via NVML,
-		// not via sysfs PWM, to avoid duplicate discovery when NVML is available.
-		if readTrimmed(filepath.Join(dir, "name")) == "nvidia" {
+	for _, dev := range hwmonpkg.EnumerateDevices(hwmonpkg.DefaultHwmonRoot) {
+		// NVIDIA devices are routed through NVML; ClassNoFans has nothing to
+		// contribute. ClassReadOnly is reported to diagnostics elsewhere but
+		// cannot be driven, so skip it for control discovery.
+		switch dev.Class {
+		case hwmonpkg.ClassSkipNVIDIA, hwmonpkg.ClassNoFans, hwmonpkg.ClassReadOnly:
 			continue
 		}
 
-		// Pass 1: standard pwm[N] channels.
-		pwmChannels := make(map[string]bool) // channel numbers with writable pwm
-		matches, _ := filepath.Glob(filepath.Join(dir, "pwm[1-9]*"))
-		for _, p := range matches {
-			suffix := strings.TrimPrefix(filepath.Base(p), "pwm")
-			if _, err := strconv.Atoi(suffix); err != nil {
-				continue // skip pwmN_enable, pwmN_mode, etc.
-			}
-			if _, err := os.Stat(p); err == nil && testPWMWritable(p) {
-				ctrls = append(ctrls, discoveredControl{path: p, kind: "pwm"})
-				pwmChannels[suffix] = true
-			}
-		}
-
-		// Pass 2: fan[N]_target channels for cards that use RPM setpoints.
-		// Only include a fan*_target when no writable pwm* covers the same index.
-		targets, _ := filepath.Glob(filepath.Join(dir, "fan[1-9]*_target"))
-		for _, p := range targets {
-			base := filepath.Base(p)
-			num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
-			if _, notDigit := strconv.Atoi(num); notDigit != nil {
+		writablePWMIdx := make(map[string]bool)
+		for _, ch := range dev.PWM {
+			if ch.EnablePath == "" {
 				continue
 			}
-			if pwmChannels[num] {
-				continue // already covered by a writable pwm channel
+			if !testPWMWritable(ch.Path) {
+				continue
 			}
-			if testFanTargetWritable(p) {
-				ctrls = append(ctrls, discoveredControl{path: p, kind: "rpm_target"})
+			ctrls = append(ctrls, discoveredControl{path: ch.Path, kind: "pwm"})
+			writablePWMIdx[ch.Index] = true
+		}
+
+		for _, t := range dev.RPMTargets {
+			if writablePWMIdx[t.Index] {
+				continue
+			}
+			if testFanTargetWritable(t.Path) {
+				ctrls = append(ctrls, discoveredControl{path: t.Path, kind: "rpm_target"})
 			}
 		}
 	}
@@ -987,7 +988,6 @@ func discoverHwmonControls() []discoveredControl {
 	}
 	sortPathsNumerically(paths)
 
-	// Re-order ctrls to match the sorted path order.
 	sorted := make([]discoveredControl, len(ctrls))
 	idx := make(map[string]discoveredControl, len(ctrls))
 	for _, c := range ctrls {
@@ -1437,6 +1437,74 @@ func (m *Manager) emitPreflightDiag(nd hwmonpkg.DriverNeed, pre hwmonpkg.Preflig
 		return
 	}
 	store.Set(entry)
+}
+
+// emitDMICandidates is the Tier 3 entrypoint. Called only when the
+// capability-first hwmon pass returned zero controllable fans. Consults
+// /sys/class/dmi/id/* and emits one ComponentDMI entry per proposed driver,
+// or a single IDDMINoMatch info entry when DMI doesn't match any seed.
+//
+// Never calls modprobe. The web UI surfaces each candidate as a
+// TRY_MODULE_LOAD button the user explicitly clicks.
+func (m *Manager) emitDMICandidates() {
+	m.emitDMICandidatesFor(hwmonpkg.ReadDMI(""))
+}
+
+// emitDMICandidatesFor is the testable core of emitDMICandidates; the wrapper
+// only handles the DMI read from the live root.
+func (m *Manager) emitDMICandidatesFor(info hwmonpkg.DMIInfo) {
+	m.mu.Lock()
+	store := m.diagStore
+	m.mu.Unlock()
+	if store == nil {
+		return
+	}
+
+	store.ClearComponent(hwdiag.ComponentDMI)
+
+	candidates := hwmonpkg.ProposeModulesByDMI(info)
+	if len(candidates) == 0 {
+		store.Set(hwdiag.Entry{
+			ID:        hwdiag.IDDMINoMatch,
+			Component: hwdiag.ComponentDMI,
+			Severity:  hwdiag.SeverityWarn,
+			Summary:   "No fan controllers found and your board isn't in the known-hardware list",
+			Detail: "Ventd couldn't detect a controllable fan chip and couldn't propose a driver " +
+				"based on your board identifiers. You may need to load a kernel module manually " +
+				"or configure fan control via the BIOS.",
+			Context: map[string]any{
+				"board_vendor": info.BoardVendor,
+				"board_name":   info.BoardName,
+				"product_name": info.ProductName,
+				"sys_vendor":   info.SysVendor,
+			},
+		})
+		return
+	}
+
+	for _, nd := range candidates {
+		store.Set(hwdiag.Entry{
+			ID:        hwdiag.IDDMICandidatePrefix + nd.Key,
+			Component: hwdiag.ComponentDMI,
+			Severity:  hwdiag.SeverityWarn,
+			Summary:   "Try loading the " + nd.ChipName + " driver for your board",
+			Detail:    nd.Explanation,
+			Affected:  []string{nd.Module},
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixTryModuleLoad,
+				Label:     "Try loading " + nd.ChipName,
+				// Endpoint intentionally empty: the UI renders the button with
+				// a TODO tooltip per hwdiag.Remediation. The install-driver
+				// endpoint wiring lands with the Tier 3 UI pass.
+			},
+			Context: map[string]any{
+				"driver_key":   nd.Key,
+				"module":       nd.Module,
+				"board_vendor": info.BoardVendor,
+				"board_name":   info.BoardName,
+			},
+		})
+	}
 }
 
 // emitBuildFailedDiag surfaces a generic OOT build failure after every

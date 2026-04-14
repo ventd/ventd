@@ -1,0 +1,36 @@
+=== hwmon classification ===
+hwmon0	acpitz            	class=nofans	pwm=0  fan_input=0  fan_target=0  temp=1
+hwmon1	nvme              	class=nofans	pwm=0  fan_input=0  fan_target=0  temp=1
+hwmon2	nvme              	class=nofans	pwm=0  fan_input=0  fan_target=0  temp=3
+hwmon3	hidpp_battery_0   	class=nofans	pwm=0  fan_input=0  fan_target=0  temp=0
+hwmon4	coretemp          	class=nofans	pwm=0  fan_input=0  fan_target=0  temp=25
+hwmon5	nct6687           	class=readonly	pwm=8  fan_input=10  fan_target=0  temp=7
+hwmon6	nct6687           	class=primary	pwm=8  fan_input=8  fan_target=0  temp=7
+
+=== pre-Tier-2 tuples (hwmon_dir | control | fan_input) ===
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm1	/sys/class/hwmon/hwmon6/fan1_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm2	/sys/class/hwmon/hwmon6/fan2_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm3	/sys/class/hwmon/hwmon6/fan3_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm4	/sys/class/hwmon/hwmon6/fan4_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm5	/sys/class/hwmon/hwmon6/fan5_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm6	/sys/class/hwmon/hwmon6/fan6_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm7	/sys/class/hwmon/hwmon6/fan7_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm8	/sys/class/hwmon/hwmon6/fan8_input
+
+=== post-Tier-2 tuples (hwmon_dir | control | fan_input) ===
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm1	/sys/class/hwmon/hwmon6/fan1_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm2	/sys/class/hwmon/hwmon6/fan2_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm3	/sys/class/hwmon/hwmon6/fan3_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm4	/sys/class/hwmon/hwmon6/fan4_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm5	/sys/class/hwmon/hwmon6/fan5_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm6	/sys/class/hwmon/hwmon6/fan6_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm7	/sys/class/hwmon/hwmon6/fan7_input
+pwm	/sys/class/hwmon/hwmon6	/sys/class/hwmon/hwmon6/pwm8	/sys/class/hwmon/hwmon6/fan8_input
+
+=== net-new coverage (not a regression) ===
+  (none)
+
+=== regressions (Primary-class devices missing from post-Tier-2) ===
+  (none)
+
+=== PASS ===
