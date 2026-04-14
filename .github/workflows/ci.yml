@@ -50,10 +50,10 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.64.8
-          args: --timeout=5m
+      - name: Install golangci-lint from source (Go 1.25 compatible)
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+      - name: Run golangci-lint
+        run: golangci-lint run --timeout=5m
 
   cross-compile:
     name: cross-compile-matrix

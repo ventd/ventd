@@ -49,7 +49,7 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	repoDir := filepath.Join(tmpDir, "driver")
 	if err := os.MkdirAll(repoDir, 0755); err != nil {
@@ -102,7 +102,7 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 			// ACPI has claimed the fan controller's I/O ports.
 			// Auto-apply the standard fix and ask the user to reboot.
 			log("ACPI resource conflict detected — updating boot configuration...")
-			bootErr, manualInstr := addKernelParam("acpi_enforce_resources=lax", log)
+			manualInstr, bootErr := addKernelParam("acpi_enforce_resources=lax", log)
 			if bootErr != nil {
 				logger.Warn("could not auto-patch bootloader", "err", bootErr)
 				return &ErrRebootRequired{
@@ -377,7 +377,7 @@ func downloadFile(url, destPath string, logFn func(string)) error {
 // system uses. It tries GRUB first, then systemd-boot, and returns both an
 // error (nil on success) and a manual-instruction string (used in the error
 // message when auto-patching fails so the user knows exactly what to do).
-func addKernelParam(param string, log func(string)) (err error, manualInstr string) {
+func addKernelParam(param string, log func(string)) (manualInstr string, err error) {
 	// Detect bootloader by examining known config paths.
 	_, grubFileErr := os.Stat("/etc/default/grub")
 	_, sdbootErr := os.Stat("/boot/loader/loader.conf")
@@ -388,17 +388,17 @@ func addKernelParam(param string, log func(string)) (err error, manualInstr stri
 
 	switch {
 	case grubFileErr == nil:
-		return addGRUBParam(param, log),
-			"Add " + param + " to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub and run update-grub."
+		return "Add " + param + " to GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub and run update-grub.",
+			addGRUBParam(param, log)
 
 	case sdbootErr == nil:
-		return addSystemdBootParam(param, log),
-			"Add " + param + " to the options line of your active entry in /boot/loader/entries/ and run bootctl update."
+		return "Add " + param + " to the options line of your active entry in /boot/loader/entries/ and run bootctl update.",
+			addSystemdBootParam(param, log)
 
 	default:
 		// Unknown bootloader — provide generic instructions.
-		return fmt.Errorf("no supported bootloader config found (/etc/default/grub and /boot/loader/loader.conf both absent)"),
-			"Add the kernel parameter " + param + " to your bootloader's kernel command line."
+		return "Add the kernel parameter " + param + " to your bootloader's kernel command line.",
+			fmt.Errorf("no supported bootloader config found (/etc/default/grub and /boot/loader/loader.conf both absent)")
 	}
 }
 
