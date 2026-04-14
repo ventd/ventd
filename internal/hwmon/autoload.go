@@ -58,6 +58,10 @@ type DriverNeed struct {
 	Branch string `json:"branch"`
 	// Module is the module name to load after installation.
 	Module string `json:"module"`
+	// MaxSupportedKernel is the last kernel release this driver is known to
+	// build against. Empty means unbounded. Used by PreflightOOT to surface a
+	// kernel-too-new diagnostic before the build fails.
+	MaxSupportedKernel string `json:"max_supported_kernel,omitempty"`
 }
 
 // knownDriverNeeds maps chip detection keys to their DriverNeed definitions.

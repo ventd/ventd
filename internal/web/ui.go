@@ -167,6 +167,21 @@ h2 {
   letter-spacing: 0.1em;
 }
 .section { margin-bottom: 2.5rem; }
+.hidden { display: none !important; }
+.hwdiag-group { margin-bottom: 1rem; }
+.hwdiag-group-hdr { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 0.4rem; }
+.hwdiag-item { border-left: 3px solid var(--border); background: var(--bg2); padding: 0.6rem 0.8rem; margin-bottom: 0.4rem; border-radius: 4px; }
+.hwdiag-item.hwdiag-info  { border-left-color: var(--blue); }
+.hwdiag-item.hwdiag-warn  { border-left-color: var(--amber); background: var(--amber-bg); }
+.hwdiag-item.hwdiag-error { border-left-color: var(--red); background: var(--red-bg); }
+.hwdiag-row { display: flex; align-items: center; gap: 0.6rem; }
+.hwdiag-sev { font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 3px; background: var(--bg3); color: var(--fg2); }
+.hwdiag-item.hwdiag-warn  .hwdiag-sev { color: var(--amber); }
+.hwdiag-item.hwdiag-error .hwdiag-sev { color: var(--red); }
+.hwdiag-summary { flex: 1; color: var(--fg1); }
+.hwdiag-fix { margin-left: auto; }
+.hwdiag-detail { margin-top: 0.4rem; color: var(--fg2); font-size: 0.9rem; white-space: pre-wrap; }
+.hwdiag-affected { margin-top: 0.3rem; color: var(--fg3); font-size: 0.8rem; font-family: monospace; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .badge {
   background: var(--amber); color: #111;
@@ -486,6 +501,10 @@ button.danger:hover { background: var(--red); color: #fff; }
     <div id="hw-devices" style="color:var(--fg3);font-size:0.75rem;padding:8px 12px">Loading...</div>
   </div>
   <main>
+    <div class="section hwdiag-section hidden" id="hwdiag-section">
+      <div class="section-hdr"><h2>Diagnostics</h2></div>
+      <div id="hwdiag-panel"></div>
+    </div>
     <div class="section">
       <div class="section-hdr"><h2>Sensors</h2></div>
       <div class="card-grid" id="sensor-cards"></div>
@@ -1625,16 +1644,92 @@ async function setupApply(){
   }, 800);
 }
 
+// ── Hardware diagnostics (hwdiag) ──
+// Polls /api/hwdiag every 10s; revision counter lets us skip rerender when
+// nothing changed. Entries group by component, colour by severity, and
+// remediation renders as a button posting to entry.remediation.endpoint.
+const COMPONENT_LABELS = {
+  calibration: 'Calibration', hwmon: 'Sensors', oot: 'Kernel modules',
+  dmi: 'Motherboard', gpu: 'GPU', boot: 'Bootloader', secureboot: 'Secure Boot',
+  nixos: 'NixOS', arm: 'ARM board', ipmi: 'BMC / IPMI', bios: 'BIOS',
+  nvidia: 'NVIDIA', hardware: 'Hardware'
+};
+let hwdiagRevision = -1;
+async function loadHwdiag(){
+  try {
+    const r = await fetch('/api/hwdiag');
+    if(!r.ok) return;
+    const snap = await r.json();
+    if(snap.revision === hwdiagRevision) return;
+    hwdiagRevision = snap.revision;
+    renderHwdiag(snap.entries || []);
+  } catch(_){ /* silent; diagnostics are non-critical */ }
+}
+function renderHwdiag(entries){
+  const section = document.getElementById('hwdiag-section');
+  const panel = document.getElementById('hwdiag-panel');
+  if(!section || !panel) return;
+  if(!entries.length){
+    section.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  section.classList.remove('hidden');
+  // Group by component.
+  const groups = {};
+  entries.forEach(e => { (groups[e.component] = groups[e.component] || []).push(e); });
+  const compOrder = Object.keys(groups).sort();
+  panel.innerHTML = compOrder.map(c => {
+    const label = COMPONENT_LABELS[c] || c;
+    const items = groups[c].map(hwdiagItemHTML).join('');
+    return '<div class="hwdiag-group"><div class="hwdiag-group-hdr">'+esc(label)+'</div>'+items+'</div>';
+  }).join('');
+  panel.querySelectorAll('[data-hwdiag-fix]').forEach(btn => {
+    btn.addEventListener('click', () => hwdiagRunRemediation(btn.dataset.hwdiagEndpoint, btn.dataset.hwdiagFix, btn));
+  });
+}
+function hwdiagItemHTML(e){
+  const sev = e.severity || 'info';
+  const rem = e.remediation;
+  let btn = '';
+  if(rem && rem.label){
+    const disabled = rem.endpoint ? '' : ' disabled title="Remediation endpoint not wired yet (TODO)"';
+    btn = '<button class="hwdiag-fix" data-hwdiag-fix="'+esc(rem.auto_fix_id||'')+'" data-hwdiag-endpoint="'+esc(rem.endpoint||'')+'"'+disabled+'>'+esc(rem.label)+'</button>';
+  }
+  const detail = e.detail ? '<div class="hwdiag-detail">'+esc(e.detail)+'</div>' : '';
+  const affected = (e.affected && e.affected.length)
+    ? '<div class="hwdiag-affected">'+e.affected.map(esc).join(', ')+'</div>' : '';
+  return '<div class="hwdiag-item hwdiag-'+esc(sev)+'">'
+       +   '<div class="hwdiag-row">'
+       +     '<span class="hwdiag-sev">'+esc(sev.toUpperCase())+'</span>'
+       +     '<span class="hwdiag-summary">'+esc(e.summary||e.id)+'</span>'
+       +     btn
+       +   '</div>'
+       +   detail + affected
+       + '</div>';
+}
+async function hwdiagRunRemediation(endpoint, fix, btn){
+  if(!endpoint) return;
+  btn.disabled = true;
+  try {
+    const r = await fetch(endpoint, {method:'POST'});
+    if(r.ok){ notify('Remediation started: '+fix, 'ok'); }
+    else { notify('Remediation failed ('+r.status+')', 'error'); }
+  } catch(e){ notify('Remediation failed: '+e.message, 'error'); }
+  finally { btn.disabled = false; loadHwdiag(); }
+}
+
 // ── Init ──
 document.getElementById('btn-apply').addEventListener('click',applyConfig);
 checkSetup().then(()=>{
   const overlay = document.getElementById('setup-overlay');
   if(overlay.classList.contains('hidden')){
     // Normal mode: load dashboard immediately.
-    loadConfig(); loadStatus(); loadHardware(); loadCalibration();
+    loadConfig(); loadStatus(); loadHardware(); loadCalibration(); loadHwdiag();
     setInterval(loadStatus,2000);
     setInterval(loadHardware,3000);
     setInterval(loadCalibration,5000);
+    setInterval(loadHwdiag,10000);
   }
 });
 

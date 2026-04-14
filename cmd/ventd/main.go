@@ -16,6 +16,7 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
 	setupmgr "github.com/ventd/ventd/internal/setup"
@@ -120,12 +121,20 @@ func run() error {
 	// still restores PWM via the daemon-exit Restore.
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
 
+	// Process-wide hardware-diagnostics store. Tier 5: every subsystem that
+	// detects a non-fatal condition (future calibration schema, missing
+	// modules, Secure Boot, etc.) emits into this store and the web UI
+	// surfaces it via /api/hwdiag.
+	diagStore := hwdiag.NewStore()
+	cal.SetDiagnosticStore(diagStore)
+
 	// Resolve hwmon sysfs paths in case hwmonX indices changed since last boot.
 	// Done after cal is created so stale keys in calibration.json can be remapped.
 	resolveHwmonPaths(cfg, cal, logger)
 
 	// Setup wizard manager: handles first-boot fan discovery and calibration via web UI.
 	setupMgr := setupmgr.New(cal, logger)
+	setupMgr.SetDiagnosticStore(diagStore)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,7 +148,7 @@ func run() error {
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
-	webSrv := web.New(&liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken)
+	webSrv := web.New(&liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
 	go func() {
 		if err := webSrv.ListenAndServe(cfg.Web.Listen, cfg.Web.TLSCert, cfg.Web.TLSKey); err != nil {
 			errCh <- fmt.Errorf("web server: %w", err)

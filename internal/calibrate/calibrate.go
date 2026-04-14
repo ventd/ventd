@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/watchdog"
@@ -29,22 +30,10 @@ import (
 //	     defaults missing SweepMode to "pwm".
 const SchemaVersion = 2
 
-// AutoFixID identifies a remediation the UI can surface for a HardwareDiagnostic.
-// Tier 5 will generalise this enum; the values defined here are scoped to calibrate.
-type AutoFixID string
-
-const (
-	AutoFixRecalibrate AutoFixID = "RECALIBRATE_REQUIRED"
-)
-
-// HardwareDiagnostic surfaces a non-fatal condition the UI should expose to
-// the user. Tier 5 will generalise this type; for now it is scoped to calibrate.
-type HardwareDiagnostic struct {
-	Severity  string    `json:"severity"`           // "warn" | "error"
-	Message   string    `json:"message"`            // human-readable
-	AutoFixID AutoFixID `json:"auto_fix_id"`        // remedy id
-	Affected  []string  `json:"affected,omitempty"` // pwm paths the diagnostic applies to
-}
+// AutoFixRecalibrate is re-exported so existing callers / tests need not
+// import hwdiag directly. Tier 5 moved the canonical definition into hwdiag;
+// new code should reference hwdiag.AutoFixRecalibrate.
+const AutoFixRecalibrate = hwdiag.AutoFixRecalibrate
 
 // onDiskEnvelope wraps the results map with a schema_version. v1 is the
 // current format; v0 is the legacy bare map and is migrated transparently.
@@ -165,8 +154,26 @@ type Manager struct {
 	runs        map[string]*runState
 	path        string // persist file
 	logger      *slog.Logger
-	wd          *watchdog.Watchdog   // optional; when non-nil each sweep registers/deregisters its fan
-	diagnostics []HardwareDiagnostic // populated by load() when on-disk schema is unsupported
+	wd          *watchdog.Watchdog // optional; when non-nil each sweep registers/deregisters its fan
+	diagnostics []hwdiag.Entry     // populated by load() when on-disk schema is unsupported
+	store       *hwdiag.Store      // optional; when non-nil emitters also push into the shared store
+}
+
+// SetDiagnosticStore attaches the process-wide hwdiag store. Diagnostics
+// already captured during load() are backfilled on attach so callers can wire
+// the store up at any point after New().
+func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
+	m.mu.Lock()
+	m.store = s
+	pending := make([]hwdiag.Entry, len(m.diagnostics))
+	copy(pending, m.diagnostics)
+	m.mu.Unlock()
+	if s == nil {
+		return
+	}
+	for _, e := range pending {
+		s.Set(e)
+	}
 }
 
 // New creates a Manager and loads persisted results from path (if it exists).
@@ -284,7 +291,7 @@ func (m *Manager) AllResults() map[string]Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, d := range m.diagnostics {
-		if d.AutoFixID == AutoFixRecalibrate {
+		if d.Remediation != nil && d.Remediation.AutoFixID == AutoFixRecalibrate {
 			return map[string]Result{}
 		}
 	}
@@ -302,10 +309,10 @@ func (m *Manager) AllResults() map[string]Result {
 
 // Diagnostics returns a snapshot of any hardware-level diagnostics the
 // calibration manager has recorded (e.g. unsupported on-disk schema).
-func (m *Manager) Diagnostics() []HardwareDiagnostic {
+func (m *Manager) Diagnostics() []hwdiag.Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]HardwareDiagnostic, len(m.diagnostics))
+	out := make([]hwdiag.Entry, len(m.diagnostics))
 	copy(out, m.diagnostics)
 	return out
 }
@@ -1042,14 +1049,25 @@ func (m *Manager) load() {
 			affected = append(affected, k)
 		}
 		sort.Strings(affected)
-		m.diagnostics = append(m.diagnostics, HardwareDiagnostic{
-			Severity: "warn",
-			Message: fmt.Sprintf(
+		entry := hwdiag.Entry{
+			ID:        hwdiag.IDCalibrationFutureSchema,
+			Component: hwdiag.ComponentCalibration,
+			Severity:  hwdiag.SeverityWarn,
+			Summary:   "Calibration data is from a newer version — recalibrate to apply",
+			Detail: fmt.Sprintf(
 				"calibration.json was written by a newer daemon (schema_version=%d, this build supports %d). Existing calibration is ignored; recalibrate to apply current data.",
 				env.SchemaVersion, SchemaVersion),
-			AutoFixID: AutoFixRecalibrate,
-			Affected:  affected,
-		})
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixRecalibrate,
+				Label:     "Recalibrate",
+				Endpoint:  "/api/setup/start",
+			},
+			Affected: affected,
+		}
+		m.diagnostics = append(m.diagnostics, entry)
+		if m.store != nil {
+			m.store.Set(entry)
+		}
 		m.logger.Warn("calibrate: future schema_version, results withheld",
 			"found", env.SchemaVersion, "supported", SchemaVersion)
 		return

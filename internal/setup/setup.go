@@ -20,6 +20,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdiag"
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
 )
@@ -98,9 +99,19 @@ type Manager struct {
 	installLog     []string
 	result         *config.Config
 	profile *HWProfile
-	cal     *calibrate.Manager
-	logger  *slog.Logger
-	cancel  context.CancelFunc // fired by Abort; nil until Start wires it
+	cal       *calibrate.Manager
+	logger    *slog.Logger
+	cancel    context.CancelFunc // fired by Abort; nil until Start wires it
+	diagStore *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
+}
+
+// SetDiagnosticStore attaches the process-wide hwdiag store. When set, the
+// setup manager emits OOT-preflight blockers (Secure Boot, kernel headers,
+// DKMS, kernel-too-new) into the store before attempting driver install.
+func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
+	m.mu.Lock()
+	m.diagStore = s
+	m.mu.Unlock()
 }
 
 // New creates a Manager. NVML lifecycle is managed via the refcount-safe
@@ -308,6 +319,17 @@ func (m *Manager) run(ctx context.Context) {
 		m.setPhase("installing_driver",
 			"Installing "+nd.ChipName+" fan controller driver — this may take a minute...")
 
+		// Preflight the OOT fallback chain. Each blocker produces a distinct
+		// hwdiag entry with a one-click remediation, and aborts install so
+		// we don't waste time on a build we know will fail.
+		if pre := hwmonpkg.PreflightOOT(nd, hwmonpkg.DefaultProbes()); pre.Reason != hwmonpkg.ReasonOK {
+			m.emitPreflightDiag(nd, pre)
+			m.mu.Lock()
+			m.errMsg = pre.Detail
+			m.mu.Unlock()
+			return
+		}
+
 		err := hwmonpkg.InstallDriver(nd.Key, m.appendInstallLog, m.logger)
 		if err != nil {
 			m.mu.Lock()
@@ -317,6 +339,9 @@ func (m *Manager) run(ctx context.Context) {
 				m.rebootMessage = rebootErr.Message
 			} else {
 				m.errMsg = "Could not install the fan controller driver: " + err.Error()
+				m.mu.Unlock()
+				m.emitBuildFailedDiag(nd, err)
+				m.mu.Lock()
 			}
 			m.mu.Unlock()
 			return
@@ -1342,4 +1367,94 @@ func readTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// emitPreflightDiag pushes a hwdiag entry for a preflight blocker. Called
+// before any attempt to build the driver so the user sees a one-click fix
+// instead of a build failure.
+func (m *Manager) emitPreflightDiag(nd hwmonpkg.DriverNeed, pre hwmonpkg.PreflightResult) {
+	m.mu.Lock()
+	store := m.diagStore
+	m.mu.Unlock()
+	if store == nil {
+		return
+	}
+
+	var entry hwdiag.Entry
+	switch pre.Reason {
+	case hwmonpkg.ReasonKernelHeadersMissing:
+		entry = hwdiag.Entry{
+			ID:        hwdiag.IDOOTKernelHeadersMissing,
+			Component: hwdiag.ComponentOOT,
+			Severity:  hwdiag.SeverityError,
+			Summary:   "Kernel headers are required to install the " + nd.ChipName + " driver",
+			Detail:    pre.Detail,
+			Affected:  []string{nd.Module},
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixInstallKernelHdrs,
+				Label:     "Install kernel headers",
+				Endpoint:  "/api/hwdiag/install-kernel-headers",
+			},
+		}
+	case hwmonpkg.ReasonDKMSMissing:
+		entry = hwdiag.Entry{
+			ID:        hwdiag.IDOOTDKMSMissing,
+			Component: hwdiag.ComponentOOT,
+			Severity:  hwdiag.SeverityWarn,
+			Summary:   "Install DKMS so the " + nd.ChipName + " driver survives kernel upgrades",
+			Detail:    pre.Detail,
+			Affected:  []string{nd.Module},
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixInstallDKMS,
+				Label:     "Install DKMS",
+				Endpoint:  "/api/hwdiag/install-dkms",
+			},
+		}
+	case hwmonpkg.ReasonSecureBootBlocks:
+		entry = hwdiag.Entry{
+			ID:        hwdiag.IDOOTSecureBoot,
+			Component: hwdiag.ComponentSecureBoot,
+			Severity:  hwdiag.SeverityError,
+			Summary:   "Secure Boot blocks the unsigned " + nd.ChipName + " driver",
+			Detail:    pre.Detail,
+			Affected:  []string{nd.Module},
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixMOKEnroll,
+				Label:     "Show MOK enrollment steps",
+				Endpoint:  "/api/hwdiag/mok-enroll",
+			},
+		}
+	case hwmonpkg.ReasonKernelTooNew:
+		entry = hwdiag.Entry{
+			ID:        hwdiag.IDOOTKernelTooNew,
+			Component: hwdiag.ComponentOOT,
+			Severity:  hwdiag.SeverityError,
+			Summary:   "Kernel is newer than the " + nd.ChipName + " driver supports",
+			Detail:    pre.Detail,
+			Affected:  []string{nd.Module},
+		}
+	default:
+		return
+	}
+	store.Set(entry)
+}
+
+// emitBuildFailedDiag surfaces a generic OOT build failure after every
+// preflight check passed — the build still broke for a reason we didn't
+// anticipate (e.g. compiler version mismatch, upstream regression).
+func (m *Manager) emitBuildFailedDiag(nd hwmonpkg.DriverNeed, err error) {
+	m.mu.Lock()
+	store := m.diagStore
+	m.mu.Unlock()
+	if store == nil {
+		return
+	}
+	store.Set(hwdiag.Entry{
+		ID:        hwdiag.IDOOTBuildFailed,
+		Component: hwdiag.ComponentOOT,
+		Severity:  hwdiag.SeverityError,
+		Summary:   "Could not build the " + nd.ChipName + " driver",
+		Detail:    err.Error(),
+		Affected:  []string{nd.Module},
+	})
 }

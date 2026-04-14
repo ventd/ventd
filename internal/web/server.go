@@ -15,6 +15,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -32,12 +33,16 @@ type Server struct {
 	restartCh  chan<- struct{}
 	sessions   *sessionStore
 	setupToken string // one-time first-boot token; empty once password is set
+	diag       *hwdiag.Store
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
 // printed to the terminal; pass "" if a password is already configured.
-func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string) *Server {
+func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
 	live := cfg.Load()
+	if diag == nil {
+		diag = hwdiag.NewStore()
+	}
 	s := &Server{
 		cfg:        cfg,
 		configPath: configPath,
@@ -48,6 +53,7 @@ func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Log
 		restartCh:  restartCh,
 		sessions:   newSessionStore(live.Web.SessionTTL.Duration),
 		setupToken: setupToken,
+		diag:       diag,
 	}
 
 	// Unauthenticated endpoints.
@@ -72,6 +78,10 @@ func New(cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Log
 	s.mux.HandleFunc("/api/setup/calibrate/abort", auth(s.handleSetupCalibrateAbort))
 	s.mux.HandleFunc("/api/system/reboot", auth(s.handleSystemReboot))
 	s.mux.HandleFunc("/api/set-password", auth(s.handleSetPassword))
+	s.mux.HandleFunc("/api/hwdiag", auth(s.handleHwdiag))
+	s.mux.HandleFunc("/api/hwdiag/install-kernel-headers", auth(s.handleInstallKernelHeaders))
+	s.mux.HandleFunc("/api/hwdiag/install-dkms", auth(s.handleInstallDKMS))
+	s.mux.HandleFunc("/api/hwdiag/mok-enroll", auth(s.handleMOKEnroll))
 	s.mux.HandleFunc("/", auth(s.handleUI))
 	return s
 }
@@ -643,6 +653,113 @@ func (s *Server) handleDetectRPM(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(result)
+}
+
+// handleHwdiag GET /api/hwdiag
+// Returns the current hardware-diagnostic set as {generated_at, revision,
+// entries: [...]}. Optional query params ?component=<name>&severity=<level>
+// filter the entries. The revision is a monotonic counter the UI can poll
+// cheaply to decide whether to re-render.
+func (s *Server) handleHwdiag(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	f := hwdiag.Filter{
+		Component: hwdiag.Component(r.URL.Query().Get("component")),
+		Severity:  hwdiag.Severity(r.URL.Query().Get("severity")),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(s.diag.Snapshot(f))
+}
+
+// installLogResponse is the shape returned by install-kernel-headers and
+// install-dkms. Kind discriminates it from instructionsResponse so the UI
+// can switch rendering without inspecting other fields.
+type installLogResponse struct {
+	Kind          string   `json:"kind"` // always "install_log"
+	Success       bool     `json:"success"`
+	Log           []string `json:"log"`
+	Error         string   `json:"error,omitempty"`
+	RebootNeeded  bool     `json:"reboot_needed,omitempty"`
+	RebootMessage string   `json:"reboot_message,omitempty"`
+}
+
+// runInstallHandler is the common body for server-side package installs.
+// It invokes fn with a logFn that appends to the returned log, formats the
+// response consistently, and clears the corresponding hwdiag entry on success.
+func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clearID string, fn func(log func(string)) error) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var log []string
+	logFn := func(line string) { log = append(log, line) }
+	err := fn(logFn)
+
+	resp := installLogResponse{Kind: "install_log", Log: log, Success: err == nil}
+	if err != nil {
+		resp.Error = err.Error()
+	} else {
+		s.diag.Remove(clearID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleInstallKernelHeaders POST /api/hwdiag/install-kernel-headers
+// Installs the distro's kernel-headers package for the running kernel.
+func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
+	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
+}
+
+// handleInstallDKMS POST /api/hwdiag/install-dkms
+// Installs the distro's dkms package so OOT modules survive kernel upgrades.
+func (s *Server) handleInstallDKMS(w http.ResponseWriter, r *http.Request) {
+	s.runInstallHandler(w, r, hwdiag.IDOOTDKMSMissing, hwmon.EnsureDKMS)
+}
+
+// mokInstructionsResponse is the shape returned by mok-enroll — the user must
+// run these commands themselves because MOK enrollment requires a reboot
+// followed by interactive acknowledgement in the UEFI firmware.
+type mokInstructionsResponse struct {
+	Kind     string   `json:"kind"` // always "instructions"
+	Commands []string `json:"commands"`
+	Detail   string   `json:"detail"`
+}
+
+// handleMOKEnroll POST /api/hwdiag/mok-enroll
+// Returns distro-specific commands plus a human-readable explanation. Does
+// NOT execute anything server-side — MOK enrollment requires a reboot and
+// interactive firmware step that cannot be automated.
+func (s *Server) handleMOKEnroll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	distro := hwmon.DetectDistro()
+	cmds := []string{
+		distro.MOKInstallCommand(),
+		"sudo mkdir -p /var/lib/shim-signed/mok",
+		"sudo openssl req -new -x509 -newkey rsa:2048 -keyout /var/lib/shim-signed/mok/MOK.priv -outform DER -out /var/lib/shim-signed/mok/MOK.der -days 36500 -nodes -subj \"/CN=ventd out-of-tree module signing/\"",
+		"sudo mokutil --import /var/lib/shim-signed/mok/MOK.der",
+		"# Set a one-time password when prompted.",
+		"# Reboot, and at the blue MOK Manager screen choose \"Enroll MOK\"",
+		"# → Continue → Yes → enter the password → Reboot.",
+		"# After reboot, ventd will sign its module automatically.",
+	}
+	resp := mokInstructionsResponse{
+		Kind:     "instructions",
+		Commands: cmds,
+		Detail: "Secure Boot requires every kernel module to be signed by a key " +
+			"the firmware trusts. MOK (Machine Owner Key) enrollment lets you " +
+			"register your own signing key. This must be done interactively at " +
+			"boot time — we cannot automate it. After your MOK is enrolled, " +
+			"re-run the driver install from the setup wizard.",
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleSetPassword POST /api/set-password

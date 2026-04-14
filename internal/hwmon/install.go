@@ -256,6 +256,48 @@ func ensureBuildTools(log func(string)) error {
 	return ensureKernelHeaders(log)
 }
 
+// EnsureKernelHeaders is the exported wrapper around ensureKernelHeaders for
+// use by the /api/hwdiag/install-kernel-headers handler.
+func EnsureKernelHeaders(log func(string)) error { return ensureKernelHeaders(log) }
+
+// EnsureDKMS installs the dkms package via the detected system package manager
+// so future kernel upgrades can rebuild out-of-tree modules automatically.
+// No-op if dkms is already on PATH. Returns a plain-English error on Alpine,
+// which has no native dkms package.
+func EnsureDKMS(log func(string)) error {
+	if _, err := exec.LookPath("dkms"); err == nil {
+		log("DKMS is already installed.")
+		return nil
+	}
+	type pkgCmd struct {
+		mgr  string
+		args []string
+	}
+	candidates := []pkgCmd{
+		{"apt-get", []string{"install", "-y", "dkms"}},
+		{"dnf", []string{"install", "-y", "dkms"}},
+		{"yum", []string{"install", "-y", "dkms"}},
+		{"pacman", []string{"-S", "--noconfirm", "dkms"}},
+		{"zypper", []string{"install", "-y", "dkms"}},
+		{"xbps-install", []string{"-y", "dkms"}},
+	}
+	if _, err := exec.LookPath("apk"); err == nil {
+		return fmt.Errorf("Alpine does not ship a dkms package; the module will need to be rebuilt manually after kernel updates")
+	}
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c.mgr); err != nil {
+			continue
+		}
+		log("Installing dkms via " + c.mgr + "...")
+		if out, err := exec.Command(c.mgr, c.args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("dkms install failed: %w\n%s", err, strings.TrimSpace(string(out)))
+		}
+		log("DKMS installed successfully.")
+		return nil
+	}
+	return fmt.Errorf("could not detect a supported package manager to install dkms")
+}
+
 // ensureKernelHeaders installs kernel headers needed to build kernel modules.
 // It is a no-op if the build symlink already exists.
 func ensureKernelHeaders(log func(string)) error {

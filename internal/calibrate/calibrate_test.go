@@ -224,8 +224,8 @@ func TestSchemaMismatchSurfacesDiagnostic(t *testing.T) {
 	if len(diags) != 1 {
 		t.Fatalf("expected 1 diagnostic, got %d (%+v)", len(diags), diags)
 	}
-	if diags[0].AutoFixID != AutoFixRecalibrate {
-		t.Errorf("expected AutoFixID=%q, got %q", AutoFixRecalibrate, diags[0].AutoFixID)
+	if diags[0].Remediation == nil || diags[0].Remediation.AutoFixID != AutoFixRecalibrate {
+		t.Errorf("expected Remediation.AutoFixID=%q, got %+v", AutoFixRecalibrate, diags[0].Remediation)
 	}
 	if diags[0].Severity != "warn" {
 		t.Errorf("expected severity=warn, got %q", diags[0].Severity)
