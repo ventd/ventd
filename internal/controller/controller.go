@@ -221,6 +221,11 @@ func (c *Controller) tick() {
 	)
 }
 
+// readNvidiaMetric is overridable so tests can substitute a fake without
+// requiring a real NVML-backed GPU. Production code always resolves to
+// nvidia.ReadMetric.
+var readNvidiaMetric = nvidia.ReadMetric
+
 // readAllSensors reads every sensor in the config and returns a name→tempC map.
 // Individual sensor failures are logged and the sensor is omitted from the
 // returned map; the caller never receives an error for a partial read.
@@ -233,8 +238,18 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor) map[string]flo
 		)
 		switch s.Type {
 		case "nvidia":
-			idx, _ := strconv.ParseUint(s.Path, 10, 32) // validated at config load
-			tempC, err = nvidia.ReadMetric(uint(idx), s.Metric)
+			// invariant: validated at config load — see config.validate
+			idx, parseErr := strconv.ParseUint(s.Path, 10, 32)
+			if parseErr != nil {
+				logger.Error(
+					"controller: invariant violated — nvidia sensor path not numeric at runtime; config load should have rejected this",
+					"sensor", s.Name,
+					"path", s.Path,
+					"err", parseErr,
+				)
+				continue
+			}
+			tempC, err = readNvidiaMetric(uint(idx), s.Metric)
 		default: // "hwmon" and any future sysfs-backed types
 			tempC, err = hwmon.ReadValue(s.Path)
 		}
