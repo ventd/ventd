@@ -19,11 +19,11 @@
 #   3. Creates /etc/ventd/ for config and calibration data.
 #   4. Installs the service unit for the detected init system
 #      (systemd, OpenRC, or runit).
-#   5. Enables the service. It does NOT start it — the daemon prints a
-#      one-time setup token on first run, and you want to see it.
+#   5. Enables AND starts the service. The daemon prints a one-time setup
+#      token to its log on first boot — the web UI's first-boot wizard
+#      prompts for it, and you can recover it with journalctl.
 #
-# After installation, start the daemon, watch the log for the setup token,
-# then open http://<this-machine-ip>:9999 in a browser.
+# After installation, open http://<this-machine-ip>:9999 in your browser.
 
 set -euo pipefail
 
@@ -239,13 +239,15 @@ case "$INIT_SYSTEM" in
         install -m 644 "$SERVICE_SRC" /etc/systemd/system/ventd.service
         systemctl daemon-reload
         systemctl enable ventd.service
-        echo "  ✓ systemd unit → /etc/systemd/system/ventd.service (enabled)"
+        systemctl start ventd.service
+        echo "  ✓ systemd unit → /etc/systemd/system/ventd.service (enabled + started)"
         ;;
 
     openrc)
         install -m 755 "$OPENRC_SRC" /etc/init.d/ventd
         rc-update add ventd default
-        echo "  ✓ OpenRC init script → /etc/init.d/ventd (added to default runlevel)"
+        rc-service ventd start
+        echo "  ✓ OpenRC init script → /etc/init.d/ventd (enabled + started)"
         ;;
 
     runit)
@@ -260,12 +262,14 @@ exec svlogd -tt /var/log/ventd
 EOF
         chmod 755 /etc/sv/ventd/log/run
 
+        # Symlinking into the runit service directory enables AND starts the
+        # service in one step — runsvdir picks up the symlink within seconds.
         if [ -d /var/service ]; then
             ln -sfn /etc/sv/ventd /var/service/ventd
-            echo "  ✓ runit service → /etc/sv/ventd (linked in /var/service)"
+            echo "  ✓ runit service → /etc/sv/ventd (linked in /var/service, auto-starts)"
         elif [ -d /etc/runit/runsvdir/default ]; then
             ln -sfn /etc/sv/ventd /etc/runit/runsvdir/default/ventd
-            echo "  ✓ runit service → /etc/sv/ventd (linked in /etc/runit/runsvdir/default)"
+            echo "  ✓ runit service → /etc/sv/ventd (linked in /etc/runit/runsvdir/default, auto-starts)"
         else
             echo "  ✓ runit service → /etc/sv/ventd"
             echo "  ! could not find service directory to link into; link manually:"
@@ -284,41 +288,10 @@ MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 WEB_URL="http://${MACHINE_IP:-<this-machine-ip>}:9999"
 
 echo ""
-echo "Installation complete."
-echo ""
-echo "Next steps:"
+echo "ventd installed. Open ${WEB_URL} to set up."
 
-case "$INIT_SYSTEM" in
-    systemd)
-        echo "  1. Start the daemon:"
-        echo "       sudo systemctl start ventd"
-        echo ""
-        echo "  2. Get your one-time setup token:"
-        echo "       sudo journalctl -u ventd -f"
-        ;;
-    openrc)
-        echo "  1. Start the daemon:"
-        echo "       sudo rc-service ventd start"
-        echo ""
-        echo "  2. Get your one-time setup token:"
-        echo "       sudo tail -f /var/log/ventd.log"
-        ;;
-    runit)
-        echo "  1. Start the daemon (symlink enables it immediately):"
-        echo "       sudo sv start ventd"
-        echo ""
-        echo "  2. Get your one-time setup token:"
-        echo "       sudo tail -f /var/log/ventd/current"
-        ;;
-    unknown)
-        echo "  1. Start the daemon manually:"
-        echo "       sudo $VENTD_PREFIX/ventd --config /etc/ventd/config.yaml"
-        echo ""
-        echo "  2. Watch its output for your one-time setup token."
-        ;;
-esac
-
-echo ""
-echo "  3. Open ${WEB_URL} in your browser to complete setup."
-echo ""
-echo "The daemon restarts automatically after crashes and on every boot."
+if [[ "$INIT_SYSTEM" == "unknown" ]]; then
+    echo ""
+    echo "(No supported init system detected. Start the daemon manually:"
+    echo "   sudo $VENTD_PREFIX/ventd --config /etc/ventd/config.yaml)"
+fi

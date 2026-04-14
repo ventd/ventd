@@ -21,9 +21,9 @@ One static binary. One install command. Works on any distribution with any fan c
 curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh | sudo bash
 ```
 
-The script detects your architecture and init system (systemd, OpenRC, or runit), drops the binary at `/usr/local/bin/ventd`, installs the service file, and starts the daemon. It prints one thing: the URL to open in your browser.
+The script detects your architecture and init system (systemd, OpenRC, or runit), drops the binary at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
 
-Open that URL, complete the setup wizard, and you're done.
+Open that URL. The setup wizard prompts for a one-time token on first run; if you didn't catch it from the install output, run `sudo journalctl -u ventd -n 50` (or check `/var/log/ventd/current` on runit) to recover it.
 
 ## Supported platforms
 
