@@ -1,0 +1,16 @@
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="ventd starting"
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="no config found, starting in first-boot mode" path=/etc/ventd/config.yaml
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg=━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="  Ventd — First Boot"
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="  Open your browser to http://192.168.7.224:9999"
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="  Setup token: db3a3-35beb-7afd8"
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg=━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="no hwmon PWM channels found, probing kernel modules"
+time=2026-04-14T15:35:25.254+10:00 level=INFO msg="installing lm-sensors" package_manager=apt-get
+time=2026-04-14T15:35:26.429+10:00 level=INFO msg="running sensors-detect to identify hardware"
+time=2026-04-14T15:35:26.670+10:00 level=INFO msg="scanning kernel hwmon modules for fan controller" count=28
+time=2026-04-14T15:35:34.105+10:00 level=WARN msg="no hwmon module produced PWM channels — setup wizard will check for required drivers"
+time=2026-04-14T15:35:34.105+10:00 level=INFO msg="NVIDIA driver not detected; GPU features disabled" err="libnvidia-ml.so.1: cannot open shared object file: No such file or directory"
+time=2026-04-14T15:35:34.105+10:00 level=INFO msg="web: server listening" addr=http://0.0.0.0:9999
+time=2026-04-14T15:35:58.358+10:00 level=INFO msg="web: first-boot password set" remote=192.168.7.209:36124
+time=2026-04-14T15:36:11.712+10:00 level=INFO msg="shutdown signal received" signal=terminated
