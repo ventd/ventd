@@ -646,7 +646,7 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 
 	// Always restore the original PWM when we're done.
-	defer hwmon.WritePWM(pwmPath, origPWM)
+	defer func() { _ = hwmon.WritePWM(pwmPath, origPWM) }()
 
 	_ = hwmon.WritePWMEnable(pwmPath, 1) // ignore — some drivers don't expose this
 

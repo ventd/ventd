@@ -713,7 +713,7 @@ func appendIfMissing(file, line string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = fmt.Fprintf(f, "%s\n", line)
 	return err
 }
