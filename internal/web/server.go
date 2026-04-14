@@ -417,13 +417,13 @@ func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	if s.tlsActive {
 		s.logger.Info("web: server listening (TLS)", "addr", "https://"+addr)
 		if err := s.httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
-			return err
+			return fmt.Errorf("web: serve tls: %w", err)
 		}
 		return nil
 	}
 	s.logger.Info("web: server listening", "addr", "http://"+addr)
 	if err := s.httpSrv.ListenAndServe(); err != http.ErrServerClosed {
-		return err
+		return fmt.Errorf("web: serve: %w", err)
 	}
 	return nil
 }

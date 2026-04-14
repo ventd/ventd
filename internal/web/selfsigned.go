@@ -98,7 +98,7 @@ func fileExists(p string) bool {
 func fingerprintCert(certPath string) (string, error) {
 	pemBytes, err := os.ReadFile(certPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("tls: read %s: %w", certPath, err)
 	}
 	block, _ := pem.Decode(pemBytes)
 	if block == nil || block.Type != "CERTIFICATE" {
@@ -158,21 +158,24 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
-		return err
+		return fmt.Errorf("tls: open %s: %w", tmp, err)
 	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
-		return err
+		return fmt.Errorf("tls: write %s: %w", tmp, err)
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
-		return err
+		return fmt.Errorf("tls: sync %s: %w", tmp, err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return err
+		return fmt.Errorf("tls: close %s: %w", tmp, err)
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("tls: rename %s to %s: %w", tmp, path, err)
+	}
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -90,7 +91,7 @@ func (s *sessionStore) reap(ctx context.Context) {
 func HashPassword(password string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("web: bcrypt hash: %w", err)
 	}
 	return string(b), nil
 }
@@ -105,7 +106,7 @@ func checkPassword(hash, plaintext string) bool {
 func GenerateSetupToken() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		return "", err
+		return "", fmt.Errorf("web: read random bytes for setup token: %w", err)
 	}
 	h := hex.EncodeToString(b) // 16 hex chars
 	// Format as XXXXX-XXXXX-XXXXX (use first 15 chars, upper-cased)
@@ -153,7 +154,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		return "", err
+		return "", fmt.Errorf("web: read random bytes: %w", err)
 	}
 	return hex.EncodeToString(b), nil
 }
