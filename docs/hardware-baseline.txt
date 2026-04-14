@@ -1,0 +1,208 @@
+coretemp-isa-0000
+Adapter: ISA adapter
+Package id 0:  +43.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 0:        +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 4:        +36.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 8:        +43.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 12:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 16:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 20:       +36.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 24:       +35.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 28:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 32:       +42.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 33:       +42.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 34:       +39.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 35:       +42.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 36:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 37:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 38:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 39:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 40:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 41:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 42:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 43:       +38.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 44:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 45:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 46:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+Core 47:       +37.0°C  (high = +80.0°C, crit = +100.0°C)
+
+nvme-pci-0300
+Adapter: PCI adapter
+Composite:    +40.9°C  (low  =  -0.1°C, high = +83.8°C)
+                       (crit = +87.8°C)
+Sensor 1:     +63.9°C  (low  = -273.1°C, high = +65261.8°C)
+Sensor 2:     +40.9°C  (low  = -273.1°C, high = +65261.8°C)
+
+acpitz-acpi-0
+Adapter: ACPI interface
+temp1:        +27.8°C  
+
+nvme-pci-0200
+Adapter: PCI adapter
+Composite:    +42.9°C  (low  =  -0.1°C, high = +86.8°C)
+                       (crit = +88.8°C)
+
+total 0
+drwxr-xr-x  2 root root 0 Apr 12 12:14 .
+drwxr-xr-x 81 root root 0 Apr 12 11:53 ..
+lrwxrwxrwx  1 root root 0 Apr 12 11:53 hwmon0 -> ../../devices/virtual/thermal/thermal_zone0/hwmon0
+lrwxrwxrwx  1 root root 0 Apr 12 11:53 hwmon1 -> ../../devices/pci0000:00/0000:00:06.0/0000:02:00.0/nvme/nvme1/hwmon1
+lrwxrwxrwx  1 root root 0 Apr 12 11:53 hwmon2 -> ../../devices/pci0000:00/0000:00:1a.0/0000:03:00.0/nvme/nvme0/hwmon2
+lrwxrwxrwx  1 root root 0 Apr 12 11:53 hwmon3 -> ../../devices/pci0000:00/0000:00:14.0/usb1/1-11/1-11:1.2/0003:046D:C09B.0004/power_supply/hidpp_battery_0/hwmon3
+lrwxrwxrwx  1 root root 0 Apr 12 11:53 hwmon4 -> ../../devices/platform/coretemp.0/hwmon/hwmon4
+=== /sys/class/hwmon/hwmon0 ===
+acpitz
+temp1_input
+=== /sys/class/hwmon/hwmon1 ===
+nvme
+temp1_alarm
+temp1_crit
+temp1_input
+temp1_label
+temp1_max
+temp1_min
+=== /sys/class/hwmon/hwmon2 ===
+nvme
+temp1_alarm
+temp1_crit
+temp1_input
+temp1_label
+temp1_max
+temp1_min
+temp2_input
+temp2_label
+temp2_max
+temp2_min
+temp3_input
+temp3_label
+temp3_max
+temp3_min
+=== /sys/class/hwmon/hwmon3 ===
+hidpp_battery_0
+=== /sys/class/hwmon/hwmon4 ===
+coretemp
+temp10_crit
+temp10_crit_alarm
+temp10_input
+temp10_label
+temp10_max
+temp14_crit
+temp14_crit_alarm
+temp14_input
+temp14_label
+temp14_max
+temp18_crit
+temp18_crit_alarm
+temp18_input
+temp18_label
+temp18_max
+temp1_crit
+temp1_crit_alarm
+temp1_input
+temp1_label
+temp1_max
+temp22_crit
+temp22_crit_alarm
+temp22_input
+temp22_label
+temp22_max
+temp26_crit
+temp26_crit_alarm
+temp26_input
+temp26_label
+temp26_max
+temp2_crit
+temp2_crit_alarm
+temp2_input
+temp2_label
+temp2_max
+temp30_crit
+temp30_crit_alarm
+temp30_input
+temp30_label
+temp30_max
+temp34_crit
+temp34_crit_alarm
+temp34_input
+temp34_label
+temp34_max
+temp35_crit
+temp35_crit_alarm
+temp35_input
+temp35_label
+temp35_max
+temp36_crit
+temp36_crit_alarm
+temp36_input
+temp36_label
+temp36_max
+temp37_crit
+temp37_crit_alarm
+temp37_input
+temp37_label
+temp37_max
+temp38_crit
+temp38_crit_alarm
+temp38_input
+temp38_label
+temp38_max
+temp39_crit
+temp39_crit_alarm
+temp39_input
+temp39_label
+temp39_max
+temp40_crit
+temp40_crit_alarm
+temp40_input
+temp40_label
+temp40_max
+temp41_crit
+temp41_crit_alarm
+temp41_input
+temp41_label
+temp41_max
+temp42_crit
+temp42_crit_alarm
+temp42_input
+temp42_label
+temp42_max
+temp43_crit
+temp43_crit_alarm
+temp43_input
+temp43_label
+temp43_max
+temp44_crit
+temp44_crit_alarm
+temp44_input
+temp44_label
+temp44_max
+temp45_crit
+temp45_crit_alarm
+temp45_input
+temp45_label
+temp45_max
+temp46_crit
+temp46_crit_alarm
+temp46_input
+temp46_label
+temp46_max
+temp47_crit
+temp47_crit_alarm
+temp47_input
+temp47_label
+temp47_max
+temp48_crit
+temp48_crit_alarm
+temp48_input
+temp48_label
+temp48_max
+temp49_crit
+temp49_crit_alarm
+temp49_input
+temp49_label
+temp49_max
+temp6_crit
+temp6_crit_alarm
+temp6_input
+temp6_label
+temp6_max

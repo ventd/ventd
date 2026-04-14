@@ -1,0 +1,1345 @@
+// Package setup implements the first-boot setup wizard: discovers fans,
+// calibrates them, and generates an initial config. Used by both the CLI
+// --setup flag (RunBlocking) and the web UI (Start + polling via Progress).
+package setup
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/ventd/ventd/internal/calibrate"
+	"github.com/ventd/ventd/internal/config"
+	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/nvidia"
+)
+
+// FanState describes a single fan during/after the setup process.
+type FanState struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`                     // "hwmon" or "nvidia"
+	PWMPath     string `json:"pwm_path"`
+	RPMPath     string `json:"rpm_path,omitempty"`
+	ControlKind string `json:"control_kind,omitempty"`   // "rpm_target" for fan*_target channels
+	DetectPhase string `json:"detect_phase"`             // "pending","detecting","found","none","n/a"
+	CalPhase    string `json:"cal_phase"`                // "pending","calibrating","done","skipped","error"
+	StartPWM    uint8  `json:"start_pwm,omitempty"`
+	StopPWM     uint8  `json:"stop_pwm,omitempty"`
+	MaxRPM      int    `json:"max_rpm,omitempty"`
+	IsPump      bool   `json:"is_pump,omitempty"`
+	CalProgress int    `json:"cal_progress"`             // 0–100, live during calibrate phase
+	Error       string `json:"error,omitempty"`
+}
+
+// Progress is the JSON payload returned by GET /api/setup/status.
+type Progress struct {
+	Needed        bool           `json:"needed"`                    // true until applied
+	Running       bool           `json:"running"`                   // goroutine active
+	Done          bool           `json:"done"`                      // goroutine finished
+	Applied       bool           `json:"applied"`                   // config written to disk
+	Error         string         `json:"error,omitempty"`           // plain-English fatal error
+	RebootNeeded  bool           `json:"reboot_needed,omitempty"`   // boot config was patched; user must reboot
+	RebootMessage string         `json:"reboot_message,omitempty"`  // explanation shown in the reboot panel
+	Phase         string         `json:"phase,omitempty"`           // detecting | installing_driver | scanning_fans | detecting_rpm | calibrating
+	PhaseMsg      string         `json:"phase_msg,omitempty"`       // human-readable description of current phase
+	Board         string         `json:"board,omitempty"`           // "Gigabyte B550M AORUS PRO"
+	ChipName      string         `json:"chip_name,omitempty"`       // "IT8688E" — set when installing driver
+	InstallLog    []string       `json:"install_log,omitempty"`     // streamed during installing_driver phase
+	Fans          []FanState     `json:"fans"`
+	Config        *config.Config `json:"config,omitempty"`
+	Profile       *HWProfile     `json:"profile,omitempty"`
+}
+
+// GPUProfile holds per-GPU hardware metadata for one NVML or AMD GPU.
+type GPUProfile struct {
+	Index    int     `json:"index"`
+	Model    string  `json:"model,omitempty"`
+	PowerW   int     `json:"power_w,omitempty"`   // power limit in watts; 0=unknown
+	ThermalC float64 `json:"thermal_c,omitempty"` // slowdown/crit threshold in °C; 0=unknown
+}
+
+// HWProfile contains hardware metadata gathered during setup. Used to explain
+// curve design choices to the user and to tune curve parameters per-device.
+type HWProfile struct {
+	CPUModel    string       `json:"cpu_model,omitempty"`
+	CPUTDPW     int          `json:"cpu_tdp_w,omitempty"`     // watts from RAPL; 0=unknown
+	CPUThermalC float64      `json:"cpu_thermal_c,omitempty"` // TjMax/Tcrit in °C; 0=unknown
+	GPUModel    string       `json:"gpu_model,omitempty"`     // GPU 0 model (kept for compat)
+	GPUPowerW   int          `json:"gpu_power_w,omitempty"`   // GPU 0 power limit; 0=unknown
+	GPUThermalC float64      `json:"gpu_thermal_c,omitempty"` // GPU 0 slowdown/crit; 0=unknown
+	GPUs        []GPUProfile `json:"gpus,omitempty"`          // all GPUs, indexed
+	CurveNotes  []string     `json:"curve_notes,omitempty"`   // human-readable curve design explanations
+}
+
+// Manager owns all setup wizard state.
+type Manager struct {
+	mu             sync.Mutex
+	fans           []FanState
+	running        bool
+	done           bool
+	applied        bool
+	errMsg         string
+	rebootNeeded   bool
+	rebootMessage  string
+	phase          string
+	phaseMsg       string
+	board          string
+	chipName       string
+	installLog     []string
+	result         *config.Config
+	profile *HWProfile
+	cal     *calibrate.Manager
+	logger  *slog.Logger
+	cancel  context.CancelFunc // fired by Abort; nil until Start wires it
+}
+
+// New creates a Manager. NVML lifecycle is managed via the refcount-safe
+// nvidia.Init/Shutdown pair; setup does not need to know whether the
+// daemon already initialised NVML.
+func New(cal *calibrate.Manager, logger *slog.Logger) *Manager {
+	return &Manager{
+		cal:    cal,
+		logger: logger,
+	}
+}
+
+// Needed reports whether setup should be presented to the user.
+// It returns true when the config has no controls defined (empty/first-boot state).
+func Needed(cfg *config.Config) bool {
+	return len(cfg.Controls) == 0
+}
+
+// Start launches the setup goroutine. Returns an error if already running.
+func (m *Manager) Start() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running {
+		return fmt.Errorf("setup: already running")
+	}
+	if m.done {
+		return fmt.Errorf("setup: already completed; restart the daemon for a fresh run")
+	}
+	m.running = true
+	m.done = false
+	m.errMsg = ""
+	m.rebootNeeded = false
+	m.rebootMessage = ""
+	m.phase = ""
+	m.phaseMsg = ""
+	m.board = ""
+	m.chipName = ""
+	m.installLog = nil
+	m.result = nil
+	m.fans = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	go m.run(ctx)
+	return nil
+}
+
+// setPhase updates the current phase and its human-readable description.
+func (m *Manager) setPhase(phase, msg string) {
+	m.mu.Lock()
+	m.phase = phase
+	m.phaseMsg = msg
+	m.mu.Unlock()
+	m.logger.Info("setup: " + msg)
+}
+
+// appendInstallLog adds a line to the driver installation log.
+func (m *Manager) appendInstallLog(line string) {
+	m.mu.Lock()
+	m.installLog = append(m.installLog, line)
+	m.mu.Unlock()
+}
+
+// RunBlocking runs setup synchronously (for the CLI --setup flag).
+func (m *Manager) RunBlocking() error {
+	if err := m.Start(); err != nil {
+		return err
+	}
+	// Wait for the goroutine to finish by polling done.
+	for {
+		time.Sleep(200 * time.Millisecond)
+		m.mu.Lock()
+		done := m.done
+		errMsg := m.errMsg
+		m.mu.Unlock()
+		if done {
+			if errMsg != "" {
+				return fmt.Errorf("%s", errMsg)
+			}
+			return nil
+		}
+	}
+}
+
+// Progress returns a snapshot of the current wizard state.
+// It merges live calibration progress from the calibrate.Manager.
+func (m *Manager) Progress() Progress {
+	m.mu.Lock()
+	fans := make([]FanState, len(m.fans))
+	copy(fans, m.fans)
+	installLog := make([]string, len(m.installLog))
+	copy(installLog, m.installLog)
+	p := Progress{
+		Needed:        !m.applied,
+		Running:       m.running,
+		Done:          m.done,
+		Applied:       m.applied,
+		Error:         m.errMsg,
+		RebootNeeded:  m.rebootNeeded,
+		RebootMessage: m.rebootMessage,
+		Phase:         m.phase,
+		PhaseMsg:      m.phaseMsg,
+		Board:         m.board,
+		ChipName:      m.chipName,
+		InstallLog:    installLog,
+		Fans:          fans,
+		Config:        m.result,
+		Profile:       m.profile,
+	}
+	m.mu.Unlock()
+
+	// Merge live calibration progress.
+	calStatus := m.cal.AllStatus()
+	calByPath := make(map[string]calibrate.Status, len(calStatus))
+	for _, cs := range calStatus {
+		calByPath[cs.PWMPath] = cs
+	}
+	for i, f := range p.Fans {
+		if f.CalPhase == "calibrating" {
+			if cs, ok := calByPath[f.PWMPath]; ok && cs.Running {
+				p.Fans[i].CalProgress = cs.Progress
+			}
+		}
+	}
+
+	return p
+}
+
+// ProgressNeeded returns a Progress with Needed computed correctly against
+// a real config. Use this instead of Progress() when the caller has access
+// to the live config.
+func (m *Manager) ProgressNeeded(liveCfg *config.Config) Progress {
+	p := m.Progress()
+	m.mu.Lock()
+	applied := m.applied
+	m.mu.Unlock()
+	p.Needed = !applied && Needed(liveCfg)
+	return p
+}
+
+// GeneratedConfig returns the generated config after a successful run,
+// or nil if the run hasn't completed or failed.
+func (m *Manager) GeneratedConfig() *config.Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.result
+}
+
+// MarkApplied records that the generated config has been written to disk.
+// After this, Progress.Needed will be false.
+func (m *Manager) MarkApplied() {
+	m.mu.Lock()
+	m.applied = true
+	m.mu.Unlock()
+}
+
+// Abort cancels an in-flight setup wizard run (including the parallel
+// per-fan calibration sweeps). Idempotent: safe to call when no run is
+// active or to call repeatedly. The setup goroutine and each calibration
+// goroutine handle their own watchdog/PWM restore via deferred cleanup;
+// this method only fires the context.
+func (m *Manager) Abort() {
+	m.mu.Lock()
+	cancel := m.cancel
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// run is the setup goroutine. It detects hardware, installs any missing
+// drivers, discovers fans, detects RPM sensors, and calibrates all fans.
+func (m *Manager) run(ctx context.Context) {
+	defer func() {
+		m.mu.Lock()
+		m.running = false
+		m.done = true
+		c := m.cancel
+		m.mu.Unlock()
+		// Release the cancel func so the context is GC'd. Idempotent — Abort
+		// may have already fired it.
+		if c != nil {
+			c()
+		}
+	}()
+
+	// ── Phase 1: hardware detection ─────────────────────────────────────────
+	m.setPhase("detecting", "Scanning your system for hardware...")
+
+	diag := hwmonpkg.Diagnose()
+	board := strings.TrimSpace(diag.BoardVendor + " " + diag.BoardName)
+	m.mu.Lock()
+	m.board = board
+	m.mu.Unlock()
+
+	if board != "" {
+		m.setPhase("detecting", "Board detected: "+board)
+	}
+
+	// ── Phase 2: automatic driver installation ──────────────────────────────
+	if diag.PWMCount == 0 && len(diag.DriverNeeds) > 0 {
+		nd := diag.DriverNeeds[0]
+		m.mu.Lock()
+		m.chipName = nd.ChipName
+		m.mu.Unlock()
+		m.setPhase("installing_driver",
+			"Installing "+nd.ChipName+" fan controller driver — this may take a minute...")
+
+		err := hwmonpkg.InstallDriver(nd.Key, m.appendInstallLog, m.logger)
+		if err != nil {
+			m.mu.Lock()
+			var rebootErr *hwmonpkg.ErrRebootRequired
+			if errors.As(err, &rebootErr) {
+				m.rebootNeeded = true
+				m.rebootMessage = rebootErr.Message
+			} else {
+				m.errMsg = "Could not install the fan controller driver: " + err.Error()
+			}
+			m.mu.Unlock()
+			return
+		}
+		m.setPhase("installing_driver", "Driver installed. Detecting fans...")
+	}
+
+	// ── Phase 3: NVML init ──────────────────────────────────────────────────
+	// Refcount-safe: a matching Shutdown decrements; real release only
+	// happens on the final call (e.g. when main() shuts down).
+	nvmlOK := false
+	if err := nvidia.Init(m.logger); err == nil {
+		defer nvidia.Shutdown()
+		nvmlOK = true
+	}
+
+	// ── Phase 4: discover all PWM channels ─────────────────────────────────
+	m.setPhase("scanning_fans", "Detecting fan controllers...")
+	var initial []FanState
+
+	for _, ctrl := range discoverHwmonControls() {
+		initial = append(initial, FanState{
+			Name:        hwmonFanName(ctrl.path),
+			Type:        "hwmon",
+			PWMPath:     ctrl.path,
+			ControlKind: ctrl.kind,
+			DetectPhase: "pending",
+			CalPhase:    "pending",
+		})
+	}
+
+	if nvmlOK {
+		gpuCount := nvidia.CountGPUs()
+		for i := 0; i < gpuCount; i++ {
+			if nvidia.HasFans(uint(i)) {
+				initial = append(initial, FanState{
+					Name:        fmt.Sprintf("gpu%d", i),
+					Type:        "nvidia",
+					PWMPath:     fmt.Sprintf("%d", i),
+					DetectPhase: "found",
+					CalPhase:    "pending",
+				})
+			}
+		}
+	}
+
+	m.syncFans(initial)
+
+	if len(initial) == 0 {
+		m.mu.Lock()
+		m.errMsg = "No fan controllers were found on this system. " +
+			"Your motherboard may use a chip that requires manual configuration."
+		m.mu.Unlock()
+		return
+	}
+
+	fans := make([]FanState, len(initial))
+	copy(fans, initial)
+
+	// --- Phase 5: RPM sensor detection ---
+	// DetectRPMSensor ramps one PWM channel and watches ALL fan*_input files
+	// on that chip. Two channels on the same chip must be serialised (their
+	// fan*_input files overlap). Channels on different chips are independent
+	// and can be detected in parallel.
+	//
+	// Build a map: chip dir → indices of hwmon fans on that chip.
+	chipFans := make(map[string][]int)
+	for i, f := range fans {
+		if f.Type != "hwmon" {
+			continue
+		}
+		// RPM-target fans (fan*_target) use a different write path and cannot
+		// be ramped with WritePWM — skip them during RPM sensor detection.
+		if f.ControlKind == "rpm_target" {
+			fans[i].DetectPhase = "n/a"
+			continue
+		}
+		dir := filepath.Dir(f.PWMPath)
+		chipFans[dir] = append(chipFans[dir], i)
+	}
+
+	// Sort chip dirs so goroutine launch order is deterministic across runs.
+	chipDirs := make([]string, 0, len(chipFans))
+	for dir := range chipFans {
+		chipDirs = append(chipDirs, dir)
+	}
+	sortPathsNumerically(chipDirs)
+
+	m.setPhase("detecting_rpm", fmt.Sprintf("Detecting RPM sensors for %d fan channel(s)...", len(initial)))
+
+	var detWg sync.WaitGroup
+	for _, dir := range chipDirs {
+		indices := chipFans[dir]
+		detWg.Add(1)
+		go func(idxs []int) {
+			defer detWg.Done()
+
+			// Freeze all fans on this chip at their current PWM before detecting.
+			// This prevents other BIOS-controlled fans from fluctuating and causing
+			// false correlations when we ramp the target channel.
+			type savedFan struct{ path string; pwm uint8 }
+			var frozen []savedFan
+			for _, i := range idxs {
+				if orig, err := hwmonpkg.ReadPWM(fans[i].PWMPath); err == nil {
+					_ = hwmonpkg.WritePWMEnable(fans[i].PWMPath, 1)
+					_ = hwmonpkg.WritePWM(fans[i].PWMPath, orig)
+					frozen = append(frozen, savedFan{fans[i].PWMPath, orig})
+				}
+			}
+			// Restore all to automatic control when detection for this chip is done.
+			defer func() {
+				for _, f := range frozen {
+					_ = hwmonpkg.WritePWMEnable(f.path, 2)
+				}
+			}()
+
+			// Within this chip, detect serially.
+			for _, i := range idxs {
+				m.mu.Lock()
+				fans[i].DetectPhase = "detecting"
+				snapshot := make([]FanState, len(fans))
+				copy(snapshot, fans)
+				m.fans = snapshot
+				m.mu.Unlock()
+
+				cfgFan := &config.Fan{
+					Name:    fans[i].Name,
+					Type:    fans[i].Type,
+					PWMPath: fans[i].PWMPath,
+					MinPWM:  0,
+					MaxPWM:  255,
+				}
+				det, err := m.cal.DetectRPMSensor(cfgFan)
+
+				m.mu.Lock()
+				if err != nil || det.RPMPath == "" {
+					if err != nil {
+						m.logger.Warn("setup: rpm detect failed", "fan", fans[i].Name, "err", err)
+					}
+					fans[i].DetectPhase = "none"
+				} else {
+					fans[i].RPMPath = det.RPMPath
+					fans[i].DetectPhase = "found"
+				}
+				snapshot = make([]FanState, len(fans))
+				copy(snapshot, fans)
+				m.fans = snapshot
+				m.mu.Unlock()
+			}
+		}(indices)
+	}
+	detWg.Wait()
+
+	// --- Phase 6: calibrate all fans in parallel ---
+	// Each fan now reads from its own RPMPath (or NVML for nvidia), so
+	// simultaneous ramps don't interfere with each other's readings.
+	m.setPhase("calibrating", "Calibrating fans — finding minimum and maximum speeds...")
+	var wg sync.WaitGroup
+	for i := range fans {
+		if fans[i].DetectPhase == "none" || fans[i].ControlKind == "rpm_target" {
+			fans[i].CalPhase = "skipped"
+		} else {
+			fans[i].CalPhase = "calibrating"
+		}
+	}
+	m.syncFans(fans)
+
+	for i := range fans {
+		if ctx.Err() != nil {
+			break
+		}
+		if fans[i].CalPhase == "skipped" {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			f := fans[idx]
+			cfgFan := &config.Fan{
+				Name:    f.Name,
+				Type:    f.Type,
+				PWMPath: f.PWMPath,
+				RPMPath: f.RPMPath,
+				MinPWM:  0,
+				MaxPWM:  255,
+			}
+			result, err := m.cal.RunSync(ctx, cfgFan)
+
+			m.mu.Lock()
+			if err != nil {
+				fans[idx].CalPhase = "error"
+				fans[idx].Error = err.Error()
+			} else if result.StartPWM == 0 && result.MaxRPM == 0 {
+				fans[idx].CalPhase = "skipped"
+			} else {
+				fans[idx].CalPhase = "done"
+				fans[idx].StartPWM = result.StartPWM
+				fans[idx].StopPWM = result.StopPWM
+				fans[idx].MaxRPM = result.MaxRPM
+				fans[idx].IsPump = result.FanType == "pump"
+			}
+			snapshot := make([]FanState, len(fans))
+			copy(snapshot, fans)
+			m.fans = snapshot
+			m.mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	// Signal the UI that calibration is done and we're generating the config.
+	// Without this the UI appears frozen while gatherProfile/buildConfig run.
+	m.setPhase("finalizing", "Calibration complete — building your configuration...")
+
+	// --- Phase 4: collect successful fans and build config ---
+	var doneFans []fanDiscovery
+	for _, f := range fans {
+		// Include calibrated fans and rpm_target fans (calibration skipped for the latter).
+		if f.CalPhase != "done" && f.ControlKind != "rpm_target" {
+			continue
+		}
+		var chipName string
+		if f.Type == "hwmon" {
+			chipName = readTrimmed(filepath.Join(filepath.Dir(f.PWMPath), "name"))
+		}
+		doneFans = append(doneFans, fanDiscovery{
+			name:        f.Name,
+			fanType:     f.Type,
+			chipName:    chipName,
+			pwmPath:     f.PWMPath,
+			rpmPath:     f.RPMPath,
+			startPWM:    f.StartPWM,
+			stopPWM:     f.StopPWM,
+			maxRPM:      f.MaxRPM,
+			isPump:      f.IsPump,
+			controlKind: f.ControlKind,
+		})
+	}
+
+	if len(doneFans) == 0 {
+		m.mu.Lock()
+		m.errMsg = "no fans responded during calibration"
+		m.mu.Unlock()
+		return
+	}
+
+	// Discover CPU/GPU temp sensors for curve generation.
+	cpuSensorName, cpuSensorPath := discoverCPUTempSensor()
+	var cpuCurrentTemp float64
+	if cpuSensorPath != "" {
+		cpuCurrentTemp, _ = hwmonpkg.ReadValue(cpuSensorPath)
+	}
+
+	// GPU temp: prefer NVML (NVIDIA), fall back to AMD GPU hwmon sensor.
+	hasGPUTemp := false
+	var gpuCurrentTemp float64
+	var gpuTempPath string // empty = NVML; non-empty = hwmon sysfs path (AMD)
+
+	if nvmlOK && nvidia.CountGPUs() > 0 {
+		hasGPUTemp = true
+		gpuCurrentTemp, _ = nvidia.ReadTemp(0)
+		// gpuTempPath stays empty: sensor is emitted as type "nvidia"
+	} else {
+		_, amdPath := discoverAMDGPUTemp()
+		if amdPath != "" {
+			hasGPUTemp = true
+			gpuTempPath = amdPath
+			gpuCurrentTemp, _ = hwmonpkg.ReadValue(amdPath)
+		}
+	}
+
+	// Build hardware profile: CPU/GPU model, TDP, thermal limits.
+	// buildConfig uses the thermal limits to set curve max temps and appends
+	// human-readable notes explaining the choices to profile.CurveNotes.
+	profile := gatherProfile(cpuSensorPath, nvmlOK, gpuTempPath)
+
+	cfg := buildConfig(doneFans, cpuSensorName, cpuSensorPath, cpuCurrentTemp, hasGPUTemp, gpuTempPath, gpuCurrentTemp, profile)
+
+	m.mu.Lock()
+	m.result = cfg
+	m.profile = profile
+	m.mu.Unlock()
+}
+
+// syncFans atomically replaces m.fans with a full copy of fans.
+func (m *Manager) syncFans(fans []FanState) {
+	snapshot := make([]FanState, len(fans))
+	copy(snapshot, fans)
+	m.mu.Lock()
+	m.fans = snapshot
+	m.mu.Unlock()
+}
+
+// fanDiscovery is an internal struct for passing calibrated fan data to buildConfig.
+type fanDiscovery struct {
+	name        string
+	fanType     string // "hwmon" or "nvidia"
+	chipName    string // hwmon chip name (e.g. "amdgpu", "nct6687"); empty for nvidia
+	pwmPath     string
+	rpmPath     string
+	startPWM    uint8
+	stopPWM     uint8 // hysteresis: lowest PWM that keeps a spinning fan spinning
+	maxRPM      int
+	isPump      bool
+	controlKind string // "rpm_target" for fan*_target channels; "" means pwm
+}
+
+// buildConfig constructs a Config from calibrated fan data and discovered sensors.
+// gpuTempPath is empty when the GPU sensor is NVML-based (nvidia type); non-empty
+// when it is an AMD hwmon sysfs path.
+// profile (may be nil) supplies hardware thermal limits for curve tuning; curve
+// design decisions are appended to profile.CurveNotes.
+func buildConfig(
+	fans []fanDiscovery,
+	cpuSensorName, cpuSensorPath string,
+	cpuCurrentTemp float64,
+	hasGPUTemp bool,
+	gpuTempPath string,
+	gpuCurrentTemp float64,
+	profile *HWProfile,
+) *config.Config {
+	cfg := &config.Config{
+		Version:      config.CurrentVersion,
+		PollInterval: config.Duration{Duration: 2 * time.Second},
+		Web:          config.Web{Listen: "0.0.0.0:9999"},
+	}
+
+	var hwmonFans, gpuFans []fanDiscovery
+	for _, f := range fans {
+		if f.fanType == "nvidia" || f.chipName == "amdgpu" {
+			gpuFans = append(gpuFans, f)
+		} else {
+			hwmonFans = append(hwmonFans, f)
+		}
+	}
+
+	// Sensors.
+	hasCPUSensor := cpuSensorPath != ""
+	if hasCPUSensor {
+		cfg.Sensors = append(cfg.Sensors, config.Sensor{
+			Name:        "cpu_temp",
+			Type:        "hwmon",
+			Path:        cpuSensorPath,
+			HwmonDevice: hwmonpkg.StableDevice(cpuSensorPath),
+		})
+	}
+	if hasGPUTemp {
+		if gpuTempPath == "" {
+			// NVML (NVIDIA)
+			cfg.Sensors = append(cfg.Sensors, config.Sensor{
+				Name:   "gpu_temp",
+				Type:   "nvidia",
+				Path:   "0",
+				Metric: "temp",
+			})
+		} else {
+			// AMD GPU hwmon
+			cfg.Sensors = append(cfg.Sensors, config.Sensor{
+				Name:        "gpu_temp",
+				Type:        "hwmon",
+				Path:        gpuTempPath,
+				HwmonDevice: hwmonpkg.StableDevice(gpuTempPath),
+			})
+		}
+	}
+
+	// Compute curve max temps from hardware thermal limits when available.
+	// CPU: TjMax/Tcrit − 15°C safety margin (clamped [75, 95]).
+	// GPU NVIDIA: slowdown threshold − 5°C (NVML already reports throttle onset).
+	// GPU AMD: junction crit − 15°C.
+	cpuMaxTemp := 85.0
+	if profile != nil && profile.CPUThermalC > 0 {
+		cpuMaxTemp = clampTemp(profile.CPUThermalC-15, 75, 95)
+		profile.CurveNotes = append(profile.CurveNotes,
+			fmt.Sprintf("cpu_curve max: %.0f°C  (TjMax %.0f°C − 15°C margin)", cpuMaxTemp, profile.CPUThermalC))
+	} else {
+		profile.CurveNotes = append(profile.CurveNotes,
+			"cpu_curve max: 85°C  (default — CPU thermal limit not detected)")
+	}
+
+	gpuMaxTemp := 85.0
+	if profile != nil && profile.GPUThermalC > 0 {
+		margin := 15.0
+		basis := "crit"
+		if gpuTempPath == "" { // NVML — slowdown is already the throttle point
+			margin = 5.0
+			basis = "slowdown"
+		}
+		gpuMaxTemp = clampTemp(profile.GPUThermalC-margin, 75, 95)
+		profile.CurveNotes = append(profile.CurveNotes,
+			fmt.Sprintf("gpu_curve max: %.0f°C  (%s %.0f°C − %.0f°C margin)", gpuMaxTemp, basis, profile.GPUThermalC, margin))
+	} else if hasGPUTemp || len(gpuFans) > 0 {
+		profile.CurveNotes = append(profile.CurveNotes,
+			"gpu_curve max: 85°C  (default — GPU thermal limit not detected)")
+	}
+
+	// Curves.
+	// Use fixed temperature floors rather than current-temp + offset so the
+	// generated config behaves identically regardless of system load at setup time.
+	const cpuMinTemp = 40.0 // fans silent below 40°C
+	const gpuMinTemp = 50.0 // GPU fans silent below 50°C
+	if hasCPUSensor && len(hwmonFans) > 0 {
+		minPWM := minStartPWM(hwmonFans)
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:    "cpu_curve",
+			Type:    "linear",
+			Sensor:  "cpu_temp",
+			MinTemp: cpuMinTemp,
+			MaxTemp: cpuMaxTemp,
+			MinPWM:  minPWM,
+			MaxPWM:  255,
+		})
+	} else if len(hwmonFans) > 0 {
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:  "cpu_curve",
+			Type:  "fixed",
+			Value: 153, // ~60%
+		})
+	}
+
+	if hasGPUTemp && len(gpuFans) > 0 {
+		minPWM := minStartPWM(gpuFans)
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:    "gpu_curve",
+			Type:    "linear",
+			Sensor:  "gpu_temp",
+			MinTemp: gpuMinTemp,
+			MaxTemp: gpuMaxTemp,
+			MinPWM:  minPWM,
+			MaxPWM:  255,
+		})
+	} else if len(gpuFans) > 0 {
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:  "gpu_curve",
+			Type:  "fixed",
+			Value: 153,
+		})
+	}
+
+	// case_curve: max(cpu_curve, gpu_curve) for fans that should respond to
+	// both CPU and GPU temperatures. Only created when both sensors AND hwmon
+	// fans exist — cpu_curve is only generated when len(hwmonFans) > 0.
+	hasCaseCurve := hasCPUSensor && hasGPUTemp && len(hwmonFans) > 0
+	if hasCaseCurve {
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:     "case_curve",
+			Type:     "mix",
+			Function: "max",
+			Sources:  []string{"cpu_curve", "gpu_curve"},
+		})
+	}
+
+	// Emit a pump_curve if any hwmon fan was identified as a pump.
+	hasPumpFan := false
+	for _, f := range hwmonFans {
+		if f.isPump {
+			hasPumpFan = true
+			break
+		}
+	}
+	if hasPumpFan {
+		cfg.Curves = append(cfg.Curves, config.CurveConfig{
+			Name:  "pump_curve",
+			Type:  "fixed",
+			Value: 204, // ~80% PWM — pumps run best at constant high speed
+		})
+	}
+
+	// Fans and Controls.
+	for _, f := range hwmonFans {
+		// Use stop_pwm as the MinPWM floor for normal operation (fan stays spinning
+		// above this threshold). Fall back to start_pwm, then a safe default.
+		minPWM := f.stopPWM
+		if minPWM == 0 {
+			minPWM = f.startPWM
+		}
+		if minPWM == 0 {
+			minPWM = 20
+		}
+
+		fanEntry := config.Fan{
+			Name:        f.name,
+			Type:        "hwmon",
+			PWMPath:     f.pwmPath,
+			RPMPath:     f.rpmPath,
+			HwmonDevice: hwmonpkg.StableDevice(f.pwmPath),
+			ControlKind: f.controlKind,
+			MinPWM:      minPWM,
+			MaxPWM:      255,
+		}
+
+		curveName := "cpu_curve"
+		if f.isPump {
+			pumpMin := uint8(config.MinPumpPWM)
+			if minPWM > pumpMin {
+				pumpMin = minPWM
+			}
+			fanEntry.IsPump = true
+			fanEntry.PumpMinimum = pumpMin
+			fanEntry.MinPWM = pumpMin
+			curveName = "pump_curve"
+		} else if hasCaseCurve && isCaseFan(f.name) {
+			curveName = "case_curve"
+		}
+
+		cfg.Fans = append(cfg.Fans, fanEntry)
+		cfg.Controls = append(cfg.Controls, config.Control{
+			Fan:   f.name,
+			Curve: curveName,
+		})
+	}
+	for _, f := range gpuFans {
+		minPWM := f.stopPWM
+		if minPWM == 0 {
+			minPWM = f.startPWM
+		}
+		if minPWM == 0 {
+			minPWM = 20
+		}
+		fanEntry := config.Fan{
+			Name:        f.name,
+			Type:        f.fanType,
+			PWMPath:     f.pwmPath,
+			ControlKind: f.controlKind,
+			MinPWM:      minPWM,
+			MaxPWM:      255,
+		}
+		if f.fanType == "hwmon" {
+			// AMD GPU: include RPM path, stable device, and control kind.
+			fanEntry.RPMPath = f.rpmPath
+			fanEntry.HwmonDevice = hwmonpkg.StableDevice(f.pwmPath)
+		}
+		cfg.Fans = append(cfg.Fans, fanEntry)
+		cfg.Controls = append(cfg.Controls, config.Control{
+			Fan:   f.name,
+			Curve: "gpu_curve",
+		})
+	}
+
+	return cfg
+}
+
+// isCaseFan returns true for fans whose names suggest they are chassis/system
+// fans (SYS_FAN, CHA_FAN, CASE_FAN, etc.) rather than CPU or GPU fans.
+func isCaseFan(name string) bool {
+	lower := strings.ToLower(name)
+	for _, kw := range []string{"sys", "cha", "case"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// testPWMWritable verifies that a pwmN sysfs path is actually writable by
+// attempting to set manual mode (or writing the current value directly for
+// drivers that lack pwm_enable). Restores the original mode on return.
+// This is needed for AMD GPU hwmon entries where some driver versions expose
+// pwmN files that are read-only or not controllable.
+func testPWMWritable(pwmPath string) bool {
+	current, err := hwmonpkg.ReadPWM(pwmPath)
+	if err != nil {
+		return false
+	}
+	origEnable, enableErr := hwmonpkg.ReadPWMEnable(pwmPath)
+	if enableErr == nil {
+		// Driver has pwm_enable — try taking manual control.
+		if err := hwmonpkg.WritePWMEnable(pwmPath, 1); err != nil {
+			return false
+		}
+		// Restore original enable mode.
+		_ = hwmonpkg.WritePWMEnable(pwmPath, origEnable)
+	} else {
+		// No pwm_enable — try writing the current value directly.
+		if err := hwmonpkg.WritePWM(pwmPath, current); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// discoveredControl describes one writable fan control channel found during setup.
+type discoveredControl struct {
+	path string
+	kind string // "" or "pwm" → standard pwm* duty-cycle; "rpm_target" → fan*_target RPM setpoint
+}
+
+// discoverHwmonControls returns all writable hwmon fan control channels, sorted
+// numerically so hwmon2/pwm1 always comes before hwmon10/pwm2.
+//
+// Two control types are discovered:
+//   - pwm[N]      — standard PWM duty-cycle (0–255), the common case
+//   - fan[N]_target — RPM setpoint (pre-RDNA AMD amdgpu cards); only included
+//     when no writable pwm[N] covers the same channel index
+func discoverHwmonControls() []discoveredControl {
+	entries, err := os.ReadDir("/sys/class/hwmon")
+	if err != nil {
+		return nil
+	}
+	var ctrls []discoveredControl
+	for _, e := range entries {
+		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		// Skip NVIDIA GPU hwmon entries — those fans are controlled via NVML,
+		// not via sysfs PWM, to avoid duplicate discovery when NVML is available.
+		if readTrimmed(filepath.Join(dir, "name")) == "nvidia" {
+			continue
+		}
+
+		// Pass 1: standard pwm[N] channels.
+		pwmChannels := make(map[string]bool) // channel numbers with writable pwm
+		matches, _ := filepath.Glob(filepath.Join(dir, "pwm[1-9]*"))
+		for _, p := range matches {
+			suffix := strings.TrimPrefix(filepath.Base(p), "pwm")
+			if _, err := strconv.Atoi(suffix); err != nil {
+				continue // skip pwmN_enable, pwmN_mode, etc.
+			}
+			if _, err := os.Stat(p); err == nil && testPWMWritable(p) {
+				ctrls = append(ctrls, discoveredControl{path: p, kind: "pwm"})
+				pwmChannels[suffix] = true
+			}
+		}
+
+		// Pass 2: fan[N]_target channels for cards that use RPM setpoints.
+		// Only include a fan*_target when no writable pwm* covers the same index.
+		targets, _ := filepath.Glob(filepath.Join(dir, "fan[1-9]*_target"))
+		for _, p := range targets {
+			base := filepath.Base(p)
+			num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+			if _, notDigit := strconv.Atoi(num); notDigit != nil {
+				continue
+			}
+			if pwmChannels[num] {
+				continue // already covered by a writable pwm channel
+			}
+			if testFanTargetWritable(p) {
+				ctrls = append(ctrls, discoveredControl{path: p, kind: "rpm_target"})
+			}
+		}
+	}
+
+	paths := make([]string, len(ctrls))
+	for i, c := range ctrls {
+		paths[i] = c.path
+	}
+	sortPathsNumerically(paths)
+
+	// Re-order ctrls to match the sorted path order.
+	sorted := make([]discoveredControl, len(ctrls))
+	idx := make(map[string]discoveredControl, len(ctrls))
+	for _, c := range ctrls {
+		idx[c.path] = c
+	}
+	for i, p := range paths {
+		sorted[i] = idx[p]
+	}
+	return sorted
+}
+
+// testFanTargetWritable verifies that a fan*_target sysfs path is writable
+// by reading the current value and writing it back unchanged.
+func testFanTargetWritable(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	current, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	d := strconv.AppendInt(nil, int64(current), 10)
+	d = append(d, '\n')
+	return os.WriteFile(path, d, 0) == nil
+}
+
+var numRe = regexp.MustCompile(`\d+`)
+
+// sortPathsNumerically sorts sysfs paths by their embedded integers, so
+// hwmon2/pwm1 < hwmon2/pwm2 < hwmon10/pwm1 instead of lexicographic order.
+func sortPathsNumerically(paths []string) {
+	key := func(p string) []int {
+		var nums []int
+		for _, m := range numRe.FindAllString(p, -1) {
+			n, _ := strconv.Atoi(m)
+			nums = append(nums, n)
+		}
+		return nums
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		a, b := key(paths[i]), key(paths[j])
+		for k := 0; k < len(a) && k < len(b); k++ {
+			if a[k] != b[k] {
+				return a[k] < b[k]
+			}
+		}
+		return len(a) < len(b)
+	})
+}
+
+// hwmonFanName derives a friendly fan name from a pwm* or fan*_target sysfs path.
+// It first tries the fan*_label sysfs file; if absent it falls back to
+// "Fan N" or "<CHIP> Fan N" to avoid collisions across multiple chips.
+func hwmonFanName(controlPath string) string {
+	dir := filepath.Dir(controlPath)
+	base := filepath.Base(controlPath)
+
+	// Extract the channel number from either "pwmN" or "fanN_target".
+	var channel string
+	if strings.HasPrefix(base, "pwm") {
+		channel = strings.TrimPrefix(base, "pwm")
+	} else if strings.HasPrefix(base, "fan") && strings.HasSuffix(base, "_target") {
+		channel = strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+	}
+
+	// Prefer the driver-provided fan label (e.g. "SYS FAN1", "CPU FAN").
+	if channel != "" {
+		if label := readTrimmed(filepath.Join(dir, "fan"+channel+"_label")); label != "" {
+			return titleCaseWords(label)
+		}
+	}
+
+	// Fall back to a short chip-prefixed name to avoid collisions.
+	chip := strings.ToUpper(readTrimmed(filepath.Join(dir, "name")))
+	if chip == "" {
+		chip = strings.ToUpper(filepath.Base(dir))
+	}
+	if channel != "" {
+		return chip + " Fan " + channel
+	}
+	return chip + " Fan"
+}
+
+// titleCaseWords title-cases each space-separated word without external deps.
+func titleCaseWords(s string) string {
+	words := strings.Fields(s)
+	for i, w := range words {
+		if len(w) == 0 {
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+	}
+	return strings.Join(words, " ")
+}
+
+// discoverCPUTempSensor looks for a CPU temperature sensor.
+//
+// Pass 1: well-known CPU-native chip names — these always represent CPU temps.
+// Pass 2: any non-GPU hwmon device with a label indicating CPU/package temp.
+// Pass 3: ACPI thermal zone (acpitz) as a last resort — present on virtually
+//
+//	all x86 systems, though less accurate than coretemp/k10temp.
+func discoverCPUTempSensor() (name, path string) {
+	entries, _ := os.ReadDir("/sys/class/hwmon")
+
+	// cpuChips are chip driver names that exclusively report CPU temperatures.
+	// k8temp: older AMD K8/K10 (pre-Zen); zenpower/zenpower2: out-of-tree AMD Zen;
+	// cpu_thermal: ARM SoC thermal driver; aml_thermal/mtk_thermal: ARM vendor thermals.
+	cpuChips := map[string]bool{
+		"coretemp":    true,
+		"k10temp":     true,
+		"k8temp":      true,
+		"zenpower":    true,
+		"zenpower2":   true,
+		"cpu_thermal": true,
+		"aml_thermal": true,
+		"mtk_thermal": true,
+	}
+
+	// Pass 1: known CPU chip names — prefer package/die temp labels.
+	for _, e := range entries {
+		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		chip := readTrimmed(filepath.Join(dir, "name"))
+		if !cpuChips[chip] {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(dir, "temp*_input"))
+		sort.Strings(matches)
+		for _, p := range matches {
+			base := strings.TrimSuffix(filepath.Base(p), "_input")
+			label := strings.ToLower(readTrimmed(filepath.Join(dir, base+"_label")))
+			if strings.Contains(label, "package") ||
+				strings.Contains(label, "tdie") ||
+				strings.Contains(label, "tccd") {
+				return chip + " Package", p
+			}
+		}
+		if len(matches) > 0 {
+			return chip, matches[0]
+		}
+	}
+
+	// Pass 2: generic fallback — labeled CPU/package temp on any non-GPU chip.
+	// acpitz is excluded here because it has no useful per-sensor labels;
+	// it is tried as a last resort in pass 3.
+	skipChips := map[string]bool{"amdgpu": true, "nvidia": true, "nouveau": true, "radeon": true, "acpitz": true}
+	for _, e := range entries {
+		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		chip := readTrimmed(filepath.Join(dir, "name"))
+		if skipChips[chip] {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(dir, "temp*_input"))
+		sort.Strings(matches)
+		for _, p := range matches {
+			base := strings.TrimSuffix(filepath.Base(p), "_input")
+			label := strings.ToLower(readTrimmed(filepath.Join(dir, base+"_label")))
+			if strings.Contains(label, "package") ||
+				strings.Contains(label, "tdie") ||
+				strings.Contains(label, "tccd") ||
+				strings.Contains(label, "cpu") {
+				return chip + " " + label, p
+			}
+		}
+	}
+
+	// Pass 3: ACPI thermal zone — present on virtually all x86 systems.
+	// Less accurate than coretemp/k10temp but better than nothing.
+	for _, e := range entries {
+		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		if readTrimmed(filepath.Join(dir, "name")) != "acpitz" {
+			continue
+		}
+		p := filepath.Join(dir, "temp1_input")
+		if _, err := os.Stat(p); err == nil {
+			return "ACPI Thermal", p
+		}
+	}
+
+	return "", ""
+}
+
+// discoverAMDGPUTemp returns the best AMD GPU temperature sensor path.
+// Prefers junction/hotspot (temp2_input) over edge (temp1_input).
+func discoverAMDGPUTemp() (name, path string) {
+	entries, _ := os.ReadDir("/sys/class/hwmon")
+	for _, e := range entries {
+		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		if readTrimmed(filepath.Join(dir, "name")) != "amdgpu" {
+			continue
+		}
+		// Prefer junction temperature (hotter, safer threshold) over edge.
+		for _, candidate := range []string{"temp2_input", "temp1_input"} {
+			p := filepath.Join(dir, candidate)
+			if _, err := os.Stat(p); err == nil {
+				base := strings.TrimSuffix(candidate, "_input")
+				label := readTrimmed(filepath.Join(dir, base+"_label"))
+				if label == "" {
+					label = "GPU"
+				}
+				return "amdgpu " + label, p
+			}
+		}
+	}
+	return "", ""
+}
+
+// gatherProfile reads CPU/GPU hardware metadata for curve tuning and display.
+func gatherProfile(cpuSensorPath string, nvmlOK bool, gpuTempPath string) *HWProfile {
+	p := &HWProfile{}
+	p.CPUModel = readCPUModel()
+	p.CPUTDPW = readRAPLTDPW()
+	if cpuSensorPath != "" {
+		p.CPUThermalC = readHwmonCritC(cpuSensorPath)
+	}
+	if nvmlOK {
+		gpuCount := nvidia.CountGPUs()
+		for i := 0; i < gpuCount; i++ {
+			gp := GPUProfile{
+				Index:    i,
+				Model:    nvidia.GPUName(uint(i)),
+				PowerW:   nvidia.PowerLimitW(uint(i)),
+				ThermalC: nvidia.SlowdownThreshold(uint(i)),
+			}
+			p.GPUs = append(p.GPUs, gp)
+			if i == 0 {
+				// Keep top-level fields pointing at GPU 0 so buildConfig
+				// and existing web-UI consumers need no changes.
+				p.GPUModel = gp.Model
+				p.GPUPowerW = gp.PowerW
+				p.GPUThermalC = gp.ThermalC
+			}
+		}
+	} else if gpuTempPath != "" {
+		dir := filepath.Dir(gpuTempPath)
+		amd := GPUProfile{
+			Index:    0,
+			Model:    "AMD GPU",
+			PowerW:   readAMDGPUPowerW(dir),
+			ThermalC: readAMDGPUCritC(gpuTempPath),
+		}
+		p.GPUs = append(p.GPUs, amd)
+		p.GPUModel = amd.Model
+		p.GPUPowerW = amd.PowerW
+		p.GPUThermalC = amd.ThermalC
+	}
+	return p
+}
+
+// readCPUModel returns the CPU model name from /proc/cpuinfo.
+func readCPUModel() string {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.SplitN(string(data), "\n", 50) {
+		if strings.HasPrefix(line, "model name") {
+			if i := strings.IndexByte(line, ':'); i >= 0 {
+				return strings.TrimSpace(line[i+1:])
+			}
+		}
+	}
+	return ""
+}
+
+// readRAPLTDPW reads the CPU package TDP from Intel RAPL in watts.
+// Returns 0 if unavailable (e.g. AMD CPUs, no RAPL support).
+func readRAPLTDPW() int {
+	for _, p := range []string{
+		"/sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_power_limit_uw",
+		"/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw",
+	} {
+		if data := readTrimmed(p); data != "" {
+			uw, err := strconv.ParseInt(data, 10, 64)
+			if err == nil && uw > 0 {
+				return int(uw / 1_000_000)
+			}
+		}
+	}
+	return 0
+}
+
+// readHwmonCritC returns the critical temperature (°C) for the sensor at sensorPath.
+// Tries the matching _crit file first, then scans for a package/tdie-labeled _crit.
+func readHwmonCritC(sensorPath string) float64 {
+	// Try the direct _crit counterpart of the sensor file.
+	critPath := strings.TrimSuffix(sensorPath, "_input") + "_crit"
+	if v := parseMilliC(readTrimmed(critPath)); v > 0 {
+		return v
+	}
+	// Scan all temp*_crit in the dir for a package/tdie label.
+	dir := filepath.Dir(sensorPath)
+	crits, _ := filepath.Glob(filepath.Join(dir, "temp*_crit"))
+	for _, c := range crits {
+		base := strings.TrimSuffix(filepath.Base(c), "_crit")
+		label := strings.ToLower(readTrimmed(filepath.Join(dir, base+"_label")))
+		if strings.Contains(label, "package") || strings.Contains(label, "tdie") {
+			if v := parseMilliC(readTrimmed(c)); v > 0 {
+				return v
+			}
+		}
+	}
+	return 0
+}
+
+// readAMDGPUPowerW returns the current AMD GPU power limit in watts from hwmon.
+func readAMDGPUPowerW(hwmonDir string) int {
+	data := readTrimmed(filepath.Join(hwmonDir, "power1_cap"))
+	if data == "" {
+		return 0
+	}
+	uw, err := strconv.ParseInt(data, 10, 64)
+	if err != nil || uw <= 0 {
+		return 0
+	}
+	return int(uw / 1_000_000)
+}
+
+// readAMDGPUCritC returns the critical temperature for an AMD GPU temp sysfs path.
+func readAMDGPUCritC(sensorPath string) float64 {
+	critPath := strings.TrimSuffix(sensorPath, "_input") + "_crit"
+	return parseMilliC(readTrimmed(critPath))
+}
+
+// parseMilliC converts a millidegree Celsius string (as used in sysfs) to °C.
+func parseMilliC(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	mc, err := strconv.ParseFloat(s, 64)
+	if err != nil || mc <= 0 {
+		return 0
+	}
+	return mc / 1000.0
+}
+
+// minCurvePWM returns the lowest PWM to use as a curve floor across the given
+// fans. It prefers stop_pwm (the minimum to keep a running fan spinning) over
+// start_pwm (the kick needed from standstill), since during normal operation
+// the fan is already running and the lower stop_pwm is sufficient.
+func minStartPWM(fans []fanDiscovery) uint8 {
+	best := uint8(255)
+	found := false
+	for _, f := range fans {
+		// Prefer stop_pwm; fall back to start_pwm.
+		candidate := f.stopPWM
+		if candidate == 0 {
+			candidate = f.startPWM
+		}
+		if candidate > 0 {
+			if !found || candidate < best {
+				best = candidate
+				found = true
+			}
+		}
+	}
+	if !found {
+		return 20
+	}
+	return best
+}
+
+func clampTemp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return math.Round(v)
+}
+
+func readTrimmed(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}

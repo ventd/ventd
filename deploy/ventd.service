@@ -1,0 +1,23 @@
+[Unit]
+Description=Fan Control Daemon
+Documentation=https://github.com/ventd/ventd
+After=local-fs.target
+# Restart if the daemon crashes; systemd will call Restore via the binary's
+# deferred cleanup, but a future milestone will add ExecStopPost for SIGKILL safety.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ventd -config /etc/ventd/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+# Route stdout/stderr to journald. View with: journalctl -u ventd -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ventd
+# Needs root to write to /sys/class/hwmon.
+# Future milestone: drop to a dedicated user with targeted udev rules.
+User=root
+
+[Install]
+WantedBy=multi-user.target

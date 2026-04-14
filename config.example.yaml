@@ -1,0 +1,108 @@
+# ventd configuration — MS-7D25 (MSI MAG Z790 / i9-13900K / RTX 4090)
+#
+# Hardware notes:
+#   Fan controller: Nuvoton NCT6687D via out-of-tree nct6687d module (hwmon6)
+#   Source: https://github.com/Fred78290/nct6687d
+#   NOTE: Install with DKMS for kernel-update resilience. Module must be
+#   rebuilt manually after kernel upgrades if not registered with DKMS:
+#     cd /path/to/nct6687d && sudo make install && sudo modprobe nct6687d
+#
+#   Module persistence (run once — replaces nct6683):
+#     sudo sed -i 's/nct6683/nct6687d/' /etc/modules
+#     # or if nct6683 line is absent: echo "nct6687d" | sudo tee -a /etc/modules
+#
+#   Active fan headers detected (RPM > 0 at idle):
+#     hwmon6/pwm1 → fan1 (1224 RPM @ pwm=88)  — CPU_FAN1 (confirmed)
+#     hwmon6/pwm3 → fan3 (1702 RPM @ pwm=138) — likely SYS_FAN1
+#     hwmon6/pwm4 → fan4 (1809 RPM @ pwm=138) — likely SYS_FAN2
+
+poll_interval: 2s
+
+web:
+  listen: 0.0.0.0:9999       # binds all interfaces — restrict to 127.0.0.1 if behind a reverse proxy
+  password_hash: ""           # set by the web UI on first boot; do not edit manually
+  # tls_cert: /etc/ventd/cert.pem   # optional: enable HTTPS directly
+  # tls_key:  /etc/ventd/key.pem    # optional: enable HTTPS directly
+  session_ttl: 24h
+
+sensors:
+  - name: cpu_package
+    type: hwmon
+    # i9-13900K Package id 0 via coretemp driver (confirmed hwmon4)
+    # Verify: cat /sys/class/hwmon/hwmon4/temp1_label  → "Package id 0"
+    path: /sys/class/hwmon/hwmon4/temp1_input
+
+  - name: gpu_0
+    type: nvidia
+    # RTX 4090 — GPU index (0-based). Requires NVIDIA driver and libnvidia-ml.so.
+    # Verify GPU index: nvidia-smi --query-gpu=index,name --format=csv
+    path: "0"
+
+fans:
+  - name: cpu_fan
+    type: hwmon
+    # CPU_FAN1 header — confirm this is your CPU cooler before enabling.
+    # At idle: fan1=1224 RPM, pwm1=88 (~34%). Hypothesis: CPU_FAN1 header.
+    pwm_path: /sys/class/hwmon/hwmon6/pwm1
+    min_pwm: 30    # ~12% — tune to your cooler's minimum reliable spin speed
+    max_pwm: 255   # 100%
+
+  - name: sys_fan1
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon6/pwm3
+    min_pwm: 40    # case fans get slightly higher floor for airflow
+    max_pwm: 255
+
+  - name: sys_fan2
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon6/pwm4
+    min_pwm: 40
+    max_pwm: 255
+
+  # Pump example — is_pump enforces min_pwm >= pump_minimum in schema:
+  # - name: aio_pump
+  #   type: hwmon
+  #   pwm_path: /sys/class/hwmon/hwmon6/pwm2
+  #   min_pwm: 51
+  #   max_pwm: 255
+  #   is_pump: true
+  #   pump_minimum: 51
+
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu_package
+    min_temp: 40.0   # °C at or below → min_pwm
+    max_temp: 80.0   # °C at or above → max_pwm
+    min_pwm: 30
+    max_pwm: 255
+
+  - name: case_linear
+    type: linear
+    sensor: cpu_package
+    min_temp: 40.0   # case fans ramp at the same threshold
+    max_temp: 75.0   # but reach max_pwm 5°C sooner — more airflow under load
+    min_pwm: 40
+    max_pwm: 255
+
+  - name: gpu_linear
+    type: linear
+    sensor: gpu_0
+    min_temp: 40.0   # °C at or below → min_pwm
+    max_temp: 80.0   # °C at or above → max_pwm
+    min_pwm: 40
+    max_pwm: 255
+
+  # case_mix drives case fans at max(cpu, gpu) so either component can demand airflow.
+  - name: case_mix
+    type: mix
+    function: max
+    sources: [case_linear, gpu_linear]
+
+controls:
+  - fan: cpu_fan
+    curve: cpu_linear
+  - fan: sys_fan1
+    curve: case_linear
+  - fan: sys_fan2
+    curve: case_linear

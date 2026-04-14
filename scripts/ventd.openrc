@@ -1,0 +1,18 @@
+#!/sbin/openrc-run
+# OpenRC init script for ventd — hardware fan control daemon
+# Installed to /etc/init.d/ventd
+
+name="ventd"
+description="Ventd — hardware fan control daemon"
+command="/usr/local/bin/ventd"
+command_args="--config /etc/ventd/config.yaml"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background="true"
+output_log="/var/log/ventd.log"
+error_log="/var/log/ventd.log"
+
+depend() {
+    need localmount
+    use net logger
+    after modules
+}

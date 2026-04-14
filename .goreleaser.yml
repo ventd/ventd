@@ -1,0 +1,88 @@
+version: 2
+
+project_name: ventd
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ventd
+    main: ./cmd/ventd
+    binary: ventd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - config.example.yaml
+      - deploy/ventd.service
+      - scripts/ventd.openrc
+      - scripts/ventd.runit
+      - scripts/install.sh
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+nfpms:
+  - id: ventd-pkg
+    package_name: ventd
+    vendor: ventd
+    homepage: https://github.com/ventd/ventd
+    maintainer: ventd maintainers <maintainers@ventd.io>
+    description: |
+      Automatic Linux fan control daemon. Auto-detects hardware,
+      auto-calibrates, auto-recovers — set and forget.
+    license: GPL-3.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/local/bin
+    contents:
+      - src: deploy/ventd.service
+        dst: /lib/systemd/system/ventd.service
+      - src: config.example.yaml
+        dst: /etc/ventd/config.example.yaml
+        type: config
+    scripts:
+      postinstall: scripts/postinstall.sh
+      preremove: scripts/preremove.sh
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: ventd
+    name: ventd
+  draft: true
+  prerelease: auto
+  name_template: "ventd {{.Version}}"

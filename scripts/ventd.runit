@@ -1,0 +1,4 @@
+#!/bin/sh
+# runit run script for ventd — hardware fan control daemon
+# Installed to /etc/sv/ventd/run
+exec /usr/local/bin/ventd --config /etc/ventd/config.yaml 2>&1

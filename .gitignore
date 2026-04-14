@@ -1,0 +1,32 @@
+# Build output
+/ventd
+/bin/
+/dist/
+
+# Go test artifacts
+*.test
+*.out
+cover.html
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Local development notes (not public)
+/STRATEGY.md
+/HARDWARE-TODO.md
+/TODO.md
+/REVIEW.md
+/REVIEW-FINDINGS.md
+/COWORK-TODO.md
+/exampleui.png
+/issue1.png
+
+# Internal dev tooling
+/scripts/provision-test-vms.sh
