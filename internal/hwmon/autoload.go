@@ -9,8 +9,28 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
+
+// persistWarned gates the module-persist log level: the first failure for a
+// given module name is logged at INFO with the full reason; every later
+// failure for that same module drops to DEBUG. The sandboxed unit cannot
+// write /etc/modules-load.d/ventd.conf, so the warning would otherwise fire
+// on every start without surfacing new information. Keyed on module name so
+// multiple distinct modules still each get their one informational line.
+var persistWarned sync.Map
+
+// logPersistFailure routes the persist-module error to INFO on the first
+// occurrence per module and to DEBUG thereafter. sync.Map.LoadOrStore is the
+// atomic one-shot we want here — sync.Once can't handle a dynamic key set.
+func logPersistFailure(logger *slog.Logger, module string, err error) {
+	if _, loaded := persistWarned.LoadOrStore(module, struct{}{}); loaded {
+		logger.Debug("could not persist hwmon module", "module", module, "err", err)
+		return
+	}
+	logger.Info("could not persist hwmon module", "module", module, "err", err)
+}
 
 // candidate describes one module-load attempt.
 type candidate struct {
@@ -173,7 +193,7 @@ func AutoloadModules(logger *slog.Logger) {
 			"count", len(existing), "example", existing[0])
 		if module := moduleFromPath(existing[0]); module != "" {
 			if err := persistModule(module, ""); err != nil {
-				logger.Warn("could not persist hwmon module", "module", module, "err", err)
+				logPersistFailure(logger, module, err)
 			}
 		}
 		return
@@ -272,7 +292,7 @@ func tryModuleCandidates(logger *slog.Logger, candidates []candidate) bool {
 		logger.Info("hwmon module loaded successfully",
 			"module", c.module, "options", c.options, "pwm_channels", countControllablePWM(pwmPaths))
 		if err := persistModule(c.module, c.options); err != nil {
-			logger.Warn("could not persist hwmon module", "module", c.module, "err", err)
+			logPersistFailure(logger, c.module, err)
 		}
 		return true
 	}
