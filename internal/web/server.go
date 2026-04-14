@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,19 +25,37 @@ import (
 	setupmgr "github.com/ventd/ventd/internal/setup"
 )
 
+// SetupTokenTTL bounds how long the first-boot setup token stays valid.
+// After this window the token is wiped from memory; an operator must
+// restart the daemon to mint a new one.
+const SetupTokenTTL = 15 * time.Minute
+
+// LoginFailThreshold and LoginLockoutDuration tune the per-IP brute
+// force guard on /login. Values chosen to deter online guessing without
+// locking out a user who mistypes their password a couple of times.
+const (
+	LoginFailThreshold   = 5
+	LoginLockoutDuration = 15 * time.Minute
+)
+
 type Server struct {
 	cfg        *atomic.Pointer[config.Config]
 	configPath string
 	logger     *slog.Logger
 	mux        *http.ServeMux
+	handler    http.Handler
 	httpSrv    *http.Server
 	cal        *calibrate.Manager
 	setup      *setupmgr.Manager
 	restartCh  chan<- struct{}
 	sessions   *sessionStore
-	setupToken string // one-time first-boot token; empty once password is set
+	setupMu    sync.Mutex
+	setupToken string    // one-time first-boot token; empty once consumed or expired
+	setupExp   time.Time // zero when no token
 	diag       *hwdiag.Store
 	ctx        context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
+	loginLim   *loginLimiter
+	tlsActive  bool // server serves TLS directly; gates HSTS
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -57,6 +77,14 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		setupToken: setupToken,
 		diag:       diag,
 		ctx:        ctx,
+		loginLim:   newLoginLimiter(LoginFailThreshold, LoginLockoutDuration),
+	}
+	if setupToken != "" {
+		s.setupExp = time.Now().Add(SetupTokenTTL)
+		// Auto-invalidate on expiry so a leaked token stops working even
+		// if the operator never logs in. One-shot — the daemon can't
+		// silently re-mint it without restart.
+		go s.expireSetupToken(ctx)
 	}
 
 	// Unauthenticated endpoints.
@@ -86,7 +114,77 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s.mux.HandleFunc("/api/hwdiag/install-dkms", auth(s.handleInstallDKMS))
 	s.mux.HandleFunc("/api/hwdiag/mok-enroll", auth(s.handleMOKEnroll))
 	s.mux.HandleFunc("/", auth(s.handleUI))
+
+	// Compose middleware around the mux: security headers → origin check → mux.
+	// Origin check runs after headers so rejected responses still carry
+	// nosniff / CSP. CSRF/Origin wraps the mux so every mutation path
+	// (config PUT, setup apply/reset, reboot, set-password, …) inherits it
+	// without per-handler opt-in. tlsActive is detected per-request via r.TLS.
+	s.handler = securityHeaders()(originCheck(logger)(s.mux))
 	return s
+}
+
+// expireSetupToken wipes the first-boot token from memory when its TTL
+// lapses or the daemon shuts down. Safe against races with consumption —
+// consumeSetupToken holds the same mutex.
+func (s *Server) expireSetupToken(ctx context.Context) {
+	s.setupMu.Lock()
+	exp := s.setupExp
+	s.setupMu.Unlock()
+	if exp.IsZero() {
+		return
+	}
+	timer := time.NewTimer(time.Until(exp))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+	}
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	if s.setupToken == "" {
+		return
+	}
+	s.setupToken = ""
+	s.setupExp = time.Time{}
+	s.logger.Warn("web: first-boot setup token expired; restart ventd to mint a new one")
+}
+
+// consumeSetupToken returns true iff provided matches the live token and
+// the token has not expired. Compares in constant time against a padded
+// copy to avoid leaking length via early-exit timing. Does NOT clear the
+// token — caller decides when the first-boot flow has actually succeeded.
+func (s *Server) consumeSetupToken(provided string) bool {
+	s.setupMu.Lock()
+	defer s.setupMu.Unlock()
+	if s.setupToken == "" {
+		return false
+	}
+	if !s.setupExp.IsZero() && time.Now().After(s.setupExp) {
+		s.setupToken = ""
+		s.setupExp = time.Time{}
+		return false
+	}
+	a := []byte(provided)
+	b := []byte(s.setupToken)
+	if len(a) != len(b) {
+		// Length check first avoids the obvious length oracle; run a dummy
+		// constant-time compare against a padded buffer so attackers cannot
+		// distinguish length-mismatch rejects from content-mismatch ones by
+		// timing the response path.
+		pad := make([]byte, len(b))
+		subtle.ConstantTimeCompare(pad, b)
+		return false
+	}
+	return subtle.ConstantTimeCompare(a, b) == 1
+}
+
+func (s *Server) clearSetupToken() {
+	s.setupMu.Lock()
+	s.setupToken = ""
+	s.setupExp = time.Time{}
+	s.setupMu.Unlock()
 }
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
@@ -133,8 +231,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(loginHTML))
 
 	case http.MethodPost:
+		// Cap login form bodies before parsing so a huge payload cannot
+		// exhaust memory on an unauthenticated endpoint.
+		limitBody(w, r, 64<<10)
 		if err := r.ParseForm(); err != nil {
+			if isMaxBytesErr(err) {
+				http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		ipKey := clientIP(r)
+		if ok, retryAfter := s.loginLim.allow(ipKey); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			s.writeJSON(r, w, map[string]string{"error": "too many failed attempts; try again later"})
 			return
 		}
 
@@ -146,7 +260,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			// If the client sent a setup token, process first-boot login.
 			// Otherwise just tell the UI we're in first-boot mode.
 			if r.FormValue("setup_token") != "" {
-				s.handleFirstBootLogin(w, r, live)
+				s.handleFirstBootLogin(w, r, live, ipKey)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -158,19 +272,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// Normal login: check password.
 		password := r.FormValue("password")
 		if !checkPassword(live.Web.PasswordHash, password) {
-			s.logger.Warn("web: failed login attempt", "remote", r.RemoteAddr)
+			locked := s.loginLim.recordFailure(ipKey)
+			if locked {
+				s.logger.Warn("web: login lockout", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", LoginLockoutDuration)
+			} else {
+				s.logger.Warn("web: failed login attempt", "remote", r.RemoteAddr)
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			s.writeJSON(r, w, map[string]string{"error": "incorrect password"})
 			return
 		}
 
+		s.loginLim.recordSuccess(ipKey)
 		tok, err := s.sessions.create()
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		setSessionCookie(w, tok, live.Web.SessionTTL.Duration)
+		setSessionCookie(w, tok, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
 		s.logger.Info("web: login successful", "remote", r.RemoteAddr)
 		s.writeJSON(r, w, map[string]string{"status": "ok"})
 
@@ -180,12 +300,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFirstBootLogin processes the setup token + new password submission.
-func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, live *config.Config) {
+func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, live *config.Config, ipKey string) {
 	token := r.FormValue("setup_token")
 	newPassword := r.FormValue("new_password")
 
-	if s.setupToken == "" || token != s.setupToken {
-		s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
+	if !s.consumeSetupToken(token) {
+		locked := s.loginLim.recordFailure(ipKey)
+		if locked {
+			s.logger.Warn("web: login lockout after bad setup tokens", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", LoginLockoutDuration)
+		} else {
+			s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		s.writeJSON(r, w, map[string]string{"error": "invalid setup token"})
@@ -223,7 +348,8 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 	}
 
 	// Invalidate the one-time setup token.
-	s.setupToken = ""
+	s.clearSetupToken()
+	s.loginLim.recordSuccess(ipKey)
 	s.logger.Info("web: first-boot password set", "remote", r.RemoteAddr)
 
 	tok, err := s.sessions.create()
@@ -231,7 +357,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	setSessionCookie(w, tok, live.Web.SessionTTL.Duration)
+	setSessionCookie(w, tok, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
@@ -253,8 +379,22 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
-	s.httpSrv = &http.Server{Addr: addr, Handler: s.mux}
-	if tlsCert != "" && tlsKey != "" {
+	s.tlsActive = tlsCert != "" && tlsKey != ""
+	s.httpSrv = &http.Server{
+		Addr:    addr,
+		Handler: s.handler,
+		// Bounded timeouts: blunt slowloris and header-exhaustion DoS.
+		// ReadTimeout covers the full request body; WriteTimeout covers
+		// response. Calibration is driven by background goroutines and
+		// only polled over HTTP, so these bounds don't clip long-running
+		// work — they only cap how long a socket can sit idle mid-request.
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if s.tlsActive {
 		s.logger.Info("web: server listening (TLS)", "addr", "https://"+addr)
 		if err := s.httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
 			return err
@@ -383,8 +523,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
+	// 1 MiB is well above any realistic ventd config (fan/sensor lists plus
+	// curves are measured in KB). Anything beyond that is pathological.
+	limitBody(w, r, defaultMaxBody)
 	var incoming config.Config
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+		if isMaxBytesErr(err) {
+			http.Error(w, "config too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -551,8 +698,9 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	// Carry over the existing password hash so login still works after apply.
 	cfg.Web.PasswordHash = s.cfg.Load().Web.PasswordHash
 
-	// Ensure the config directory exists.
-	if err := os.MkdirAll(filepath.Dir(s.configPath), 0755); err != nil {
+	// Ensure the config directory exists. 0700 so only the daemon's user
+	// can read the password hash stored inside.
+	if err := os.MkdirAll(filepath.Dir(s.configPath), 0700); err != nil {
 		http.Error(w, "create config dir: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -766,11 +914,16 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	limitBody(w, r, 64<<10)
 	var req struct {
 		Current string `json:"current"`
 		New     string `json:"new"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesErr(err) {
+			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
