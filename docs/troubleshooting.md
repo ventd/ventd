@@ -71,7 +71,7 @@ cat /sys/class/hwmon/hwmon*/pwm*_enable
 
 ## Fan stops and will not restart
 
-You hit a case where `ventd` wrote a PWM below the fan's `start_pwm`. If `allow_stop: false` (the default), this is a bug — report it. If `allow_stop: true`, you opted in to the stop behaviour and need to wait until the temperature rises.
+You hit a case where the PWM `ventd` wrote was too low for the fan to keep spinning (the fan's `start_pwm` from calibration is higher than its `stop_pwm`, and the curve happened to request a value between the two). If calibration learned the wrong thresholds, the fix is to recalibrate.
 
 **Quick recovery:**
 
@@ -79,28 +79,23 @@ You hit a case where `ventd` wrote a PWM below the fan's `start_pwm`. If `allow_
 sudo systemctl restart ventd
 ```
 
-Restart sets `pwm_enable=1` and writes `max_pwm` briefly during re-registration, which kicks the fan back into motion.
+Restart re-runs the watchdog's registration pass, which either restores `pwm_enable` to its pre-daemon value (typically firmware auto-control) or writes `PWM=255` as a fallback — both kick the fan back into motion.
 
-**Permanent fix** — recalibrate that fan from the web UI so `ventd` learns the real `start_pwm`:
+**Permanent fix** — recalibrate that fan from the web UI so `ventd` learns realistic start/stop thresholds:
 
 Setup → Fans → select the fan → Recalibrate.
 
 ## Calibration hangs or times out
 
-**Calibration is designed to survive browser disconnect.** Closing the tab does not stop it. Progress is at:
+**Calibration is designed to survive browser disconnect.** Closing the tab does not stop it. Reopen the web UI at `http://<your-ip>:9999` and the Setup or Fans page shows the current progress — the `/api/calibrate/status` and `/api/setup/status` endpoints drive that view (both require an authenticated session, so `curl` without a session cookie returns 401).
+
+If the fan RPM stays at 0 at every PWM step, calibration marks it as "no fan connected" and moves on. If the daemon is truly stuck (no progress for more than 60 s on a single step), hit the abort button in the web UI, then:
 
 ```
-curl http://localhost:9999/api/setup/calibrate/status
-```
-
-If the fan RPM stays at 0 at every PWM step, calibration marks it as "no fan connected" and moves on. If the daemon is truly stuck (no progress for more than 60 s on a single step), abort and restart:
-
-```
-curl -X POST http://localhost:9999/api/setup/calibrate/abort
 sudo systemctl restart ventd
 ```
 
-`ventd` resumes from the last completed fan on restart.
+`ventd` writes a crash-safe checkpoint after every sweep step, so after a restart it resumes the interrupted fan from the last completed PWM rather than starting over.
 
 ## NVIDIA GPU fan not controllable
 
@@ -116,29 +111,35 @@ Then restart `ventd`. If still failing, it is a driver limitation — monitoring
 
 ## Web UI asks for a setup token and I cannot find it
 
-The token is in the journal:
+The token is deliberately **not** in the journal. `ventd` writes it to `/run/ventd/setup-token` (0600, root-only) and, when a controlling TTY is attached, prints it there too.
 
 ```
-sudo journalctl -u ventd | grep -i 'setup token'
+sudo cat /run/ventd/setup-token
 ```
 
-If nothing matches, the daemon never entered first-boot mode. Likely causes:
+If that file does not exist, check whether the daemon ever entered first-boot mode:
+
+```
+sudo journalctl -u ventd | grep -F 'first-boot'
+```
+
+You want to see `first-boot: setup pending` followed by `first-boot: setup token written`. If neither line appears, the daemon did not enter first-boot mode. Likely causes:
 
 - A config already exists at `/etc/ventd/config.yaml`. Move it aside and restart:
   ```
   sudo mv /etc/ventd/config.yaml /etc/ventd/config.yaml.old
   sudo systemctl restart ventd
   ```
-- The daemon crashed before printing the token. Check `journalctl -u ventd` for errors.
+- The daemon crashed before reaching first-boot setup. Check `journalctl -u ventd` for the panic trace.
 
 ## Forgot the web UI password
 
-Wipe the password hash from the config; `ventd` will print a new setup token on restart:
+Wipe the password hash from the config; `ventd` will mint a new setup token on restart:
 
 ```
 sudo sed -i '/^  password_hash:/d' /etc/ventd/config.yaml
 sudo systemctl restart ventd
-sudo journalctl -u ventd | grep 'Setup token'
+sudo cat /run/ventd/setup-token
 ```
 
 ## Alpine: "Error loading shared library"
@@ -169,7 +170,7 @@ Reboot and accept.
 
 ## Daemon crashed; fans left at max
 
-`ventd`'s watchdog writes `PWM=255` (full speed) on any unclean exit as a failsafe — a loud fan is preferable to a stopped fan on a hot chip. This is intentional. Restart the daemon to return to normal curves:
+On any graceful exit (`SIGTERM`, `SIGINT`, or a recovered panic) the watchdog first tries to restore each fan's `pwm_enable` to the value it had before the daemon started — usually `2` (firmware/automatic control). Only if that restore fails, or the original mode could not be read at startup, does it fall back to `PWM=255` (full speed). A loud fan is always preferable to a stopped fan on a hot chip. Restart the daemon to return to normal curves:
 
 ```
 sudo systemctl restart ventd
