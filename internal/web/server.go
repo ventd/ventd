@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -67,8 +68,9 @@ type Server struct {
 	setupExp   time.Time // zero when no token
 	diag       *hwdiag.Store
 	ctx        context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
-	loginLim   *loginLimiter
-	tlsActive  bool // server serves TLS directly; gates HSTS
+	loginLim       *loginLimiter
+	tlsActive      bool          // server serves TLS directly; gates HSTS
+	trustedProxies []*net.IPNet  // set at New-time from live.Web.TrustProxy
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -90,7 +92,8 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		setupToken: setupToken,
 		diag:       diag,
 		ctx:        ctx,
-		loginLim:   newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
+		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
+		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
 	}
 	if setupToken != "" {
 		s.setupExp = time.Now().Add(SetupTokenTTL)
@@ -256,7 +259,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		ipKey := clientIP(r)
+		ipKey := resolveClientIP(r, s.trustedProxies)
 		if ok, retryAfter := s.loginLim.allow(ipKey); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
 			w.Header().Set("Content-Type", "application/json")

@@ -62,6 +62,7 @@ func run() error {
 	logger.Info("ventd starting")
 
 	cfg, err := config.Load(*configPath)
+	firstBoot := false
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("load config: %w", err)
@@ -70,8 +71,50 @@ func run() error {
 		// web UI can serve the setup wizard.
 		logger.Info("no config found, starting in first-boot mode", "path", *configPath)
 		cfg = config.Empty()
+		firstBoot = true
 	} else {
 		logger.Info("config loaded", "path", *configPath, "controls", len(cfg.Controls))
+	}
+
+	// On first-boot, auto-generate a self-signed cert under the config dir
+	// so the setup wizard (passwords + tokens in flight) runs over TLS
+	// out of the box. If cert gen genuinely cannot succeed, fall back to a
+	// loopback-only bind — never let the daemon serve the setup wizard
+	// (admin password in flight) over plaintext on the LAN.
+	if firstBoot && !cfg.Web.TLSEnabled() {
+		dir := filepath.Dir(*configPath)
+		if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
+			logger.Warn("first-boot: cannot create config dir for TLS cert",
+				"dir", dir, "err", mkErr,
+				"remediation", "create "+dir+" writable by the ventd user, or pre-provision tls.crt/tls.key")
+		}
+		certPath := filepath.Join(dir, "tls.crt")
+		keyPath := filepath.Join(dir, "tls.key")
+		fp, genErr := web.EnsureSelfSignedCert(certPath, keyPath, logger)
+		if genErr != nil {
+			_, port, splitErr := net.SplitHostPort(cfg.Web.Listen)
+			if splitErr != nil {
+				port = "9999"
+			}
+			fallback := net.JoinHostPort("127.0.0.1", port)
+			logger.Warn("first-boot: self-signed cert generation failed; restricting to loopback-only bind",
+				"configured_listen", cfg.Web.Listen,
+				"fallback_listen", fallback,
+				"err", genErr,
+				"remediation", "pre-provision tls.crt/tls.key under "+dir+", or reach the wizard via `ssh -L "+port+":localhost:"+port+" <host>`")
+			cfg.Web.Listen = fallback
+		} else {
+			cfg.Web.TLSCert = certPath
+			cfg.Web.TLSKey = keyPath
+			logger.Info("first-boot: TLS enabled with self-signed cert", "sha256", fp)
+		}
+	}
+
+	// Enforce the transport-security guard unconditionally. First-boot is
+	// precisely when the admin password crosses the wire — it must run
+	// over TLS (auto-gen above) or be constrained to loopback (fallback above).
+	if err := cfg.Web.RequireTransportSecurity(); err != nil {
+		return err
 	}
 
 	// Generate a one-time setup token if no password is configured yet.
@@ -87,7 +130,7 @@ func run() error {
 			return fmt.Errorf("generate setup token: %w", tokErr)
 		}
 		setupToken = tok
-		publishSetupToken(setupToken, logger)
+		publishSetupToken(setupToken, cfg.Web.Listen, cfg.Web.TLSEnabled(), logger)
 	}
 
 	// Probe and load the kernel module that exposes hwmon PWM channels.
@@ -324,8 +367,25 @@ const setupTokenPath = "/run/ventd/setup-token"
 // without leaking it into journald. It always logs the retrieval paths;
 // the plaintext goes only to /dev/tty (if one is attached to the daemon)
 // and to setupTokenPath with 0600 perms.
-func publishSetupToken(tok string, logger *slog.Logger) {
-	url := "http://" + localIP() + ":9999"
+func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		host, port = "", "9999"
+	}
+	// Pick a display host the operator can actually paste into a browser:
+	// wildcard binds → the machine's LAN IP; loopback binds → 127.0.0.1 as-is.
+	displayHost := host
+	switch host {
+	case "", "0.0.0.0", "::":
+		displayHost = localIP()
+	case "127.0.0.1", "::1", "localhost":
+		displayHost = "127.0.0.1"
+	}
+	url := scheme + "://" + net.JoinHostPort(displayHost, port)
 	writtenToFile := false
 	if err := os.MkdirAll(filepath.Dir(setupTokenPath), 0700); err != nil {
 		logger.Warn("first-boot: create setup-token dir", "err", fmt.Errorf("mkdir %s: %w", filepath.Dir(setupTokenPath), err))

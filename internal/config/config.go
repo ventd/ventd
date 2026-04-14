@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,6 +51,13 @@ type Web struct {
 	// trying again. Zero → default (15m). Short enough to forgive human
 	// error, long enough to make online guessing unproductive.
 	LoginLockoutCooldown Duration `yaml:"login_lockout_cooldown,omitempty" json:"login_lockout_cooldown,omitempty"`
+
+	// TrustProxy lists CIDRs whose requests are allowed to set
+	// X-Forwarded-For. When the peer RemoteAddr matches one of these CIDRs
+	// the rate limiter and logs use the leftmost *untrusted* XFF entry as
+	// the client IP; otherwise XFF is ignored. Empty disables XFF entirely
+	// (the default — safe on a LAN-bound daemon with no reverse proxy).
+	TrustProxy []string `yaml:"trust_proxy,omitempty" json:"trust_proxy,omitempty"`
 }
 
 // UseSecureCookies reports whether the session cookie should set Secure.
@@ -64,6 +72,59 @@ func (w Web) UseSecureCookies() bool {
 // TLSEnabled reports whether TLS serving is configured on this server.
 func (w Web) TLSEnabled() bool {
 	return w.TLSCert != "" && w.TLSKey != ""
+}
+
+// ListenIsLoopback reports whether Listen binds to a loopback address.
+// "0.0.0.0:..." and "[::]:..." count as non-loopback because they accept
+// connections on every interface, not just lo. An unresolved host defaults
+// to non-loopback so the guard errs on the side of requiring transport
+// security.
+func (w Web) ListenIsLoopback() bool {
+	host, _, err := net.SplitHostPort(w.Listen)
+	if err != nil {
+		return false
+	}
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
+
+// RequireTransportSecurity returns nil when the current Web config is safe
+// to serve on Listen. It refuses to start if the daemon would accept
+// plaintext sessions across the network: a non-loopback Listen with no TLS
+// and no trusted proxy fronting it. The error is operator-facing: keep it
+// multi-line and actionable.
+func (w Web) RequireTransportSecurity() error {
+	if w.ListenIsLoopback() {
+		return nil
+	}
+	if w.TLSEnabled() {
+		return nil
+	}
+	if len(w.TrustProxy) > 0 {
+		return nil
+	}
+	// Multi-line operator-facing error is intentional here — this is
+	// printed once at startup to stderr, not wrapped into another error.
+	return fmt.Errorf( //nolint:staticcheck // ST1005: intentional multi-line operator message
+		"web: refusing to serve plaintext HTTP on %q.\n"+
+			"Session cookies and passwords would travel unencrypted on the LAN.\n"+
+			"Pick one of:\n"+
+			"  1. Set web.tls_cert / web.tls_key to enable TLS (a self-signed\n"+
+			"     pair is generated automatically on first boot).\n"+
+			"  2. Set web.trust_proxy to the CIDR of a TLS-terminating reverse\n"+
+			"     proxy (e.g. [127.0.0.1/32] for a local nginx/Caddy).\n"+
+			"  3. Bind web.listen to 127.0.0.1:9999 for loopback-only access.",
+		w.Listen,
+	)
 }
 
 type Sensor struct {
@@ -345,6 +406,11 @@ func validate(cfg *Config) error {
 	}
 	if (cfg.Web.TLSCert == "") != (cfg.Web.TLSKey == "") {
 		return fmt.Errorf("config: web.tls_cert and web.tls_key must both be set or both be empty")
+	}
+	for i, c := range cfg.Web.TrustProxy {
+		if _, _, err := net.ParseCIDR(c); err != nil {
+			return fmt.Errorf("config: web.trust_proxy[%d]: invalid CIDR %q: %w", i, c, err)
+		}
 	}
 
 	sensors := make(map[string]struct{}, len(cfg.Sensors))
