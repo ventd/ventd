@@ -366,6 +366,37 @@ check_conflicting_daemon
 check_pwm_holders
 check_port_9999
 
+# ── ventd account ────────────────────────────────────────────────────────────
+#
+# The daemon runs as the unprivileged "ventd" user/group. Access to pwm
+# sysfs files comes from DAC (group ownership applied by the udev rule
+# installed later in this script) — not from capabilities.
+# CapabilityBoundingSet= stays empty in the unit. Account creation
+# lives in scripts/_ventd_account.sh so the .deb/.rpm postinstall hook
+# and this installer use the same implementation.
+
+ACCOUNT_HELPER=""
+for candidate in \
+    "${ASSET_DIR}/_ventd_account.sh" \
+    "${ASSET_DIR}/../scripts/_ventd_account.sh" \
+    "${TARBALL_ROOT:-}/scripts/_ventd_account.sh"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        ACCOUNT_HELPER="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$ACCOUNT_HELPER" ]]; then
+    echo "error: scripts/_ventd_account.sh not found — installer cannot create ventd account" >&2
+    exit 1
+fi
+
+# shellcheck source=scripts/_ventd_account.sh
+. "$ACCOUNT_HELPER"
+
+echo "Ensuring ventd system account exists..."
+ventd_create_account
+
 # ── Install ──────────────────────────────────────────────────────────────────
 
 echo "Installing ventd..."
@@ -373,6 +404,13 @@ echo "Installing ventd..."
 install -d -m 755 "$VENTD_PREFIX"
 install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
 echo "  ✓ binary → $VENTD_PREFIX/ventd"
+
+# /etc/ventd is group-readable (0750) so the ventd group (daemon only)
+# can read config while "other" stays locked out. On systemd,
+# ConfigurationDirectory= reasserts this on every start; the install
+# here is belt-and-braces for the wipe-and-reinstall path.
+install -d -m 0750 /etc/ventd
+chown ventd:ventd /etc/ventd
 
 case "$INIT_SYSTEM" in
 
@@ -385,7 +423,6 @@ case "$INIT_SYSTEM" in
         ;;
 
     openrc)
-        install -d -m 0700 /etc/ventd
         install -m 755 "$OPENRC_SRC" /etc/init.d/ventd
         rc-update add ventd default
         rc-service ventd start
@@ -393,7 +430,6 @@ case "$INIT_SYSTEM" in
         ;;
 
     runit)
-        install -d -m 0700 /etc/ventd
         install -d -m 755 /etc/sv/ventd
         install -d -m 755 /etc/sv/ventd/log
         install -m 755 "$RUNIT_SRC" /etc/sv/ventd/run
@@ -421,7 +457,6 @@ EOF
         ;;
 
     unknown)
-        install -d -m 0700 /etc/ventd
         echo "  ! no init system detected — service not registered"
         ;;
 esac
