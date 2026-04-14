@@ -143,6 +143,26 @@ func run() error {
 	errCh := make(chan error, len(cfg.Controls)+1)
 	var wg sync.WaitGroup
 
+	// Tier 0.3 — hardware change detection. Watches /sys/class/hwmon for
+	// add/remove at runtime via netlink uevents plus a 5-minute periodic
+	// rescan safety net; emits a ComponentHardware diagnostic with a
+	// "Re-run setup" button when topology changes. Read-only: never writes
+	// to sysfs, never modprobes. Set VENTD_DISABLE_UEVENT=1 to fall back
+	// to periodic-only (used for container environments where netlink is
+	// blocked, and by Tier 0.3 validation to exercise the safety net).
+	var watcherOpts []hwmon.Option
+	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
+		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
+	}
+	watcher := hwmon.NewWatcher(diagStore, logger, watcherOpts...)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := watcher.Run(ctx); err != nil {
+			logger.Warn("hwmon watcher exited", "err", err)
+		}
+	}()
+
 	// restartCh is signalled by the web server after setup applies a new config.
 	restartCh := make(chan struct{}, 1)
 

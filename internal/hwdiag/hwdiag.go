@@ -235,4 +235,9 @@ const (
 	// IDs are dmi.candidate.<driver-key> so the UI can render one button each.
 	IDDMINoMatch         = "dmi.no_match"
 	IDDMICandidatePrefix = "dmi.candidate." // append DriverNeed.Key
+
+	// Tier 0.3 — hardware-change detection. Single rolled-up entry describing
+	// the most recent add/remove across all hwmon devices; the UI surfaces it
+	// with a "Re-run setup" button (AutoFixReRunSetup → /api/setup/start).
+	IDHardwareChanged = "hardware.topology_changed"
 )
