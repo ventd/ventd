@@ -741,7 +741,7 @@ func dmiRead(field string) string {
 func appendIfMissing(file, line string) error {
 	data, err := os.ReadFile(file)
 	if err != nil && !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("hwmon: read %s: %w", file, err)
 	}
 	for _, l := range strings.Split(string(data), "\n") {
 		if strings.TrimSpace(l) == line {
@@ -750,9 +750,11 @@ func appendIfMissing(file, line string) error {
 	}
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("hwmon: open %s: %w", file, err)
 	}
 	defer func() { _ = f.Close() }()
-	_, err = fmt.Fprintf(f, "%s\n", line)
-	return err
+	if _, err := fmt.Fprintf(f, "%s\n", line); err != nil {
+		return fmt.Errorf("hwmon: append %s: %w", file, err)
+	}
+	return nil
 }
