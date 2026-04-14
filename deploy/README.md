@@ -15,10 +15,16 @@ The shipped unit is sandboxed by default. Key points:
     cert + key.
   - `/run/ventd` — first-boot setup token.
   - `/sys/class/hwmon` — `pwm<N>` and `pwm<N>_enable`.
-- `/etc/ventd` must be owned by the user the unit runs as. With the
-  default `User=root` and an empty `CapabilityBoundingSet`, root has no
-  `CAP_DAC_OVERRIDE` — a `ventd:ventd`-owned `/etc/ventd` will fail
-  writes. Keep it `root:root 0700` until you migrate to `User=ventd`.
+- `ConfigurationDirectory=ventd` with `ConfigurationDirectoryMode=0700` —
+  systemd creates `/etc/ventd` before `ExecStart` (and before the namespace
+  setup driven by `ReadWritePaths`), with the right mode, owned by the
+  unit's `User=`. The installer no longer pre-creates the directory under
+  systemd, so a `stop → rm -rf /etc/ventd → start` cycle no longer trips
+  `status=226/NAMESPACE`. Mode stays at `0700` (root-owned) until the
+  `User=ventd` migration introduces a group that needs read access.
+- Under OpenRC/runit (where `ConfigurationDirectory=` has no effect) the
+  installer creates `/etc/ventd` at mode `0700` itself — same end state,
+  different mechanism.
 - `RuntimeDirectory=ventd` with `RuntimeDirectoryMode=0700` — systemd
   creates `/run/ventd` before `ExecStart` with mode 0700 and cleans it up
   on stop. The setup token must not be world-readable; the mode is
