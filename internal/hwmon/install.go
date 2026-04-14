@@ -282,7 +282,7 @@ func EnsureDKMS(log func(string)) error {
 		{"xbps-install", []string{"-y", "dkms"}},
 	}
 	if _, err := exec.LookPath("apk"); err == nil {
-		return fmt.Errorf("Alpine does not ship a dkms package; the module will need to be rebuilt manually after kernel updates")
+		return fmt.Errorf("alpine does not ship a dkms package; the module will need to be rebuilt manually after kernel updates")
 	}
 	for _, c := range candidates {
 		if _, err := exec.LookPath(c.mgr); err != nil {
