@@ -213,8 +213,13 @@ func run() error {
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
+	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
+	// requests before run() returns — otherwise the HTTP handler goroutines
+	// outlive wd.Restore() and can observe a half-torn-down daemon.
 	webSrv := web.New(ctx, &liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := webSrv.ListenAndServe(cfg.Web.Listen, cfg.Web.TLSCert, cfg.Web.TLSKey); err != nil {
 			errCh <- fmt.Errorf("web server: %w", err)
 		}
@@ -267,6 +272,7 @@ func run() error {
 			case syscall.SIGTERM, syscall.SIGINT:
 				logger.Info("shutdown signal received", "signal", sig)
 				cancel()
+				webSrv.Shutdown()
 				wg.Wait()
 				// wd.Restore() runs via defer.
 				return nil
@@ -277,6 +283,7 @@ func run() error {
 			// Cancel all other controllers and exit non-zero so systemd restarts us.
 			logger.Error("controller failure, initiating emergency shutdown", "err", ctrlErr)
 			cancel()
+			webSrv.Shutdown()
 			wg.Wait()
 			// Drain any additional errors that other goroutines sent before
 			// (or during) shutdown — otherwise concurrent failures are silent.
@@ -300,10 +307,10 @@ func run() error {
 		case <-restartCh:
 			logger.Info("restarting to apply new configuration")
 			cancel()
-			wg.Wait()
 			// Gracefully drain in-flight HTTP responses and release the port
-			// before exec, so the new process can bind immediately.
+			// before wg.Wait, so the web goroutine can return.
 			webSrv.Shutdown()
+			wg.Wait()
 			// wd.Restore() and nvidia.Shutdown() run via defer before main() calls Exec.
 			return errRestart
 		}
