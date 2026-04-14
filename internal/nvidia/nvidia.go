@@ -50,9 +50,8 @@ const (
 
 var (
 	// Library + symbol resolution happens at most once.
-	loadOnce  sync.Once
-	loadErr   error
-	libHandle uintptr
+	loadOnce sync.Once
+	loadErr  error
 
 	// Function pointers resolved from libnvidia-ml.so.1.
 	pInit_v2                       uintptr
@@ -396,7 +395,6 @@ func loadLibrary(logger *slog.Logger) error {
 		})
 		return fmt.Errorf("%w: %v", ErrLibraryUnavailable, err)
 	}
-	libHandle = h
 
 	type sym struct {
 		name string
