@@ -95,6 +95,22 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
 		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
 	}
+	// Construct the http.Server at New-time rather than ListenAndServe-time
+	// so Shutdown() can safely be called from another goroutine without
+	// racing on the httpSrv field. Handler is immutable after New; Addr is
+	// filled in by ListenAndServe before actually binding.
+	s.httpSrv = &http.Server{
+		// Bounded timeouts: blunt slowloris and header-exhaustion DoS.
+		// ReadTimeout covers the full request body; WriteTimeout covers
+		// response. Calibration is driven by background goroutines and
+		// only polled over HTTP, so these bounds don't clip long-running
+		// work — they only cap how long a socket can sit idle mid-request.
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	if setupToken != "" {
 		s.setupExp = time.Now().Add(SetupTokenTTL)
 		// Auto-invalidate on expiry so a leaked token stops working even
@@ -137,6 +153,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	// (config PUT, setup apply/reset, reboot, set-password, …) inherits it
 	// without per-handler opt-in. tlsActive is detected per-request via r.TLS.
 	s.handler = securityHeaders()(originCheck(logger)(s.mux))
+	s.httpSrv.Handler = s.handler
 	return s
 }
 
@@ -396,20 +413,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	s.tlsActive = tlsCert != "" && tlsKey != ""
-	s.httpSrv = &http.Server{
-		Addr:    addr,
-		Handler: s.handler,
-		// Bounded timeouts: blunt slowloris and header-exhaustion DoS.
-		// ReadTimeout covers the full request body; WriteTimeout covers
-		// response. Calibration is driven by background goroutines and
-		// only polled over HTTP, so these bounds don't clip long-running
-		// work — they only cap how long a socket can sit idle mid-request.
-		ReadTimeout:       10 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
+	s.httpSrv.Addr = addr
 	if s.tlsActive {
 		s.logger.Info("web: server listening (TLS)", "addr", "https://"+addr)
 		if err := s.httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
@@ -432,11 +436,11 @@ func (s *Server) triggerRestart() {
 	}
 }
 
-// Shutdown gracefully drains in-flight requests and closes the listening socket.
+// Shutdown gracefully drains in-flight requests and closes the listening
+// socket. Safe to call before ListenAndServe has been invoked: the
+// http.Server is constructed at New-time and Shutdown on an unstarted
+// server is a no-op at the net/http level.
 func (s *Server) Shutdown() {
-	if s.httpSrv == nil {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = s.httpSrv.Shutdown(ctx)
