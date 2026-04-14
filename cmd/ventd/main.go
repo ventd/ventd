@@ -147,6 +147,31 @@ func run() error {
 		defer nvidia.Shutdown()
 	}
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+
+	return runDaemon(context.Background(), cfg, *configPath, logger, setupToken, sigCh)
+}
+
+// runDaemon runs the daemon lifecycle: watchdog registration, hwmon watcher,
+// web server, per-fan controllers, and the shutdown-coordinating select loop.
+// It returns:
+//   - nil on SIGTERM / SIGINT (or ctx cancellation when sigCh is nil)
+//   - errRestart when the web server signals a restart via restartCh
+//   - a wrapped controller error when a control goroutine fails
+//
+// Passing nil for sigCh is supported: a receive on a nil channel blocks
+// forever, so the signal case never fires — used by the integration test
+// so the test drives shutdown via ctx cancellation alone.
+func runDaemon(
+	parentCtx context.Context,
+	cfg *config.Config,
+	configPath string,
+	logger *slog.Logger,
+	setupToken string,
+	sigCh <-chan os.Signal,
+) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(cfg)
@@ -156,7 +181,7 @@ func run() error {
 	for _, fan := range cfg.Fans {
 		wd.Register(fan.PWMPath, fan.Type)
 	}
-	// Always restore pwm_enable=2 when run() exits — covers graceful shutdown.
+	// Always restore pwm_enable=2 when runDaemon exits — covers graceful shutdown.
 	// Controller panic recovery also calls wd.Restore() before returning an error.
 	defer wd.Restore()
 
@@ -181,7 +206,7 @@ func run() error {
 	setupMgr := setupmgr.New(cal, logger)
 	setupMgr.SetDiagnosticStore(diagStore)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 
 	// errCh is buffered to one slot per controller plus one for the web server.
@@ -213,8 +238,13 @@ func run() error {
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
-	webSrv := web.New(ctx, &liveCfg, *configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
+	// requests before run() returns — otherwise the HTTP handler goroutines
+	// outlive wd.Restore() and can observe a half-torn-down daemon.
+	webSrv := web.New(ctx, &liveCfg, configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := webSrv.ListenAndServe(cfg.Web.Listen, cfg.Web.TLSCert, cfg.Web.TLSKey); err != nil {
 			errCh <- fmt.Errorf("web server: %w", err)
 		}
@@ -226,6 +256,10 @@ func run() error {
 			fanCfg, err := resolveControl(cfg, ctrl)
 			if err != nil {
 				// No controllers started yet; wd.Restore() via defer is harmless.
+				// Shut the web server down before returning so its goroutine exits.
+				cancel()
+				webSrv.Shutdown()
+				wg.Wait()
 				return fmt.Errorf("resolve control: %w", err)
 			}
 
@@ -244,15 +278,20 @@ func run() error {
 		}
 	}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
-
 	for {
 		select {
+		case <-ctx.Done():
+			// Parent context cancelled (e.g. test teardown). Treat as graceful
+			// shutdown — same as SIGTERM.
+			logger.Info("context cancelled, shutting down")
+			webSrv.Shutdown()
+			wg.Wait()
+			return nil
+
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
-				newCfg, reloadErr := config.Load(*configPath)
+				newCfg, reloadErr := config.Load(configPath)
 				if reloadErr != nil {
 					// Keep running with the current config — never crash on a bad reload.
 					logger.Error("config reload failed, keeping current config", "err", reloadErr)
@@ -267,6 +306,7 @@ func run() error {
 			case syscall.SIGTERM, syscall.SIGINT:
 				logger.Info("shutdown signal received", "signal", sig)
 				cancel()
+				webSrv.Shutdown()
 				wg.Wait()
 				// wd.Restore() runs via defer.
 				return nil
@@ -277,6 +317,7 @@ func run() error {
 			// Cancel all other controllers and exit non-zero so systemd restarts us.
 			logger.Error("controller failure, initiating emergency shutdown", "err", ctrlErr)
 			cancel()
+			webSrv.Shutdown()
 			wg.Wait()
 			// Drain any additional errors that other goroutines sent before
 			// (or during) shutdown — otherwise concurrent failures are silent.
@@ -300,10 +341,10 @@ func run() error {
 		case <-restartCh:
 			logger.Info("restarting to apply new configuration")
 			cancel()
-			wg.Wait()
 			// Gracefully drain in-flight HTTP responses and release the port
-			// before exec, so the new process can bind immediately.
+			// before wg.Wait, so the web goroutine can return.
 			webSrv.Shutdown()
+			wg.Wait()
 			// wd.Restore() and nvidia.Shutdown() run via defer before main() calls Exec.
 			return errRestart
 		}
