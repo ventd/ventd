@@ -2,6 +2,54 @@
 // and NVML for all available sensor readings — not just configured ones.
 package monitor
 
+// ─────────────────────────────────────────────────────────────────────
+// REVIEW NOTES — phoenixdnb (PR #17, COVERAGE.md snapshot)
+// ─────────────────────────────────────────────────────────────────────
+//
+// PR #17 is pure documentation (COVERAGE.md). User rule forbids
+// editing docs; this note captures the review in code instead.
+//
+// STATUS
+//   No hardware verification required. Doc-only PR.
+//
+// CROSS-REF securitytodo.md — #17 body says "securitytodo.md isn't
+// directly touched". Confirm in the live doc that a coverage bar is
+// not a prerequisite for any securitytodo item; if it is, #17
+// should be listed as the baseline that retires that requirement.
+//
+// OBSERVATIONS
+//
+// 1. This package (internal/monitor) is one of four identified as
+//    having zero test coverage:
+//      - cmd/list-fans-probe      (probe CLI, manual-run tool)
+//      - cmd/preflight-check      (preflight CLI, manual-run tool)
+//      - internal/curve           (addressed by PR #18)
+//      - internal/monitor         (this package — still untested)
+//    After #18 lands, internal/monitor is the largest remaining
+//    zero-coverage Go package in the tree. It scans /sys/class/hwmon
+//    and NVML, so tests need fs.FS/NVML abstractions — non-trivial
+//    but doable (PR #20's test fixtures show the pattern for hwmon).
+//
+// 2. Total coverage at the time of the snapshot was 32.3 % across
+//    the packages that carry any tests. That's a snapshot, not a
+//    contract — once #16 (error wraps) and #18 (curve+calibrate
+//    tests) both land the number will shift. The snapshot should be
+//    refreshed after those PRs merge (#17's own test plan says so).
+//
+// 3. Highest-value coverage gaps by uncovered-statement count:
+//      internal/hwmon    ~800 uncovered
+//      internal/setup    ~581 uncovered (4.8 % covered)
+//      internal/web      ~374 uncovered
+//      internal/controller  142 uncovered (12.0 %)
+//    internal/setup is especially exposed given it's the code path
+//    the zero-terminal-after-install promise depends on.
+//
+// README-DRIFT
+//   None — COVERAGE.md is a new artefact; README.md does not yet
+//   reference it. Fine.
+//
+// ─────────────────────────────────────────────────────────────────────
+
 import (
 	"fmt"
 	"log/slog"
