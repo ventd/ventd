@@ -520,6 +520,9 @@ document.addEventListener('click', (e) => {
     case 'toggle-sidebar':
       toggleSidebar();
       break;
+    case 'close-sidebar':
+      closeSidebarDrawer();
+      break;
     case 'toggle-hw':
       toggleHw(el.dataset.key);
       break;
@@ -630,14 +633,66 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── Sidebar toggle ──
+//
+// Two behaviours share one hamburger button depending on viewport:
+//
+//   desktop (≥900px) — toggle the `.collapsed` class; persist the
+//   user's choice in localStorage so the preference survives a
+//   reload. This matches the legacy behaviour.
+//
+//   mobile (<900px)  — toggle the `.open` class, which slides the
+//   drawer in and reveals the sibling backdrop via CSS. No
+//   localStorage: on mobile the drawer always starts closed, and
+//   closes on backdrop tap or a second hamburger press.
+//
+// matchMedia keeps the boundary in one place; the `change` listener
+// below scrubs stale classes when the viewport crosses the breakpoint
+// (e.g. a phone rotating to landscape that clears the tablet bracket,
+// or a desktop window narrowed below 900px).
+const sidebarMQ = window.matchMedia('(max-width: 899px)');
+
 function toggleSidebar(){
   const sb = document.getElementById('sidebar');
+  if(!sb) return;
+  if(sidebarMQ.matches){
+    sb.classList.toggle('open');
+    return;
+  }
   const collapsed = sb.classList.toggle('collapsed');
   try { localStorage.setItem('ventd-sidebar', collapsed ? '0' : '1'); } catch(_){}
 }
+
+function closeSidebarDrawer(){
+  const sb = document.getElementById('sidebar');
+  if(sb) sb.classList.remove('open');
+}
+
+sidebarMQ.addEventListener('change', (e) => {
+  const sb = document.getElementById('sidebar');
+  if(!sb) return;
+  if(e.matches){
+    // Entering mobile: drawer starts closed regardless of prior state.
+    sb.classList.remove('collapsed');
+    sb.classList.remove('open');
+  } else {
+    // Entering desktop: drop any lingering drawer-open class and
+    // replay the saved collapse preference.
+    sb.classList.remove('open');
+    try {
+      if(localStorage.getItem('ventd-sidebar') === '0'){
+        sb.classList.add('collapsed');
+      } else {
+        sb.classList.remove('collapsed');
+      }
+    } catch(_){}
+  }
+});
+
 (function(){
   try {
-    if(localStorage.getItem('ventd-sidebar') === '0'){
+    // Only apply the saved desktop collapse state if we're booting on
+    // a desktop viewport — on mobile the drawer always starts closed.
+    if(!sidebarMQ.matches && localStorage.getItem('ventd-sidebar') === '0'){
       const sb = document.getElementById('sidebar');
       if(sb) sb.classList.add('collapsed');
     }
