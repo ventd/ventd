@@ -4,11 +4,35 @@ Documentation=https://github.com/ventd/ventd
 After=local-fs.target
 
 [Service]
-Type=simple
+# Type=notify so systemd waits for ventd to call sd_notify(READY=1)
+# before transitioning the unit to "active". Pairs with WatchdogSec
+# below: ventd's heartbeat goroutine pings WATCHDOG=1 every
+# WATCHDOG_USEC/2 (1s by default) so a hung main loop is killed and
+# OnFailure= triggers ventd-recover.service.
+Type=notify
+NotifyAccess=main
 ExecStart=/usr/local/bin/ventd -config /etc/ventd/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy. on-failure covers everything except clean exit and
+# explicit operator stop. RestartSec is 1s (was 5s) so PWM control
+# resumes quickly after a transient crash.
 Restart=on-failure
-RestartSec=5s
+RestartSec=1s
+
+# Watchdog: kill the daemon if its main loop hangs more than 2s. A
+# kill from systemd looks like SIGKILL to ventd, which means defers
+# never fire; OnFailure below catches that case and runs the
+# pwm_enable=1 reset oneshot. This is the user-space half of the
+# README's "any exit path within two seconds" promise.
+WatchdogSec=2s
+
+# OnFailure: run ventd-recover.service to reset pwm_enable on every
+# hwmon device when the main daemon exits unexpectedly. Covers
+# SIGKILL, OOM, hardware-watchdog kill, and any panic that escapes
+# the daemon's defer chain. The oneshot runs as root outside the
+# sandbox, so it has the privileges the daemon dropped.
+OnFailure=ventd-recover.service
 
 StandardOutput=journal
 StandardError=journal

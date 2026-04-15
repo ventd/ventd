@@ -2,6 +2,24 @@
 
 Common issues and how to diagnose them. Most problems surface in the web UI with a specific diagnostic and a one-click fix button. If something is wrong and the UI is not showing it, start here.
 
+## First thing to check: the boot diagnostic
+
+Every daemon start logs a single `DiagnoseHwmon` line that summarises hwmon state. It tells you in one glance whether ventd can do its job.
+
+```
+sudo journalctl -u ventd | grep 'hwmon:' | tail -3
+```
+
+Three possible outcomes:
+
+| Log line | Meaning | Action |
+|---|---|---|
+| `hwmon: PWM channels visible writable=N total=N chips=…` (INFO) | Healthy. Daemon can write every pwm channel it sees. | Nothing to do. |
+| `hwmon: PWM channels visible but none are group-writable for the ventd group` (WARN) | The chip is exposed but the udev rule never fired (rare; usually a container without udev). | `sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hwmon` |
+| `hwmon: no PWM channels visible at startup` (WARN) | The kernel module that drives your Super-I/O never loaded. | `sudo ventd --rescan-hwmon` |
+
+The remediation hint is included as the `action=` slog attribute on the WARN line so it shows in `journalctl --output=json` for automated monitoring.
+
 ## Web UI will not load
 
 **Check the daemon is running:**

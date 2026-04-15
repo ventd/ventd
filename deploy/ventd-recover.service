@@ -1,0 +1,50 @@
+[Unit]
+# Fire-once recovery service. Triggered by OnFailure= on the main
+# ventd.service unit when the daemon exits unexpectedly (SIGKILL,
+# OOM kill, watchdog timeout, panic that escaped the defer chain).
+#
+# Resets every /sys/class/hwmon/*/pwm<N>_enable to 1 (kernel-defined
+# "automatic" mode), handing fan control back to the BIOS/firmware
+# curve. This is the belt-and-braces complement to the daemon's
+# graceful-exit Restore: together they deliver the README's
+# "any exit path within two seconds" promise.
+Description=Reset hwmon pwm_enable to automatic on ventd failure
+Documentation=https://github.com/ventd/ventd
+
+# Don't pull in default targets — this unit needs to run from the
+# OnFailure= dependency only, even during shutdown sequences where
+# default targets would block it.
+DefaultDependencies=no
+
+# Run before any conflicting cleanup; we just want to write a few
+# bytes to sysfs as fast as possible.
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+# Runs as root, OUTSIDE the sandbox the main daemon ran under.
+# The main unit's User=ventd cannot write pwm_enable=1 on every
+# hwmon device (the udev rule only granted DAC for the ventd group
+# on the chips ventd was actually controlling); the recovery sweep
+# needs to cover everything.
+User=root
+ExecStart=/usr/local/bin/ventd --recover
+
+# Bounded execution — recovery should be near-instant.
+TimeoutStartSec=10s
+
+# Don't restart this on failure: ventd --recover is best-effort and
+# always exits 0 even if some files cannot be written. A non-zero
+# exit here would loop us back into the OnFailure= chain.
+Restart=no
+
+# No StandardOutput/Error overrides — journal captures both, which
+# is what the operator sees when investigating "why did fans go to
+# auto?".
+SyslogIdentifier=ventd-recover
+
+[Install]
+# Not Wanted-By a target; this unit only runs via OnFailure= from
+# ventd.service. Listed here so 'systemctl enable' is a no-op rather
+# than an error if an operator runs it.
+WantedBy=multi-user.target

@@ -21,6 +21,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
@@ -53,6 +54,11 @@ func run() error {
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")
 	doProbeModules := flag.Bool("probe-modules", false, "probe and load hwmon kernel modules, persist via /etc/modules-load.d, then exit (run by the installer at root, not by the sandboxed service)")
+	doRecover := flag.Bool("recover", false, "reset every pwm_enable to 1 (automatic mode) and exit; runs as the OnFailure= oneshot if the main daemon exits unexpectedly")
+	doRescan := flag.Bool("rescan-hwmon", false, "rerun hwmon module probing for hardware added since the original install (modprobe + persist /etc/modules-load.d), then exit")
+	doListFans := flag.Bool("list-fans-probe", false, "validation helper: enumerate every hwmon device, classify, probe writability, and print PASS/FAIL")
+	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
+	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
 	flag.Parse()
 
 	logger := buildLogger(*logLevel)
@@ -65,6 +71,41 @@ func run() error {
 		// ProtectKernelModules=yes those operations would EPERM.
 		hwmon.AutoloadModules(logger)
 		return nil
+	}
+
+	if *doRescan {
+		// Same code path as --probe-modules; named differently for
+		// operator clarity ("I added new hardware, what do I do?").
+		// Idempotent — re-running over an already-loaded module is
+		// a fast no-op fast-path.
+		hwmon.AutoloadModules(logger)
+		return nil
+	}
+
+	if *doRecover {
+		// Best-effort one-shot fired by ventd-recover.service when
+		// the main daemon exits unexpectedly (SIGKILL, OOM,
+		// hardware-watchdog timeout, panic that escapes the defer
+		// chain). Walks /sys/class/hwmon and writes 1 to every
+		// pwm<N>_enable to hand control back to the BIOS/firmware.
+		// Never fails — exit 0 keeps the OnFailure= chain from
+		// retriggering.
+		hwmon.RecoverAllPWM(logger)
+		return nil
+	}
+
+	if *doListFans {
+		// Folded-in former cmd/list-fans-probe. Returns non-zero on
+		// regression vs the pre-Tier-2 enumeration; the validation
+		// matrix uses the exit code as a PASS/FAIL gate.
+		os.Exit(runListFansProbe())
+	}
+
+	if *doPreflight {
+		// Folded-in former cmd/preflight-check. Emits JSON; exit 0
+		// always unless encoder fails. The Reason field is what the
+		// validation matrix asserts on.
+		os.Exit(runPreflightCheck(*preflightMaxKernel))
 	}
 
 	if *doSetup {
@@ -203,6 +244,37 @@ func runDaemon(
 	// Controller panic recovery also calls wd.Restore() before returning an error.
 	defer wd.Restore()
 
+	// Top-level panic recover. The controller package's own
+	// per-tick recover catches in-loop panics; this guard catches
+	// anything that escapes (e.g. panic in a goroutine outside a
+	// controller, library code, runtime). wd.Restore via the defer
+	// above is already armed — this re-raises the panic only after
+	// PWM has been restored, so the systemd OnFailure= oneshot also
+	// fires.
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("ventd: top-level panic recovered, restoring PWM and re-raising",
+				"panic", fmt.Sprintf("%v", r))
+			// wd.Restore() runs via the defer below us — order
+			// matters: this defer is declared later, so it executes
+			// FIRST and sets up the panic state, then wd.Restore
+			// runs, then we re-panic so the process exits non-zero
+			// and systemd's OnFailure= triggers ventd-recover as
+			// the belt to our braces.
+			panic(r)
+		}
+	}()
+
+	// systemd Type=notify integration. Tells systemd we're up so the
+	// service transitions to "active" only after configs are loaded
+	// and controllers are running. Pairs with WatchdogSec= in the
+	// unit: a heartbeat goroutine pings every WATCHDOG_USEC/2 so the
+	// kernel kills us if the main loop hangs. Both are no-ops when
+	// running off systemd (sdnotify reads NOTIFY_SOCKET from env).
+	stopHeartbeat := sdnotify.StartHeartbeat()
+	defer stopHeartbeat()
+	defer func() { _ = sdnotify.Notify(sdnotify.Stopping) }()
+
 	// Calibration manager: persists results across restarts. The watchdog
 	// is shared with controllers — calibrate registers each fan at sweep
 	// start and deregisters on normal exit, so a daemon crash mid-sweep
@@ -295,6 +367,11 @@ func runDaemon(
 			}(c)
 		}
 	}
+
+	// All goroutines launched. Tell systemd we're ready so the unit
+	// transitions from "activating" to "active" — and so dependent
+	// units (timers, sockets, downstream services) can start.
+	_ = sdnotify.Notify(sdnotify.Ready)
 
 	for {
 		select {

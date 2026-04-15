@@ -51,6 +51,21 @@ func dev(stable, chip string, class CapabilityClass, bases ...string) HwmonDevic
 	return d
 }
 
+// TestDefaultRescanPeriod_TenSecondPromise locks the watcher's
+// production rescan ticker to <= 10 seconds so the README's "ventd
+// notices a new fan or GPU within ten seconds" claim is true even on
+// hosts where AF_NETLINK uevents are filtered.
+func TestDefaultRescanPeriod_TenSecondPromise(t *testing.T) {
+	if defaultRescanPeriod > 10*time.Second {
+		t.Errorf("defaultRescanPeriod = %v; README promises detection within 10s",
+			defaultRescanPeriod)
+	}
+	if defaultRescanPeriod < time.Second {
+		t.Errorf("defaultRescanPeriod = %v; under 1s wastes CPU on a sysfs scan",
+			defaultRescanPeriod)
+	}
+}
+
 func newTestWatcher(t *testing.T, snapshots ...[]HwmonDevice) (*Watcher, *hwdiag.Store, *mockEnumerator) {
 	t.Helper()
 	store := hwdiag.NewStore()

@@ -1,0 +1,96 @@
+#include <tunables/global>
+
+# AppArmor profile for /usr/local/bin/ventd.
+#
+# Confines the daemon to the operations the README promises:
+# read /etc/ventd, walk /sys/class/hwmon, write pwm<N> and
+# pwm<N>_enable, bind the web UI port, talk to journald.
+#
+# Install:
+#   sudo install -m 0644 deploy/apparmor.d/usr.local.bin.ventd \
+#                        /etc/apparmor.d/usr.local.bin.ventd
+#   sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd
+#
+# Verify:
+#   sudo aa-status | grep ventd
+#   sudo systemctl restart ventd
+#   sudo journalctl -k | grep -i 'ventd.*DENIED'   # should be empty
+#
+# If denials appear after a kernel/distro upgrade:
+#   sudo aa-logprof
+# and stack the suggested rules below this profile.
+
+profile ventd /usr/local/bin/ventd flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+
+  # The binary itself.
+  /usr/local/bin/ventd            mr,
+  /usr/bin/ventd                  mr,
+
+  # Config + calibration store.
+  /etc/ventd/                     r,
+  /etc/ventd/**                   r,
+  /etc/ventd/config.yaml          rw,
+  /etc/ventd/config.yaml.tmp      rw,
+  /etc/ventd/calibration.json     rw,
+  /etc/ventd/calibration.json.tmp rw,
+  /etc/ventd/cert.pem             rw,
+  /etc/ventd/key.pem              rw,
+  /etc/ventd/cert.pem.tmp         rw,
+  /etc/ventd/key.pem.tmp          rw,
+
+  # Setup token at /run/ventd/setup-token (mode 0600).
+  /run/ventd/                     r,
+  /run/ventd/setup-token          rw,
+
+  # Hwmon: full read of the class tree, write only on pwm files. The
+  # udev rule grants DAC; AppArmor enforces MAC on top.
+  /sys/class/hwmon/               r,
+  /sys/class/hwmon/**             r,
+  /sys/class/hwmon/**/pwm[0-9]*       rw,
+  /sys/class/hwmon/**/pwm[0-9]*_enable rw,
+  /sys/devices/**/hwmon/**            r,
+  /sys/devices/**/hwmon/**/pwm[0-9]*       rw,
+  /sys/devices/**/hwmon/**/pwm[0-9]*_enable rw,
+
+  # Fan-RPM target paths (pre-RDNA AMD GPUs use fan*_target instead of pwm*).
+  /sys/class/hwmon/**/fan[0-9]*_target  rw,
+  /sys/devices/**/hwmon/**/fan[0-9]*_target rw,
+
+  # DMI for board-vendor detection.
+  /sys/class/dmi/id/              r,
+  /sys/class/dmi/id/**            r,
+
+  # NVML for NVIDIA GPU metrics. Loaded at runtime via dlopen.
+  /usr/lib/libnvidia-ml.so.*      mr,
+  /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.* mr,
+  /usr/lib64/libnvidia-ml.so.*    mr,
+
+  # systemd journal socket. The daemon's slog stderr is captured by
+  # journald via the unit's StandardError=journal.
+  /run/systemd/journal/socket     rw,
+  /run/systemd/journal/stdout     rw,
+  /run/systemd/notify             rw,
+
+  # Process info — the daemon reads its own /proc entries for runtime
+  # diagnostics surfaced via the web UI.
+  /proc/sys/kernel/random/uuid    r,
+  /proc/sys/kernel/osrelease      r,
+  owner /proc/[0-9]*/             r,
+  owner /proc/[0-9]*/**           r,
+
+  # Network: bind 9999/tcp by default; INET, INET6, UNIX (journald),
+  # NETLINK (uevent watcher).
+  network inet stream,
+  network inet6 stream,
+  network unix dgram,
+  network netlink raw,
+
+  # Capabilities. The unit drops capabilities entirely
+  # (CapabilityBoundingSet=); listing nothing here mirrors that. If a
+  # future change ever needs CAP_NET_BIND_SERVICE for a port < 1024,
+  # add it explicitly and re-justify in deploy/README.md.
+
+  # Deny everything else by default — AppArmor's default-deny model.
+}
