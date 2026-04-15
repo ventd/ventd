@@ -154,17 +154,26 @@ function render(){
 function renderSensorBar(){
   if(!sts) return;
   const parts = sts.sensors.map(s => {
+    // Temperatures get the sensor-val class plus the tempClass
+    // heat-colour modifier (tc-cool/warm/hot/crit); non-temp readings
+    // carry only sensor-val (which leaves them at the default teal
+    // palette). The sensor-name and dot separator classes live in
+    // app.css under .sys-status so they only apply here.
     const cls = s.unit==='°C' ? tempClass(s.value) : '';
-    const val = '<span'+(cls?' style="color:var(--teal)"':'')+'>'+fmtSensorVal(s.value, s.unit)+'</span>';
-    return '<span style="color:var(--fg2)">'+esc(s.name)+'</span> '+val;
+    const valCls = cls ? 'sensor-val '+cls : 'sensor-val';
+    const val = '<span class="'+valCls+'">'+fmtSensorVal(s.value, s.unit)+'</span>';
+    return '<span class="sensor-name">'+esc(s.name)+'</span> '+val;
   });
-  const dot = '<span style="color:var(--fg4)"> · </span>';
+  const dot = '<span class="dot"> · </span>';
   document.getElementById('sys-status').innerHTML = parts.join(dot);
 }
 
 function renderHardware(){
   if(!hw || !hw.length){
-    document.getElementById('hw-devices').innerHTML='<span style="color:var(--fg3);font-size:0.75rem">No devices found</span>';
+    // The hw-empty class on the container already provides the
+    // fg3 colour + 0.75rem sizing; replace the child span with a
+    // plain-text message.
+    document.getElementById('hw-devices').innerHTML='No devices found';
     return;
   }
   // Build set of already-added sensor paths+metrics for dedup
@@ -235,7 +244,7 @@ function renderHardware(){
     });
 
     return '<div class="hw-device">'+
-      '<div class="hw-device-name" onclick="toggleHw(\''+esc(key)+'\')">'+
+      '<div class="hw-device-name" data-action="toggle-hw" data-key="'+esc(key)+'">'+
         '<span>'+esc(dev.name)+'</span>'+
         '<span class="toggle">'+(collapsed?'\u25b6':'\u25bc')+'</span>'+
       '</div>'+
@@ -1254,6 +1263,38 @@ document.addEventListener('click', (e) => {
     // ── curve editor group ──
     case 'delete-curve':
       deleteCurve();
+      break;
+    // ── header / sidebar group ──
+    case 'toggle-theme':
+      toggleTheme();
+      break;
+    case 'toggle-sidebar':
+      toggleSidebar();
+      break;
+    case 'toggle-hw':
+      toggleHw(el.dataset.key);
+      break;
+    case 'add-curve':
+      addCurve(el.dataset.type);
+      break;
+    case 'auto-curve':
+      autoCurve();
+      break;
+    // ── modals + setup wizard ──
+    case 'open-settings':
+      openSettings();
+      break;
+    case 'close-settings':
+      closeSettings();
+      break;
+    case 'confirm-reset':
+      confirmReset();
+      break;
+    case 'reboot':
+      doReboot();
+      break;
+    case 'setup-apply':
+      setupApply();
       break;
   }
 });
