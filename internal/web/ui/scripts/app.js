@@ -186,7 +186,7 @@ function renderHardware(){
       'data-mt="'+esc(r.metric||'')+'" data-lbl="'+esc(r.label)+'"';
     const btn = '<button class="add-sensor-btn'+(isAdded?' added':'')+'" '+
       (isAdded?'disabled ':'')+btnData+
-      (isAdded?'' : ' onclick="addSensorFromReading(this)"')+
+      (isAdded?'' : ' data-action="add-sensor"')+
       '>'+(isAdded?'\u2713':'+')+
       '</button>';
     const vc = r.unit==='°C' ? tempClass(r.value) : valClass(r);
@@ -269,15 +269,14 @@ function renderSensorCards(){
       '<div class="card-name-edit sensor-name-edit">'+
         '<input type="text" value="'+esc(s.name)+'" '+
           'data-orig="'+esc(s.name)+'" '+
-          'onblur="renameSensor('+i+',this)" '+
-          'onkeydown="if(event.key===\'Enter\'){this.blur();}" '+
+          'data-action="rename-sensor" data-idx="'+i+'" '+
           'title="Click to rename">'+
         '<span class="edit-icon">\u270e</span>'+
       '</div>'+
       '<div class="sensor-path">'+esc(pathDisplay)+'</div>'+
       '<div class="'+valCls+'">'+val+'</div>'+
       '<div class="sensor-actions">'+
-        '<button class="danger" onclick="deleteSensor('+i+')" title="Remove sensor">&#x2715;</button>'+
+        '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor">&#x2715;</button>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -1186,6 +1185,55 @@ async function hwdiagRunRemediation(endpoint, fix, btn){
   } catch(e){ notify('Remediation failed: '+e.message, 'error'); }
   finally { btn.disabled = false; loadHwdiag(); }
 }
+
+// ── Event delegation ──
+//
+// Every rendered template uses `data-action="..."` instead of an inline
+// `on*=` attribute so the CSP can drop `script-src 'unsafe-inline'`.
+// Listeners are installed once on document and dispatch by action name
+// + element type. New actions get added here as each render group is
+// migrated.
+
+// click: buttons, card bodies, icons, anchors.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
+  switch (action) {
+    // ── sensor group ──
+    case 'delete-sensor':
+      deleteSensor(+el.dataset.idx);
+      break;
+    case 'add-sensor':
+      addSensorFromReading(el);
+      break;
+  }
+});
+
+// blur: rename-on-blur for card name inputs. Blur does not bubble, so
+// capture phase is mandatory to catch it at the document level.
+document.addEventListener('blur', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || !el.dataset || !el.dataset.action) return;
+  const action = el.dataset.action;
+  switch (action) {
+    // ── sensor group ──
+    case 'rename-sensor':
+      renameSensor(+el.dataset.idx, el);
+      break;
+  }
+}, true);
+
+// keydown: Enter-to-commit for rename inputs. Any input that carries a
+// data-action triggers a blur on Enter so the action fires through the
+// blur handler above.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || el.tagName !== 'INPUT') return;
+  if (!el.dataset || !el.dataset.action) return;
+  el.blur();
+});
 
 // ── Init ──
 document.getElementById('btn-apply').addEventListener('click',applyConfig);
