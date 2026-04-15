@@ -30,8 +30,8 @@ differs from every other NVML call `ventd` makes. The driver requires
 2. The NVIDIA X server is running with the `Coolbits` option set (bit 2
    for fan control, value `4`). Requires an active X session on the
    same user.
-3. A custom udev rule grants the ventd service user write access to
-   `/dev/nvidiactl` and the `/dev/nvidia*` device nodes.
+3. A custom udev rule places the ventd service user in a group
+   NVML treats as privileged for fan control.
 
 The `ventd.service` unit ships with `ProtectSystem=strict`,
 `ProtectKernelTunables=yes`, `ProtectKernelModules=yes`,
@@ -43,8 +43,15 @@ the three paths above are auto-configured by the install script.
 ## Option A — udev rule (recommended)
 
 Creates a dedicated `ventd` group, adds the service user to it, and
-grants the group read/write on the NVIDIA control nodes. No capability
-elevation, no X server, no cool-bits flag.
+reassigns group ownership of the NVIDIA control nodes to that group.
+The NVIDIA device nodes are world-readable/writable (`0666`) by
+default, so this is not about filesystem permissions — it is about
+NVML's internal gate for `SetFanSpeed_v2`, which checks the caller's
+supplementary groups against the owning group of `/dev/nvidiactl`.
+Setting `MODE="0660"` additionally tightens the posture (drops the
+world-writable bit), which is why the rule is preferred over the
+default state. No capability elevation, no X server, no cool-bits
+flag.
 
 ```
 # /etc/udev/rules.d/71-ventd-nvidia.rules
