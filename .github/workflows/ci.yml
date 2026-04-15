@@ -17,7 +17,7 @@ jobs:
       matrix:
         go-version: ["1.25.x"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -45,7 +45,7 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
@@ -63,7 +63,7 @@ jobs:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25.x"
@@ -79,7 +79,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Lint shipped shell scripts (bash entry, POSIX hooks, init scripts)
         # SC1091 silenced — _ventd_account.sh is sourced via dynamic
         # path resolution that shellcheck can't follow statically.
