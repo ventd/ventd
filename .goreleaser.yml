@@ -60,7 +60,12 @@ archives:
       - README.md
       - config.example.yaml
       - deploy/ventd.service
+      - deploy/ventd-recover.service
       - deploy/90-ventd-hwmon.rules
+      - deploy/apparmor.d/usr.local.bin.ventd
+      - deploy/selinux/ventd.te
+      - deploy/selinux/ventd.fc
+      - deploy/selinux/Makefile
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
@@ -76,7 +81,12 @@ archives:
       - README.md
       - config.example.yaml
       - deploy/ventd.service
+      - deploy/ventd-recover.service
       - deploy/90-ventd-hwmon.rules
+      - deploy/apparmor.d/usr.local.bin.ventd
+      - deploy/selinux/ventd.te
+      - deploy/selinux/ventd.fc
+      - deploy/selinux/Makefile
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
@@ -106,8 +116,18 @@ nfpms:
     contents:
       - src: deploy/ventd.service
         dst: /lib/systemd/system/ventd.service
+      - src: deploy/ventd-recover.service
+        dst: /lib/systemd/system/ventd-recover.service
       - src: deploy/90-ventd-hwmon.rules
         dst: /lib/udev/rules.d/90-ventd-hwmon.rules
+      - src: deploy/apparmor.d/usr.local.bin.ventd
+        dst: /etc/apparmor.d/usr.local.bin.ventd
+      - src: deploy/selinux/ventd.te
+        dst: /usr/share/selinux/ventd/ventd.te
+      - src: deploy/selinux/ventd.fc
+        dst: /usr/share/selinux/ventd/ventd.fc
+      - src: deploy/selinux/Makefile
+        dst: /usr/share/selinux/ventd/Makefile
       - src: scripts/_ventd_account.sh
         dst: /usr/share/ventd/_ventd_account.sh
       - src: config.example.yaml

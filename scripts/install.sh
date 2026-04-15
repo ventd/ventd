@@ -223,6 +223,11 @@ case "$INIT_SYSTEM" in
             echo "error: ventd.service not found" >&2
             exit 1
         }
+        # The OnFailure recovery oneshot. Optional in the asset
+        # tree (older release tarballs may not ship it) — if missing,
+        # warn but continue; the daemon's graceful-exit path still
+        # works, the operator just loses the SIGKILL/OOM safety net.
+        RECOVER_SRC="$(find_unit ventd-recover.service 2>/dev/null)" || RECOVER_SRC=""
         ;;
     openrc)
         OPENRC_SRC="$(find_unit ventd.openrc)" || {
@@ -498,6 +503,13 @@ case "$INIT_SYSTEM" in
 
     systemd)
         install -m 644 "$SERVICE_SRC" /etc/systemd/system/ventd.service
+        if [[ -n "$RECOVER_SRC" ]]; then
+            install -m 644 "$RECOVER_SRC" /etc/systemd/system/ventd-recover.service
+            echo "  ✓ systemd unit → /etc/systemd/system/ventd-recover.service (OnFailure helper)"
+        else
+            echo "  ! ventd-recover.service not found in asset tree — SIGKILL/OOM"
+            echo "    safety net unavailable; graceful-exit watchdog still active"
+        fi
         systemctl daemon-reload
         systemctl enable ventd.service
         systemctl start ventd.service
@@ -603,6 +615,83 @@ if "$VENTD_PREFIX/ventd" --probe-modules >/dev/null 2>&1; then
 else
     echo "  ! hwmon module probe returned non-zero — daemon will diagnose at startup"
 fi
+
+# ── Optional MAC policy install ──────────────────────────────────────────────
+#
+# AppArmor and SELinux ship as separate concerns: the policy files
+# live in deploy/apparmor.d/ and deploy/selinux/. Install them only
+# when the corresponding kernel-side enforcement is present so we
+# don't drop policy on systems that won't use it.
+
+install_apparmor_profile() {
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        return 0
+    fi
+    local src=""
+    for candidate in \
+        "${ASSET_DIR}/../deploy/apparmor.d/usr.local.bin.ventd" \
+        "${TARBALL_ROOT:-}/deploy/apparmor.d/usr.local.bin.ventd"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            src="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$src" ]]; then
+        return 0
+    fi
+    install -d -m 755 /etc/apparmor.d
+    install -m 644 "$src" /etc/apparmor.d/usr.local.bin.ventd
+    if apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null; then
+        echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded)"
+    else
+        echo "  ! AppArmor profile installed but parser refused to load it"
+        echo "    (run \`apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd\` for details)"
+    fi
+}
+
+install_selinux_module() {
+    if ! command -v semodule >/dev/null 2>&1 || ! command -v checkmodule >/dev/null 2>&1; then
+        return 0
+    fi
+    local srcdir=""
+    for candidate in \
+        "${ASSET_DIR}/../deploy/selinux" \
+        "${TARBALL_ROOT:-}/deploy/selinux"; do
+        if [[ -n "$candidate" && -d "$candidate" ]]; then
+            srcdir="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$srcdir" ]]; then
+        return 0
+    fi
+    if [[ ! -d /usr/share/selinux/devel ]]; then
+        echo "  ! SELinux tooling present but selinux-policy-devel is missing"
+        echo "    Install it (selinux-policy-devel on Fedora/RHEL, selinux-policy-dev"
+        echo "    on Debian/Ubuntu) then run: sudo make -C ${srcdir} install"
+        return 0
+    fi
+    local builddir
+    builddir="$(mktemp -d)"
+    cp "${srcdir}"/ventd.te "${srcdir}"/ventd.fc "${builddir}/" || {
+        rm -rf "$builddir"
+        return 0
+    }
+    if ( cd "$builddir" && make -f /usr/share/selinux/devel/Makefile ventd.pp >/dev/null 2>&1 ); then
+        if semodule -i "${builddir}/ventd.pp" 2>/dev/null; then
+            restorecon -Rv /usr/local/bin/ventd /etc/ventd /run/ventd >/dev/null 2>&1 || true
+            echo "  ✓ SELinux module → ventd.pp (loaded; restorecon applied)"
+        else
+            echo "  ! SELinux module built but semodule refused to load it"
+        fi
+    else
+        echo "  ! SELinux module build failed (run make in ${srcdir} for details)"
+    fi
+    rm -rf "$builddir"
+}
+
+install_apparmor_profile
+install_selinux_module
 
 # ── Post-start verification ─────────────────────────────────────────────────
 #
