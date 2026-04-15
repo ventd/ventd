@@ -65,13 +65,13 @@ declare -a ACTIVE_INSTANCES=()
 declare -A IMAGES=(
     [ubuntu-24.04]="$IMAGES_REMOTE:ubuntu/24.04"
     [debian-12]="$IMAGES_REMOTE:debian/12"
-    [fedora-40]="$IMAGES_REMOTE:fedora/40"
+    [fedora-42]="$IMAGES_REMOTE:fedora/42"
     [arch]="$IMAGES_REMOTE:archlinux"
     [opensuse-tumbleweed]="$IMAGES_REMOTE:opensuse/tumbleweed"
     [alpine]="$IMAGES_REMOTE:alpine/3.20"
 )
 
-ALL_TARGETS=(ubuntu-24.04 debian-12 fedora-40 arch opensuse-tumbleweed alpine)
+ALL_TARGETS=(ubuntu-24.04 debian-12 fedora-42 arch opensuse-tumbleweed alpine)
 
 # ── Logging helpers ───────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ bootstrap_tools() {
             cexec "$inst" "command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl tar ca-certificates)" ;;
         ubuntu-24.04)
             cexec "$inst" "command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl tar ca-certificates)" ;;
-        fedora-40)
+        fedora-42)
             cexec "$inst" "command -v curl >/dev/null || dnf -y -q install curl tar" ;;
         arch)
             cexec "$inst" "command -v curl >/dev/null || pacman -Sy --noconfirm --quiet curl tar >/dev/null" ;;
@@ -307,38 +307,67 @@ assert_service_active() {
 
 assert_api_ping() {
     local inst="$1"
+    # ventd refuses plaintext HTTP on non-loopback listens — see
+    # Web.RequireTransportSecurity() in internal/config/config.go. On
+    # first boot it auto-generates a self-signed cert under the config
+    # dir (cmd/ventd/main.go:132-162) and serves HTTPS on 0.0.0.0:9999.
+    # That's the documented posture, so this assertion hits HTTPS with
+    # -k (the cert is unconditionally self-signed; no trust chain to
+    # verify against) and -m 3 so a non-listening port fails a probe
+    # in 3s instead of hanging for the default connect timeout.
     local deadline=$(( $(date +%s) + TIMEOUT_PING ))
     while (( $(date +%s) < deadline )); do
-        if cexec "$inst" "curl -sf -o /dev/null http://127.0.0.1:9999/api/ping"; then
-            assertion A3 PASS "curl http://localhost:9999/api/ping → 200"
+        if cexec "$inst" "curl -sfm 3 -k -o /dev/null https://127.0.0.1:9999/api/ping"; then
+            assertion A3 PASS "curl -k https://127.0.0.1:9999/api/ping → 200"
             return 0
         fi
         sleep 1
     done
     assertion A3 FAIL "api/ping never returned 200 within ${TIMEOUT_PING}s"
     echo '```'
-    cexec "$inst" "curl -sv http://127.0.0.1:9999/api/ping 2>&1 | tail -n 20"
+    cexec "$inst" "curl -kv -m 3 https://127.0.0.1:9999/api/ping 2>&1 | tail -n 20"
     echo '```'
+}
+
+# A4 — first-boot wizard mode. GET /api/auth/state is unauthenticated
+# (handleAuthState in internal/web/server.go) and returns
+# {"first_boot":true|false}. true means no password_hash is set, which
+# is exactly the install-smoke invariant: the install script leaves the
+# operator at the wizard, not at a dashboard. An authoritative JSON
+# probe beats HTML scraping the login page, which always contains the
+# wizard HTML (a CSS class toggles it).
+assert_wizard_mode() {
+    local inst="$1"
+    local body
+    body=$(cexec "$inst" "curl -sfm 3 -k https://127.0.0.1:9999/api/auth/state" 2>/dev/null || echo "")
+    if [[ "$body" == *'"first_boot":true'* ]]; then
+        assertion A4 PASS "/api/auth/state → first_boot:true"
+    else
+        assertion A4 FAIL "daemon not in first-boot mode. Body: ${body:-"(empty)"}"
+        echo '```'
+        cexec "$inst" "curl -kv -m 3 https://127.0.0.1:9999/api/auth/state 2>&1 | tail -n 20"
+        echo '```'
+    fi
 }
 
 assert_setup_token() {
     local inst="$1" init="$2"
     case "$init" in
         systemd)
-            if cexec "$inst" "journalctl -u ventd --no-pager | grep -iE 'setup.token' | head -n 1 | grep -q ."; then
-                assertion A4 PASS "setup token present in journal"
+            if cexec "$inst" "journalctl -u ventd --since '5 min ago' --no-pager | grep -iE 'setup.token|one-time' | head -n 1 | grep -q ."; then
+                assertion A5 PASS "setup token present in journal"
             else
-                assertion A4 FAIL "no 'setup token' line in journalctl -u ventd"
+                assertion A5 FAIL "no 'setup token' line in journalctl -u ventd (last 5 min)"
                 echo '```'
                 cexec "$inst" "journalctl -u ventd --no-pager | tail -n 20 2>&1"
                 echo '```'
             fi
             ;;
         openrc)
-            if cexec "$inst" "grep -iE 'setup.token' /var/log/ventd/current /var/log/messages /var/log/syslog 2>/dev/null | head -n 1 | grep -q ."; then
-                assertion A4 PASS "setup token present in log"
+            if cexec "$inst" "grep -iE 'setup.token|one-time' /var/log/ventd/current /var/log/messages /var/log/syslog 2>/dev/null | head -n 1 | grep -q ."; then
+                assertion A5 PASS "setup token present in log"
             else
-                assertion A4 FAIL "no 'setup token' line in /var/log/ventd or syslog"
+                assertion A5 FAIL "no 'setup token' line in /var/log/ventd or syslog"
                 echo '```'
                 cexec "$inst" "tail -n 40 /var/log/ventd/current 2>/dev/null || tail -n 40 /var/log/messages 2>/dev/null || echo '(no log found)'"
                 echo '```'
@@ -347,55 +376,86 @@ assert_setup_token() {
     esac
 }
 
-# A5 — PR #38 regression: /etc/ventd/config.yaml must be ventd:ventd 0600.
-# install.sh doesn't create config.yaml (the setup wizard does), so the
-# harness seeds a minimal config from config.example.yaml and restarts
-# the daemon to confirm service load doesn't drift mode/owner.
-assert_config_perms() {
-    local inst="$1" init="$2"
-
-    local seed='
-set -e
-cp /opt/ventd-smoke/config.example.yaml /etc/ventd/config.yaml
-chown ventd:ventd /etc/ventd/config.yaml
-chmod 0600 /etc/ventd/config.yaml
-'
-    if ! cexec "$inst" "$seed" 2>/tmp/seed.err; then
-        assertion A5 FAIL "could not seed /etc/ventd/config.yaml"
-        echo '```'
-        cat /tmp/seed.err 2>/dev/null || echo '(no seed log)'
-        echo '```'
-        rm -f /tmp/seed.err
+# A6 — /etc/ventd if present is ventd:ventd. Replaces the old config.yaml
+# seed-and-restart regression check for PR #38: install.sh creates the
+# directory (at 0750 ventd:ventd) but does NOT create config.yaml —
+# the setup wizard does, and driving the wizard needs real hwmon.
+# Seeding config.example.yaml to make config.yaml exist blew up on
+# Incus where /sys is inherited from the host and the "nct6687 matches
+# multiple hwmon devices" guard (PR #42) fires. The invariant we
+# actually care about is the directory's ownership: if install.sh
+# leaves /etc/ventd owned by root (the PR #38 bug), the daemon
+# (User=ventd) can't write config or cert files into it.
+assert_config_dir_owner() {
+    local inst="$1"
+    if ! cexec "$inst" "test -d /etc/ventd" 2>/dev/null; then
+        assertion A6 SKIP "/etc/ventd not present (install did not create it)"
         return
     fi
-    rm -f /tmp/seed.err
-
-    case "$init" in
-        systemd) cexec "$inst" "systemctl restart ventd" ;;
-        openrc)  cexec "$inst" "rc-service ventd restart >/dev/null" ;;
+    local stat_line mode=""
+    stat_line=$(cexec "$inst" "stat -c '%U %G %a' /etc/ventd" 2>/dev/null || echo "")
+    case "$stat_line" in
+        "ventd ventd "*)
+            mode="${stat_line##* }"
+            assertion A6 PASS "/etc/ventd owner=ventd:ventd mode=0${mode}"
+            ;;
+        *)
+            assertion A6 FAIL "/etc/ventd ownership wrong: $stat_line"
+            echo '```'
+            cexec "$inst" "ls -ld /etc/ventd && ls -la /etc/ventd/"
+            echo '```'
+            ;;
     esac
-    sleep 2
+}
 
-    local stat_line
-    stat_line=$(cexec "$inst" "stat -c '%U %G %a' /etc/ventd/config.yaml" 2>/dev/null || echo "")
-    if [[ "$stat_line" == "ventd ventd 600" ]]; then
-        assertion A5 PASS "/etc/ventd/config.yaml ventd:ventd 0600"
+# A7 — no fatal / hwmon-refusal lines in journal over the last 2 minutes.
+# Catches regressions where the daemon crashes during first-boot
+# initialisation (cert gen, hwmon scan, account setup). The example
+# phrase we're guarding against is the PR #42 message the seed flow
+# used to produce:
+#   level=ERROR msg="ventd: fatal" err="load config: resolve hwmon ..."
+#   systemd[1]: ventd.service: Failed with result 'exit-code'.
+# "WARN" lines from the hwmon watcher on a hardware-less container
+# are expected and not matched.
+assert_no_fatal() {
+    local inst="$1" init="$2"
+    local query
+    case "$init" in
+        systemd)
+            query="journalctl -u ventd --since '2 min ago' --no-pager"
+            ;;
+        openrc)
+            query="tail -n 200 /var/log/ventd/current 2>/dev/null || tail -n 200 /var/log/messages 2>/dev/null || true"
+            ;;
+        *)
+            assertion A7 SKIP "unknown init: $init"; return ;;
+    esac
+    local hits
+    hits=$(cexec "$inst" "$query | grep -iE 'level=error.*fatal|ventd: fatal|Failed with result|matches multiple hwmon' | head -n 5" 2>/dev/null || echo "")
+    if [[ -z "$hits" ]]; then
+        assertion A7 PASS "no fatal lines in last 2 min"
     else
-        assertion A5 FAIL "/etc/ventd/config.yaml perms drifted: $stat_line"
+        assertion A7 FAIL "fatal lines found in last 2 min"
         echo '```'
-        cexec "$inst" "ls -l /etc/ventd/ 2>&1"
+        printf '%s\n' "$hits"
         echo '```'
     fi
 }
 
+# A8 — hardened-unit regression gate. The ventd.service unit sets
+# User=ventd; the binary must actually end up running as that user
+# (not root). This is the invariant the old A6 was meant to check —
+# the previous harness design masked it whenever the A5 seed broke
+# the daemon. Now that A5 doesn't touch the daemon, pidof finds a
+# running process and ps reports its user reliably.
 assert_run_user() {
     local inst="$1"
     local user
     user=$(cexec "$inst" "ps -o user= -p \$(pidof ventd) 2>/dev/null | tr -d ' '" 2>/dev/null || echo "")
     if [[ "$user" == "ventd" ]]; then
-        assertion A6 PASS "ventd process owned by user 'ventd'"
+        assertion A8 PASS "ventd process owned by user 'ventd'"
     else
-        assertion A6 FAIL "ventd process user: '$user' (expected 'ventd')"
+        assertion A8 FAIL "ventd process user: '$user' (expected 'ventd')"
         echo '```'
         cexec "$inst" "ps -eo pid,user,comm | grep -E 'ventd|PID' | head -n 10"
         echo '```'
@@ -423,11 +483,11 @@ rm -rf /etc/ventd /usr/local/bin/ventd /etc/init.d/ventd
 '
             ;;
         *)
-            assertion A7 SKIP "unknown init: $init"; return ;;
+            assertion A9 SKIP "unknown init: $init"; return ;;
     esac
 
     if ! cexec "$inst" "$cmds" >/tmp/uninstall.log 2>&1; then
-        assertion A7 FAIL "uninstall commands returned non-zero"
+        assertion A9 FAIL "uninstall commands returned non-zero"
         echo '```'
         cat /tmp/uninstall.log
         echo '```'
@@ -446,9 +506,9 @@ if pidof ventd >/dev/null 2>&1; then echo "orphan: ventd process still running";
 exit $bad
 '
     if cexec "$inst" "$orphan_check"; then
-        assertion A7 PASS "uninstall leaves no on-disk orphans"
+        assertion A9 PASS "uninstall leaves no on-disk orphans"
     else
-        assertion A7 FAIL "uninstall left orphans"
+        assertion A9 FAIL "uninstall left orphans"
         echo '```'
         cexec "$inst" "$orphan_check 2>&1 || true"
         echo '```'
@@ -465,9 +525,12 @@ run_target() {
         return 1
     fi
 
-    local inst="ventd-smoke-${target//./-}-${RUN_ID//[^a-z0-9]/-}"
-    inst="${inst,,}"
+    # Incus instance names: [a-z0-9-], no trailing dash, max 63 chars.
+    # RUN_ID carries ISO-8601 uppercase (T, Z); lowercase first, then sanitise.
+    local inst="ventd-smoke-${target//./-}-${RUN_ID,,}"
+    inst="${inst//[^a-z0-9-]/-}"
     inst="${inst:0:63}"
+    inst="${inst%"${inst##*[!-]}"}"   # strip trailing dashes
 
     local date_tag
     date_tag=$(date -u +%Y%m%d-%H%M)
@@ -526,14 +589,21 @@ bash scripts/install.sh >/tmp/install.log 2>&1
     cexec "$inst" "$fetch_install" >"$LOG_DIR/install-$target.log" 2>&1 || install_rc=$?
 
     # Run assertions, capturing stdout line-by-line into the report.
+    # Order traces the install flow: install exits → service comes up →
+    # API reachable → daemon is in first-boot wizard mode → setup token
+    # surfaces in the journal → config dir ownership is correct → no
+    # fatal lines got logged → process identity is the hardened user →
+    # clean uninstall.
     {
-        assert_install_exit   "$inst" "$install_rc"
-        assert_service_active "$inst" "$init"
-        assert_api_ping       "$inst"
-        assert_setup_token    "$inst" "$init"
-        assert_config_perms   "$inst" "$init"
-        assert_run_user       "$inst"
-        assert_uninstall      "$inst" "$init"
+        assert_install_exit     "$inst" "$install_rc"
+        assert_service_active   "$inst" "$init"
+        assert_api_ping         "$inst"
+        assert_wizard_mode      "$inst"
+        assert_setup_token      "$inst" "$init"
+        assert_config_dir_owner "$inst"
+        assert_no_fatal         "$inst" "$init"
+        assert_run_user         "$inst"
+        assert_uninstall        "$inst" "$init"
     } >> "$report"
 
     # Summarise.

@@ -26,33 +26,64 @@ For each target distro:
 3. Launches an Incus system container from a fresh upstream image.
 4. Inside the container: `curl` the tarball, extract, run
    `scripts/install.sh` (exercising the tarball-extraction path).
-5. Runs seven assertions (see below). Writes
+5. Runs nine assertions (see below). Writes
    `validation/fresh-vm-smoke-<target>-<date>.md` with PASS/FAIL per
    assertion and log tails for any FAIL.
 6. Deletes the container. Repeats for the next target.
 
 ### Assertions
 
-| ID | Check                                                                                         |
-|----|-----------------------------------------------------------------------------------------------|
-| A1 | `scripts/install.sh` exits 0                                                                  |
-| A2 | Service active (`systemctl is-active ventd` or `rc-service ventd status`)                     |
-| A3 | `curl -sf http://127.0.0.1:9999/api/ping` → 200                                               |
-| A4 | Setup token present in `journalctl -u ventd` (systemd) or `/var/log/ventd/current` (OpenRC)   |
-| A5 | `/etc/ventd/config.yaml` is `ventd:ventd 0600` after daemon restart (PR #38 regression gate)  |
-| A6 | `ps -o user= -p $(pidof ventd)` = `ventd` (the hardened unit's `User=ventd` took effect)      |
-| A7 | `systemctl stop ventd && rm -rf /etc/ventd /usr/local/bin/ventd /etc/systemd/system/ventd.*`  |
-|    | leaves no on-disk orphans and no lingering `ventd` process                                    |
+| ID | Check                                                                                                    |
+|----|----------------------------------------------------------------------------------------------------------|
+| A1 | `scripts/install.sh` exits 0                                                                             |
+| A2 | Service active (`systemctl is-active ventd` or `rc-service ventd status`)                                |
+| A3 | `curl -sfm 3 -k https://127.0.0.1:9999/api/ping` → 200                                                   |
+| A4 | `GET /api/auth/state` → `{"first_boot":true}` — daemon is in wizard mode, not dashboard mode             |
+| A5 | Setup token present in `journalctl -u ventd` (systemd) or `/var/log/ventd/current` (OpenRC)              |
+| A6 | `/etc/ventd` (if present) owned by `ventd:ventd` — regression gate for PR #38                            |
+| A7 | No `level=error ... fatal`, `Failed with result`, or `matches multiple hwmon` lines in journal last 2 min |
+| A8 | `ps -o user= -p $(pidof ventd)` = `ventd` (the hardened unit's `User=ventd` took effect)                 |
+| A9 | `systemctl stop ventd && rm -rf /etc/ventd /usr/local/bin/ventd /etc/systemd/system/ventd.*` leaves no on-disk or process orphans |
 
-A5 seeds `/etc/ventd/config.yaml` from `config.example.yaml` (the install
-script doesn't create it — the setup wizard does, which needs real
-hardware), restarts the daemon, then asserts the daemon didn't drift the
-file's mode or owner on load. That is the PR #38 regression surface.
+#### Why `-k` on A3 and A4
+
+ventd refuses to serve plaintext HTTP on non-loopback listens — see
+`Web.RequireTransportSecurity()` in `internal/config/config.go`. The
+first-boot flow auto-generates a self-signed cert under `/etc/ventd/`
+(`cmd/ventd/main.go:132-162`) and serves HTTPS on `0.0.0.0:9999`. That
+is the documented security posture per `.claude/rules/web-ui.md` and
+`.claude/rules/usability.md`: the daemon is LAN-reachable by default,
+so the setup wizard (admin password + token in flight) has to run over
+TLS even before the operator has configured anything. `-k` is
+necessary because the cert has no trust chain; it is not laziness —
+it is testing the designed posture. `-m 3` caps the probe timeout so
+a non-listening port fails fast instead of hanging.
+
+#### Why first-boot, not post-config, is what A5–A8 test
+
+The install script does **not** write `/etc/ventd/config.yaml` — the
+setup wizard does, and the setup wizard needs real hwmon hardware.
+An earlier iteration of this harness tried to seed `config.example.yaml`
+to stand in for wizard output and restart the daemon. That fought the
+install flow on two axes: (1) `config.example.yaml` references
+`chip_name: nct6687` and fixed `/sys/class/hwmon/hwmonN/…` paths, and
+(2) Incus system containers share `/sys` with the host, so the config
+resolver saw the host's real chips and tripped PR #42's multi-match
+guard. The daemon then died, every downstream assertion failed, and
+none of them were actually checking what they were named after. The
+redesign tests what the install one-liner genuinely leaves on disk:
+a daemon running in first-boot wizard mode under `User=ventd`, ready
+for the operator to point a browser at. Driving the wizard and
+verifying the persisted config belongs in e2e tests, not here.
 
 ### Target matrix (v0.2.0 gate)
 
-Must pass: `ubuntu-24.04`, `debian-12`, `fedora-40`, `arch`.
+Must pass: `ubuntu-24.04`, `debian-12`, `fedora-42`, `arch`.
 Nice-to-have (data, not blockers): `opensuse-tumbleweed`, `alpine`.
+
+Fedora 42 (not 40) because Fedora 40 reached EOL in Dec 2025 and was
+pruned from `images.linuxcontainers.org`; 42 is the current stable as
+of this file's last update. Bump when Fedora 43 is out and 41 is EOL.
 
 Alpine is expected to expose OpenRC-specific edge cases and — per the
 prior `install-smoke/install-smoke-alpine.md` notes — needs the musl
@@ -153,5 +184,14 @@ The ones you'll likely touch:
   and setting up a self-hosted runner with Incus is a separate
   F4-bucket task. For v0.2.0 this harness runs on Phoenix's laptop.
 - The setup wizard (which creates the real `config.yaml`) is not
-  driven; A5 is a narrower regression check that verifies the daemon
-  doesn't stomp on mode/owner of a seeded config.
+  driven; the harness verifies the pre-wizard state only, which is
+  the install script's actual responsibility. Wizard-driven config
+  creation belongs in e2e tests with real or simulated hwmon, not
+  in install smoke.
+- UFW + Incus bridge: if the host runs UFW with the default
+  `deny (incoming)` policy, DHCPOFFERs from the Incus-managed
+  dnsmasq get dropped and containers never get an IPv4. `ufw allow
+  in on incusbr0` alone is not sufficient on Ubuntu 24.04's UFW
+  build; for local runs the workaround is `sudo ufw disable`.
+  Proper coexistence is a host-level firewall task outside this
+  harness's scope.
