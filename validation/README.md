@@ -161,6 +161,14 @@ Back-of-envelope on a laptop with a warm image cache:
 4. Run once; iterate on any init-system-specific edges in the
    `assert_*` helpers.
 
+### Flags
+
+- `--refresh-images` — opt-in. Deletes the locally cached Incus image
+  for each selected target before launch so the next `incus launch`
+  re-pulls from the `images:` remote. Adds ~20 s per target; use it
+  when the local squashfs cache is suspect (see _Recovery: corrupted
+  cached image_ below). Normal runs reuse the warm cache.
+
 ### Environment overrides
 
 All documented in the script header (`validation/fresh-vm-smoke.sh`).
@@ -172,6 +180,46 @@ The ones you'll likely touch:
 - `VENTD_SMOKE_BRIDGE` — override the bridge name if you don't use the
   default `incusbr0`.
 - `VENTD_SMOKE_PORT` — override the HTTP port if 8089 is taken.
+
+### Recovery: corrupted cached image
+
+Incus's local image store occasionally corrupts a cached squashfs — the
+canonical symptom is an `unsquashfs` error partway through
+`incus launch`, e.g.:
+
+```
+unsquashfs: xz uncompress failed with error code 9 on .../locale-archive
+```
+
+This has been observed once on `images:fedora/42` during a matrix run
+and did not reproduce on a second attempt. It is an Incus storage-pool
+issue, not a harness or ventd bug, but the recovery step is worth
+knowing:
+
+1. Find the cached image's fingerprint:
+
+   ```
+   incus image list --format=csv -c fd
+   ```
+
+   The `d` column carries a description like `Fedora 42 amd64 (…)`;
+   the `f` column is the fingerprint.
+
+2. Delete by fingerprint prefix (12 chars is enough):
+
+   ```
+   incus image delete <fingerprint-prefix>
+   ```
+
+3. Re-run the harness. The next `incus launch` re-pulls the image from
+   `images.linuxcontainers.org` automatically.
+
+The `--refresh-images` flag wraps all three steps for the targets on
+the command line, so a one-liner recovery is:
+
+```
+validation/fresh-vm-smoke.sh --refresh-images fedora-42
+```
 
 ### Limitations / known gaps
 

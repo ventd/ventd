@@ -12,6 +12,15 @@
 #   validation/fresh-vm-smoke.sh ubuntu-24.04         # one target
 #   validation/fresh-vm-smoke.sh ubuntu-24.04 arch    # several targets
 #
+# Flags:
+#   --refresh-images   Delete the locally cached image for each selected
+#                      target before launch so the subsequent `incus launch`
+#                      re-pulls from the images: remote. Opt-in because the
+#                      re-pull adds ~20 s per target; normal runs reuse the
+#                      warm cache. Use this when the local squashfs cache
+#                      is suspect (see validation/README.md "Recovery:
+#                      corrupted cached image").
+#
 # Environment overrides:
 #   VENTD_SMOKE_BRIDGE   Incus bridge name (default: incusbr0).
 #   VENTD_SMOKE_PORT     HTTP port on the host (default: 8089).
@@ -51,6 +60,7 @@ IMAGES_REMOTE="${VENTD_SMOKE_IMAGES_REMOTE:-images}"
 TIMEOUT_BOOT="${VENTD_SMOKE_TIMEOUT_BOOT:-60}"
 TIMEOUT_PING="${VENTD_SMOKE_TIMEOUT_PING:-60}"
 KEEP="${VENTD_SMOKE_KEEP:-0}"
+REFRESH_IMAGES=0
 
 RUN_ID="$$-$(date -u +%Y%m%dT%H%M%SZ)"
 HTTP_PID=""
@@ -200,8 +210,29 @@ start_http() {
 
 # ── Container helpers ─────────────────────────────────────────────────────
 
+refresh_image() {
+    # When --refresh-images is set, drop the local cache entry for $image
+    # before the launch that follows. Silent no-op if the image isn't
+    # cached locally (nothing to refresh), or if incus image info can't
+    # reach the remote — launch will surface that error in its own voice.
+    local image="$1"
+    local fp
+    fp="$(incus image info "$image" 2>/dev/null | awk '/^Fingerprint:/ {print $2; exit}')"
+    if [[ -z "$fp" ]]; then
+        return 0
+    fi
+    local prefix="${fp:0:12}"
+    if incus image list --format=csv -c f 2>/dev/null | grep -qx "$prefix"; then
+        info "refresh-images: deleting cached $prefix for $image"
+        incus image delete "$prefix" >/dev/null 2>&1 || true
+    fi
+}
+
 launch_container() {
     local inst="$1" image="$2"
+    if (( REFRESH_IMAGES == 1 )); then
+        refresh_image "$image"
+    fi
     info "launching $inst from $image"
     if ! incus launch "$image" "$inst" >/dev/null; then
         err "incus launch failed for $image"
@@ -647,10 +678,39 @@ bash scripts/install.sh >/tmp/install.log 2>&1
 
 main() {
     local -a targets=()
-    if (( $# == 0 )) || [[ "$1" == "all" ]]; then
+    local -a positional=()
+
+    # Single-pass argument parse: --flags bubble up to the top-level state,
+    # positional args become the target list.
+    while (( $# > 0 )); do
+        case "$1" in
+            --refresh-images)
+                REFRESH_IMAGES=1
+                shift
+                ;;
+            --help|-h)
+                sed -n '/^# Usage:/,/^# Requirements/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+                exit 0
+                ;;
+            --)
+                shift
+                while (( $# > 0 )); do positional+=("$1"); shift; done
+                ;;
+            --*)
+                err "unknown flag: $1"
+                exit 2
+                ;;
+            *)
+                positional+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    if (( ${#positional[@]} == 0 )) || [[ "${positional[0]:-}" == "all" ]]; then
         targets=("${ALL_TARGETS[@]}")
     else
-        targets=("$@")
+        targets=("${positional[@]}")
     fi
 
     preflight
