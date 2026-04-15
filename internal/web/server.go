@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -123,6 +124,12 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s.mux.HandleFunc("/login", s.handleLogin)
 	s.mux.HandleFunc("/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/ping", s.handlePing)
+	// Static UI assets (HTML/CSS/JS) live under the embedded `ui/` tree.
+	// Authentication is intentionally NOT required: these are the same
+	// bytes the unauth'd /login page already depends on, and withholding
+	// the dashboard HTML behind auth gains nothing — the /api/* endpoints
+	// that return real data are auth-gated separately.
+	s.mux.Handle("/ui/", http.StripPrefix("/ui/", uiStaticHandler(uiSubFS())))
 
 	// All other routes require a valid session.
 	auth := s.requireAuth
@@ -255,13 +262,34 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
+// uiStaticHandler wraps http.FileServer(fs) with two small behaviours:
+//
+//   - Short-cacheable: the embedded assets are versioned with the binary,
+//     so a 5-minute cache ceiling is safe under default upgrade flow
+//     (systemctl restart ventd invalidates caches via connection reset,
+//     and 5 minutes is short enough that a misbuild is easy to recover
+//     from without a forced reload).
+//   - Defense-in-depth: strip any Cache-Control the FileServer set and
+//     replace with our own so policy lives in one place.
+//
+// Content-Type is derived from extension by the stdlib FileServer, which
+// is exactly what we want (.css → text/css, .js → application/javascript,
+// .html → text/html).
+func uiStaticHandler(root fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(root))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 // handleLogin handles GET (serve login page) and POST (authenticate).
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(loginHTML))
+		_, _ = w.Write(readUI("login.html"))
 
 	case http.MethodPost:
 		// Cap login form bodies before parsing so a huge payload cannot
@@ -611,9 +639,17 @@ func (s *Server) handleHardware(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	// Only the root document is served from this handler. The mux pattern
+	// "/" matches every unclaimed path, so we have to guard against an
+	// authenticated user typo-navigating to /foo and getting the dashboard
+	// HTML for a path that shouldn't exist.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(dashboardHTML))
+	_, _ = w.Write(readUI("index.html"))
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>

@@ -1,0 +1,67 @@
+name: E2E (browser)
+
+# This job is the verification gate for audit finding S1. It drives a
+# real headless Chromium against the ventd handler chain and asserts
+# that the UI loads, the login flow completes, and no CSP violations
+# appear on the console — the signal the unit tests cannot see, since
+# those never actually execute any JavaScript.
+#
+# Separate from the main CI workflow because:
+#   - downloading Chromium on first run takes ~15s even on a warm
+#     runner, and we don't want to pay that on every push;
+#   - the Chromium runtime libs (libnss3, libatk, …) are a ~40 MB
+#     apt install that the other CI jobs don't need;
+#   - any failure here is a user-visible regression ("login button
+#     doesn't work") and we want that to surface as its own line in
+#     the PR checks, not hidden inside a combined build-and-test log.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: headless-chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      # rod downloads its own Chromium binary on first launch into
+      # ~/.cache/rod, but it still needs the system runtime libraries
+      # Chromium links against. Installing the real chromium-browser
+      # package is the laziest way to pull them all in; rod ignores
+      # the installed binary and uses its own download so the version
+      # stays pinned across runners.
+      - name: Install Chromium runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+            libgbm1 libpango-1.0-0 libasound2t64 libx11-xcb1 \
+            libxshmfence1 fonts-liberation
+
+      # Cache rod's downloaded Chromium across runs; first run is
+      # ~15s, subsequent runs are instant.
+      - name: Cache rod Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rod
+          key: rod-chromium-${{ runner.os }}-v1
+
+      - name: Run e2e suite
+        run: go test -tags=e2e -count=1 -timeout=5m ./internal/web/...
+        env:
+          CGO_ENABLED: "0"

@@ -23,6 +23,33 @@ go test -race ./...
 
 Requires Go 1.25 or later. No other dependencies.
 
+### Running the browser end-to-end suite (optional)
+
+The tests under `internal/web/` that are gated with `//go:build e2e`
+drive a real headless Chromium against the HTTP handler chain. They
+catch the class of bug unit tests cannot — e.g. "CSP blocks our own
+scripts, so the login button does nothing" — by actually executing
+the UI in a browser. They are excluded from the default `go test`
+run so contributors without a Chromium runtime pay nothing for them.
+
+```
+go test -tags=e2e ./internal/web/...
+```
+
+`rod` downloads its own Chromium into `~/.cache/rod` on first invocation
+(~180 MB, cached thereafter), so you only need the system runtime
+libraries Chromium links against. On Debian/Ubuntu:
+
+```
+sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+  libcups2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+  libgbm1 libpango-1.0-0 libasound2t64 libx11-xcb1 libxshmfence1 \
+  fonts-liberation
+```
+
+If you already have a Chromium installed and would rather rod use
+that, set `VENTD_E2E_CHROMIUM=/path/to/chrome`.
+
 ## What blocks a merge
 
 - `go vet ./...` must pass.
