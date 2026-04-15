@@ -31,6 +31,19 @@ VENTD_REPO="${VENTD_REPO:-ventd/ventd}"
 VENTD_PREFIX="${VENTD_PREFIX:-/usr/local/bin}"
 VENTD_VERSION="${VENTD_VERSION:-}"
 
+# Path overrides (primarily for the install-unit-refresh fixture test under
+# validation/; defaults match the shipped layout).
+VENTD_SYSTEMD_DIR="${VENTD_SYSTEMD_DIR:-/etc/systemd/system}"
+VENTD_ETC_DIR="${VENTD_ETC_DIR:-/etc/ventd}"
+
+# Test-mode short-circuits. When set to "1", destructive operations
+# against the running system (systemctl, udevadm, account creation,
+# hwmon module probe, apparmor/selinux loaders, pwm conflict checks,
+# port probes, root gate) are skipped — but every file-copy path still
+# executes so the unit-file refresh behavior can be exercised against
+# a scratch sysroot. See validation/install-unit-refresh.test.sh.
+VENTD_TEST_MODE="${VENTD_TEST_MODE:-0}"
+
 TMPDIR_CLEANUP=""
 cleanup() {
     if [[ -n "$TMPDIR_CLEANUP" && -d "$TMPDIR_CLEANUP" ]]; then
@@ -41,7 +54,7 @@ trap cleanup EXIT
 
 # ── Root check ───────────────────────────────────────────────────────────────
 
-if [[ $EUID -ne 0 ]]; then
+if [[ $EUID -ne 0 && "$VENTD_TEST_MODE" != "1" ]]; then
     echo "error: this script must be run as root (use sudo)" >&2
     exit 1
 fi
@@ -366,10 +379,12 @@ check_port_9999() {
     fi
 }
 
-echo "Checking for conflicting services..."
-check_conflicting_daemon
-check_pwm_holders
-check_port_9999
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    echo "Checking for conflicting services..."
+    check_conflicting_daemon
+    check_pwm_holders
+    check_port_9999
+fi
 
 # ── Install-environment preflight ──────────────────────────────────────────
 #
@@ -444,8 +459,10 @@ check_install_environment() {
     fi
 }
 
-echo "Running install-environment preflight..."
-check_install_environment
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    echo "Running install-environment preflight..."
+    check_install_environment
+fi
 
 # ── ventd account ────────────────────────────────────────────────────────────
 #
@@ -474,8 +491,10 @@ fi
 # shellcheck source=scripts/_ventd_account.sh
 . "$ACCOUNT_HELPER"
 
-echo "Ensuring ventd system account exists..."
-ventd_create_account
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    echo "Ensuring ventd system account exists..."
+    ventd_create_account
+fi
 
 # ── Install ──────────────────────────────────────────────────────────────────
 
@@ -496,24 +515,70 @@ echo "  ✓ binary → $VENTD_PREFIX/ventd"
 # root-owned, the daemon starts as User=ventd, and config reads hit
 # EACCES. Mirrors the recursive chown in scripts/postinstall.sh for
 # the .deb/.rpm path.
-install -d -m 0750 /etc/ventd
-chown -R ventd:ventd /etc/ventd
+install -d -m 0750 "$VENTD_ETC_DIR"
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    chown -R ventd:ventd "$VENTD_ETC_DIR"
+fi
 
 case "$INIT_SYSTEM" in
 
     systemd)
-        install -m 644 "$SERVICE_SRC" /etc/systemd/system/ventd.service
+        # Refresh unit files on every run. install(1) overwrites whatever is
+        # already there, so an upgrade that changed deploy/ventd.service (e.g.
+        # issue #58's OnFailure= move) takes effect immediately after the
+        # daemon-reload + restart below. Hash-compare first so we can log a
+        # single diagnostic when the on-disk units actually changed.
+        install -d -m 0755 "$VENTD_SYSTEMD_DIR"
+        SERVICE_DST="$VENTD_SYSTEMD_DIR/ventd.service"
+        RECOVER_DST="$VENTD_SYSTEMD_DIR/ventd-recover.service"
+
+        UNIT_CHANGED=0
+        if [[ ! -f "$SERVICE_DST" ]] || ! cmp -s "$SERVICE_SRC" "$SERVICE_DST"; then
+            UNIT_CHANGED=1
+        fi
         if [[ -n "$RECOVER_SRC" ]]; then
-            install -m 644 "$RECOVER_SRC" /etc/systemd/system/ventd-recover.service
-            echo "  ✓ systemd unit → /etc/systemd/system/ventd-recover.service (OnFailure helper)"
+            if [[ ! -f "$RECOVER_DST" ]] || ! cmp -s "$RECOVER_SRC" "$RECOVER_DST"; then
+                UNIT_CHANGED=1
+            fi
+        fi
+
+        # Record whether the service was already active before the refresh.
+        # If it was, the new unit doesn't take effect until try-restart —
+        # systemctl start is a no-op against an already-active unit and
+        # leaves the daemon running the stale version.
+        WAS_ACTIVE=0
+        if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+            if systemctl is-active --quiet ventd.service 2>/dev/null; then
+                WAS_ACTIVE=1
+            fi
+        fi
+
+        install -m 0644 "$SERVICE_SRC" "$SERVICE_DST"
+        if [[ -n "$RECOVER_SRC" ]]; then
+            install -m 0644 "$RECOVER_SRC" "$RECOVER_DST"
+            echo "  ✓ systemd unit → $RECOVER_DST (OnFailure helper)"
         else
             echo "  ! ventd-recover.service not found in asset tree — SIGKILL/OOM"
             echo "    safety net unavailable; graceful-exit watchdog still active"
         fi
-        systemctl daemon-reload
-        systemctl enable ventd.service
-        systemctl start ventd.service
-        echo "  ✓ systemd unit → /etc/systemd/system/ventd.service (enabled + started)"
+
+        if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+            systemctl daemon-reload
+            if (( WAS_ACTIVE == 1 )); then
+                systemctl try-restart ventd.service || true
+                echo "  ✓ systemd unit → $SERVICE_DST (reloaded + restarted running service)"
+            else
+                systemctl enable ventd.service
+                systemctl start ventd.service
+                echo "  ✓ systemd unit → $SERVICE_DST (enabled + started)"
+            fi
+        else
+            echo "  ✓ systemd unit → $SERVICE_DST (test mode — systemctl skipped)"
+        fi
+
+        if (( UNIT_CHANGED == 1 )); then
+            echo "  ✓ unit files updated"
+        fi
         ;;
 
     openrc)
@@ -575,17 +640,19 @@ for candidate in \
     fi
 done
 
-if [[ -n "$UDEV_RULE_SRC" ]]; then
-    install -d -m 755 /etc/udev/rules.d
-    install -m 644 "$UDEV_RULE_SRC" /etc/udev/rules.d/90-ventd-hwmon.rules
-    echo "  ✓ udev rule → /etc/udev/rules.d/90-ventd-hwmon.rules"
-    if command -v udevadm >/dev/null 2>&1; then
-        udevadm control --reload >/dev/null 2>&1 || true
-        udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    if [[ -n "$UDEV_RULE_SRC" ]]; then
+        install -d -m 755 /etc/udev/rules.d
+        install -m 644 "$UDEV_RULE_SRC" /etc/udev/rules.d/90-ventd-hwmon.rules
+        echo "  ✓ udev rule → /etc/udev/rules.d/90-ventd-hwmon.rules"
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm control --reload >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
+        fi
+    else
+        echo "  ! udev rule template not found — skipping"
+        echo "    (pwm writes will fail until /sys/class/hwmon/*/pwm* are g+w for the ventd group)"
     fi
-else
-    echo "  ! udev rule template not found — skipping"
-    echo "    (pwm writes will fail until /sys/class/hwmon/*/pwm* are g+w for the ventd group)"
 fi
 
 # ── Probe + persist hwmon kernel modules ────────────────────────────────────
@@ -609,11 +676,13 @@ fi
 # and surfaces a clear remediation pointer when no PWM is visible, so
 # operators see the issue immediately on first start.
 
-echo "Probing hwmon kernel modules (one-shot)..."
-if "$VENTD_PREFIX/ventd" --probe-modules >/dev/null 2>&1; then
-    echo "  ✓ hwmon module probe complete"
-else
-    echo "  ! hwmon module probe returned non-zero — daemon will diagnose at startup"
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    echo "Probing hwmon kernel modules (one-shot)..."
+    if "$VENTD_PREFIX/ventd" --probe-modules >/dev/null 2>&1; then
+        echo "  ✓ hwmon module probe complete"
+    else
+        echo "  ! hwmon module probe returned non-zero — daemon will diagnose at startup"
+    fi
 fi
 
 # ── Optional MAC policy install ──────────────────────────────────────────────
@@ -690,8 +759,10 @@ install_selinux_module() {
     rm -rf "$builddir"
 }
 
-install_apparmor_profile
-install_selinux_module
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    install_apparmor_profile
+    install_selinux_module
+fi
 
 # ── Post-start verification ─────────────────────────────────────────────────
 #
@@ -717,7 +788,7 @@ verify_running() {
     esac
 }
 
-if [[ "$INIT_SYSTEM" != "unknown" ]]; then
+if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
     sleep 3
     if ! verify_running; then
         echo ""
