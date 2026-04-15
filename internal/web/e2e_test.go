@@ -898,14 +898,30 @@ func TestE2E_Responsive_TouchTargetsAndModalReflow(t *testing.T) {
 
 	live := h.cfgPtr.Load()
 	seeded := *live
-	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	// Pin the cpu-fan control in manual mode so the manual-slider
+	// range input renders (it is gated on control.manual_pwm != nil
+	// in render.js). Other seeding covers: a mix curve with two
+	// sources so .source-list label checkboxes render, and two
+	// linear curves so the mix has something to reference.
+	manualPWM := uint8(128)
+	seeded.Controls = []config.Control{
+		{Fan: "cpu-fan", Curve: "cpu-linear"},
+		{Fan: "sys-fan-1", Curve: "", ManualPWM: &manualPWM},
+	}
 	seeded.Fans = []config.Fan{
 		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+		{Name: "sys-fan-1", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm2"},
 	}
 	seeded.Sensors = []config.Sensor{
 		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
 	}
-	seeded.Curves = []config.CurveConfig{}
+	seeded.Curves = []config.CurveConfig{
+		{Name: "cpu-linear", Type: "linear", Sensor: "CPU Temperature",
+			MinTemp: 30, MaxTemp: 70, MinPWM: 60, MaxPWM: 220},
+		{Name: "cpu-fixed", Type: "fixed", Value: 128},
+		{Name: "cpu-mix", Type: "mix", Function: "max",
+			Sources: []string{"cpu-linear", "cpu-fixed"}},
+	}
 	h.cfgPtr.Store(&seeded)
 
 	page := h.browser.MustPage("")
@@ -1033,6 +1049,72 @@ func TestE2E_Responsive_TouchTargetsAndModalReflow(t *testing.T) {
 	overlayCls := getAttr(t, page, "#settings-overlay", "class")
 	if strings.Contains(overlayCls, "open") {
 		t.Errorf("settings overlay still .open after backdrop click: class=%q", overlayCls)
+	}
+
+	// ── Coarse-pointer gaps from the Phase 4.5 audit ────────────
+	// Three controls the PR 4 block missed: range-slider thumbs,
+	// mix-curve source-list checkboxes, and the pencil/trash
+	// edit-icons inside card-name-edit. Each is measured at 375
+	// + coarse pointer + touch emulation (already applied above).
+
+	// Range-slider thumb. Chromium doesn't expose
+	// ::-webkit-slider-thumb computed styles via
+	// getComputedStyle(el, pseudo) reliably — the call returns
+	// the input element's own box. Instead walk the CSSOM for
+	// the declared rule and assert the coarse-pointer block
+	// actually declares width:44px on the thumb pseudo. Paired
+	// with a boundingBox check on the input box height (which the
+	// same block also sets to 44px) so we know the media query
+	// matched at paint time.
+	_, inputH := boundingBox(".manual-slider input[type=\"range\"]")
+	if inputH < 43.5 {
+		t.Errorf("manual-slider input height=%.1f want ≥44 at 375px+coarse (media query not active?)",
+			inputH)
+	}
+	thumbRule, err := page.Eval(`() => {
+		for (const sheet of document.styleSheets) {
+			let rules;
+			try { rules = sheet.cssRules; } catch (_) { continue; }
+			for (const rule of rules) {
+				if (!(rule instanceof CSSMediaRule)) continue;
+				if (!matchMedia(rule.media.mediaText).matches) continue;
+				for (const sub of rule.cssRules) {
+					if (!sub.selectorText) continue;
+					if (sub.selectorText.includes('::-webkit-slider-thumb') &&
+					    sub.selectorText.includes('.manual-slider')) {
+						return sub.style.width + ' ' + sub.style.height;
+					}
+				}
+			}
+		}
+		return '';
+	}`)
+	if err != nil {
+		t.Fatalf("walk CSSOM for slider thumb: %v", err)
+	}
+	if got := thumbRule.Value.Str(); got != "44px 44px" {
+		t.Errorf("::-webkit-slider-thumb declared size=%q want '44px 44px'", got)
+	}
+
+	// Select the mix curve so its source-list renders, then
+	// assert the wrapping label is 44-tall. Clicking the mix
+	// curve card exercises the same select-curve data-action a
+	// finger tap would.
+	page.MustElement(`.curve-card:last-child`).MustClick()
+	page.Timeout(2 * time.Second).MustElement(".source-list label")
+	_, labelH := boundingBox(".source-list label")
+	if labelH < 43.5 {
+		t.Errorf(".source-list label height=%.1f want ≥44 at 375px+coarse",
+			labelH)
+	}
+
+	// Edit-icon (pencil) inside the first fan card's
+	// card-name-edit. Rendered unconditionally; target the first
+	// match so we don't couple to a particular card index.
+	iconW, iconH := boundingBox(".card-name-edit .edit-icon")
+	if iconH < 43.5 || iconW < 43.5 {
+		t.Errorf(".card-name-edit .edit-icon box=%.1fx%.1f want ≥44×44",
+			iconW, iconH)
 	}
 }
 
