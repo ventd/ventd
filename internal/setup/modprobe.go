@@ -101,8 +101,11 @@ func validateModuleName(name string) error {
 // strings in the summary — the raw output is still available in the returned
 // log slice for operators who want the detail.
 func modprobeUserFacingError(name string, err error) error {
+	// Lowercase leading word so the Go convention holds (ST1005); the UI
+	// renders the summary capitalised anyway. The actionable advice stays
+	// verbatim so operators get the concrete fix without a layout shift.
 	return fmt.Errorf(
-		"Could not load the %s module. Your kernel may be missing the driver — "+
+		"could not load the %s module. Your kernel may be missing the driver — "+
 			"try installing the linux-modules-extra package matching your running "+
 			"kernel (on Debian/Ubuntu: linux-modules-extra-$(uname -r); on Fedora "+
 			"it ships with the kernel package): %w",
