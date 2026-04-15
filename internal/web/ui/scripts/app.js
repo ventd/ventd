@@ -408,7 +408,7 @@ function renderCurveCards(){
     } else if(c.type==='mix'){
       out=c.function+'('+(c.sources||[]).join(', ')+')';
     }
-    return '<div class="card curve-card'+(i===selIdx?' active':'')+'" onclick="selectCurve('+i+')">'+
+    return '<div class="card curve-card'+(i===selIdx?' active':'')+'" data-action="select-curve" data-idx="'+i+'">'+
       '<div class="card-header"><span class="card-name">'+esc(c.name)+'</span>'+
         '<span class="type-badge type-'+c.type+'">'+c.type.toUpperCase()+'</span></div>'+
       miniSVG(c)+
@@ -422,12 +422,12 @@ function miniSVG(c){
     const y1=38-(c.min_pwm/255)*33, y2=38-(c.max_pwm/255)*33;
     return '<svg viewBox="0 0 100 42" class="mini-graph">'+
       '<polyline points="0,'+y1+' '+c.min_temp+','+y1+' '+c.max_temp+','+y2+' 100,'+y2+
-      '" fill="none" style="stroke:var(--teal)" stroke-width="2" stroke-linecap="round"/></svg>';
+      '" class="svg-stroke-teal" fill="none" stroke-width="2" stroke-linecap="round"/></svg>';
   }
   if(c.type==='fixed'){
     const y=38-(c.value/255)*33;
     return '<svg viewBox="0 0 100 42" class="mini-graph">'+
-      '<line x1="0" y1="'+y+'" x2="100" y2="'+y+'" style="stroke:var(--blue)" stroke-width="2"/></svg>';
+      '<line x1="0" y1="'+y+'" x2="100" y2="'+y+'" class="svg-stroke-blue" stroke-width="2"/></svg>';
   }
   return '';
 }
@@ -1239,6 +1239,10 @@ document.addEventListener('click', (e) => {
       break;
     case 'set-mode':
       setManualMode(+el.dataset.idx, el.dataset.manual === '1');
+      break;
+    // ── curve card group ──
+    case 'select-curve':
+      selectCurve(+el.dataset.idx);
       break;
   }
 });
