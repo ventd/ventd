@@ -52,9 +52,20 @@ func run() error {
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")
+	doProbeModules := flag.Bool("probe-modules", false, "probe and load hwmon kernel modules, persist via /etc/modules-load.d, then exit (run by the installer at root, not by the sandboxed service)")
 	flag.Parse()
 
 	logger := buildLogger(*logLevel)
+
+	if *doProbeModules {
+		// Privileged one-shot invoked from scripts/install.sh and
+		// scripts/postinstall.sh. Runs as root, outside the systemd
+		// sandbox, so it can modprobe and write /etc/modules-load.d.
+		// The long-running daemon NEVER does this work — under
+		// ProtectKernelModules=yes those operations would EPERM.
+		hwmon.AutoloadModules(logger)
+		return nil
+	}
 
 	if *doSetup {
 		return runSetup(*configPath, logger)
@@ -134,10 +145,16 @@ func run() error {
 		publishSetupToken(setupToken, cfg.Web.Listen, cfg.Web.TLSEnabled(), logger)
 	}
 
-	// Probe and load the kernel module that exposes hwmon PWM channels.
-	// Must run before NVML init and before resolveHwmonPaths so that sysfs
-	// entries are present when the setup wizard or controllers need them.
-	hwmon.AutoloadModules(logger)
+	// Diagnose hwmon state at startup. This is READ-ONLY — the daemon
+	// runs under ProtectKernelModules=yes and cannot modprobe. Kernel
+	// modules are loaded by `ventd --probe-modules`, invoked once by
+	// scripts/install.sh at install time and persisted via
+	// /etc/modules-load.d/ventd.conf for subsequent boots.
+	//
+	// If no PWM channels are visible at startup, log a clear remediation
+	// message rather than failing — the setup wizard's hardware
+	// diagnostics will surface the same finding to the operator.
+	hwmon.DiagnoseHwmon(logger)
 
 	// NVML init is always attempted. The shim silently disables GPU
 	// features when libnvidia-ml.so.1 is absent or nvmlInit_v2 fails, and

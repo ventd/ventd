@@ -43,6 +43,19 @@ if command -v udevadm >/dev/null 2>&1; then
     udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
 fi
 
+# Probe + persist hwmon kernel modules. Same reasoning as in
+# scripts/install.sh: the daemon runs under ProtectKernelModules=yes
+# and ProtectSystem=strict, so module loading and persistence have to
+# happen here while we still hold root and live outside the sandbox.
+# Best-effort — DiagnoseHwmon at daemon startup surfaces any miss with
+# a remediation pointer.
+for binpath in /usr/local/bin/ventd /usr/bin/ventd; do
+    if [ -x "$binpath" ]; then
+        "$binpath" --probe-modules >/dev/null 2>&1 || true
+        break
+    fi
+done
+
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
     if ! systemctl is-enabled --quiet ventd.service 2>/dev/null; then
