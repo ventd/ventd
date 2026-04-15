@@ -465,9 +465,12 @@ run_target() {
         return 1
     fi
 
-    local inst="ventd-smoke-${target//./-}-${RUN_ID//[^a-z0-9]/-}"
-    inst="${inst,,}"
+    # Incus instance names: [a-z0-9-], no trailing dash, max 63 chars.
+    # RUN_ID carries ISO-8601 uppercase (T, Z); lowercase first, then sanitise.
+    local inst="ventd-smoke-${target//./-}-${RUN_ID,,}"
+    inst="${inst//[^a-z0-9-]/-}"
     inst="${inst:0:63}"
+    inst="${inst%"${inst##*[!-]}"}"   # strip trailing dashes
 
     local date_tag
     date_tag=$(date -u +%Y%m%d-%H%M)
