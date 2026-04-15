@@ -1,0 +1,36 @@
+Apr 16 03:41:00 phoenix-MS-7D25 systemd[1]: Starting ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure...
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.178+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm1_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm2_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm3_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm4_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm5_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm6_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.179+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm7_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.180+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm8_enable
+Apr 16 03:41:00 phoenix-MS-7D25 ventd-recover[209926]: time=2026-04-16T03:41:00.180+10:00 level=INFO msg="recover: complete" succeeded=8 failed=0 total=8
+Apr 16 03:41:00 phoenix-MS-7D25 systemd[1]: ventd-recover.service: Deactivated successfully.
+Apr 16 03:41:00 phoenix-MS-7D25 systemd[1]: Finished ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure.
+Apr 16 03:41:23 phoenix-MS-7D25 systemd[1]: Starting ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure...
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.985+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm1_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.985+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm2_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.985+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm3_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.985+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm4_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.986+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm5_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.986+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm6_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.986+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm7_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.986+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm8_enable
+Apr 16 03:41:23 phoenix-MS-7D25 ventd-recover[210162]: time=2026-04-16T03:41:23.986+10:00 level=INFO msg="recover: complete" succeeded=8 failed=0 total=8
+Apr 16 03:41:23 phoenix-MS-7D25 systemd[1]: ventd-recover.service: Deactivated successfully.
+Apr 16 03:41:23 phoenix-MS-7D25 systemd[1]: Finished ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure.
+Apr 16 03:42:03 phoenix-MS-7D25 systemd[1]: Starting ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure...
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.257+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm1_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm2_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm3_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm4_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm5_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm6_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm7_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm8_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: complete" succeeded=8 failed=0 total=8
+Apr 16 03:42:03 phoenix-MS-7D25 systemd[1]: ventd-recover.service: Deactivated successfully.
+Apr 16 03:42:03 phoenix-MS-7D25 systemd[1]: Finished ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure.

@@ -1,0 +1,215 @@
+ventd rig verification — PR #21 + PR #25
+host: phoenix-MS-7D25
+kernel: 6.17.0-20-generic
+started: 2026-04-15T17:42:02Z
+log: validation/results/rig-check-20260415T174202Z.log
+────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────
+▶ 0a.i — udev rule present and chip-agnostic
+  rule contents:
+    # ventd — grant the ventd group write access to hwmon pwm control files.
+    #
+    # The daemon runs unprivileged (User=ventd, Group=ventd; see
+    # deploy/ventd.service). It relies on Discretionary Access Control to
+    # open pwm<N> and pwm<N>_enable for write; this rule arranges that DAC
+    # by chgrp'ing those files to the ventd group with g+w whenever a
+    # hwmon device appears — on boot, hot-plug, driver rebind, or after
+    # an `rmmod; modprobe` cycle.
+    #
+    # Installed to:
+    #   /etc/udev/rules.d/90-ventd-hwmon.rules
+    #
+    # ──────────────────────────────────────────────────────────────────────
+    #
+    # Design: chip-agnostic.
+    #
+    # This rule does not key on ATTR{name}=="<chip>". It fires on every
+    # hwmon device and grants group access to whatever pwm<N> /
+    # pwm<N>_enable files the chip exposes, if any. Temperature-only chips
+    # (coretemp, k10temp, drivetemp, acpitz) are traversed but nothing
+    # happens because the `pwm[0-9]*` glob expands to no matches. The
+    # chgrp and chmod commands each have `2>/dev/null` to suppress the
+    # "No such file" error those no-match cases produce.
+    #
+    # This is deliberate and non-negotiable. ventd's install promise is
+    # "zero terminal after install" — keying on chip name would require
+    # the operator to identify their chip and edit this file. The
+    # alternative (shipping a pre-populated list of chip names) is a
+    # maintenance trap: every new board generation brings a new Super-I/O
+    # variant, and the list goes stale.
+    #
+    # ──────────────────────────────────────────────────────────────────────
+    #
+    # Safety envelope
+    #
+    # - Group write only (g+w). Never world-writable, never setuid.
+    # - Subsystem filter (SUBSYSTEM=="hwmon") ensures this rule only
+    #   touches hwmon devices — not block devices, input devices, USB,
+    #   or anything else udev might see.
+    # - Scope limited to pwm<N> and pwm<N>_enable. Temperature inputs,
+    #   fan RPM inputs, voltage inputs, power inputs are untouched; their
+    #   default read-for-all, write-for-root semantics are preserved.
+    # - The rule grants the same DAC envelope whether the hwmon device
+    #   is a motherboard Super-I/O chip, an AIO pump controller, an
+    #   amdgpu card, or a future driver that has not shipped yet.
+    #
+    # ──────────────────────────────────────────────────────────────────────
+    #
+    # Reload after editing:
+    #   sudo udevadm control --reload
+    #   sudo udevadm trigger --subsystem-match=hwmon
+    #
+    # The installer (scripts/install.sh and scripts/postinstall.sh) runs
+    # both commands automatically after placing this file, so no operator
+    # action is required on a clean install.
+    
+    SUBSYSTEM=="hwmon", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; exit 0'"
+  triggering udev for hwmon subsystem...
+  pwm* writability snapshot:
+    /sys/class/hwmon/hwmon5/pwm1 mode=464
+    /sys/class/hwmon/hwmon5/pwm2 mode=464
+    /sys/class/hwmon/hwmon5/pwm3 mode=464
+    /sys/class/hwmon/hwmon5/pwm4 mode=464
+    /sys/class/hwmon/hwmon5/pwm5 mode=464
+    /sys/class/hwmon/hwmon5/pwm6 mode=464
+    /sys/class/hwmon/hwmon5/pwm7 mode=464
+    /sys/class/hwmon/hwmon5/pwm8 mode=464
+    /sys/class/hwmon/hwmon6/pwm1 mode=664
+    /sys/class/hwmon/hwmon6/pwm1_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm2 mode=664
+    /sys/class/hwmon/hwmon6/pwm2_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm3 mode=664
+    /sys/class/hwmon/hwmon6/pwm3_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm4 mode=664
+    /sys/class/hwmon/hwmon6/pwm4_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm5 mode=664
+    /sys/class/hwmon/hwmon6/pwm5_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm6 mode=664
+    /sys/class/hwmon/hwmon6/pwm6_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm7 mode=664
+    /sys/class/hwmon/hwmon6/pwm7_enable mode=664
+    /sys/class/hwmon/hwmon6/pwm8 mode=664
+    /sys/class/hwmon/hwmon6/pwm8_enable mode=664
+RESULT 0a.i: PASS
+────────────────────────────────────────────────────────────
+▶ 0a.ii — --probe-modules persists
+  invoking ventd --probe-modules
+time=2026-04-16T03:42:02.933+10:00 level=INFO msg="hwmon PWM channels already visible, skipping module probe" count=16 example=/sys/class/hwmon/hwmon5/pwm1
+  /etc/modules-load.d/ventd.conf contents:
+    # Written by ventd — do not edit manually
+    nct6683
+  currently loaded modules matching the conf:
+    # Written by ventd — do not edit manually : NOT LOADED
+    nct6683 : LOADED
+RESULT 0a.ii: PASS
+────────────────────────────────────────────────────────────
+▶ 0a.iii — EnrichChipName populates config
+  hwmon fans in config:         4
+  hwmon fans missing chip_name: 0
+RESULT 0a.iii: PASS
+────────────────────────────────────────────────────────────
+▶ 0a.iv — hwmonN renumber survival
+  This check requires unloading and reloading kernel modules
+  in a different order, then verifying ventd's config self-heals.
+  On phoenix-MS-7D25 run:
+
+    sudo systemctl stop ventd
+    sudo modprobe -r nct6687d coretemp
+    sudo modprobe coretemp
+    sudo modprobe nct6687d
+    sudo systemctl start ventd && sleep 3
+    journalctl -u ventd --since '10 seconds ago' \
+      | grep -E 'resolve|rebind|chip'
+
+  Expected: log lines confirming paths re-anchored by chip name, no errors,
+  /etc/ventd/config.yaml pwm_path entries reflect the new hwmonN.
+
+  (non-interactive shell; auto-skipping)
+RESULT 0a.iv: SKIP
+────────────────────────────────────────────────────────────
+▶ 0a.v — reboot survival
+  This check requires a reboot.
+
+  Before rebooting, note current pwm values:
+    for f in /sys/class/hwmon/*/pwm[0-9]; do echo "$f: $(cat $f)"; done
+
+  Then:
+    sudo reboot
+
+  After reboot, re-run this script with --post-reboot to verify ventd
+  came up clean. Or manually:
+    systemctl status ventd
+    journalctl -u ventd -b 0 | head -50
+    sudo ventd --rescan-hwmon  # should be a no-op
+
+  (non-interactive shell; auto-skipping)
+RESULT 0a.v: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.i — kill -KILL triggers ventd-recover
+  killing ventd PID 210171 with SIGKILL
+  waiting 3s for recover to fire...
+  ventd-recover status:
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm2_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm3_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm4_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm5_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm6_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm7_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: reset pwm_enable to automatic" path=/sys/class/hwmon/hwmon6/pwm8_enable
+Apr 16 03:42:03 phoenix-MS-7D25 ventd-recover[211892]: time=2026-04-16T03:42:03.258+10:00 level=INFO msg="recover: complete" succeeded=8 failed=0 total=8
+Apr 16 03:42:03 phoenix-MS-7D25 systemd[1]: ventd-recover.service: Deactivated successfully.
+Apr 16 03:42:03 phoenix-MS-7D25 systemd[1]: Finished ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure.
+  pwm*_enable snapshot (expect 1=manual or BIOS-restored):
+RESULT 0b.i: PASS
+────────────────────────────────────────────────────────────
+▶ 0b.ii — sd_notify watchdog active
+  WatchdogUSec=2s
+  NotifyAccess=main
+RESULT 0b.ii: PASS
+────────────────────────────────────────────────────────────
+▶ 0b.iii — hung loop triggers restart
+  This check requires a debug build that responds to SIGUSR1 by hanging.
+  Skipping in the standard rig run — covered by internal/sdnotify unit tests.
+RESULT 0b.iii: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.iv — calibration zero-PWM ceiling
+  This check requires triggering a calibration via the web UI
+  while sampling pwm1 at 100ms. Recommended procedure:
+
+    while true; do echo "$(date +%H:%M:%S.%N) $(cat <pwm-path>)"; sleep 0.1; done > /tmp/pwm-trace.log
+    (in the UI, trigger calibration on cpu_fan)
+    awk '$2 == "0" { count++; if (count > 22) print "VIOLATION at", $1; next } { count = 0 }' /tmp/pwm-trace.log
+
+  PASS = zero violations during the entire calibration sweep.
+
+
+  (non-interactive shell; auto-skipping)
+RESULT 0b.iv: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.v — new fan detected within 10s
+  Plug a fan into a previously-unused header (or load a synthetic
+  hwmon-providing module). Then watch:
+
+    journalctl -u ventd -f | grep -E 'rescan|new fan|hwmon'
+
+  Expected: a rescan log entry within ~10s of /sys/class/hwmon gaining a
+  new entry. PASS if detection ≤ 10s.
+
+  (non-interactive shell; auto-skipping)
+RESULT 0b.v: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.vi — rmmod;modprobe detected within 10s
+  nct6687d not currently loaded; cannot cycle
+RESULT 0b.vi: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.vii — AppArmor clean
+  no ventd profile loaded under AppArmor
+RESULT 0b.vii: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.viii — SELinux clean
+  semodule not present (no SELinux); skip
+RESULT 0b.viii: SKIP
+────────────────────────────────────────────────────────────
+summary: 5 PASS  0 FAIL  8 SKIP  0 MANUAL
+log: validation/results/rig-check-20260415T174202Z.log
+────────────────────────────────────────────────────────────
