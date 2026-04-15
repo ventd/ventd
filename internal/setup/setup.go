@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hwdiag"
@@ -627,10 +629,41 @@ func (m *Manager) run(ctx context.Context) {
 
 	cfg := buildConfig(doneFans, cpuSensorName, cpuSensorPath, cpuCurrentTemp, hasGPUTemp, gpuTempPath, gpuCurrentTemp, profile)
 
+	// Pre-validate before exposing to the review screen. Catches any
+	// future buildConfig regression that emits a config the Apply path
+	// would reject — surfaces it as a wizard error (so the operator
+	// sees it immediately) instead of a confusing error banner on the
+	// Apply click that leaves no remediation path in the zero-terminal
+	// UX.
+	if err := validateGeneratedConfig(cfg); err != nil {
+		m.logger.Error("setup: generated config failed validation", "err", err)
+		m.mu.Lock()
+		m.errMsg = "internal error generating configuration: " + err.Error()
+		m.mu.Unlock()
+		return
+	}
+
 	m.mu.Lock()
 	m.result = cfg
 	m.profile = profile
 	m.mu.Unlock()
+}
+
+// validateGeneratedConfig round-trips cfg through yaml.Marshal + config.Parse
+// so any validation rule Apply would enforce (sensor/fan/curve/control
+// reference integrity, type constraints, etc.) fails here instead of on the
+// Apply click. A passing result is not a guarantee the config is optimal for
+// the hardware — only that it is internally consistent and will survive the
+// Save path.
+func validateGeneratedConfig(cfg *config.Config) error {
+	buf, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal generated config: %w", err)
+	}
+	if _, err := config.Parse(buf); err != nil {
+		return err
+	}
+	return nil
 }
 
 // syncFans atomically replaces m.fans with a full copy of fans.
