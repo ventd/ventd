@@ -1,6 +1,8 @@
 # Coverage Snapshot
 
-Last measured: 2026-04-15 (Go 1.25.0, CGO_ENABLED=1)
+Last measured: 2026-04-15 (Go 1.25.0, CGO_ENABLED=1) — refreshed after
+the chip-agnostic udev / Load+ChipName / install-time module probe / 2s
+watchdog promise overhauls.
 
 Command:
 
@@ -8,53 +10,63 @@ Command:
 CGO_ENABLED=1 go test -race -cover ./...
 ```
 
-Race tests pass clean across the tested packages; numbers below are statement
-coverage from the same run.
+Race tests pass clean across the tested packages; numbers below are
+statement coverage from the same run.
 
 ## Per-package
 
-| Package                       | Statements | Coverage | Notes                                                                 |
-|-------------------------------|-----------:|---------:|-----------------------------------------------------------------------|
-| `cmd/ventd`                   |        234 |   23.9 % | Daemon entrypoint. Most logic delegated to `internal/*`.              |
-| `cmd/list-fans-probe`         |          — |      — % | No test files. CLI probe tool, excluded from coverage instrumentation.|
-| `cmd/preflight-check`         |          — |      — % | No test files. Pre-install environment sanity checker.                |
-| `internal/calibrate`          |        488 |   61.3 % | Best-covered non-leaf package. Curve fitting + RPM detection tested.  |
-| `internal/config`             |        226 |   34.5 % | YAML round-trip covered; `resolveHwmonPaths` still unimplemented (#2).|
-| `internal/controller`         |        142 |   12.0 % | Control-loop orchestration. Covered only via smoke paths.             |
-| `internal/curve`              |          — |      — % | No test files. Pure-math curves (`linear`, `fixed`, `mix`) — see #6.  |
-| `internal/hwdiag`             |         47 |   87.2 % | Small, mostly pure helpers.                                           |
-| `internal/hwmon`              |       1081 |   26.1 % | Largest package; most uncovered code is sysfs I/O and installers.     |
-| `internal/monitor`            |          — |      — % | No test files. NVML/temp scrape loop, hard to test without hardware.  |
-| `internal/nvidia`             |        202 |   30.7 % | NVML bindings via purego; smoke test covers init path.                |
-| `internal/setup`              |        610 |    4.8 % | First-boot wizard flow — mostly HTTP handlers, untested end-to-end.   |
-| `internal/watchdog`           |         69 |   23.2 % | Restore-on-exit plumbing; happy-path only.                            |
-| `internal/web`                |        732 |   48.9 % | Auth, session, cert generation well-covered; handlers less so.        |
-| **Total (measured)**          |   **3 831** | **32.3 %** | Excludes four packages with no test files.                          |
+| Package                       | Coverage | Notes                                                                 |
+|-------------------------------|---------:|-----------------------------------------------------------------------|
+| `cmd/ventd`                   |   15.1 % | Daemon entrypoint plus the folded-in `--list-fans-probe` and `--preflight-check` subcommands. Most logic delegated to `internal/*`. |
+| `internal/calibrate`          |   65.5 % | Curve fitting + RPM detection tested. Now includes `ZeroPWMSentinel` 8-case suite (PWM=0 escalation). |
+| `internal/config`             |   61.8 % | `Load`+`ResolveHwmonPaths` integration covered. `EnrichChipName` 9-case suite landed alongside the writer-side ChipName population. |
+| `internal/controller`         |   12.0 % | Control-loop orchestration. Smoke paths only — biggest untested code path on the safety-critical fan-write side. |
+| `internal/curve`              |  100.0 % | Linear / Fixed / Mix all table-driven. `MixFunc` parser exhausted. |
+| `internal/hwdiag`             |   87.2 % | Small, mostly pure helpers. |
+| `internal/hwmon`              |   31.4 % | Now includes `DiagnoseHwmon` (7 cases), `RecoverAllPWM` (5 cases), and the udev-rule behaviour suite (8 cases). Largest remaining untested surface is `autoload.go` (sensors-detect parsing + module probing). |
+| `internal/nvidia`             |    5.0 % | NVML bindings via purego; smoke covers init path. Fan-side path needs a real NVIDIA device or a mock harness. |
+| `internal/sdnotify`           |   95.2 % | New package. systemd notify protocol implementation; full suite for `Notify`, `WatchdogInterval`, `StartHeartbeat` covering env-absent, env-present, ping cadence, stop semantics. |
+| `internal/setup`              |    5.9 % | Largest gap by far. Handlers are thin glue over `internal/calibrate` + `internal/config`; covered helpers include `chipNameOf` (6 cases) plus the existing dmi/preflight diag suites. |
+| `internal/watchdog`           |   23.2 % | Restore-on-exit plumbing; per-entry panic recovery covered. |
+| `internal/web`                |   48.9 % | Auth, session, cert generation well-covered; the wizard-driving handlers (`handleSetup*`, `handleCalibrateAbort`, `handleDetectRPM`, `handleSystemReboot`) remain the gap. |
+| `internal/monitor`            |       — | No test files. NVML/temp scrape loop, hard to test without hardware. Add `fs.FS` overrideable tests next. |
 
 ## Highest-value gaps
 
-Ranked by `(100 − coverage) × statements` across measured packages:
+Ranked by `(100 − coverage) × estimated package size`:
 
-1. `internal/hwmon` — ~800 uncovered statements. Sysfs / modprobe I/O is the
-   hard part; a fixture-backed test for `resolveHwmonPaths` (ITEM 8) will
-   chip at this.
-2. `internal/setup` — ~581 uncovered statements, 4.8 % covered. Handlers are
-   thin glue over `internal/calibrate` + `internal/config`; driving them
-   through `httptest` would land quickly.
-3. `internal/web` — ~374 uncovered statements. The unsealed handlers are
-   `handleSetup*`, `handleCalibrateAbort`, `handleDetectRPM`,
-   `handleSystemReboot` — all need fake helpers.
-4. `internal/controller` — 142 statements at 12.0 %. Control-loop ticks
-   against a fake sensor/fan pair would be a small, high-ROI test.
-5. `internal/curve` — no tests, pure-math. ITEM 6 targets this directly.
+1. `internal/setup` — 5.9 % covered. **The hot path the README's
+   "zero terminal after install" promise lives in.** Driving the
+   wizard handlers through `httptest` against fake hwmon fixtures is
+   the highest-leverage single test investment in the tree.
+2. `internal/hwmon` autoload.go — sensors-detect parsing branches and
+   module-probe loop are still untested. Lower priority now that the
+   probing has moved to install time and is fired explicitly via
+   `ventd --probe-modules`.
+3. `internal/web` — 48.9 % is solid for production use; remaining
+   handlers are mostly UI glue.
+4. `internal/controller` — small package (~142 statements) but
+   safety-critical. A control-loop tick driven against a fake
+   sensor/fan pair would land quickly and lock in invariants.
+5. `internal/monitor` — still no tests. Lowest urgency (read-only).
 
-## Packages without test files
+## Packages with no test files
 
-- `cmd/list-fans-probe`
-- `cmd/preflight-check`
-- `internal/curve` *(queued — ITEM 6)*
-- `internal/monitor`
+- `internal/monitor` — only remaining production package without tests.
 
-These are skipped by `go test -cover` (the Go 1.25 cover runtime emits
-`no such tool "covdata"` for any zero-test package in the module graph; the
-other packages' coverage numbers are unaffected).
+(`cmd/list-fans-probe` and `cmd/preflight-check` no longer exist as
+standalone packages; they were folded into `cmd/ventd` as
+`--list-fans-probe` and `--preflight-check` subcommands and are
+exercised through the same code paths the validation matrix uses.)
+
+## What changed since the previous snapshot
+
+| Package              | Then    | Now     | Reason                                          |
+|----------------------|--------:|--------:|-------------------------------------------------|
+| `cmd/ventd`          | 23.9 %  | 15.1 %  | Folded in two helper-binary code paths; their existing zero-coverage statements are now counted here. |
+| `internal/calibrate` | 61.3 %  | 65.5 %  | `ZeroPWMSentinel` 8-case suite added.           |
+| `internal/config`    | 34.5 %  | 61.8 %  | `EnrichChipName` (9 cases) + `Load`+`Resolve` integration (6 cases). |
+| `internal/curve`     |     —   | 100.0 % | New 7-case suite for Linear/Fixed/Mix.          |
+| `internal/hwmon`     | 26.1 %  | 31.4 %  | `DiagnoseHwmon` (7), `RecoverAllPWM` (5), udev rule behaviour (8). |
+| `internal/sdnotify`  |     —   | 95.2 %  | New package; 8-case suite.                       |
+| `internal/setup`     |  4.8 %  |  5.9 %  | `chipNameOf` 6-case suite (small bump; bigger gap remains). |

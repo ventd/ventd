@@ -10,8 +10,9 @@ One static binary. One install command. Works on any distribution with any fan c
 
 - **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes, regardless of chip identity. Works with motherboard Super I/O chips, BMC/IPMI controllers, AIO pumps, NVIDIA GPUs (via runtime-loaded NVML), and AMD GPUs.
 - **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and full PWM→RPM curve for every fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI at any time.
-- **Automatic safety.** A software watchdog restores each fan's `pwm_enable` to its pre-daemon state on any graceful exit path — `SIGINT`/`SIGTERM`, context cancellation, or a recovered panic — so the firmware or BIOS takes control back. If the original mode can't be restored, the watchdog writes `PWM=255` (full speed) as a fallback.
-- **Automatic hardware change detection.** Plug a new fan or GPU in; `ventd` notices within ten seconds and offers to add it.
+- **Automatic safety.** Restores each fan's `pwm_enable` to its pre-daemon state on every software exit path — `SIGTERM`, `SIGINT`, panic, `SIGKILL`, OOM kill, watchdog timeout — within two seconds. The graceful path runs from the daemon's defer chain; SIGKILL and unrecovered panic are caught by `ventd-recover.service` (a systemd `OnFailure=` oneshot that walks `/sys/class/hwmon/*/pwm*_enable` and writes `1` so firmware regains control). The systemd hardware watchdog (`WatchdogSec=2s`) ensures a hung main loop is killed and the recovery chain fires within two seconds. Power loss is the one case no software watchdog can survive — fans fall back to BIOS firmware control on next boot, which is the same end state.
+- **Automatic hardware change detection.** Plug a new fan or GPU in; `ventd` notices within ten seconds and offers to add it. Sub-second when AF_NETLINK uevents are available; capped at the 10-second periodic rescan when they aren't.
+- **Calibration safety floor.** Calibration sweeps that probe stop-PWM intentionally drive the fan to PWM=0. If anything causes that state to persist for more than two seconds (hung sweep, daemon crash mid-probe), a per-fan safety sentinel escalates to a quiet floor (PWM=30) so a fan can never be left stopped under load.
 - **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
 - **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features silently disable if the library is absent. No Python, no Node, no runtime dependencies beyond libc.
 
@@ -58,9 +59,34 @@ sudo cat /run/ventd/setup-token
 
 ## Safety
 
-`ventd` controls physical hardware. It is engineered conservatively — the watchdog always restores original `pwm_enable` state on any graceful exit (falling back to `PWM=255` if that write fails), pump fans have a hard minimum floor enforced before every write, and calibration clamps every step to the fan's configured `[min_pwm, max_pwm]` range. But no software can guarantee safety on every hardware permutation, and no software watchdog can recover from `SIGKILL` or power loss — those cases fall back to whatever the BIOS/firmware does when it regains control. If you run exotic hardware (server chassis, custom loop, unusual AIO), validate calibration results before leaving the daemon unattended.
+`ventd` controls physical hardware. The safety envelope:
 
-Report any case where `ventd` leaves a fan in an unsafe state as a [SECURITY.md](SECURITY.md) issue, not a regular bug.
+- **Graceful exit** (`SIGTERM`, `SIGINT`, context cancel, panic
+  recovered by the daemon's deferred recover): restores
+  `pwm_enable` to its pre-daemon value within milliseconds of the
+  signal. `PWM=255` (full speed) on chips that don't expose
+  `pwm_enable`.
+- **Ungraceful exit** (`SIGKILL`, OOM kill, unrecovered panic,
+  systemd watchdog timeout): the `ventd-recover.service` `OnFailure=`
+  oneshot walks every `/sys/class/hwmon/*/pwm<N>_enable` and writes
+  `1` (kernel-defined automatic mode), handing fan control back to
+  the BIOS/firmware curve. Within two seconds because systemd's
+  `WatchdogSec=2s` bounds main-daemon hang time.
+- **Calibration**: every step clamps to the fan's configured
+  `[min_pwm, max_pwm]` range; pump fans have a hard minimum floor
+  enforced before every write; the per-fan safety sentinel escalates
+  any stuck-at-PWM=0 state to a quiet floor after two seconds.
+- **Kernel panic / power loss**: nothing in user space can recover.
+  Fans fall back to whatever the BIOS/firmware does when it regains
+  control on next boot — for most modern boards that is the BIOS
+  curve, which is the same end state as a graceful exit.
+
+If you run exotic hardware (server chassis, custom loop, unusual
+AIO), validate calibration results before leaving the daemon
+unattended.
+
+Report any case where `ventd` leaves a fan in an unsafe state as a
+[SECURITY.md](SECURITY.md) issue, not a regular bug.
 
 ## Building from source
 
