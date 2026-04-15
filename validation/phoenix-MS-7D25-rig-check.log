@@ -1,0 +1,182 @@
+ventd rig verification — PR #21 + PR #25
+host: phoenix-MS-7D25
+kernel: 6.17.0-20-generic
+started: 2026-04-15T16:42:12Z
+log: validation/results/rig-check-20260415T164212Z.log
+────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────
+▶ 0a.i — udev rule present and chip-agnostic
+  rule contents:
+    # ventd — grant the ventd group write access to hwmon pwm control files.
+    #
+    # The daemon runs unprivileged (see deploy/ventd.service, User=ventd) and
+    # relies on DAC to open pwm<N> / pwm<N>_enable for write. This rule
+    # chgrp's those files to the ventd group and sets g+w whenever a hwmon
+    # device appears — on boot, hot-plug, or driver rebind.
+    #
+    # Installed location:
+    #   /etc/udev/rules.d/90-ventd-hwmon.rules   (preferred — local override)
+    #
+    # Reload after editing:
+    #   sudo udevadm control --reload
+    #   sudo udevadm trigger --subsystem-match=hwmon
+    #
+    # ──────────────────────────────────────────────────────────────────────
+    #
+    # Keying: match on the chip's NAME attribute (ATTR{name}), not on the
+    # hwmonN index. Indices (hwmon0, hwmon6, ...) shift across reboots
+    # whenever driver load order changes; the chip name does not.
+    #
+    # Discover your chip names:
+    #   for n in /sys/class/hwmon/hwmon*/name; do echo "$(dirname "$n"): $(cat "$n")"; done
+    #
+    # Then uncomment the matching line below (or add your own). The commented
+    # examples cover the chips ventd most commonly targets. Leave the rest
+    # commented; matching extra chips is harmless but widens the surface.
+    #
+    # Safety:
+    #   - Group write only (g+w). Never world-writable, never setuid.
+    #   - Keyed on ATTR{name}, not KERNEL=="hwmon*" — must survive a hwmon
+    #     index reshuffle. Do not change this.
+    
+    # --- motherboard super-I/O chips (Nuvoton, ITE) -----------------------
+    # All four entries below consistently expose pwm on boards that use
+    # them. Uncomment the one that matches your chip name.
+    
+    SUBSYSTEM=="hwmon", ATTR{name}=="nct6687", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+    #SUBSYSTEM=="hwmon", ATTR{name}=="nct6775", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+    #SUBSYSTEM=="hwmon", ATTR{name}=="nct6779", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+    #SUBSYSTEM=="hwmon", ATTR{name}=="it87", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+    
+    # ----------------------------------------------------------------------
+    #
+    # Footnote — discrete GPUs (amdgpu):
+    #   Some discrete Radeon cards expose pwm1 under their hwmon device;
+    #   most iGPUs and many dGPUs do not. Only uncomment the amdgpu line
+    #   below if `ls /sys/class/hwmon/hwmon*/pwm*` on your system lists a
+    #   pwm file owned by the amdgpu device.
+    #
+    #SUBSYSTEM=="hwmon", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+    #
+    # Temperature-only chips (k10temp, coretemp, acpitz) have no pwm* files
+    # and are intentionally omitted — uncommenting them would match nothing.
+  rule appears to gate on chip name (ATTR{name}=…) — not chip-agnostic
+RESULT 0a.i: FAIL (rc=1)
+────────────────────────────────────────────────────────────
+▶ 0a.ii — --probe-modules persists
+  invoking ventd --probe-modules
+time=2026-04-16T02:42:12.374+10:00 level=INFO msg="hwmon PWM channels already visible, skipping module probe" count=16 example=/sys/class/hwmon/hwmon5/pwm1
+  /etc/modules-load.d/ventd.conf contents:
+    # Written by ventd — do not edit manually
+    nct6683
+  currently loaded modules matching the conf:
+    # Written by ventd — do not edit manually : NOT LOADED
+    nct6683 : LOADED
+RESULT 0a.ii: PASS
+────────────────────────────────────────────────────────────
+▶ 0a.iii — EnrichChipName populates config
+  sensors+fans entries (approx): 7
+  pwm_path entries (fans):       5
+  chip_name entries:             4
+  expected chip_name on every hwmon entry
+RESULT 0a.iii: FAIL (rc=1)
+────────────────────────────────────────────────────────────
+▶ 0a.iv — hwmonN renumber survival
+  This check requires unloading and reloading kernel modules
+  in a different order, then verifying ventd's config self-heals.
+  On phoenix-MS-7D25 run:
+
+    sudo systemctl stop ventd
+    sudo modprobe -r nct6687d coretemp
+    sudo modprobe coretemp
+    sudo modprobe nct6687d
+    sudo systemctl start ventd && sleep 3
+    journalctl -u ventd --since '10 seconds ago' \
+      | grep -E 'resolve|rebind|chip'
+
+  Expected: log lines confirming paths re-anchored by chip name, no errors,
+  /etc/ventd/config.yaml pwm_path entries reflect the new hwmonN.
+
+  (non-interactive shell; auto-skipping)
+RESULT 0a.iv: SKIP
+────────────────────────────────────────────────────────────
+▶ 0a.v — reboot survival
+  This check requires a reboot.
+
+  Before rebooting, note current pwm values:
+    for f in /sys/class/hwmon/*/pwm[0-9]; do echo "$f: $(cat $f)"; done
+
+  Then:
+    sudo reboot
+
+  After reboot, re-run this script with --post-reboot to verify ventd
+  came up clean. Or manually:
+    systemctl status ventd
+    journalctl -u ventd -b 0 | head -50
+    sudo ventd --rescan-hwmon  # should be a no-op
+
+  (non-interactive shell; auto-skipping)
+RESULT 0a.v: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.i — kill -KILL triggers ventd-recover
+  killing ventd PID 89188 with SIGKILL
+  waiting 3s for recover to fire...
+  ventd-recover status:
+○ ventd-recover.service - Reset hwmon pwm_enable to automatic on ventd failure
+     Loaded: loaded (/etc/systemd/system/ventd-recover.service; disabled; preset: enabled)
+     Active: inactive (dead)
+       Docs: https://github.com/ventd/ventd
+  pwm*_enable snapshot (expect 1=manual or BIOS-restored):
+RESULT 0b.i: PASS
+────────────────────────────────────────────────────────────
+▶ 0b.ii — sd_notify watchdog active
+  WatchdogUSec=2s
+  NotifyAccess=main
+RESULT 0b.ii: PASS
+────────────────────────────────────────────────────────────
+▶ 0b.iii — hung loop triggers restart
+  This check requires a debug build that responds to SIGUSR1 by hanging.
+  Skipping in the standard rig run — covered by internal/sdnotify unit tests.
+RESULT 0b.iii: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.iv — calibration zero-PWM ceiling
+  This check requires triggering a calibration via the web UI
+  while sampling pwm1 at 100ms. Recommended procedure:
+
+    while true; do echo "$(date +%H:%M:%S.%N) $(cat <pwm-path>)"; sleep 0.1; done > /tmp/pwm-trace.log
+    (in the UI, trigger calibration on cpu_fan)
+    awk '$2 == "0" { count++; if (count > 22) print "VIOLATION at", $1; next } { count = 0 }' /tmp/pwm-trace.log
+
+  PASS = zero violations during the entire calibration sweep.
+
+
+  (non-interactive shell; auto-skipping)
+RESULT 0b.iv: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.v — new fan detected within 10s
+  Plug a fan into a previously-unused header (or load a synthetic
+  hwmon-providing module). Then watch:
+
+    journalctl -u ventd -f | grep -E 'rescan|new fan|hwmon'
+
+  Expected: a rescan log entry within ~10s of /sys/class/hwmon gaining a
+  new entry. PASS if detection ≤ 10s.
+
+  (non-interactive shell; auto-skipping)
+RESULT 0b.v: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.vi — rmmod;modprobe detected within 10s
+  nct6687d not currently loaded; cannot cycle
+RESULT 0b.vi: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.vii — AppArmor clean
+  no ventd profile loaded under AppArmor
+RESULT 0b.vii: SKIP
+────────────────────────────────────────────────────────────
+▶ 0b.viii — SELinux clean
+  semodule not present (no SELinux); skip
+RESULT 0b.viii: SKIP
+────────────────────────────────────────────────────────────
+summary: 3 PASS  2 FAIL  8 SKIP  0 MANUAL
+log: validation/results/rig-check-20260415T164212Z.log
+────────────────────────────────────────────────────────────
