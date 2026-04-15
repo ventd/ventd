@@ -118,13 +118,19 @@ main { flex: 1; padding: 1rem 1.5rem; max-width: 1100px; overflow-y: auto; }
 }
 
 /* Setup wizard overlay — full-viewport flex with internal scroll so
- * the wizard's content area can grow without breaking the layout. */
+ * the wizard's content area can grow without breaking the layout.
+ * Mobile tightens the outer padding so the wizard's own inner
+ * padding has enough room at 375px; otherwise the card's content
+ * area becomes cramped and install-log lines wrap aggressively. */
 #setup-overlay {
   position: fixed; inset: 0; background: var(--bg);
   z-index: 200; display: flex; align-items: flex-start;
   justify-content: center; padding: 2rem 1rem; overflow-y: auto;
 }
 #setup-overlay.hidden { display: none; }
+@media (max-width: 479px) {
+  #setup-overlay { padding: 1rem 0.75rem; }
+}
 
 /* Wizard title row — brand on the left, theme toggle on the right. */
 .wizard-title-row {
@@ -136,10 +142,25 @@ main { flex: 1; padding: 1rem 1.5rem; max-width: 1100px; overflow-y: auto; }
 
 /* Modal positioning — visibility is controlled by .open which flips
  * display from none → flex. The card itself sits inside; styling for
- * .modal-card / .modal-header / .modal-row lives in components.css. */
+ * .modal-card / .modal-header / .modal-row lives in components.css.
+ *
+ * Padding on the backdrop keeps the card off the viewport edges at
+ * narrow widths so the operator can always reach the backdrop to
+ * dismiss the modal; without it a card that nearly fills the viewport
+ * has no "outside" for a tap to land on.
+ *
+ * align-items shifts from center to flex-start at phone width because
+ * a centered card whose height approaches the viewport cuts off its
+ * own top when the soft keyboard opens a form field. flex-start plus
+ * overflow-y:auto on the backdrop gives the card room to scroll
+ * underneath the keyboard. */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   z-index: 300; align-items: center; justify-content: center;
+  padding: 1rem; overflow-y: auto;
   display: none;
 }
 .modal-backdrop.open { display: flex; }
+@media (max-width: 479px) {
+  .modal-backdrop { align-items: flex-start; padding: 0.75rem; }
+}

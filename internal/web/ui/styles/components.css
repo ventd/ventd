@@ -323,6 +323,15 @@ button.danger:hover { background: var(--red); color: #fff; }
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: 10px; padding: 1.5rem;
   width: 100%; max-width: 420px;
+  /* Cap card height so an overflow-heavy modal (long setup step,
+   * future hwdiag detail panels) scrolls internally instead of
+   * pushing the dismiss affordance off-screen. 100dvh handles the
+   * iOS Safari collapsing address-bar case where 100vh overshoots. */
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+@media (max-width: 479px) {
+  .modal-card { padding: 1rem; max-height: calc(100dvh - 1.5rem); }
 }
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -451,4 +460,45 @@ button.danger:hover { background: var(--red); color: #fff; }
  * existing ellipsis rule. */
 @media (hover: none) and (pointer: coarse) {
   .sensor-path { display: block; }
+
+  /* 44×44 touch-target minimum on coarse-pointer devices.
+   *
+   * WCAG 2.5.5 (AAA) recommends 44×44 CSS pixels for pointer
+   * targets; WCAG 2.5.8 (AA) pins it at 24×24 with adequate
+   * spacing. ventd goes to 44 on touch because a phone user
+   * reaching for a fan's Calibrate button or the mode-toggle
+   * shouldn't have to zoom in first.
+   *
+   * The rules stay inside the coarse-pointer media query so
+   * desktop density (where a mouse can hit a 22px button fine)
+   * is untouched. min-height is set via the box-model so the
+   * target grows without breaking flex/grid layouts; the existing
+   * padding / font-size carry the visible affordance. gap on
+   * clusters bumps to 8px so adjacent targets don't share a
+   * touch region. */
+  button,
+  .icon-btn,
+  .theme-btn,
+  .mode-btn,
+  .card select,
+  .card input[type="text"],
+  .card input[type="number"] {
+    min-height: 44px;
+  }
+  .icon-btn,
+  #btn-apply {
+    min-width: 44px;
+  }
+  .add-btns { gap: 8px; }
+  /* The fg form rows in the curve editor pack 3-up at desktop;
+   * on touch they need more vertical breathing room so the
+   * fingertip doesn't straddle two rows. */
+  .editor-form { gap: 12px; }
+  .fg input,
+  .fg select { min-height: 44px; }
+  /* Hardware-monitor sidebar rows live inside the drawer — at a
+   * phone width they're the primary navigation surface, not a
+   * secondary affordance. hw-device-name is the tap target; its
+   * chevron expands/collapses the reading list. */
+  .hw-device-name { min-height: 44px; }
 }
