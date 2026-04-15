@@ -76,4 +76,11 @@ test, and the install path no longer assumes any particular fan chip.
 
 ### Known issues
 
-- _(TBD by the rig run.)_
+- **NVIDIA GPU fan control requires manual setup.** `ventd` reads GPU
+  temperature and RPM out of the box on any system with a working NVIDIA
+  driver, but `nvmlDeviceSetFanSpeed_v2` is gated by the driver under
+  the daemon's default hardened systemd posture and returns
+  `Insufficient Permissions`. A one-time udev rule (or cool-bits /
+  capability alternatives) unblocks GPU fan writes. See
+  [docs/nvidia-fan-control.md](docs/nvidia-fan-control.md). Pure-hwmon
+  rigs (CPU, chassis, AIO fans — no NVIDIA fan control) are unaffected.
