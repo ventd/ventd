@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -400,6 +401,19 @@ func writeFileSync(path string, data []byte, perm os.FileMode) error {
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("close config %s: %w", tmp, err)
+	}
+	// When invoked as root (manual `sudo ventd ...` run, rescue/debug
+	// session, etc.) match the tmp file's owner/group to the parent
+	// config dir before the atomic rename. Without this, every save
+	// by a root-euid process leaves root:root files in /etc/ventd,
+	// and the systemd User=ventd service can no longer read its own
+	// config on the next start. No-op when euid != 0.
+	if os.Geteuid() == 0 {
+		if info, err := os.Stat(filepath.Dir(path)); err == nil {
+			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+				_ = os.Chown(tmp, int(st.Uid), int(st.Gid))
+			}
+		}
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)

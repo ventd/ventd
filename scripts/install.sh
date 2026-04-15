@@ -741,6 +741,8 @@ echo "ventd installed. Open ${WEB_URL} to set up."
 
 if [[ "$INIT_SYSTEM" == "unknown" ]]; then
     echo ""
-    echo "(No supported init system detected. Start the daemon manually:"
-    echo "   sudo $VENTD_PREFIX/ventd --config /etc/ventd/config.yaml)"
+    echo "(No supported init system detected. Start the daemon manually"
+    echo "   as the ventd service user so files under /etc/ventd stay"
+    echo "   owned by ventd:ventd:"
+    echo "   sudo -u ventd $VENTD_PREFIX/ventd --config /etc/ventd/config.yaml)"
 fi
