@@ -590,6 +590,124 @@ func TestE2E_Responsive_DrawerSidebarAndHeaderReflow(t *testing.T) {
 	}
 }
 
+// TestE2E_Responsive_CardGridReflow verifies Phase 4.5 PR 2 — the
+// three card-grid sections (Sensors, Controls, Curves) collapse to
+// 1-up at <480px, 2-up in the 480–899 band, and return to the
+// auto-fill desktop grid at ≥900px. It also asserts that sensor
+// card padding tightens at portrait-phone width so the rule that
+// ships for the narrow viewport actually reaches the rendered DOM.
+//
+// Rather than matching the declared `grid-template-columns` string
+// (which is already interpolated to px tracks by getComputedStyle),
+// the test counts space-separated tokens in the computed value —
+// that is the resolved track count and is the property an operator
+// scanning the dashboard actually experiences.
+func TestE2E_Responsive_CardGridReflow(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Seed Controls so the dashboard boots out of setup mode and
+	// Sensors so the #sensor-cards grid renders more than one child
+	// (otherwise auto-fill's track enumeration is degenerate).
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{
+		{Fan: "cpu-fan", Curve: ""},
+		{Fan: "sys-fan-1", Curve: ""},
+		{Fan: "sys-fan-2", Curve: ""},
+	}
+	seeded.Fans = []config.Fan{
+		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+		{Name: "sys-fan-1", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm2"},
+		{Name: "sys-fan-2", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm3"},
+	}
+	seeded.Sensors = []config.Sensor{
+		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
+		{Name: "Motherboard Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp2_input"},
+	}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	// Log in at a desktop-sized viewport for the same reason as the
+	// drawer test: the login form's behaviour is more predictable
+	// before mobile emulation kicks in.
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// countTracks parses the resolved `grid-template-columns` value.
+	// Computed styles emit each track as its own px token
+	// (e.g. "180px 180px"); splitting on whitespace and counting
+	// non-empty tokens yields the rendered column count.
+	countTracks := func(gridTemplateColumns string) int {
+		return len(strings.Fields(gridTemplateColumns))
+	}
+
+	cases := []struct {
+		label                    string
+		w, h                     int
+		wantCols                 int // exact; -1 means "≥2"
+		wantCardPadding          string
+	}{
+		{"375-mobile", 375, 812, 1, "12px 14px"},
+		{"768-tablet", 768, 1024, 2, "14px 16px"},
+		{"1024-narrow-desktop", 1024, 800, -1, "14px 16px"},
+		{"1280-desktop", 1280, 800, -1, "14px 16px"},
+	}
+
+	for _, c := range cases {
+		setViewport(t, page, c.w, c.h)
+		page.MustNavigate(h.server.URL + "/").MustWaitStable()
+		page.Timeout(3 * time.Second).MustElement("#sensor-cards .card")
+
+		// Give the SSE dashboard hydration a tick so the card grid
+		// is populated (not just present) before measuring.
+		time.Sleep(200 * time.Millisecond)
+
+		grid := getComputedStyle(t, page, "#sensor-cards", "grid-template-columns")
+		got := countTracks(grid)
+		switch {
+		case c.wantCols > 0 && got != c.wantCols:
+			t.Errorf("viewport %s: sensor-cards tracks=%d want %d (computed=%q)",
+				c.label, got, c.wantCols, grid)
+		case c.wantCols < 0 && got < 2:
+			t.Errorf("viewport %s: sensor-cards tracks=%d want ≥2 (computed=%q)",
+				c.label, got, grid)
+		}
+
+		// Fan cards and curve-cards share the same .card-grid
+		// class; spot-check the fan grid too so a regression that
+		// only affects #fan-cards surfaces here.
+		fanGrid := getComputedStyle(t, page, "#fan-cards", "grid-template-columns")
+		fanTracks := countTracks(fanGrid)
+		switch {
+		case c.wantCols > 0 && fanTracks != c.wantCols:
+			t.Errorf("viewport %s: fan-cards tracks=%d want %d (computed=%q)",
+				c.label, fanTracks, c.wantCols, fanGrid)
+		case c.wantCols < 0 && fanTracks < 2:
+			t.Errorf("viewport %s: fan-cards tracks=%d want ≥2 (computed=%q)",
+				c.label, fanTracks, fanGrid)
+		}
+
+		// Card padding tightens to 12px 14px only at <480px. Assert
+		// the computed value matches the declared one — a cascade
+		// regression (e.g. a misplaced !important in components.css)
+		// would show up here before it ever reached a human.
+		padding := getComputedStyle(t, page, "#sensor-cards .card", "padding")
+		if padding != c.wantCardPadding {
+			t.Errorf("viewport %s: .card padding=%q want %q",
+				c.label, padding, c.wantCardPadding)
+		}
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

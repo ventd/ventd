@@ -133,7 +133,22 @@ button.danger:hover { background: var(--red); color: #fff; }
 .hwdiag-detail { margin-top: 0.4rem; color: var(--fg2); font-size: 0.9rem; white-space: pre-wrap; }
 .hwdiag-affected { margin-top: 0.3rem; color: var(--fg3); font-size: 0.8rem; font-family: var(--font-mono); }
 
-/* ── Cards (sensor + fan + curve common shell) ── */
+/* ── Cards (sensor + fan + curve common shell) ──
+ *
+ * The grid takes three forms keyed on the tokens.css breakpoints:
+ *
+ *   ≥900px (desktop) — auto-fill from a 240px minimum. Cards fill
+ *     naturally as main's content area expands (main clamps to
+ *     1100px so the max is ~4 cards per row at 1920).
+ *   480–899px (tablet / landscape phone, drawer mode) — explicit
+ *     2-column grid. Auto-fill can flip between 2- and 3-up on
+ *     small width deltas in this band; pinning to 2 keeps reflow
+ *     predictable.
+ *   <480px (portrait phone) — explicit 1-column grid with tighter
+ *     gap. Cards span the full content column.
+ *
+ * Gap tracks the density: 16px on desktop, 12px under 480px so
+ * phones don't waste vertical space on inter-card whitespace. */
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -376,3 +391,46 @@ button.danger:hover { background: var(--red); color: #fff; }
 .ctrl-point.min { fill: var(--teal); }
 .ctrl-point.max { fill: var(--blue); }
 .ctrl-point     { stroke: var(--bg2); stroke-width: 1.5; cursor: grab; }
+
+/* ── Responsive: card grid + card internals ──
+ *
+ * Paired with layout.css's breakpoint block. Layout.css owns main
+ * padding and sidebar positioning; these rules own the card grid's
+ * column count and per-card density. Breakpoints follow tokens.css
+ * (480/900), no intermediate media queries. */
+
+/* Tablet + landscape phone (480–899): pin to a 2-column grid. The
+ * default auto-fill / 240px-minmax behaviour would flip between 2-
+ * and 3-up on small width deltas inside this band, which hurts
+ * scan-reading during a phone-rotate. Explicit 2-up reflows
+ * cleanly. */
+@media (max-width: 899px) {
+  .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Portrait phone (<480px): 1-up with a tighter gap so the three
+ * card sections (Sensors / Controls / Curves) don't burn the whole
+ * viewport height on whitespace. */
+@media (max-width: 479px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .card { padding: 12px 14px; }
+  /* The 4-button "+ Linear / + Fixed / + Mix / Auto" cluster in the
+   * Curves section-hdr would crowd h2 at this width. Allow wrap so
+   * the buttons stack under the heading when needed. Section-hdr
+   * itself wraps via layout.css; this handles the cluster's own
+   * overflow. */
+  .add-btns { flex-wrap: wrap; }
+}
+
+/* Touch devices of any size: reveal .sensor-path unconditionally.
+ * The :hover-to-reveal pattern is invisible on coarse-pointer
+ * hardware where hover events fire inconsistently (or not at all),
+ * and the sysfs path is the operator's only clue which physical
+ * sensor a card corresponds to. Text still truncates via the
+ * existing ellipsis rule. */
+@media (hover: none) and (pointer: coarse) {
+  .sensor-path { display: block; }
+}
