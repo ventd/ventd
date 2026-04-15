@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // hwmonDevicePathOf resolves a hwmonN directory name to the stable
@@ -172,6 +174,36 @@ func ResolveHwmonPaths(cfg *Config, fsys fs.FS) error {
 		}
 	}
 	return nil
+}
+
+// CheckResolvable reports whether cfg's hwmon sensor / fan entries would
+// survive the same resolver pass Load runs at daemon start, against the
+// current process-wide hwmon root (see SetHwmonRootFS). The input cfg is
+// not mutated: the check runs against a deep clone produced by
+// yaml.Marshal + yaml.Unmarshal, after EnrichChipName has filled in any
+// blank ChipName fields. Returns nil when the clone resolves cleanly,
+// otherwise the resolver error.
+//
+// Used by the setup wizard's pre-Apply validation to surface "resolver
+// will reject this on next boot" before a bad config is written to disk,
+// instead of after a daemon restart — preserving the zero-terminal UX
+// guarantee. Callers that already hold a *Config and want to verify it
+// against the live /sys should call CheckResolvable rather than
+// duplicating the marshal/unmarshal dance.
+func CheckResolvable(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("check resolvable: nil config")
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("check resolvable: marshal clone: %w", err)
+	}
+	clone := &Config{}
+	if err := yaml.Unmarshal(data, clone); err != nil {
+		return fmt.Errorf("check resolvable: unmarshal clone: %w", err)
+	}
+	EnrichChipName(clone)
+	return ResolveHwmonPaths(clone, hwmonRootFS)
 }
 
 // buildChipMap walks fsys's top level for hwmonN directories and returns a
