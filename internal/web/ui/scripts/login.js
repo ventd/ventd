@@ -13,16 +13,12 @@
     try { localStorage.setItem('ventd-theme', theme); } catch(_){}
   });
 
-  // Detect first-boot by probing /api/ping then checking 401 response
-  // We use a heuristic: if normal login fails with a specific first-boot flag,
-  // switch views. For simplicity, we show the first-boot section if localStorage
-  // has a flag, or if the login attempt returns first_boot=true.
-  var isFirstBoot = false;
-
   function showMsg(el, text, isErr) {
     el.textContent = text;
     el.className = 'msg ' + (isErr ? 'err' : 'ok');
   }
+
+  // --- Login flow -------------------------------------------------------
 
   // Normal login
   document.getElementById('password').addEventListener('keydown', function(e) {
@@ -33,6 +29,7 @@
     var btn = this;
     var pw = document.getElementById('password').value;
     var msg = document.getElementById('loginMsg');
+    if (!pw) { showMsg(msg, 'Please enter your password', true); return; }
     btn.disabled = true; btn.textContent = 'Signing in…';
 
     var body = new URLSearchParams();
@@ -47,13 +44,15 @@
           location.href = dest;
           return;
         }
-        if (res.status === 401 && res.body.first_boot) {
-          // Server says no password set yet — switch to first-boot UI
+        if (res.status === 400 && res.body && res.body.first_boot) {
+          // Daemon is still in first-boot mode — switch views so the
+          // operator enters the setup token instead of a password.
           document.getElementById('secLogin').classList.remove('active');
           document.getElementById('secFirstBoot').classList.add('active');
+          btn.disabled = false; btn.textContent = 'Sign In';
           return;
         }
-        showMsg(msg, res.body.error || 'Login failed', true);
+        showMsg(msg, (res.body && res.body.error) || 'Login failed', true);
         btn.disabled = false; btn.textContent = 'Sign In';
       })
       .catch(function() {
@@ -88,7 +87,7 @@
           setTimeout(function() { location.href = '/'; }, 800);
           return;
         }
-        showMsg(msg, res.body.error || 'Setup failed', true);
+        showMsg(msg, (res.body && res.body.error) || 'Setup failed', true);
         btn.disabled = false; btn.textContent = 'Create Password & Continue';
       })
       .catch(function() {
@@ -97,18 +96,21 @@
       });
   });
 
-  // Auto-detect first-boot: check if there is no password hash configured
-  // by attempting a login with empty password — server returns first_boot flag.
-  fetch('/login', {
-    method: 'POST',
-    body: new URLSearchParams([['password', '']])
-  })
-    .then(function(r) { return r.json().then(function(j) { return {status: r.status, body: j}; }); })
-    .then(function(res) {
-      if (res.status === 401 && res.body.first_boot) {
+  // --- First-boot detection --------------------------------------------
+  //
+  // Ask /api/auth/state whether a password has been configured yet. This
+  // endpoint is a pure read-only lookup; unlike a POST /login with an
+  // empty password, it does NOT touch the per-IP rate limiter. That
+  // matters because the old probe burned one attempt on every page load
+  // and could lock an operator out of their own box before they ever
+  // saw a password prompt. (Audit finding S2.)
+  fetch('/api/auth/state', { method: 'GET' })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(j) {
+      if (j && j.first_boot) {
         document.getElementById('secLogin').classList.remove('active');
         document.getElementById('secFirstBoot').classList.add('active');
       }
     })
-    .catch(function() {});
+    .catch(function() { /* probe is best-effort; fall back to normal login form */ });
 })();
