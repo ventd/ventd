@@ -733,7 +733,16 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
-MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+# Resolve a machine IP for the "open http://… to set up" hint. `hostname -I`
+# is a GNU-hostname extension not present in inetutils-hostname (Arch's
+# default) — under `set -o pipefail` that would make the install script
+# exit non-zero right after a perfectly healthy install and the operator
+# never sees the URL. Fall back through ip(8), and leave a placeholder
+# if neither resolves. Best-effort: any failure here is informational only.
+MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || MACHINE_IP=""
+if [[ -z "$MACHINE_IP" ]] && command -v ip >/dev/null 2>&1; then
+    MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+fi
 WEB_URL="http://${MACHINE_IP:-<this-machine-ip>}:9999"
 
 echo ""
