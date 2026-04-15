@@ -333,6 +333,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 .hw-profile-row strong { color: var(--fg); }
 .hw-profile-row .val { color: var(--teal); }
 .curve-notes { margin-bottom: 0.8rem; }
+.curve-notes .hdr { color: var(--fg); font-size: 0.8rem; }
 .curve-notes ul { list-style: none; margin: 0.3rem 0 0 0; }
 .curve-notes li { color: var(--fg2); font-size: 0.78rem; padding: 1px 0; font-family: monospace; }
 .setup-actions { display: flex; gap: 10px; align-items: center; }

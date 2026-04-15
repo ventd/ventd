@@ -825,16 +825,24 @@ document.addEventListener('touchstart',e=>{
 
 // ── Settings ──
 
+// Visibility is driven by the .modal-backdrop / .modal-backdrop.open
+// CSS pair defined in app.css. Toggling a class is preferable to
+// setting element.style.display here because future modals (Apply-
+// diff in Session C, panic popover later) can reuse the same rule
+// set without each one replicating the display: flex; rule.
+
 function openSettings(){
   const el = document.getElementById('settings-overlay');
-  el.style.display = 'flex';
+  el.classList.add('open');
   document.getElementById('settings-status').textContent = '';
   document.querySelector('#settings-overlay .danger').disabled = false;
 }
 function closeSettings(){
-  document.getElementById('settings-overlay').style.display = 'none';
+  document.getElementById('settings-overlay').classList.remove('open');
 }
-// Close on backdrop click
+// Close on backdrop click. The modal-card is a child of the
+// modal-backdrop, so a click that reaches the backdrop itself means
+// the user clicked outside the card.
 document.getElementById('settings-overlay').addEventListener('click', e => {
   if(e.target === document.getElementById('settings-overlay')) closeSettings();
 });
@@ -875,7 +883,7 @@ async function checkSetup(){
       document.getElementById('setup-overlay').classList.remove('hidden');
       if(p.running){
         // Already running (e.g. page reload mid-setup) — attach poller.
-        document.getElementById('setup-phase-area').style.display = '';
+        document.getElementById('setup-phase-area').classList.remove('hidden');
         renderSetupProgress(p);
         if(!setupPollTimer) setupPollTimer = setInterval(pollSetupStatus, 800);
       } else if(p.done){
@@ -897,7 +905,7 @@ async function setupAutoStart(){
     const r = await fetch('/api/setup/start',{method:'POST'});
     if(!r.ok){ return; } // already running, or error — poll will sort it out
   } catch(e){ return; }
-  document.getElementById('setup-phase-area').style.display = '';
+  document.getElementById('setup-phase-area').classList.remove('hidden');
   setupPollTimer = setInterval(pollSetupStatus, 800);
 }
 
@@ -944,7 +952,7 @@ function renderSetupProgress(p){
   const showingFans = fanTablePhases.includes(p.phase) || (p.done && !p.error);
 
   if(p.running || (p.phase && !p.done)){
-    phaseArea.style.display = '';
+    phaseArea.classList.remove('hidden');
     const statusEl = document.getElementById('setup-phase-status');
     statusEl.textContent = p.phase_msg || p.phase || '';
 
@@ -952,26 +960,26 @@ function renderSetupProgress(p){
     const boardEl = document.getElementById('setup-board-line');
     if(p.board){
       boardEl.textContent = p.board;
-      boardEl.style.display = '';
+      boardEl.classList.remove('hidden');
     }
 
     // Chip line — shown during driver install
     const chipEl = document.getElementById('setup-chip-line');
     if(p.chip_name){
       chipEl.textContent = 'Installing driver for ' + p.chip_name + '…';
-      chipEl.style.display = '';
+      chipEl.classList.remove('hidden');
     } else {
-      chipEl.style.display = 'none';
+      chipEl.classList.add('hidden');
     }
 
     // Install log — shown only during installing_driver phase
     const logEl = document.getElementById('setup-install-log');
     const lines = p.install_log || [];
     if(p.phase === 'installing_driver' && lines.length > 0){
-      logEl.style.display = '';
+      logEl.classList.remove('hidden');
       for(let i = setupLastInstallLogLen; i < lines.length; i++){
         const ln = document.createElement('div');
-        ln.style.cssText = 'margin:1px 0;white-space:pre-wrap;word-break:break-all';
+        ln.className = 'log-line';
         ln.textContent = lines[i];
         logEl.appendChild(ln);
       }
@@ -985,7 +993,7 @@ function renderSetupProgress(p){
   // ── Fan table ───────────────────────────────────────────────────────────
   const progressArea = document.getElementById('setup-progress-area');
   if(showingFans){
-    progressArea.style.display = '';
+    progressArea.classList.remove('hidden');
     const tbody = document.getElementById('setup-fan-tbody');
     tbody.innerHTML = '';
     for(const f of (p.fans||[])){
@@ -1004,7 +1012,10 @@ function renderSetupProgress(p){
       let calHtml = setupPhaseBadge(f.cal_phase||'pending', f.cal_phase||'pending');
       if(f.cal_phase==='calibrating'){
         const pct = f.cal_progress||0;
-        calHtml += '<div class="setup-prog-bar"><div class="fill" style="width:'+pct+'%"></div></div>';
+        // data-width drives a post-render style.width assignment so
+        // this cell carries no inline style="..." attribute — the CSP
+        // forbids it once 'unsafe-inline' is dropped from style-src.
+        calHtml += '<div class="setup-prog-bar"><div class="fill" data-width="'+pct+'"></div></div>';
       }
 
       let result = '—';
@@ -1012,41 +1023,46 @@ function renderSetupProgress(p){
         result = 'start '+f.start_pwm+'/255 ('+Math.round(f.start_pwm/255*100)+'%)';
         if(f.type!=='nvidia' && f.max_rpm) result += ', '+f.max_rpm+' RPM';
       } else if(f.cal_phase==='error'){
-        result = '<span style="color:var(--red)">'+esc(f.error)+'</span>';
+        result = '<span class="cal-err">'+esc(f.error)+'</span>';
       }
 
       row.innerHTML = '<td>'+esc(f.name)+'</td><td>'+esc(f.type)+'</td><td>'+detectHtml+'</td><td>'+calHtml+'</td><td>'+result+'</td>';
       tbody.appendChild(row);
     }
+    // Dynamic widths (cal-prog-bar fills) are applied here rather
+    // than inline so the HTML stays free of style="..." attrs.
+    tbody.querySelectorAll('[data-width]').forEach(el => {
+      el.style.width = el.dataset.width + '%';
+    });
   } else {
-    progressArea.style.display = 'none';
+    progressArea.classList.add('hidden');
   }
 
   // ── Reboot required ─────────────────────────────────────────────────────
   const rebootPanel = document.getElementById('setup-reboot-panel');
   if(p.reboot_needed){
     document.getElementById('setup-reboot-msg').textContent = p.reboot_message || '';
-    rebootPanel.style.display = '';
-    phaseArea.style.display = 'none';
+    rebootPanel.classList.remove('hidden');
+    phaseArea.classList.add('hidden');
   } else {
-    rebootPanel.style.display = 'none';
+    rebootPanel.classList.add('hidden');
   }
 
   // ── Error ───────────────────────────────────────────────────────────────
   const errEl = document.getElementById('setup-error');
   if(p.error){
     errEl.textContent = 'Setup failed: '+p.error;
-    errEl.style.display = '';
-    progressArea.style.display = '';
+    errEl.classList.remove('hidden');
+    progressArea.classList.remove('hidden');
   } else {
-    errEl.style.display = 'none';
+    errEl.classList.add('hidden');
   }
 
   // ── Done — show Apply button ────────────────────────────────────────────
   if(p.done && !p.error && p.config){
     document.getElementById('setup-phase-status').textContent = 'Setup complete — review and apply your configuration.';
-    document.getElementById('setup-chip-line').style.display = 'none';
-    document.getElementById('setup-done-area').style.display = '';
+    document.getElementById('setup-chip-line').classList.add('hidden');
+    document.getElementById('setup-done-area').classList.remove('hidden');
     renderSetupSummary(p);
   }
 }
@@ -1077,7 +1093,7 @@ function renderSetupSummary(p){
 
   // Curve design notes
   if(prof.curve_notes && prof.curve_notes.length){
-    html += '<div class="curve-notes"><span style="color:var(--fg);font-size:0.8rem">Curve design</span><ul>';
+    html += '<div class="curve-notes"><span class="hdr">Curve design</span><ul>';
     for(const n of prof.curve_notes) html += '<li>'+esc(n)+'</li>';
     html += '</ul></div>';
   }
@@ -1128,8 +1144,8 @@ async function setupApply(){
     return;
   }
   // Config saved — daemon is restarting. Show status and poll until it's back.
-  document.getElementById('setup-actions').style.display = 'none';
-  document.getElementById('setup-restarting').style.display = '';
+  document.getElementById('setup-actions').classList.add('hidden');
+  document.getElementById('setup-restarting').classList.remove('hidden');
   let dots = 1;
   const dotsEl = document.getElementById('setup-restart-dots');
   const dotsTimer = setInterval(()=>{ dots=(dots%3)+1; dotsEl.textContent='.'.repeat(dots); }, 500);
