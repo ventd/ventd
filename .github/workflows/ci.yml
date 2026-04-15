@@ -89,7 +89,12 @@ jobs:
           set -e
           # bash entry point.
           shellcheck --severity=warning --exclude=SC1091 \
-                     --shell=bash scripts/install.sh
+                     --shell=bash scripts/install.sh \
+                                  scripts/check-unit-onfailure.sh
+          # Deploy-unit regression guard: OnFailure= must live in [Unit],
+          # not [Service], or systemd silently ignores it and recovery
+          # never fires. See scripts/check-unit-onfailure.sh header.
+          bash scripts/check-unit-onfailure.sh deploy/ventd.service
           # POSIX hooks + init scripts. preremove.sh, postinstall.sh
           # and _ventd_account.sh all run under dash on Debian.
           shellcheck --severity=warning --exclude=SC1091,SC2034 \
