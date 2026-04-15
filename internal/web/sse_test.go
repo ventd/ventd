@@ -64,7 +64,7 @@ func newSSEServer(t *testing.T, tickInterval time.Duration) (*httptest.Server, *
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var session *http.Cookie
 	for _, c := range resp.Cookies() {
 		if c.Name == sessionCookie {
@@ -91,7 +91,7 @@ func TestSSE_EmitsStatusFrames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/events: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d, want 200", resp.StatusCode)
@@ -159,7 +159,7 @@ func TestSSE_RequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /api/events: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("unauth'd request returned 200; expected 401/redirect")
 	}
@@ -191,7 +191,7 @@ func TestSSE_ClientDisconnectStopsHandler(t *testing.T) {
 	// Cancel: the transport closes the connection, the handler's
 	// r.Context() fires Done, and the handler returns.
 	cancel()
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Give the handler a moment to unwind, then fire a second request
 	// on a fresh context. If the server is healthy it responds
@@ -203,7 +203,7 @@ func TestSSE_ClientDisconnectStopsHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("post-cancel GET /api/ping: %v", err)
 	}
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("ping after cancel: status=%d, want 200", resp2.StatusCode)
 	}
