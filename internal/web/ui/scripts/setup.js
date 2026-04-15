@@ -317,7 +317,17 @@ checkSetup().then(()=>{
   if(overlay.classList.contains('hidden')){
     // Normal mode: load dashboard immediately.
     loadConfig(); loadStatus(); loadHardware(); loadCalibration(); loadHwdiag();
-    setInterval(loadStatus,2000);
+
+    // Status updates: prefer SSE (/api/events) for live frames. Start
+    // the 2s poll as a fallback, and let the SSE handlers swap between
+    // the two — onOpen clears the poll when the stream is proven
+    // working; onFallback restarts it if the browser/proxy drops SSE.
+    let statusPollId = setInterval(loadStatus, 2000);
+    openEventStream(
+      () => { if(statusPollId){ clearInterval(statusPollId); statusPollId = 0; } },
+      () => { if(!statusPollId){ statusPollId = setInterval(loadStatus, 2000); } }
+    );
+
     setInterval(loadHardware,3000);
     setInterval(loadCalibration,5000);
     setInterval(loadHwdiag,10000);

@@ -72,6 +72,11 @@ type Server struct {
 	loginLim       *loginLimiter
 	tlsActive      bool          // server serves TLS directly; gates HSTS
 	trustedProxies []*net.IPNet  // set at New-time from live.Web.TrustProxy
+	// sseInterval bounds how often /api/events emits a status frame.
+	// Matches the existing client-side poll cadence (2s) so the server
+	// load profile stays unchanged when one SSE client displaces the
+	// polling loop. Tests override this directly after New().
+	sseInterval time.Duration
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -95,6 +100,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		ctx:        ctx,
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
 		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
+		sseInterval:    defaultSSEInterval,
 	}
 	// Construct the http.Server at New-time rather than ListenAndServe-time
 	// so Shutdown() can safely be called from another goroutine without
@@ -141,6 +147,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	// All other routes require a valid session.
 	auth := s.requireAuth
 	s.mux.HandleFunc("/api/status", auth(s.handleStatus))
+	s.mux.HandleFunc("/api/events", auth(s.handleEvents))
 	s.mux.HandleFunc("/api/config", auth(s.handleConfig))
 	s.mux.HandleFunc("/api/hardware", auth(s.handleHardware))
 	s.mux.HandleFunc("/api/calibrate/start", auth(s.handleCalibrateStart))
@@ -541,6 +548,17 @@ type fanStatus struct {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	s.writeJSON(r, w, s.buildStatus())
+}
+
+// buildStatus snapshots sensor values and fan PWM/RPM for the live
+// config. Shared between the /api/status one-shot handler and the
+// /api/events SSE loop so both endpoints see the same payload shape.
+// Errors from hwmon or NVML reads are logged but not surfaced — a
+// missing sensor appears as value=0 rather than breaking the whole
+// response, same behaviour as the original handler.
+func (s *Server) buildStatus() statusResponse {
 	live := s.cfg.Load()
 
 	resp := statusResponse{
@@ -601,8 +619,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp.Fans = append(resp.Fans, fs)
 	}
 
-	w.Header().Set("Cache-Control", "no-store")
-	s.writeJSON(r, w, resp)
+	return resp
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

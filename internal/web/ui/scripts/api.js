@@ -21,29 +21,80 @@ async function loadConfig(){
   } catch(e){ notify('Load config: '+e.message,'error'); }
 }
 
+// applyStatus repaints the dashboard from a fresh status snapshot.
+// Called from both loadStatus (polling) and openEventStream (SSE) so
+// the focus-preservation guards below live in exactly one place. A
+// re-render mid-edit would steal focus from the operator's name
+// input or close an open <select>; the activeElement checks skip the
+// repaint of any card whose input is currently focused.
+function applyStatus(snap){
+  const dot = document.getElementById('live-dot');
+  sts = snap;
+  if(dot){ dot.className='live-dot on'; clearTimeout(dot._t); dot._t=setTimeout(()=>{ dot.className='live-dot'; },2000); }
+  const editingFan = document.activeElement && document.activeElement.closest('.card-name-edit');
+  const editingSensor = document.activeElement && document.activeElement.closest('.sensor-name-edit');
+  const fanSelectOpen = document.activeElement && document.activeElement.tagName === 'SELECT'
+                        && document.activeElement.closest('#fan-cards');
+  const anyCalRunning = Object.values(calStatuses).some(s=>s.running);
+  renderSensorBar();
+  if(!editingFan && !anyCalRunning && !fanSelectOpen) renderFanCards();
+  if(!editingSensor) renderSensorCards();
+  renderCurveCards();
+  if(!dragging && selIdx>=0 && cfg && cfg.curves[selIdx] && cfg.curves[selIdx].type==='linear'){
+    drawSVG(cfg.curves[selIdx]);
+  }
+}
+
 async function loadStatus(){
   const dot = document.getElementById('live-dot');
   try {
     const r = await fetch('/api/status');
-    sts = await r.json();
-    if(dot){ dot.className='live-dot on'; clearTimeout(dot._t); dot._t=setTimeout(()=>{ dot.className='live-dot'; },2000); }
-    // Avoid clobbering a focused name input or open <select> mid-edit.
-    // The status poller fires every 2s; a re-render while the operator
-    // is typing into a sensor or fan name would steal focus and lose
-    // their in-flight character. Same logic for the curve dropdown.
-    const editingFan = document.activeElement && document.activeElement.closest('.card-name-edit');
-    const editingSensor = document.activeElement && document.activeElement.closest('.sensor-name-edit');
-    const fanSelectOpen = document.activeElement && document.activeElement.tagName === 'SELECT'
-                          && document.activeElement.closest('#fan-cards');
-    const anyCalRunning = Object.values(calStatuses).some(s=>s.running);
-    renderSensorBar();
-    if(!editingFan && !anyCalRunning && !fanSelectOpen) renderFanCards();
-    if(!editingSensor) renderSensorCards();
-    renderCurveCards();
-    if(!dragging && selIdx>=0 && cfg && cfg.curves[selIdx] && cfg.curves[selIdx].type==='linear'){
-      drawSVG(cfg.curves[selIdx]);
-    }
+    applyStatus(await r.json());
   } catch(e){ if(dot) dot.className='live-dot err'; }
+}
+
+// openEventStream subscribes to /api/events (Server-Sent Events). On
+// the first successful `status` frame it tells the caller to stop its
+// polling timer via onOpen; on any error (network drop, proxy cutting
+// the connection, browser without EventSource support) it calls
+// onFallback so the caller can restart polling. The browser's
+// EventSource also auto-reconnects internally — the fallback is only
+// invoked when the connection is definitively gone.
+//
+// Returns the EventSource so callers can close() it on page teardown,
+// or null when the browser has no EventSource (IE-class fallback).
+function openEventStream(onOpen, onFallback){
+  if(typeof EventSource === 'undefined'){
+    onFallback();
+    return null;
+  }
+  let es;
+  try {
+    es = new EventSource('/api/events');
+  } catch(e){
+    onFallback();
+    return null;
+  }
+  let opened = false;
+  es.addEventListener('status', ev => {
+    try {
+      applyStatus(JSON.parse(ev.data));
+    } catch(_){ /* malformed frame — skip, next tick is already queued */ }
+    if(!opened){
+      opened = true;
+      onOpen();
+    }
+  });
+  es.addEventListener('error', () => {
+    // EventSource fires 'error' both on transient disconnects (it will
+    // auto-reconnect) and on final failures. Once the readyState is
+    // CLOSED we know it won't come back — flip to polling. Otherwise
+    // leave it alone and let the browser's reconnect handle it.
+    if(es.readyState === EventSource.CLOSED){
+      onFallback();
+    }
+  });
+  return es;
 }
 
 async function loadHardware(){
