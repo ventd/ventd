@@ -615,5 +615,8 @@ func runLogDir(dir string, logFn func(string), nameAndArgs ...string) error {
 			logFn(line)
 		}
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("hwmon: run %s: %w", nameAndArgs[0], err)
+	}
+	return nil
 }

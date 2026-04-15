@@ -238,7 +238,7 @@ func (d Duration) MarshalJSON() ([]byte, error) {
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
-		return err
+		return fmt.Errorf("config: duration unmarshal: %w", err)
 	}
 	dur, err := time.ParseDuration(s)
 	if err != nil {
