@@ -25,6 +25,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 	diag := hwdiag.NewStore()
 	cal.SetDiagnosticStore(diag)
 	sm := setupmgr.New(cal, logger)
+	sm.SetDiagnosticStore(diag)
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)

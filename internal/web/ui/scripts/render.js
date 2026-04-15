@@ -448,8 +448,26 @@ function renderHwdiag(entries){
     return '<div class="hwdiag-group"><div class="hwdiag-group-hdr">'+esc(label)+'</div>'+items+'</div>';
   }).join('');
   panel.querySelectorAll('[data-hwdiag-fix]').forEach(btn => {
-    btn.addEventListener('click', () => hwdiagRunRemediation(btn.dataset.hwdiagEndpoint, btn.dataset.hwdiagFix, btn));
+    btn.addEventListener('click', () => {
+      let payload = null;
+      if(btn.dataset.hwdiagContext){
+        try { payload = JSON.parse(btn.dataset.hwdiagContext); } catch(_){}
+      }
+      hwdiagRunRemediation(btn.dataset.hwdiagEndpoint, btn.dataset.hwdiagFix, btn, payload);
+    });
   });
+}
+
+// hwdiagRemediationPayload extracts the subset of entry.context the client
+// forwards to the remediation endpoint. Currently only `module` is used
+// (for /api/setup/load-module); filtering here keeps us from echoing
+// board-identifier metadata we don't want to pin into the request shape.
+function hwdiagRemediationPayload(e){
+  if(!e.context) return null;
+  if(typeof e.context.module === 'string' && e.context.module){
+    return {module: e.context.module};
+  }
+  return null;
 }
 
 function hwdiagItemHTML(e){
@@ -458,7 +476,9 @@ function hwdiagItemHTML(e){
   let btn = '';
   if(rem && rem.label){
     const disabled = rem.endpoint ? '' : ' disabled title="Remediation endpoint not wired yet (TODO)"';
-    btn = '<button class="hwdiag-fix" data-hwdiag-fix="'+esc(rem.auto_fix_id||'')+'" data-hwdiag-endpoint="'+esc(rem.endpoint||'')+'"'+disabled+'>'+esc(rem.label)+'</button>';
+    const payload = hwdiagRemediationPayload(e);
+    const ctxAttr = payload ? ' data-hwdiag-context="'+esc(JSON.stringify(payload))+'"' : '';
+    btn = '<button class="hwdiag-fix" data-hwdiag-fix="'+esc(rem.auto_fix_id||'')+'" data-hwdiag-endpoint="'+esc(rem.endpoint||'')+'"'+ctxAttr+disabled+'>'+esc(rem.label)+'</button>';
   }
   const detail = e.detail ? '<div class="hwdiag-detail">'+esc(e.detail)+'</div>' : '';
   const affected = (e.affected && e.affected.length)

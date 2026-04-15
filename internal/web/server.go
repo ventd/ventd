@@ -160,6 +160,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s.mux.HandleFunc("/api/setup/apply", auth(s.handleSetupApply))
 	s.mux.HandleFunc("/api/setup/reset", auth(s.handleSetupReset))
 	s.mux.HandleFunc("/api/setup/calibrate/abort", auth(s.handleSetupCalibrateAbort))
+	s.mux.HandleFunc("/api/setup/load-module", auth(s.handleSetupLoadModule))
 	s.mux.HandleFunc("/api/system/reboot", auth(s.handleSystemReboot))
 	s.mux.HandleFunc("/api/set-password", auth(s.handleSetPassword))
 	s.mux.HandleFunc("/api/hwdiag", auth(s.handleHwdiag))
@@ -856,6 +857,61 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	s.triggerRestart()
 }
 
+
+// handleSetupLoadModule POST /api/setup/load-module
+// Loads a kernel module from the fixed ventd allowlist (coretemp, k10temp,
+// nct6683, nct6687, it87, drivetemp) and persists it to
+// /etc/modules-load.d/ventd-<name>.conf so it survives reboot. Surfaced via
+// the setup wizard's remediation cards when a required driver isn't present.
+//
+// Request body: {"module": "coretemp"}. Response: installLogResponse.
+// Rejects anything outside the allowlist or that doesn't match the kernel's
+// module-name charset (a-z / 0-9 / _, 1-32 chars) before spawning modprobe.
+//
+// Deliberately does NOT re-run the setup wizard's scan phase — per the
+// "client re-request" design the operator clicks "Re-run Setup" explicitly
+// when they want new sensors folded into the generated config. The returned
+// success clears the matching hwdiag entries so the UI's polling loop
+// reflects the remediated state on its next tick.
+func (s *Server) handleSetupLoadModule(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	limitBody(w, r, 256)
+	var req struct {
+		Module string `json:"module"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isMaxBytesErr(err) {
+			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Module == "" {
+		http.Error(w, "module is required", http.StatusBadRequest)
+		return
+	}
+	if !setupmgr.AllowedModule(req.Module) {
+		// Don't leak the allowlist contents — just say no. The wizard's UI
+		// only ever sends modules from hwdiag entries we emitted ourselves,
+		// so hitting this path implies a hand-crafted request.
+		http.Error(w, "module not in remediation allowlist", http.StatusBadRequest)
+		return
+	}
+
+	log, err := s.setup.LoadModule(r.Context(), req.Module)
+	resp := installLogResponse{Kind: "install_log", Log: log, Success: err == nil}
+	if err != nil {
+		resp.Error = err.Error()
+		// Keep a 200 on allowlisted-but-failed loads so the UI renders the
+		// log output and error string inline (matches install-kernel-headers
+		// behaviour). Bad input still returns 4xx above.
+	}
+	s.writeJSON(r, w, resp)
+}
 
 // handleSystemReboot POST /api/system/reboot
 // Sends a response immediately then issues a system reboot.

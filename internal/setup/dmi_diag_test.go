@@ -70,8 +70,8 @@ func TestEmitDMICandidates(t *testing.T) {
 				if e.Remediation == nil || e.Remediation.AutoFixID != tc.wantAutoFx {
 					t.Errorf("Remediation = %+v, want AutoFixID=%q", e.Remediation, tc.wantAutoFx)
 				}
-				if e.Remediation.Endpoint != "" {
-					t.Errorf("Endpoint = %q, want empty (UI wiring deferred)", e.Remediation.Endpoint)
+				if e.Remediation.Endpoint != "/api/setup/load-module" {
+					t.Errorf("Endpoint = %q, want /api/setup/load-module", e.Remediation.Endpoint)
 				}
 			}
 		})
