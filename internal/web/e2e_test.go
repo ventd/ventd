@@ -881,6 +881,161 @@ func TestE2E_Responsive_CurveEditorTouchDrag(t *testing.T) {
 	}
 }
 
+// TestE2E_Responsive_TouchTargetsAndModalReflow verifies Phase 4.5
+// PR 4 — at coarse-pointer the common interactive surfaces (plain
+// buttons, icon buttons, the fan-card mode toggle, the card-level
+// selects) grow to at least 44×44 CSS pixels, and the settings
+// modal stops overflowing its own backdrop at phone width.
+//
+// The 44-pixel WCAG target is declared via min-height / min-width
+// inside the (hover: none) and (pointer: coarse) media query, so
+// desktop density is untouched; this test exercises only the touch
+// path. getBoundingClientRect resolves computed box dimensions,
+// which is what an operator's finger will actually try to hit.
+func TestE2E_Responsive_TouchTargetsAndModalReflow(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	seeded.Fans = []config.Fan{
+		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+	}
+	seeded.Sensors = []config.Sensor{
+		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
+	}
+	seeded.Curves = []config.CurveConfig{}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// Emulate a phone: narrow viewport, coarse pointer, touch
+	// emulation. Without all three, Chromium reports pointer:fine
+	// and the @media rule this PR adds doesn't apply.
+	if err := (proto.EmulationSetEmulatedMedia{
+		Features: []*proto.EmulationMediaFeature{
+			{Name: "hover", Value: "none"},
+			{Name: "pointer", Value: "coarse"},
+		},
+	}).Call(page); err != nil {
+		t.Fatalf("emulate coarse-pointer media: %v", err)
+	}
+	maxTouch := 1
+	if err := (proto.EmulationSetTouchEmulationEnabled{
+		Enabled:        true,
+		MaxTouchPoints: &maxTouch,
+	}).Call(page); err != nil {
+		t.Fatalf("enable touch emulation: %v", err)
+	}
+	setViewport(t, page, 375, 812)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".card-grid .card")
+	time.Sleep(200 * time.Millisecond)
+
+	// Helper: return the first-match element's bounding-box {w,h}
+	// via getBoundingClientRect. Uses the rod Eval so assertions
+	// can talk in actual rendered pixels.
+	boundingBox := func(selector string) (w, h float64) {
+		t.Helper()
+		res, err := page.Eval(`(sel) => {
+			const el = document.querySelector(sel);
+			if (!el) return null;
+			const r = el.getBoundingClientRect();
+			return { w: r.width, h: r.height };
+		}`, selector)
+		if err != nil {
+			t.Fatalf("boundingBox(%s): %v", selector, err)
+		}
+		if res.Value.Nil() {
+			t.Fatalf("boundingBox(%s): no element", selector)
+		}
+		return res.Value.Get("w").Num(), res.Value.Get("h").Num()
+	}
+
+	// Every target the rule promises to enlarge. A few selectors
+	// reach inside fan cards so they assert the cascaded height;
+	// plain `button` matches many elements so we pick a
+	// representative one (the Calibrate button in the first fan
+	// card). Touch targets must be at least 44 in both dimensions
+	// for width-sensitive controls; for wide ones height alone is
+	// the WCAG property that matters.
+	targets := []struct {
+		label      string
+		selector   string
+		wantHeight float64
+		wantWidth  float64
+	}{
+		{"mode-toggle Curve btn", ".mode-toggle .mode-btn", 44, 0},
+		{"card select", ".card select", 44, 0},
+		{"add-btns + Linear", ".add-btns button", 44, 0},
+		{"header hamburger", "#btn-sidebar", 44, 44},
+		{"header settings", "#btn-settings", 44, 44},
+		{"header Apply btn", "#btn-apply", 44, 44},
+	}
+	for _, tgt := range targets {
+		w, hh := boundingBox(tgt.selector)
+		if hh < tgt.wantHeight-0.5 {
+			t.Errorf("%s: height=%.1f want ≥%.0f (selector=%q)",
+				tgt.label, hh, tgt.wantHeight, tgt.selector)
+		}
+		if tgt.wantWidth > 0 && w < tgt.wantWidth-0.5 {
+			t.Errorf("%s: width=%.1f want ≥%.0f (selector=%q)",
+				tgt.label, w, tgt.wantWidth, tgt.selector)
+		}
+	}
+
+	// Modal reflow: settings modal at phone width must fit inside
+	// the backdrop without horizontal overflow and its card should
+	// pin to the top (flex-start) so the soft keyboard doesn't
+	// push it off-screen. Opening the settings modal via the
+	// header cog exercises the same open() path as real use.
+	page.MustElement(`[data-action="open-settings"]`).MustClick()
+	page.Timeout(2 * time.Second).MustElement("#settings-overlay.open")
+	time.Sleep(100 * time.Millisecond)
+
+	// Backdrop should be flex-start at <480.
+	alignItems := getComputedStyle(t, page, "#settings-overlay", "align-items")
+	if alignItems != "flex-start" {
+		t.Errorf("at 375px, #settings-overlay align-items=%q want flex-start",
+			alignItems)
+	}
+
+	// Card must not exceed the viewport width. 375 viewport minus
+	// the backdrop's 0.75rem padding on each side = 375 - 24 = 351.
+	// The card has width:100% max-width:420, so at this viewport
+	// width caps at 351.
+	cardW, cardH := boundingBox("#settings-overlay .modal-card")
+	if cardW > 351.5 {
+		t.Errorf("#settings-overlay .modal-card width=%.1f want ≤351 at 375px", cardW)
+	}
+	// max-height: calc(100dvh - 1.5rem) → ≤ 812-24 = 788.
+	if cardH > 788.5 {
+		t.Errorf("#settings-overlay .modal-card height=%.1f want ≤788 at 375×812", cardH)
+	}
+
+	// Close the modal by clicking the backdrop (outside the card)
+	// so the cleanup the dashboard does on close runs.
+	if _, err := page.Eval(`() => document.getElementById('settings-overlay').click()`); err != nil {
+		t.Fatalf("close modal: %v", err)
+	}
+	page.MustWaitStable()
+	overlayCls := getAttr(t, page, "#settings-overlay", "class")
+	if strings.Contains(overlayCls, "open") {
+		t.Errorf("settings overlay still .open after backdrop click: class=%q", overlayCls)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the
