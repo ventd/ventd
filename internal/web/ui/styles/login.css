@@ -50,6 +50,18 @@ body {
 }
 .theme-btn:hover { border-color: var(--teal); color: var(--teal); }
 
+/* Inline icon (mirrors base.css so login.html doesn't need the dashboard
+ * stylesheet bundle). */
+.icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
+}
+
 h2 { font-size: 0.8rem; color: var(--fg2); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 1.2rem; }
 
 .field { margin-bottom: 1rem; }

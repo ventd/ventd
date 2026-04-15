@@ -13,7 +13,7 @@ import (
 // left in the HTML. Session B owns any further structural reorganization
 // of this tree (see the ventd UI overhaul phase plan).
 //
-//go:embed ui/index.html ui/login.html ui/styles/*.css ui/scripts/*.js
+//go:embed ui/index.html ui/login.html ui/styles/*.css ui/scripts/*.js ui/icons/*.svg
 var uiFS embed.FS
 
 // uiSubFS returns the embedded tree rooted at `ui/` so callers can mount

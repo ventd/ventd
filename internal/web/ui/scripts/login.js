@@ -2,7 +2,10 @@
   // Theme
   function applyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
-    document.getElementById('themeBtn').textContent = t === 'dark' ? '◑' : '◐';
+    // Dark → show sun (click to go light); light → show moon.
+    const icon = t === 'dark' ? 'sun' : 'moon';
+    document.getElementById('themeBtn').innerHTML =
+      '<svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#' + icon + '"/></svg>';
   }
   let theme = 'dark';
   try { theme = localStorage.getItem('ventd-theme') || 'dark'; } catch(_){}

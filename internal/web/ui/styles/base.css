@@ -81,3 +81,19 @@ h2 {
 /* Mono utility — apply to any ad-hoc numeric readout that isn't
  * already covered by a data-readout component class. */
 .mono { font-family: var(--font-mono); }
+
+/* Inline icon — the <svg class="icon"><use href="/ui/icons/sprite.svg#…"/></svg>
+ * wrapper. Sized in em units so the icon scales with the surrounding
+ * text; fill/stroke fall through to currentColor so the icon inherits
+ * the button or label's colour without extra selectors. */
+.icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  stroke: currentColor;
+  fill: none;
+  flex-shrink: 0;
+}
+.icon-spin { animation: icon-spin 1s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
