@@ -1,0 +1,35 @@
+[Unit]
+# One-shot post-reboot verifier for the v0.2.0 rig re-verify run.
+# Fires once per boot after ventd has started, runs the pre-reboot
+# 4a–4g assertions, and writes a timestamped log under /var/log/ventd.
+#
+# Install:
+#   sudo install -m 0755 validation/postreboot-verify.sh \
+#       /usr/local/sbin/ventd-postreboot-verify.sh
+#   sudo install -m 0644 validation/ventd-postreboot-verify.service \
+#       /etc/systemd/system/ventd-postreboot-verify.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable ventd-postreboot-verify.service  # fire on next boot
+#
+# After reboot, read /var/log/ventd/postreboot-*.log or:
+#   sudo systemctl status ventd-postreboot-verify
+#
+# Do NOT enable this until the OnFailure/[Unit]-section bug (issue 1
+# in validation/phoenix-MS-7D25-v0.2.0-final.md) is fixed on main;
+# rebooting with a decorative safety belt is worse than not rebooting.
+Description=ventd v0.2.0 post-reboot rig verification (one-shot)
+Documentation=file:///home/phoenix/projects/ventd/validation/phoenix-MS-7D25-v0.2.0-final.md
+After=ventd.service
+Wants=ventd.service
+ConditionPathExists=/usr/local/sbin/ventd-postreboot-verify.sh
+
+[Service]
+Type=oneshot
+User=root
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/sbin/ventd-postreboot-verify.sh
+RemainAfterExit=yes
+SyslogIdentifier=ventd-postreboot-verify
+
+[Install]
+WantedBy=multi-user.target
