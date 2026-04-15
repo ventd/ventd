@@ -582,17 +582,17 @@ function renderLinearEditor(el,c){
   el.innerHTML = '<div class="editor">'+
     '<div class="editor-svg"><svg id="curve-svg" viewBox="0 0 510 255" xmlns="http://www.w3.org/2000/svg"></svg></div>'+
     '<div class="editor-form">'+
-      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" onchange="renameCurve(this.value)"></div>'+
-      '<div class="fg"><label>Sensor</label><select onchange="updField(\'sensor\',this.value)">'+sOpts+'</select></div>'+
+      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" data-action="rename-curve"></div>'+
+      '<div class="fg"><label>Sensor</label><select data-action="upd-field" data-field="sensor">'+sOpts+'</select></div>'+
       '<div class="fg"></div>'+
-      '<div class="fg"><label>Min '+ax+'</label><input type="number" id="f-mint" value="'+c.min_temp+'" min="0" max="10000" step="1" onchange="updField(\'min_temp\',+this.value)"></div>'+
-      '<div class="fg"><label>Max '+ax+'</label><input type="number" id="f-maxt" value="'+c.max_temp+'" min="0" max="10000" step="1" onchange="updField(\'max_temp\',+this.value)"></div>'+
+      '<div class="fg"><label>Min '+ax+'</label><input type="number" id="f-mint" value="'+c.min_temp+'" min="0" max="10000" step="1" data-action="upd-field-num" data-field="min_temp"></div>'+
+      '<div class="fg"><label>Max '+ax+'</label><input type="number" id="f-maxt" value="'+c.max_temp+'" min="0" max="10000" step="1" data-action="upd-field-num" data-field="max_temp"></div>'+
       '<div class="fg"></div>'+
-      '<div class="fg"><label>Min %</label><input type="number" id="f-minp" value="'+p2pct(c.min_pwm)+'" min="0" max="100" step="1" onchange="updPctField(\'min_pwm\',+this.value)"></div>'+
-      '<div class="fg"><label>Max %</label><input type="number" id="f-maxp" value="'+p2pct(c.max_pwm)+'" min="0" max="100" step="1" onchange="updPctField(\'max_pwm\',+this.value)"></div>'+
+      '<div class="fg"><label>Min %</label><input type="number" id="f-minp" value="'+p2pct(c.min_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="min_pwm"></div>'+
+      '<div class="fg"><label>Max %</label><input type="number" id="f-maxp" value="'+p2pct(c.max_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="max_pwm"></div>'+
       '<div class="fg"></div>'+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" onclick="deleteCurve()">Delete</button></div>'+
+    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
   drawSVG(c);
 }
@@ -601,15 +601,15 @@ function renderFixedEditor(el,c){
   const pct=p2pct(c.value||0);
   el.innerHTML = '<div class="editor">'+
     '<div class="editor-form">'+
-      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" onchange="renameCurve(this.value)"></div>'+
+      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" data-action="rename-curve"></div>'+
       '<div class="fg wide"><label>Speed %</label>'+
         '<div class="fixed-slider">'+
-          '<input type="range" min="0" max="100" step="1" value="'+pct+'" oninput="updFixedPct(+this.value)">'+
-          '<input type="number" min="0" max="100" step="1" value="'+pct+'" style="width:55px" onchange="updFixedPct(+this.value)">'+
+          '<input type="range" min="0" max="100" step="1" value="'+pct+'" data-action="fixed-pct">'+
+          '<input type="number" min="0" max="100" step="1" value="'+pct+'" class="num" data-action="fixed-pct">'+
           '<span class="pct">'+pct+'%</span>'+
         '</div></div>'+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" onclick="deleteCurve()">Delete</button></div>'+
+    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
 }
 
@@ -621,15 +621,15 @@ function renderMixEditor(el,c){
   const srcs=avail.map(x =>
     '<label><input type="checkbox" value="'+esc(x.name)+'" '+
     ((c.sources||[]).includes(x.name)?'checked':'')+
-    ' onchange="updMixSources()"> '+esc(x.name)+'</label>'
+    ' data-action="mix-sources"> '+esc(x.name)+'</label>'
   ).join('');
   el.innerHTML = '<div class="editor">'+
     '<div class="editor-form">'+
-      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" onchange="renameCurve(this.value)"></div>'+
-      '<div class="fg"><label>Function</label><select onchange="updField(\'function\',this.value)">'+fOpts+'</select></div>'+
+      '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" data-action="rename-curve"></div>'+
+      '<div class="fg"><label>Function</label><select data-action="upd-field" data-field="function">'+fOpts+'</select></div>'+
       '<div class="fg"><label>Sources (min 2)</label><div class="source-list" id="mix-sources">'+srcs+'</div></div>'+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" onclick="deleteCurve()">Delete</button></div>'+
+    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
 }
 
@@ -639,43 +639,50 @@ function drawSVG(c){
   const svg=document.getElementById('curve-svg');
   if(!svg) return;
   const ax = curveAxisLabel(c);
-  let h='<rect width="510" height="255" style="fill:var(--bg)" rx="4"/>';
+  // Stroke / fill colours land via CSS classes (see .svg-stroke-* and
+  // .svg-fill-* in app.css) so no element in this tree carries a
+  // style="..." attribute — required for the CSP to drop
+  // style-src 'unsafe-inline'.
+  let h='<rect width="510" height="255" class="svg-fill-bg" rx="4"/>';
 
   for(let t=0;t<=100;t+=20){
     const x=v2x(t);
-    h+='<line x1="'+x+'" y1="'+G.t+'" x2="'+x+'" y2="'+G.b+'" style="stroke:var(--border2)"/>';
-    h+='<text x="'+x+'" y="'+(G.b+12)+'" style="fill:var(--fg3)" font-size="9" text-anchor="middle" font-family="monospace">'+t+(ax==='°C'?'\u00b0':'')+'</text>';
+    h+='<line x1="'+x+'" y1="'+G.t+'" x2="'+x+'" y2="'+G.b+'" class="svg-stroke-border2"/>';
+    h+='<text x="'+x+'" y="'+(G.b+12)+'" class="svg-fill-fg3 svg-text-mono" font-size="9" text-anchor="middle">'+t+(ax==='°C'?'\u00b0':'')+'</text>';
   }
   const pg=[0,64,128,191,255],pl=['0','25','50','75','100'];
   for(let i=0;i<pg.length;i++){
     const y=p2y(pg[i]);
-    h+='<line x1="'+G.l+'" y1="'+y+'" x2="'+G.r+'" y2="'+y+'" style="stroke:var(--border2)"/>';
-    h+='<text x="'+(G.l-4)+'" y="'+(y+3)+'" style="fill:var(--fg3)" font-size="9" text-anchor="end" font-family="monospace">'+pl[i]+'%</text>';
+    h+='<line x1="'+G.l+'" y1="'+y+'" x2="'+G.r+'" y2="'+y+'" class="svg-stroke-border2"/>';
+    h+='<text x="'+(G.l-4)+'" y="'+(y+3)+'" class="svg-fill-fg3 svg-text-mono" font-size="9" text-anchor="end">'+pl[i]+'%</text>';
   }
 
   const x1=v2x(0),y1=p2y(c.min_pwm),x2=v2x(c.min_temp),y2=p2y(c.min_pwm);
   const x3=v2x(c.max_temp),y3=p2y(c.max_pwm),x4=v2x(100),y4=p2y(c.max_pwm);
-  h+='<path d="M'+x1+','+y1+' L'+x2+','+y2+'" fill="none" style="stroke:var(--border)" stroke-width="1.5" stroke-dasharray="3"/>';
-  h+='<line x1="'+x2+'" y1="'+y2+'" x2="'+x3+'" y2="'+y3+'" style="stroke:var(--teal)" stroke-width="2.5" stroke-linecap="round"/>';
-  h+='<path d="M'+x3+','+y3+' L'+x4+','+y4+'" fill="none" style="stroke:var(--border)" stroke-width="1.5" stroke-dasharray="3"/>';
+  h+='<path d="M'+x1+','+y1+' L'+x2+','+y2+'" class="svg-stroke-border" fill="none" stroke-width="1.5" stroke-dasharray="3"/>';
+  h+='<line x1="'+x2+'" y1="'+y2+'" x2="'+x3+'" y2="'+y3+'" class="svg-stroke-teal" stroke-width="2.5" stroke-linecap="round"/>';
+  h+='<path d="M'+x3+','+y3+' L'+x4+','+y4+'" class="svg-stroke-border" fill="none" stroke-width="1.5" stroke-dasharray="3"/>';
 
   if(sts && c.sensor){
     const sd=sts.sensors.find(s=>s.name===c.sensor);
     if(sd){
       const sv=Math.min(sd.value,100);
       const sx=v2x(sv);
-      h+='<line x1="'+sx+'" y1="'+G.t+'" x2="'+sx+'" y2="'+G.b+'" style="stroke:var(--amber)" stroke-width="1" stroke-dasharray="4,2"/>';
+      h+='<line x1="'+sx+'" y1="'+G.t+'" x2="'+sx+'" y2="'+G.b+'" class="svg-stroke-amber" stroke-width="1" stroke-dasharray="4,2"/>';
       let op;
       if(sd.value<=c.min_temp) op=c.min_pwm;
       else if(sd.value>=c.max_temp) op=c.max_pwm;
       else { const r=(sd.value-c.min_temp)/(c.max_temp-c.min_temp); op=c.min_pwm+r*(c.max_pwm-c.min_pwm); }
-      h+='<circle cx="'+sx+'" cy="'+p2y(op)+'" r="4" style="fill:var(--amber)"/>';
-      h+='<text x="'+(sx>300?sx-6:sx+6)+'" y="'+(p2y(op)-6)+'" style="fill:var(--amber)" font-size="9" text-anchor="'+(sx>300?'end':'start')+'" font-family="monospace">'+fmtSensorVal(sd.value,sd.unit)+'\u2192'+p2pct(Math.round(op))+'%</text>';
+      h+='<circle cx="'+sx+'" cy="'+p2y(op)+'" r="4" class="svg-fill-amber"/>';
+      h+='<text x="'+(sx>300?sx-6:sx+6)+'" y="'+(p2y(op)-6)+'" class="svg-fill-amber svg-text-mono" font-size="9" text-anchor="'+(sx>300?'end':'start')+'">'+fmtSensorVal(sd.value,sd.unit)+'\u2192'+p2pct(Math.round(op))+'%</text>';
     }
   }
 
-  h+='<circle class="ctrl-point" data-point="min" cx="'+x2+'" cy="'+y2+'" r="6" style="fill:var(--teal);stroke:var(--bg2);cursor:grab" stroke-width="1.5"/>';
-  h+='<circle class="ctrl-point" data-point="max" cx="'+x3+'" cy="'+y3+'" r="6" style="fill:var(--blue);stroke:var(--bg2);cursor:grab" stroke-width="1.5"/>';
+  // Control points use the .ctrl-point.min / .ctrl-point.max rules in
+  // app.css for fill / stroke / cursor. The drag handlers below read
+  // data-point so the attribute lives on regardless of styling.
+  h+='<circle class="ctrl-point min" data-point="min" cx="'+x2+'" cy="'+y2+'" r="6"/>';
+  h+='<circle class="ctrl-point max" data-point="max" cx="'+x3+'" cy="'+y3+'" r="6"/>';
   svg.innerHTML=h;
 }
 
@@ -1244,6 +1251,10 @@ document.addEventListener('click', (e) => {
     case 'select-curve':
       selectCurve(+el.dataset.idx);
       break;
+    // ── curve editor group ──
+    case 'delete-curve':
+      deleteCurve();
+      break;
   }
 });
 
@@ -1257,6 +1268,13 @@ document.addEventListener('input', (e) => {
     case 'manual-pwm':
       updManualPWM(+el.dataset.idx, +el.value, el);
       break;
+    // ── curve editor group ──
+    case 'fixed-pct':
+      // range slider live-updates through input; the number input's
+      // commit also fires change (below) and both routes call the
+      // same updFixedPct — re-rendering is idempotent.
+      updFixedPct(+el.value);
+      break;
   }
 });
 
@@ -1269,6 +1287,25 @@ document.addEventListener('change', (e) => {
     // ── fan group ──
     case 'ctrl-curve':
       updCtrl(+el.dataset.idx, el.value);
+      break;
+    // ── curve editor group ──
+    case 'rename-curve':
+      renameCurve(el.value);
+      break;
+    case 'upd-field':
+      updField(el.dataset.field, el.value);
+      break;
+    case 'upd-field-num':
+      updField(el.dataset.field, +el.value);
+      break;
+    case 'upd-pct-field':
+      updPctField(el.dataset.field, +el.value);
+      break;
+    case 'fixed-pct':
+      updFixedPct(+el.value);
+      break;
+    case 'mix-sources':
+      updMixSources();
       break;
   }
 });
