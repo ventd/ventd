@@ -1,0 +1,605 @@
+#!/usr/bin/env bash
+# validation/fresh-vm-smoke.sh — fresh-VM install smoke harness for v0.2.0.
+#
+# Spins up a throwaway Incus system container per target distro, fetches a
+# locally-built ventd binary and the release-shape asset tree over HTTP,
+# runs scripts/install.sh inside the container, and asserts the daemon
+# starts clean. Writes a per-target markdown report next to this script.
+#
+# Usage:
+#   validation/fresh-vm-smoke.sh                      # run all targets
+#   validation/fresh-vm-smoke.sh all                  # ditto
+#   validation/fresh-vm-smoke.sh ubuntu-24.04         # one target
+#   validation/fresh-vm-smoke.sh ubuntu-24.04 arch    # several targets
+#
+# Environment overrides:
+#   VENTD_SMOKE_BRIDGE   Incus bridge name (default: incusbr0).
+#   VENTD_SMOKE_PORT     HTTP port on the host (default: 8089).
+#   VENTD_SMOKE_IMAGES_REMOTE
+#                        Image remote prefix (default: images).
+#                        Override to "ubuntu" etc. if "images:" isn't
+#                        configured; ubuntu: only covers ubuntu variants.
+#   VENTD_SMOKE_TIMEOUT_BOOT
+#                        Seconds to wait for container network (default: 60).
+#   VENTD_SMOKE_TIMEOUT_PING
+#                        Seconds to wait for daemon /api/ping (default: 60).
+#   VENTD_SMOKE_KEEP     Set to 1 to skip instance cleanup on completion;
+#                        useful while debugging a failing target. Harness
+#                        still tears down on Ctrl-C / error exit.
+#
+# Requirements (preflight-checked):
+#   - incus CLI on PATH with a working daemon (run once: `sudo incus admin init --auto`).
+#   - The "images:" remote (default). Add manually if missing:
+#       incus remote add images https://images.linuxcontainers.org --protocol simplestreams
+#   - go, python3, tar, curl on the host.
+#
+# See validation/README.md for distro-specific prerequisites.
+
+set -euo pipefail
+
+# ── Resolve paths ─────────────────────────────────────────────────────────
+
+HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$HARNESS_DIR/.." && pwd)"
+BUILD_DIR="$HARNESS_DIR/.build"
+TARBALL="$BUILD_DIR/ventd-smoke.tar.gz"
+LOG_DIR="$BUILD_DIR/logs"
+
+BRIDGE="${VENTD_SMOKE_BRIDGE:-incusbr0}"
+HTTP_PORT="${VENTD_SMOKE_PORT:-8089}"
+IMAGES_REMOTE="${VENTD_SMOKE_IMAGES_REMOTE:-images}"
+TIMEOUT_BOOT="${VENTD_SMOKE_TIMEOUT_BOOT:-60}"
+TIMEOUT_PING="${VENTD_SMOKE_TIMEOUT_PING:-60}"
+KEEP="${VENTD_SMOKE_KEEP:-0}"
+
+RUN_ID="$$-$(date -u +%Y%m%dT%H%M%SZ)"
+HTTP_PID=""
+declare -a ACTIVE_INSTANCES=()
+
+# ── Target matrix ─────────────────────────────────────────────────────────
+#
+# Keep image aliases on images.linuxcontainers.org. Each entry is
+# distro-key → incus image alias. Add a target by appending a line and
+# listing the key in ALL_TARGETS.
+
+declare -A IMAGES=(
+    [ubuntu-24.04]="$IMAGES_REMOTE:ubuntu/24.04"
+    [debian-12]="$IMAGES_REMOTE:debian/12"
+    [fedora-40]="$IMAGES_REMOTE:fedora/40"
+    [arch]="$IMAGES_REMOTE:archlinux"
+    [opensuse-tumbleweed]="$IMAGES_REMOTE:opensuse/tumbleweed"
+    [alpine]="$IMAGES_REMOTE:alpine/3.20"
+)
+
+ALL_TARGETS=(ubuntu-24.04 debian-12 fedora-40 arch opensuse-tumbleweed alpine)
+
+# ── Logging helpers ───────────────────────────────────────────────────────
+
+log()   { printf '%s [%s] %s\n' "$(date -u +%H:%M:%S)" "$1" "${*:2}"; }
+info()  { log INFO "$*"; }
+warn()  { log WARN "$*" >&2; }
+err()   { log ERR  "$*" >&2; }
+
+# ── Cleanup trap ──────────────────────────────────────────────────────────
+
+cleanup() {
+    local ec=$?
+    trap - EXIT INT TERM
+
+    if [[ -n "$HTTP_PID" ]] && kill -0 "$HTTP_PID" 2>/dev/null; then
+        info "stopping http.server (pid $HTTP_PID)"
+        kill "$HTTP_PID" 2>/dev/null || true
+        wait "$HTTP_PID" 2>/dev/null || true
+    fi
+
+    if [[ "$KEEP" != "1" ]]; then
+        for inst in "${ACTIVE_INSTANCES[@]}"; do
+            if incus info "$inst" &>/dev/null; then
+                info "deleting instance $inst"
+                incus delete --force "$inst" &>/dev/null || true
+            fi
+        done
+    else
+        if (( ${#ACTIVE_INSTANCES[@]} > 0 )); then
+            warn "VENTD_SMOKE_KEEP=1 — left instances running: ${ACTIVE_INSTANCES[*]}"
+        fi
+    fi
+
+    exit "$ec"
+}
+trap cleanup EXIT INT TERM
+
+# ── Preflight ─────────────────────────────────────────────────────────────
+
+preflight() {
+    local missing=()
+    for cmd in incus go python3 tar curl awk sed; do
+        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    done
+    if (( ${#missing[@]} > 0 )); then
+        err "missing required commands: ${missing[*]}"
+        err "see validation/README.md for setup prerequisites"
+        exit 2
+    fi
+
+    if ! incus info >/dev/null 2>&1; then
+        err "incus daemon not reachable. Run once: sudo incus admin init --auto"
+        err "and ensure your user is in the 'incus-admin' group, then re-login."
+        exit 2
+    fi
+
+    if ! ip -4 -o addr show dev "$BRIDGE" >/dev/null 2>&1; then
+        err "bridge $BRIDGE not present. Override with VENTD_SMOKE_BRIDGE=<name>."
+        exit 2
+    fi
+
+    HOST_IP="$(ip -4 -o addr show dev "$BRIDGE" | awk '{print $4}' | cut -d/ -f1 | head -1)"
+    if [[ -z "$HOST_IP" ]]; then
+        err "no IPv4 address on bridge $BRIDGE"
+        exit 2
+    fi
+
+    if ss -lnt "sport = :$HTTP_PORT" 2>/dev/null | grep -q "LISTEN"; then
+        err "port $HTTP_PORT already bound. Override with VENTD_SMOKE_PORT."
+        exit 2
+    fi
+}
+
+# ── Build stage: binary + release-shape tarball ───────────────────────────
+
+build_tarball() {
+    info "building ventd binary ($PROJECT_ROOT)"
+    mkdir -p "$BUILD_DIR" "$LOG_DIR"
+
+    local staging="$BUILD_DIR/staging"
+    rm -rf "$staging"
+    mkdir -p "$staging/scripts" "$staging/deploy"
+
+    ( cd "$PROJECT_ROOT" && go build -trimpath -o "$staging/ventd" ./cmd/ventd )
+    chmod 0755 "$staging/ventd"
+
+    cp "$PROJECT_ROOT/scripts/install.sh"        "$staging/scripts/"
+    cp "$PROJECT_ROOT/scripts/postinstall.sh"    "$staging/scripts/"
+    cp "$PROJECT_ROOT/scripts/preremove.sh"      "$staging/scripts/"
+    cp "$PROJECT_ROOT/scripts/_ventd_account.sh" "$staging/scripts/"
+    cp "$PROJECT_ROOT/scripts/ventd.openrc"      "$staging/scripts/"
+    cp "$PROJECT_ROOT/scripts/ventd.runit"       "$staging/scripts/"
+    cp "$PROJECT_ROOT/deploy/ventd.service"         "$staging/deploy/"
+    cp "$PROJECT_ROOT/deploy/ventd-recover.service" "$staging/deploy/"
+    cp "$PROJECT_ROOT/config.example.yaml"       "$staging/"
+
+    chmod 0755 "$staging/scripts/install.sh" "$staging/scripts/postinstall.sh" \
+               "$staging/scripts/preremove.sh" "$staging/scripts/_ventd_account.sh" \
+               "$staging/scripts/ventd.openrc" "$staging/scripts/ventd.runit"
+
+    ( cd "$staging" && tar -czf "$TARBALL" \
+        ventd scripts/ deploy/ config.example.yaml )
+
+    info "tarball ready: $TARBALL ($(stat -c%s "$TARBALL") bytes)"
+}
+
+# ── HTTP server ───────────────────────────────────────────────────────────
+
+start_http() {
+    info "serving $BUILD_DIR on http://$HOST_IP:$HTTP_PORT/"
+    ( cd "$BUILD_DIR" && python3 -m http.server "$HTTP_PORT" --bind "$HOST_IP" ) \
+        >"$LOG_DIR/http.log" 2>&1 &
+    HTTP_PID=$!
+    # Give python a moment to bind; fail fast if it doesn't.
+    local tries=0
+    while (( tries < 20 )); do
+        if curl -sf -o /dev/null "http://$HOST_IP:$HTTP_PORT/ventd-smoke.tar.gz"; then
+            return 0
+        fi
+        sleep 0.2
+        tries=$((tries + 1))
+    done
+    err "http.server failed to serve tarball within 4s. Log: $LOG_DIR/http.log"
+    exit 3
+}
+
+# ── Container helpers ─────────────────────────────────────────────────────
+
+launch_container() {
+    local inst="$1" image="$2"
+    info "launching $inst from $image"
+    if ! incus launch "$image" "$inst" >/dev/null; then
+        err "incus launch failed for $image"
+        return 1
+    fi
+    ACTIVE_INSTANCES+=("$inst")
+
+    local deadline=$(( $(date +%s) + TIMEOUT_BOOT ))
+    while (( $(date +%s) < deadline )); do
+        if incus exec "$inst" -- sh -c "command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 || true" 2>/dev/null; then
+            # Network up if we can reach the host.
+            if incus exec "$inst" -- sh -c "ping -c1 -W2 $HOST_IP >/dev/null 2>&1"; then
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    err "container $inst did not come up in ${TIMEOUT_BOOT}s"
+    return 1
+}
+
+# Run a shell snippet inside the container, tagging output lines.
+# Returns the snippet's exit code.
+cexec() {
+    local inst="$1"; shift
+    incus exec "$inst" -- sh -c "$*"
+}
+
+# Install the bootstrap tooling we need inside the container (curl, tar).
+# Distros where these aren't in the base image: alpine, sometimes debian.
+bootstrap_tools() {
+    local inst="$1" target="$2"
+    case "$target" in
+        alpine)
+            cexec "$inst" "apk add --no-cache curl tar bash >/dev/null" ;;
+        debian-12)
+            cexec "$inst" "command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl tar ca-certificates)" ;;
+        ubuntu-24.04)
+            cexec "$inst" "command -v curl >/dev/null || (apt-get update -qq && apt-get install -y -qq curl tar ca-certificates)" ;;
+        fedora-40)
+            cexec "$inst" "command -v curl >/dev/null || dnf -y -q install curl tar" ;;
+        arch)
+            cexec "$inst" "command -v curl >/dev/null || pacman -Sy --noconfirm --quiet curl tar >/dev/null" ;;
+        opensuse-tumbleweed)
+            cexec "$inst" "command -v curl >/dev/null || zypper -q -n install curl tar" ;;
+    esac
+}
+
+# ── Assertions ────────────────────────────────────────────────────────────
+#
+# Each assertion runs inside the container and prints:
+#   PASS|FAIL <tab> <assertion-id> <tab> <short-message>
+# followed on FAIL by a fenced "log tail" block.
+#
+# The top-level run_target() collects these into the per-target report.
+
+assertion() {
+    local id="$1" verdict="$2" msg="$3"
+    printf '%s\t%s\t%s\n' "$verdict" "$id" "$msg"
+}
+
+assert_install_exit() {
+    local inst="$1"
+    # Install log was captured; verdict is exit code from the install step.
+    if [[ "$2" == "0" ]]; then
+        assertion A1 PASS "install.sh exit 0"
+    else
+        assertion A1 FAIL "install.sh exit $2"
+        echo '```'
+        cexec "$inst" "tail -n 60 /tmp/install.log 2>/dev/null || echo '(no install log)'"
+        echo '```'
+    fi
+}
+
+assert_service_active() {
+    local inst="$1" init="$2"
+    case "$init" in
+        systemd)
+            if cexec "$inst" "systemctl is-active --quiet ventd"; then
+                assertion A2 PASS "systemctl is-active ventd"
+            else
+                assertion A2 FAIL "systemctl is-active ventd"
+                echo '```'
+                cexec "$inst" "systemctl status ventd --no-pager -l | tail -n 40"
+                echo '```'
+            fi
+            ;;
+        openrc)
+            if cexec "$inst" "rc-service ventd status | grep -qiE 'started|running'"; then
+                assertion A2 PASS "rc-service ventd started"
+            else
+                assertion A2 FAIL "rc-service ventd not running"
+                echo '```'
+                cexec "$inst" "rc-service ventd status 2>&1 | tail -n 20"
+                echo '```'
+            fi
+            ;;
+        *)
+            assertion A2 SKIP "unknown init system: $init"
+            ;;
+    esac
+}
+
+assert_api_ping() {
+    local inst="$1"
+    local deadline=$(( $(date +%s) + TIMEOUT_PING ))
+    while (( $(date +%s) < deadline )); do
+        if cexec "$inst" "curl -sf -o /dev/null http://127.0.0.1:9999/api/ping"; then
+            assertion A3 PASS "curl http://localhost:9999/api/ping → 200"
+            return 0
+        fi
+        sleep 1
+    done
+    assertion A3 FAIL "api/ping never returned 200 within ${TIMEOUT_PING}s"
+    echo '```'
+    cexec "$inst" "curl -sv http://127.0.0.1:9999/api/ping 2>&1 | tail -n 20"
+    echo '```'
+}
+
+assert_setup_token() {
+    local inst="$1" init="$2"
+    case "$init" in
+        systemd)
+            if cexec "$inst" "journalctl -u ventd --no-pager | grep -iE 'setup.token' | head -n 1 | grep -q ."; then
+                assertion A4 PASS "setup token present in journal"
+            else
+                assertion A4 FAIL "no 'setup token' line in journalctl -u ventd"
+                echo '```'
+                cexec "$inst" "journalctl -u ventd --no-pager | tail -n 20 2>&1"
+                echo '```'
+            fi
+            ;;
+        openrc)
+            if cexec "$inst" "grep -iE 'setup.token' /var/log/ventd/current /var/log/messages /var/log/syslog 2>/dev/null | head -n 1 | grep -q ."; then
+                assertion A4 PASS "setup token present in log"
+            else
+                assertion A4 FAIL "no 'setup token' line in /var/log/ventd or syslog"
+                echo '```'
+                cexec "$inst" "tail -n 40 /var/log/ventd/current 2>/dev/null || tail -n 40 /var/log/messages 2>/dev/null || echo '(no log found)'"
+                echo '```'
+            fi
+            ;;
+    esac
+}
+
+# A5 — PR #38 regression: /etc/ventd/config.yaml must be ventd:ventd 0600.
+# install.sh doesn't create config.yaml (the setup wizard does), so the
+# harness seeds a minimal config from config.example.yaml and restarts
+# the daemon to confirm service load doesn't drift mode/owner.
+assert_config_perms() {
+    local inst="$1" init="$2"
+
+    local seed='
+set -e
+cp /opt/ventd-smoke/config.example.yaml /etc/ventd/config.yaml
+chown ventd:ventd /etc/ventd/config.yaml
+chmod 0600 /etc/ventd/config.yaml
+'
+    if ! cexec "$inst" "$seed" 2>/tmp/seed.err; then
+        assertion A5 FAIL "could not seed /etc/ventd/config.yaml"
+        echo '```'
+        cat /tmp/seed.err 2>/dev/null || echo '(no seed log)'
+        echo '```'
+        rm -f /tmp/seed.err
+        return
+    fi
+    rm -f /tmp/seed.err
+
+    case "$init" in
+        systemd) cexec "$inst" "systemctl restart ventd" ;;
+        openrc)  cexec "$inst" "rc-service ventd restart >/dev/null" ;;
+    esac
+    sleep 2
+
+    local stat_line
+    stat_line=$(cexec "$inst" "stat -c '%U %G %a' /etc/ventd/config.yaml" 2>/dev/null || echo "")
+    if [[ "$stat_line" == "ventd ventd 600" ]]; then
+        assertion A5 PASS "/etc/ventd/config.yaml ventd:ventd 0600"
+    else
+        assertion A5 FAIL "/etc/ventd/config.yaml perms drifted: $stat_line"
+        echo '```'
+        cexec "$inst" "ls -l /etc/ventd/ 2>&1"
+        echo '```'
+    fi
+}
+
+assert_run_user() {
+    local inst="$1"
+    local user
+    user=$(cexec "$inst" "ps -o user= -p \$(pidof ventd) 2>/dev/null | tr -d ' '" 2>/dev/null || echo "")
+    if [[ "$user" == "ventd" ]]; then
+        assertion A6 PASS "ventd process owned by user 'ventd'"
+    else
+        assertion A6 FAIL "ventd process user: '$user' (expected 'ventd')"
+        echo '```'
+        cexec "$inst" "ps -eo pid,user,comm | grep -E 'ventd|PID' | head -n 10"
+        echo '```'
+    fi
+}
+
+assert_uninstall() {
+    local inst="$1" init="$2"
+    local cmds
+    case "$init" in
+        systemd)
+            cmds='
+set -e
+systemctl stop ventd
+rm -rf /etc/ventd /usr/local/bin/ventd /etc/systemd/system/ventd.service /etc/systemd/system/ventd-recover.service
+systemctl daemon-reload
+'
+            ;;
+        openrc)
+            cmds='
+set -e
+rc-service ventd stop || true
+rc-update del ventd default 2>/dev/null || true
+rm -rf /etc/ventd /usr/local/bin/ventd /etc/init.d/ventd
+'
+            ;;
+        *)
+            assertion A7 SKIP "unknown init: $init"; return ;;
+    esac
+
+    if ! cexec "$inst" "$cmds" >/tmp/uninstall.log 2>&1; then
+        assertion A7 FAIL "uninstall commands returned non-zero"
+        echo '```'
+        cat /tmp/uninstall.log
+        echo '```'
+        rm -f /tmp/uninstall.log
+        return
+    fi
+    rm -f /tmp/uninstall.log
+
+    local orphan_check='
+bad=0
+for p in /usr/local/bin/ventd /etc/ventd /etc/systemd/system/ventd.service /etc/init.d/ventd; do
+    if [ -e "$p" ]; then echo "orphan: $p"; bad=1; fi
+done
+if pidof ventd >/dev/null 2>&1; then echo "orphan: ventd process still running"; bad=1; fi
+# ventd user/group may legitimately linger (userdel not called) — allow
+exit $bad
+'
+    if cexec "$inst" "$orphan_check"; then
+        assertion A7 PASS "uninstall leaves no on-disk orphans"
+    else
+        assertion A7 FAIL "uninstall left orphans"
+        echo '```'
+        cexec "$inst" "$orphan_check 2>&1 || true"
+        echo '```'
+    fi
+}
+
+# ── Per-target run ────────────────────────────────────────────────────────
+
+run_target() {
+    local target="$1"
+    local image="${IMAGES[$target]:-}"
+    if [[ -z "$image" ]]; then
+        err "unknown target: $target. Known: ${!IMAGES[*]}"
+        return 1
+    fi
+
+    local inst="ventd-smoke-${target//./-}-${RUN_ID//[^a-z0-9]/-}"
+    inst="${inst,,}"
+    inst="${inst:0:63}"
+
+    local date_tag
+    date_tag=$(date -u +%Y%m%d-%H%M)
+    local report="$HARNESS_DIR/fresh-vm-smoke-${target}-${date_tag}.md"
+
+    info "=== target: $target (instance: $inst) ==="
+
+    # Open report with a transient header we'll overwrite with verdict.
+    {
+        echo "# fresh-VM install smoke — $target"
+        echo
+        echo "- Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "- Image: \`$image\`"
+        echo "- Instance: \`$inst\`"
+        echo "- Binary: \`$(cd "$PROJECT_ROOT" && git describe --always --dirty)\`"
+        echo "- Host: \`$(uname -srm)\` on bridge \`$BRIDGE\` (\`$HOST_IP\`)"
+        echo
+        echo "## Assertions"
+        echo
+    } > "$report"
+
+    if ! launch_container "$inst" "$image"; then
+        echo "FAIL: container never came up." >> "$report"
+        echo >> "$report"
+        echo "## Overall: FAIL" >> "$report"
+        return 1
+    fi
+
+    bootstrap_tools "$inst" "$target" || {
+        echo "FAIL: bootstrap tooling install failed." >> "$report"
+        echo >> "$report"
+        echo "## Overall: FAIL" >> "$report"
+        return 1
+    }
+
+    local init
+    init=$(cexec "$inst" "[ -d /run/systemd/system ] && echo systemd || (command -v rc-service >/dev/null 2>&1 && echo openrc || echo unknown)" 2>/dev/null || echo unknown)
+    info "init system in $inst: $init"
+
+    # Fetch tarball inside the container and extract to /opt/ventd-smoke.
+    # Then run scripts/install.sh from the extracted tree. This exercises
+    # the "release tarball" path in install.sh (BINARY=../ventd resolution).
+    # The install output is captured inside the container at /tmp/install.log
+    # so assert_install_exit can tail it on FAIL. A host-side mirror is kept
+    # under $LOG_DIR for post-mortem even after the container is deleted.
+    local fetch_install='
+set -e
+mkdir -p /opt/ventd-smoke
+cd /opt/ventd-smoke
+curl -sSf -o ventd-smoke.tar.gz http://'"$HOST_IP"':'"$HTTP_PORT"'/ventd-smoke.tar.gz
+tar -xzf ventd-smoke.tar.gz
+rm -f ventd-smoke.tar.gz
+bash scripts/install.sh >/tmp/install.log 2>&1
+'
+    local install_rc=0
+    cexec "$inst" "$fetch_install" >"$LOG_DIR/install-$target.log" 2>&1 || install_rc=$?
+
+    # Run assertions, capturing stdout line-by-line into the report.
+    {
+        assert_install_exit   "$inst" "$install_rc"
+        assert_service_active "$inst" "$init"
+        assert_api_ping       "$inst"
+        assert_setup_token    "$inst" "$init"
+        assert_config_perms   "$inst" "$init"
+        assert_run_user       "$inst"
+        assert_uninstall      "$inst" "$init"
+    } >> "$report"
+
+    # Summarise.
+    local pass fail skip
+    pass=$(grep -c $'^PASS\t' "$report" || true)
+    fail=$(grep -c $'^FAIL\t' "$report" || true)
+    skip=$(grep -c $'^SKIP\t' "$report" || true)
+
+    {
+        echo
+        echo "## Summary"
+        echo
+        echo "- PASS: $pass"
+        echo "- FAIL: $fail"
+        echo "- SKIP: $skip"
+        echo
+        if (( fail > 0 )); then
+            echo "## Overall: FAIL"
+        else
+            echo "## Overall: PASS"
+        fi
+    } >> "$report"
+
+    info "report: $report  (PASS=$pass FAIL=$fail SKIP=$skip)"
+
+    if [[ "$KEEP" != "1" ]]; then
+        info "deleting $inst"
+        incus delete --force "$inst" >/dev/null 2>&1 || true
+        # Trim from active list so the trap doesn't double-delete.
+        local pruned=()
+        for i in "${ACTIVE_INSTANCES[@]}"; do
+            [[ "$i" == "$inst" ]] || pruned+=("$i")
+        done
+        ACTIVE_INSTANCES=("${pruned[@]}")
+    fi
+
+    return $(( fail > 0 ? 1 : 0 ))
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────
+
+main() {
+    local -a targets=()
+    if (( $# == 0 )) || [[ "$1" == "all" ]]; then
+        targets=("${ALL_TARGETS[@]}")
+    else
+        targets=("$@")
+    fi
+
+    preflight
+    build_tarball
+    start_http
+
+    local overall_fail=0
+    for t in "${targets[@]}"; do
+        if ! run_target "$t"; then
+            overall_fail=1
+        fi
+    done
+
+    if (( overall_fail == 0 )); then
+        info "all targets PASS"
+    else
+        err "one or more targets FAILED — see reports in $HARNESS_DIR/"
+    fi
+    exit "$overall_fail"
+}
+
+main "$@"
