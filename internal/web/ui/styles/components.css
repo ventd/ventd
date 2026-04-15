@@ -72,7 +72,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 /* System-status pill bar (header). */
 .sys-status { color: var(--fg3); font-size: 0.72rem; letter-spacing: 0.02em; margin-right: 0.6rem; }
 .sys-status .sensor-name { color: var(--fg2); }
-.sys-status .sensor-val  { color: var(--teal); }
+.sys-status .sensor-val  { color: var(--teal); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .sys-status .dot         { color: var(--fg4); }
 
 /* ── Sidebar contents (hardware monitor) ── */
@@ -96,7 +96,7 @@ button.danger:hover { background: var(--red); color: #fff; }
   font-size: 0.72rem; padding: 2px 0; color: var(--fg2); gap: 4px;
 }
 .hw-reading .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hw-reading .val { font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.hw-reading .val { font-family: var(--font-mono); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .hw-reading .val.temp  { color: var(--teal); }
 .hw-reading .val.fan   { color: var(--blue); }
 .hw-reading .val.volt  { color: var(--amber); }
@@ -131,7 +131,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 .hwdiag-summary { flex: 1; color: var(--fg1); }
 .hwdiag-fix { margin-left: auto; }
 .hwdiag-detail { margin-top: 0.4rem; color: var(--fg2); font-size: 0.9rem; white-space: pre-wrap; }
-.hwdiag-affected { margin-top: 0.3rem; color: var(--fg3); font-size: 0.8rem; font-family: monospace; }
+.hwdiag-affected { margin-top: 0.3rem; color: var(--fg3); font-size: 0.8rem; font-family: var(--font-mono); }
 
 /* ── Cards (sensor + fan + curve common shell) ── */
 .card-grid {
@@ -166,16 +166,16 @@ button.danger:hover { background: var(--red); color: #fff; }
   display: none; }
 .card:hover .sensor-path { display: block; }
 .sensor-val { color: var(--teal); font-size: 0.85rem; margin-bottom: 6px;
-  font-variant-numeric: tabular-nums; }
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .sensor-actions { display: flex; justify-content: flex-end; }
 
 /* Fan cards */
 .fan-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.fan-rpm { color: var(--fg2); font-size: 0.8rem; }
+.fan-rpm { color: var(--fg2); font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .fan-duty {
   display: flex; align-items: center; gap: 6px;
   font-size: 0.8rem; margin-bottom: 6px;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 }
 .duty-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
 .duty-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s, background 0.3s; }
@@ -196,7 +196,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 /* Manual slider */
 .manual-slider { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .manual-slider input[type=range] { flex: 1; }
-.manual-pct { color: var(--blue); font-size: 0.8rem; min-width: 32px; font-variant-numeric: tabular-nums; }
+.manual-pct { color: var(--blue); font-size: 0.8rem; min-width: 32px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* Calibration */
 .cal-btn { width: 100%; margin-top: 4px; font-size: 0.7rem; padding: 3px 6px; }
 .cal-running { color: var(--amber); font-size: 0.72rem; margin-top: 4px; }
@@ -262,7 +262,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 .curve-notes { margin-bottom: 0.8rem; }
 .curve-notes .hdr { color: var(--fg); font-size: 0.8rem; }
 .curve-notes ul { list-style: none; margin: 0.3rem 0 0 0; }
-.curve-notes li { color: var(--fg2); font-size: 0.78rem; padding: 1px 0; font-family: monospace; }
+.curve-notes li { color: var(--fg2); font-size: 0.78rem; padding: 1px 0; font-family: var(--font-mono); }
 .setup-actions { display: flex; gap: 10px; align-items: center; }
 #btn-setup-apply { font-size: 0.85rem; padding: 7px 18px; }
 .setup-error { color: var(--red); font-size: 0.82rem; margin-bottom: 1rem; }
@@ -279,7 +279,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 .setup-nofans-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 0.8rem; }
 .fix-log {
   background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
-  padding: 0.6rem 0.8rem; margin-top: 0.8rem; font-size: 0.75rem; font-family: monospace;
+  padding: 0.6rem 0.8rem; margin-top: 0.8rem; font-size: 0.75rem; font-family: var(--font-mono);
   max-height: 200px; overflow-y: auto; color: var(--fg2); display: none;
 }
 .fix-log-line { margin: 1px 0; white-space: pre-wrap; word-break: break-all; }
@@ -290,7 +290,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 .setup-install-log {
   background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
   padding: 10px 12px; font-size: 0.72rem; max-height: 160px; overflow-y: auto;
-  margin-bottom: 1rem; color: var(--fg2); font-family: monospace;
+  margin-bottom: 1rem; color: var(--fg2); font-family: var(--font-mono);
 }
 .setup-install-log .log-line { margin: 1px 0; white-space: pre-wrap; word-break: break-all; }
 .setup-reboot-panel {
@@ -369,7 +369,7 @@ button.danger:hover { background: var(--red); color: #fff; }
 }
 .fixed-slider { display: flex; align-items: center; gap: 8px; }
 .fixed-slider input[type=range] { flex: 1; }
-.fixed-slider .pct { color: var(--blue); font-size: 0.8rem; min-width: 35px; }
+.fixed-slider .pct { color: var(--blue); font-size: 0.8rem; min-width: 35px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .fixed-slider .num { width: 55px; }
 
 /* Curve editor SVG control points (drawn via drawSVG()). */
