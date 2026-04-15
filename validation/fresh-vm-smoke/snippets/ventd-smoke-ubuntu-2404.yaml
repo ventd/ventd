@@ -1,0 +1,73 @@
+#cloud-config
+# ventd fresh-install smoke — Ubuntu 24.04 cloud-init user-data.
+#
+# Templated at run time by run.sh:
+#   %BUNDLE_URL%   HTTP URL of the release-style bundle.tar.gz served from the host
+#   %RESULT_PATH%  Path to write the JSON result
+
+package_update: true
+package_upgrade: false
+packages:
+  - qemu-guest-agent
+  - curl
+  - ca-certificates
+
+write_files:
+  - path: /usr/local/sbin/ventd-smoke-collect.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/sh
+      # Collect assertion inputs into the result JSON. Shell is POSIX —
+      # no bash-isms — because it's invoked from dash on some distros.
+      set +e
+      RESULT_PATH="${1:-/tmp/ventd-smoke-result.json}"
+      INSTALL_RC="$(awk -F= '/install_rc=/{print $2}' /var/log/ventd-smoke/install.rc 2>/dev/null)"
+      ACTIVE="$(systemctl is-active ventd 2>&1 || true)"
+      PING_HTTPS="$(curl -sSk -o /dev/null -w '%{http_code}' --max-time 5 https://127.0.0.1:9999/api/ping 2>/dev/null || true)"
+      PING_HTTP="$(curl -sS  -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:9999/api/ping 2>/dev/null || true)"
+      LISTEN_9999="$(ss -Hltn 'sport = :9999' 2>/dev/null | wc -l)"
+      TOKEN_LINE="$(journalctl -u ventd --no-pager 2>/dev/null | grep -i 'setup token' | head -1)"
+      TOKEN_PRESENT=0
+      [ -n "$TOKEN_LINE" ] && TOKEN_PRESENT=1
+      CONFIG_DIR_EXISTS=0
+      [ -d /etc/ventd ] && CONFIG_DIR_EXISTS=1
+      CONFIG_FILE_EXISTS=0
+      [ -f /etc/ventd/config.yaml ] && CONFIG_FILE_EXISTS=1
+      VENTD_PID="$(pidof ventd 2>/dev/null | awk '{print $1}')"
+      PROC_USER=""
+      if [ -n "$VENTD_PID" ]; then
+        PROC_USER="$(ps -o user= -p "$VENTD_PID" 2>/dev/null | tr -d ' ' | head -1)"
+      fi
+      KERNEL="$(uname -r)"
+      OS_ID="$(. /etc/os-release 2>/dev/null; echo "${ID:-unknown}-${VERSION_ID:-}")"
+
+      # Hand-built JSON to avoid a jq dependency.
+      {
+        printf '{\n'
+        printf '  "os":                 "%s",\n'   "$OS_ID"
+        printf '  "kernel":             "%s",\n'   "$KERNEL"
+        printf '  "install_rc":         %s,\n'     "${INSTALL_RC:-null}"
+        printf '  "systemctl_active":   "%s",\n'   "$ACTIVE"
+        printf '  "api_ping_https":     "%s",\n'   "$PING_HTTPS"
+        printf '  "api_ping_http":      "%s",\n'   "$PING_HTTP"
+        printf '  "listen_9999_count":  %s,\n'     "$LISTEN_9999"
+        printf '  "setup_token_logged": %s,\n'     "$TOKEN_PRESENT"
+        printf '  "config_dir_exists":  %s,\n'     "$CONFIG_DIR_EXISTS"
+        printf '  "config_file_exists": %s,\n'     "$CONFIG_FILE_EXISTS"
+        printf '  "ventd_pid":          "%s",\n'   "${VENTD_PID:-}"
+        printf '  "ventd_proc_user":    "%s"\n'    "${PROC_USER:-}"
+        printf '}\n'
+      } > "$RESULT_PATH"
+      chmod 644 "$RESULT_PATH"
+
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+  - mkdir -p /var/log/ventd-smoke /opt/ventd-release
+  - sh -c 'curl -sSfL -o /tmp/bundle.tar.gz "%BUNDLE_URL%" 2>&1 | tee -a /var/log/ventd-smoke/fetch.log'
+  - sh -c 'tar -xzf /tmp/bundle.tar.gz -C /opt/ventd-release 2>&1 | tee -a /var/log/ventd-smoke/fetch.log'
+  - sh -c 'ls -la /opt/ventd-release /opt/ventd-release/scripts /opt/ventd-release/deploy >> /var/log/ventd-smoke/fetch.log 2>&1 || true'
+  - sh -c '/opt/ventd-release/scripts/install.sh > /var/log/ventd-smoke/install.log 2>&1; echo "install_rc=$?" > /var/log/ventd-smoke/install.rc'
+  - sleep 5
+  - /usr/local/sbin/ventd-smoke-collect.sh %RESULT_PATH%
+  - sh -c 'touch /var/log/ventd-smoke/DONE'
