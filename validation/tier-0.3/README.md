@@ -64,5 +64,5 @@ validation to prove the safety-net loop independently.
 - **No disk/network/USB hotplug.** `SUBSYSTEM` filter is `hwmon` only.
 - **Controller safety is unchanged.** If uevent signals a remove for an
   hwmon device the controller is actively driving, the controller's
-  existing EIO/ENOENT handling (per `.claude/rules/hwmon-safety.md`)
-  takes over — the watcher does not stop the controller.
+  existing EIO/ENOENT handling takes over — the watcher does not stop
+  the controller.

@@ -1,53 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────
-# REVIEW NOTES — phoenixdnb (PR #14, govulncheck workflow)
-# ─────────────────────────────────────────────────────────────────────
-#
-# Low-risk, high-value PR. CI-only.
-#
-# STATUS
-#   No hardware verification required. Workflow runs on GitHub
-#   runners; no interaction with the phoenix-MS-7D25 rig. First
-#   observable result is the green/red check on the next PR or
-#   push-to-main after merge.
-#
-# CROSS-REF securitytodo.md — PR #14 body says this closes the CI
-# bullet at the bottom of securitytodo.md ("govulncheck GitHub
-# Action"). Confirm in the live doc and retire that bullet on merge.
-#
-# CONCERNS
-#
-# 1. Action pinned by full commit SHA (good, tag-immutable), but no
-#    renovation bot is configured. Pin will rot — when
-#    govulncheck-action ships a material fix or upstream Go removes
-#    a vuln-db schema this workflow depends on, it must be bumped
-#    manually. Worth either a Dependabot config for github-actions
-#    or a quarterly manual bump in the release cadence.
-#
-# 2. Go version pinned to exact 1.25.0. Matches go.mod, so
-#    reproducible. BUT when Go ships a vuln fix in 1.25.1+, this
-#    workflow won't pick it up until go.mod is bumped. Trade-off:
-#    pin-match gives deterministic scans; float would catch
-#    toolchain CVEs sooner. Current choice is defensible for a
-#    single-maintainer project.
-#
-# 3. No workflow_dispatch trigger. Means no way to manually re-run
-#    against a new CVE disclosure without pushing a commit. Adding
-#    `workflow_dispatch: {}` is a one-line change for the next
-#    iteration; not a blocker for merge.
-#
-# 4. Failure on main is silent — just a red X on the commit. No
-#    Slack / email / issue auto-file. For a single-maintainer repo
-#    this is fine; revisit if contributors grow.
-#
-# 5. Permissions (contents: read) are minimal and correct.
-#
-# README-DRIFT
-#   None. When the first run goes green, worth mentioning it in
-#   CONTRIBUTING.md so drive-by contributors know CVE scans gate
-#   main. Separate doc PR; not here.
-#
-# ─────────────────────────────────────────────────────────────────────
-
 name: govulncheck
 
 on:
@@ -55,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch: {}
+  schedule:
+    # Weekly scan to catch CVE disclosures that land between commits.
+    - cron: '17 6 * * 1'
 
 permissions:
   contents: read
@@ -69,5 +23,5 @@ jobs:
       - name: Run govulncheck
         uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
         with:
-          go-version-input: "1.25.0"
+          go-version-input: "1.25.x"
           go-package: ./...

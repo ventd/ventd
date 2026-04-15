@@ -1,53 +1,57 @@
 # ventd — grant the ventd group write access to hwmon pwm control files.
 #
-# The daemon runs unprivileged (see deploy/ventd.service, User=ventd) and
-# relies on DAC to open pwm<N> / pwm<N>_enable for write. This rule
-# chgrp's those files to the ventd group and sets g+w whenever a hwmon
-# device appears — on boot, hot-plug, or driver rebind.
+# The daemon runs unprivileged (User=ventd, Group=ventd; see
+# deploy/ventd.service). It relies on Discretionary Access Control to
+# open pwm<N> and pwm<N>_enable for write; this rule arranges that DAC
+# by chgrp'ing those files to the ventd group with g+w whenever a
+# hwmon device appears — on boot, hot-plug, driver rebind, or after
+# an `rmmod; modprobe` cycle.
 #
-# Installed location:
-#   /etc/udev/rules.d/90-ventd-hwmon.rules   (preferred — local override)
+# Installed to:
+#   /etc/udev/rules.d/90-ventd-hwmon.rules
+#
+# ──────────────────────────────────────────────────────────────────────
+#
+# Design: chip-agnostic.
+#
+# This rule does not key on ATTR{name}=="<chip>". It fires on every
+# hwmon device and grants group access to whatever pwm<N> /
+# pwm<N>_enable files the chip exposes, if any. Temperature-only chips
+# (coretemp, k10temp, drivetemp, acpitz) are traversed but nothing
+# happens because the `pwm[0-9]*` glob expands to no matches. The
+# chgrp and chmod commands each have `2>/dev/null` to suppress the
+# "No such file" error those no-match cases produce.
+#
+# This is deliberate and non-negotiable. ventd's install promise is
+# "zero terminal after install" — keying on chip name would require
+# the operator to identify their chip and edit this file. The
+# alternative (shipping a pre-populated list of chip names) is a
+# maintenance trap: every new board generation brings a new Super-I/O
+# variant, and the list goes stale.
+#
+# ──────────────────────────────────────────────────────────────────────
+#
+# Safety envelope
+#
+# - Group write only (g+w). Never world-writable, never setuid.
+# - Subsystem filter (SUBSYSTEM=="hwmon") ensures this rule only
+#   touches hwmon devices — not block devices, input devices, USB,
+#   or anything else udev might see.
+# - Scope limited to pwm<N> and pwm<N>_enable. Temperature inputs,
+#   fan RPM inputs, voltage inputs, power inputs are untouched; their
+#   default read-for-all, write-for-root semantics are preserved.
+# - The rule grants the same DAC envelope whether the hwmon device
+#   is a motherboard Super-I/O chip, an AIO pump controller, an
+#   amdgpu card, or a future driver that has not shipped yet.
+#
+# ──────────────────────────────────────────────────────────────────────
 #
 # Reload after editing:
 #   sudo udevadm control --reload
 #   sudo udevadm trigger --subsystem-match=hwmon
 #
-# ──────────────────────────────────────────────────────────────────────
-#
-# Keying: match on the chip's NAME attribute (ATTR{name}), not on the
-# hwmonN index. Indices (hwmon0, hwmon6, ...) shift across reboots
-# whenever driver load order changes; the chip name does not.
-#
-# Discover your chip names:
-#   for n in /sys/class/hwmon/hwmon*/name; do echo "$(dirname "$n"): $(cat "$n")"; done
-#
-# Then uncomment the matching line below (or add your own). The commented
-# examples cover the chips ventd most commonly targets. Leave the rest
-# commented; matching extra chips is harmless but widens the surface.
-#
-# Safety:
-#   - Group write only (g+w). Never world-writable, never setuid.
-#   - Keyed on ATTR{name}, not KERNEL=="hwmon*" — must survive a hwmon
-#     index reshuffle. Do not change this.
+# The installer (scripts/install.sh and scripts/postinstall.sh) runs
+# both commands automatically after placing this file, so no operator
+# action is required on a clean install.
 
-# --- motherboard super-I/O chips (Nuvoton, ITE) -----------------------
-# All four entries below consistently expose pwm on boards that use
-# them. Uncomment the one that matches your chip name.
-
-#SUBSYSTEM=="hwmon", ATTR{name}=="nct6687", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
-#SUBSYSTEM=="hwmon", ATTR{name}=="nct6775", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
-#SUBSYSTEM=="hwmon", ATTR{name}=="nct6779", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
-#SUBSYSTEM=="hwmon", ATTR{name}=="it87", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
-
-# ----------------------------------------------------------------------
-#
-# Footnote — discrete GPUs (amdgpu):
-#   Some discrete Radeon cards expose pwm1 under their hwmon device;
-#   most iGPUs and many dGPUs do not. Only uncomment the amdgpu line
-#   below if `ls /sys/class/hwmon/hwmon*/pwm*` on your system lists a
-#   pwm file owned by the amdgpu device.
-#
-#SUBSYSTEM=="hwmon", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
-#
-# Temperature-only chips (k10temp, coretemp, acpitz) have no pwm* files
-# and are intentionally omitted — uncommenting them would match nothing.
+SUBSYSTEM=="hwmon", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; exit 0'"

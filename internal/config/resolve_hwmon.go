@@ -3,101 +3,71 @@ package config
 import (
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-// ─────────────────────────────────────────────────────────────────────
-// REVIEW NOTES — phoenixdnb
-// ─────────────────────────────────────────────────────────────────────
+// EnrichChipName fills in ChipName for any hwmon Sensor or Fan that
+// lacks it by reading `dirname(path)/name`. Idempotent: entries with
+// a non-empty ChipName are left alone.
 //
-// Pre-merge review of the resolver. Tests cover the resolver in
-// isolation (100% line coverage per PR #20 body); the concerns below
-// are about production-path integration, not the resolver logic.
+// Called from two sites:
 //
-// STATUS
-//   UNTESTED ON RIG (phoenix-MS-7D25, nct6687 + RTX 4090).
-//   Live verification still pending:
-//     1. Force hwmon renumber: `rmmod nct6687; modprobe nct6687` and
-//        restart ventd. Confirm Sensor.Path / Fan.PWMPath / Fan.RPMPath
-//        all point at the new hwmonN after re-read.
-//     2. Ambiguous-chip path (two hwmonN entries with matching `name`)
-//        needs a dual-superIO board to reproduce live. Synthesizable
-//        via the MapFS fixture in tests, so the error path is covered;
-//        just no bare-metal confirmation yet.
+//   - Save (before marshal) so every on-disk config carries the chip
+//     identifier ResolveHwmonPaths needs to survive a hwmonN renumber
+//     on a future boot. Operator authoring via the web UI never has
+//     to think about ChipName.
 //
-// CROSS-REF securitytodo.md item #2 ("resolve hwmon paths by chip
-// name"). This PR closes the RESOLVER half only. Item #2 is not fully
-// retired until the follow-up Load()-wiring PR lands AND the config
-// writer in internal/setup/setup.go starts populating ChipName (see
-// concern #4 below).
+//   - Load (before ResolveHwmonPaths) as a self-heal for upgraded
+//     configs that pre-date the ChipName field. If the existing
+//     hwmon path is still valid (no renumber happened), the read
+//     succeeds and ChipName is populated; the next ResolveHwmonPaths
+//     call is a no-op for that entry. If the path is stale, the read
+//     fails, ChipName stays empty, and the resolver does nothing for
+//     this entry — matching the documented "empty ChipName ⇒ leave
+//     untouched" semantics.
 //
-// CONCERNS
+// Failures are silent. An unreadable name file is the same outcome
+// as no name file: ChipName is left empty and the resolver no-ops.
 //
-// 1. Partial mutation on error.
-//    Doc contract: "on error callers must assume partial mutation and
-//    reject the Config". Easy footgun at the call site. Consider a
-//    two-pass design: pass 1 resolves every (entry, hwmonDir, new path)
-//    tuple with no mutation, pass 2 applies them. Either every entry
-//    is migrated or the config is untouched — no "half-rewritten"
-//    state for the caller to police.
-//
-// 2. Case sensitivity of ChipName.
-//    Kernel hwmon names are always lowercase (nct6687, it87, amdgpu),
-//    but operator-authored YAML may use uppercase. buildChipMap and
-//    lookupChip are case-sensitive, so "NCT6687" silently misses.
-//    Either strings.ToLower on both sides, or document the lowercase
-//    requirement next to the YAML field in internal/config/config.go.
-//    (No doc edit in this review pass — leaving it for the author.)
-//
-// 3. No existence check on rewrite target.
-//    After rewriting /hwmon3/pwm1 → /hwmon4/pwm1, the new path is not
-//    stat'd. If chip name matches but the specific pwm/sensor node is
-//    absent on the new hwmonN (firmware/driver revision skew), the
-//    failure surfaces later as a generic open() EACCES/ENOENT with no
-//    indication the resolver was involved. An optional fs.Stat on the
-//    rewritten path would fail earlier with a clearer message.
-//    Trade-off: couples the resolver to the live fs when today it is
-//    pure.
-//
-// 4. ChipName is not populated by the config writer.
-//    internal/setup/setup.go constructs config.Sensor{}/config.Fan{}
-//    at multiple sites (setup.go:478, :531, :691, :701, :709, :832,
-//    :871) and none set ChipName. This means:
-//      (a) existing deployments that regenerated a config before this
-//          PR lands will see zero benefit from the resolver — every
-//          entry has empty ChipName and is skipped by design.
-//      (b) the follow-up Load()-wiring PR is NOT sufficient by itself
-//          to close securitytodo.md item #2. The config writer must
-//          also be taught to read hwmonN/name at enumeration time and
-//          populate the field.
-//    Flag this in the Load()-wiring PR's test plan, or (preferable)
-//    fold the writer change in alongside the wiring so the promise
-//    "survive hwmon renumbering" is true for first-boot users, not
-//    only operators who hand-edit ChipName after upgrade.
-//
-// 5. Zero-terminal goal.
-//    ventd's README promises "zero terminal after install". For the
-//    renumber-survival feature to honour that, the operator must never
-//    have to author ChipName themselves. Tied to concern #4 — the
-//    writer must do it automatically. Any flow that requires manual
-//    config edits to unlock renumber survival breaks the zero-terminal
-//    promise.
-//
-// 6. Caller concurrency.
-//    ResolveHwmonPaths mutates cfg in place. Expected to be called
-//    once at Load(), pre-controllers, single-threaded. Worth a
-//    doc-comment assertion on the public function; an accidental
-//    runtime call concurrent with reads is a data race.
-//
-// README-DRIFT
-//   No direct contradiction yet — README.md does not mention chip-name
-//   resolution. It WILL drift once the renumber-survival promise is
-//   made to users. Address in a follow-up doc PR, not here (rule:
-//   no README edits in code review).
-//
-// ─────────────────────────────────────────────────────────────────────
+// Reads happen via os.ReadFile, not the fsys argument, because:
+//   - Sysfs paths like /sys/devices/platform/nct6687.2592/hwmon/hwmonN
+//     do not live under /sys/class/hwmon and would not be reachable
+//     through the class-rooted fsys used by ResolveHwmonPaths.
+//   - Tests for EnrichChipName drive a real os.TempDir tree (see
+//     enrich_test.go) so this path is exercised end-to-end without
+//     touching production /sys.
+func EnrichChipName(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	for i := range cfg.Sensors {
+		s := &cfg.Sensors[i]
+		if s.Type == "hwmon" && s.ChipName == "" && s.Path != "" {
+			s.ChipName = chipNameFromSysfsPath(s.Path)
+		}
+	}
+	for i := range cfg.Fans {
+		f := &cfg.Fans[i]
+		if f.Type == "hwmon" && f.ChipName == "" && f.PWMPath != "" {
+			f.ChipName = chipNameFromSysfsPath(f.PWMPath)
+		}
+	}
+}
+
+// chipNameFromSysfsPath reads `dirname(path)/name` and returns the
+// trimmed contents. Returns "" if the file is unreadable for any
+// reason (missing path, permission denied, hwmon device removed).
+func chipNameFromSysfsPath(path string) string {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(path), "name"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
 
 // hwmonIndexRe matches a `/hwmonN` path segment (N digits) followed by either a
 // forward slash or end-of-string. The second capture preserves whichever

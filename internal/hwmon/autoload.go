@@ -9,92 +9,24 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 )
 
-// ─────────────────────────────────────────────────────────────────────
-// REVIEW NOTES — phoenixdnb
-// ─────────────────────────────────────────────────────────────────────
+// AutoloadModules is the install-time module probe. It is exercised
+// exclusively via `ventd --probe-modules`, invoked by scripts/install.sh
+// and scripts/postinstall.sh AS ROOT, OUTSIDE the systemd sandbox.
 //
-// Pre-merge review of PR #15 (downgrade repeat module-persist warning
-// to DEBUG). Scope is tiny; tests cover the gate. Notes below are
-// about the chosen strategy, not the implementation.
+// The long-running daemon NEVER calls this function — it runs under
+// ProtectKernelModules=yes, which makes init_module(2) / finit_module(2)
+// return EPERM, and under ProtectSystem=strict, which keeps
+// /etc/modules-load.d/ read-only. Both operations are required and
+// both are blocked under the daemon's sandbox.
 //
-// STATUS
-//   UNTESTED ON RIG (phoenix-MS-7D25). Verify tonight:
-//     1. Fresh boot of the unit under ProtectSystem=strict. Expect
-//        one INFO line for "could not persist hwmon module" per
-//        distinct module name, no repeats at higher level.
-//     2. Restart the unit without reboot. The process-scoped gate
-//        resets, so expect INFO again. This is intended behaviour
-//        (operator restarted, deserves the state line).
-//     3. If the hardware watcher promotes a second module during a
-//        single process lifetime, the second persist failure for
-//        that new module should also be INFO (different key); a
-//        second attempt for the SAME module stays DEBUG.
-//
-// CROSS-REF securitytodo.md item #3 ("Module-persist log noise
-// under sandbox") AND item #5 (per PR #12 body's reference to
-// "module-persist warning"). PR #15's body claims both are closed.
-// Confirm against the live securitytodo.md — items #3 and #5 may
-// describe the same issue from different angles, or item #5 may
-// scope something narrower that this PR does NOT cover.
-//
-// CONCERNS
-//
-// 1. Option 2 (drop the persist step) may be the correct long-term
-//    fix, not Option 3 (log-downgrade). Reasoning:
-//      - The persist call ALWAYS fails under the shipped systemd unit
-//        because ProtectSystem=strict keeps /etc RO in the namespace
-//        and /etc/modules-load.d/ is not in ReadWritePaths.
-//      - The call therefore succeeds ONLY on non-systemd init systems
-//        (OpenRC, runit) — where ventd runs without the namespace —
-//        OR on a hand-hardened-away unit, which is out of support
-//        scope.
-//      - The installer (scripts/install.sh, scripts/postinstall.sh)
-//        runs as root OUTSIDE any unit namespace and COULD write
-//        /etc/modules-load.d/ventd.conf once at install time. The
-//        daemon would then never need to attempt the persist and this
-//        whole log path could go away.
-//    This PR is still worth landing as-is — Option 2 is a larger
-//    refactor and needs the installer change plus coordination with
-//    OpenRC/runit paths. Flag as a follow-up.
-//
-// 2. sync.Map grows unbounded (keyed on module name, never purged).
-//    In practice module-name cardinality is 1–5 over a process
-//    lifetime, so this is a theoretical leak, not an operational one.
-//    Not worth a mitigation.
-//
-// 3. Log message is unchanged across both paths. If any downstream
-//    log consumer string-matched on "could not persist hwmon module"
-//    and filtered by level (warn vs info vs debug), its filter now
-//    behaves differently. No consumer is known to do this, but
-//    tagged here in case one surfaces post-merge.
-//
-// README-DRIFT
-//   None — README.md does not document module-persist logging.
-//
-// ─────────────────────────────────────────────────────────────────────
-
-// persistWarned gates the module-persist log level: the first failure for a
-// given module name is logged at INFO with the full reason; every later
-// failure for that same module drops to DEBUG. The sandboxed unit cannot
-// write /etc/modules-load.d/ventd.conf, so the warning would otherwise fire
-// on every start without surfacing new information. Keyed on module name so
-// multiple distinct modules still each get their one informational line.
-var persistWarned sync.Map
-
-// logPersistFailure routes the persist-module error to INFO on the first
-// occurrence per module and to DEBUG thereafter. sync.Map.LoadOrStore is the
-// atomic one-shot we want here — sync.Once can't handle a dynamic key set.
-func logPersistFailure(logger *slog.Logger, module string, err error) {
-	if _, loaded := persistWarned.LoadOrStore(module, struct{}{}); loaded {
-		logger.Debug("could not persist hwmon module", "module", module, "err", err)
-		return
-	}
-	logger.Info("could not persist hwmon module", "module", module, "err", err)
-}
+// At install time both succeed, the winning module is persisted to
+// /etc/modules-load.d/ventd.conf, and systemd-modules-load.service
+// re-loads it on every subsequent boot. The daemon's startup runs
+// DiagnoseHwmon (read-only) instead and surfaces a remediation
+// pointer if no PWM is visible.
 
 // candidate describes one module-load attempt.
 type candidate struct {
@@ -257,7 +189,13 @@ func AutoloadModules(logger *slog.Logger) {
 			"count", len(existing), "example", existing[0])
 		if module := moduleFromPath(existing[0]); module != "" {
 			if err := persistModule(module, ""); err != nil {
-				logPersistFailure(logger, module, err)
+				// Install-time invocation runs as root with /etc
+				// writable; a failure here means the install host
+				// has an unusual layout (no /etc/modules-load.d
+				// AND no /etc/modules) and the operator needs to
+				// know.
+				logger.Warn("hwmon: could not persist module for boot-time load",
+					"module", module, "err", err)
 			}
 		}
 		return
@@ -356,7 +294,8 @@ func tryModuleCandidates(logger *slog.Logger, candidates []candidate) bool {
 		logger.Info("hwmon module loaded successfully",
 			"module", c.module, "options", c.options, "pwm_channels", countControllablePWM(pwmPaths))
 		if err := persistModule(c.module, c.options); err != nil {
-			logPersistFailure(logger, c.module, err)
+			logger.Warn("hwmon: could not persist module for boot-time load",
+				"module", c.module, "err", err)
 		}
 		return true
 	}

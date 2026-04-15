@@ -366,6 +366,82 @@ check_conflicting_daemon
 check_pwm_holders
 check_port_9999
 
+# ── Install-environment preflight ──────────────────────────────────────────
+#
+# Before we install anything, verify the host can actually run ventd.
+# Each check produces either nothing (silent pass), a warning the
+# operator can ignore, or a hard error that aborts. Order matters:
+# fatal blockers first, advisory checks last.
+
+check_install_environment() {
+    # 1. udevadm reachable. Without it the udev rule reload step is a
+    #    no-op and pwm files stay root-owned until the next reboot.
+    #    Treated as a warning, not a hard error — chrooted minimal
+    #    environments may legitimately lack udevadm.
+    if ! command -v udevadm >/dev/null 2>&1; then
+        echo "  ! udevadm not found in PATH" >&2
+        echo "    The shipped udev rule will only apply after the next reboot." >&2
+    fi
+
+    # 2. /etc/udev/rules.d writable. Read-only /etc layouts (some
+    #    immutable distros, OSTree, container builds) cannot accept
+    #    the rule and the daemon will be unable to write pwm files.
+    if [[ ! -d /etc/udev/rules.d ]]; then
+        # `install -d` later will try to create it; if /etc is RO the
+        # create fails. Pre-flag here for a clearer error.
+        if ! mkdir -p /etc/udev/rules.d 2>/dev/null; then
+            echo "error: /etc/udev/rules.d is missing and /etc appears read-only" >&2
+            echo "  ventd cannot ship its pwm group-write rule on this layout." >&2
+            echo "  Immutable / OSTree distros need a different deployment path." >&2
+            exit 1
+        fi
+        rmdir /etc/udev/rules.d 2>/dev/null || true
+    fi
+
+    # 3. SELinux enforcing on a system that hasn't been taught about
+    #    ventd's pwm DAC will silently block pwm writes even after
+    #    the udev rule chgrp's the file. Warn loudly so the operator
+    #    knows where to look first if fans don't respond.
+    if command -v getenforce >/dev/null 2>&1; then
+        local sestate
+        sestate="$(getenforce 2>/dev/null || true)"
+        if [[ "$sestate" == "Enforcing" ]]; then
+            echo "  ! SELinux is in Enforcing mode" >&2
+            echo "    ventd's pwm writes happen via DAC; if SELinux denies them," >&2
+            echo "    audit2allow on the AVC denials and ship a custom policy." >&2
+            echo "    The installer cannot do this for you — distro-specific." >&2
+        fi
+    fi
+
+    # 4. AppArmor enforcement on the kernel module class for the
+    #    daemon binary. If a profile already restricts /usr/local/bin/ventd
+    #    or /usr/bin/ventd, the udev-granted DAC may be overridden. Warn.
+    if command -v aa-status >/dev/null 2>&1; then
+        if aa-status --enabled 2>/dev/null; then
+            local profiles
+            profiles="$(aa-status --profiled 2>/dev/null | grep -E 'ventd|hwmon' || true)"
+            if [[ -n "$profiles" ]]; then
+                echo "  ! AppArmor profile referencing ventd or hwmon is active" >&2
+                echo "    Verify the profile permits write to /sys/class/hwmon/*/pwm*" >&2
+                echo "    for the ventd group; if not, ventd will fail to write PWM." >&2
+            fi
+        fi
+    fi
+
+    # 5. /sys/class/hwmon visible at all. Some hardened/minimal kernels
+    #    disable CONFIG_HWMON or boot with sysfs hidden. ventd has
+    #    nothing to do on such a system; abort early with a clear error.
+    if [[ ! -d /sys/class/hwmon ]]; then
+        echo "error: /sys/class/hwmon does not exist on this kernel" >&2
+        echo "  This kernel does not expose hwmon (CONFIG_HWMON=n or sysfs hidden)." >&2
+        echo "  ventd cannot control fans without it; aborting." >&2
+        exit 1
+    fi
+}
+
+echo "Running install-environment preflight..."
+check_install_environment
+
 # ── ventd account ────────────────────────────────────────────────────────────
 #
 # The daemon runs as the unprivileged "ventd" user/group. Access to pwm
@@ -470,14 +546,11 @@ esac
 # ── udev rule for pwm group access ──────────────────────────────────────────
 #
 # ventd runs as the unprivileged "ventd" user; it can only write pwm<N>
-# and pwm<N>_enable if the kernel grants it via DAC. The shipped rule is
-# keyed on chip ATTR{name} (not on hwmonN index — those shift across
-# reboots per .claude/rules/hwmon-safety.md) and chgrp's matching files
-# to the ventd group with g+w.
-#
-# The rule ships with every example line commented out — the operator
-# uncomments (or adds) the line matching their chip. Discover it with:
-#   for n in /sys/class/hwmon/hwmon*/name; do echo "$(dirname "$n"): $(cat "$n")"; done
+# and pwm<N>_enable if the kernel grants it via DAC. The shipped rule
+# is chip-agnostic — it fires on every hwmon device and chgrp's
+# whatever pwm<N> / pwm<N>_enable files the chip exposes (if any)
+# to the ventd group with g+w. Chips without pwm files are traversed
+# harmlessly. See deploy/90-ventd-hwmon.rules for the full design note.
 
 UDEV_RULE_SRC=""
 for candidate in \
@@ -494,8 +567,6 @@ if [[ -n "$UDEV_RULE_SRC" ]]; then
     install -d -m 755 /etc/udev/rules.d
     install -m 644 "$UDEV_RULE_SRC" /etc/udev/rules.d/90-ventd-hwmon.rules
     echo "  ✓ udev rule → /etc/udev/rules.d/90-ventd-hwmon.rules"
-    echo "    (edit to uncomment the line matching your hwmon chip —"
-    echo "     see the comments in the file for discovery)"
     if command -v udevadm >/dev/null 2>&1; then
         udevadm control --reload >/dev/null 2>&1 || true
         udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
@@ -503,6 +574,34 @@ if [[ -n "$UDEV_RULE_SRC" ]]; then
 else
     echo "  ! udev rule template not found — skipping"
     echo "    (pwm writes will fail until /sys/class/hwmon/*/pwm* are g+w for the ventd group)"
+fi
+
+# ── Probe + persist hwmon kernel modules ────────────────────────────────────
+#
+# The daemon runs under ProtectKernelModules=yes (deny init_module /
+# finit_module) and ProtectSystem=strict (read-only /etc), so it cannot
+# modprobe or write to /etc/modules-load.d. Both operations have to
+# happen here, while we still hold root and live outside any sandbox.
+#
+# `ventd --probe-modules` runs the install-time module probe:
+#   1. install lm-sensors via the host package manager if missing
+#   2. run sensors-detect --auto and load recommended modules
+#   3. fall back to a kernel-module enumeration on miss
+#   4. write /etc/modules-load.d/ventd.conf so systemd-modules-load
+#      picks the winning module up on every subsequent boot
+#   5. write /etc/modprobe.d/ventd.conf for any required force_id args
+#
+# The exit code is best-effort: a probe failure (no internet for
+# lm-sensors fetch, hostile network, kmod-blocked container) is logged
+# but not fatal. The daemon's startup runs DiagnoseHwmon (read-only)
+# and surfaces a clear remediation pointer when no PWM is visible, so
+# operators see the issue immediately on first start.
+
+echo "Probing hwmon kernel modules (one-shot)..."
+if "$VENTD_PREFIX/ventd" --probe-modules >/dev/null 2>&1; then
+    echo "  ✓ hwmon module probe complete"
+else
+    echo "  ! hwmon module probe returned non-zero — daemon will diagnose at startup"
 fi
 
 # ── Post-start verification ─────────────────────────────────────────────────

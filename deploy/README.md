@@ -52,8 +52,7 @@ on every hwmon device bind — boot, hot-plug, or driver reload.
 **Keying.** The rule matches on `ATTR{name}` (the chip name, e.g.
 `nct6687`, `it87`, `amdgpu`), never on `KERNEL=="hwmon*"` or a
 specific `hwmonN` index. Indices reshuffle across reboots whenever
-driver load order changes (see `.claude/rules/hwmon-safety.md`);
-matching on chip name survives that.
+driver load order changes; matching on chip name survives that.
 
 **Find your chip name:**
 
@@ -109,20 +108,22 @@ The unit should land in the "OK" band (≈1.x–2.x). A passing score is
    cleanly (loopback fallback from the TLS PR).
 6. `journalctl -u ventd` shows no `EPERM` from the seccomp filter.
 
-## Expected-benign log noise under the hardened unit
+## Module loading and the daemon sandbox
 
-`AutoloadModules` tries to persist the winning hwmon module into
-`/etc/modules-load.d/ventd.conf` (or `/etc/modules`) and optional
-modprobe args into `/etc/modprobe.d/ventd.conf`. Under
-`ProtectSystem=strict` those directories are read-only and the write
-fails with:
+The shipped systemd unit runs the daemon under `ProtectKernelModules=yes`
+(deny `init_module` / `finit_module`) and `ProtectSystem=strict`
+(read-only `/etc`). Both of those would block a runtime `modprobe`
+and any write to `/etc/modules-load.d/`.
 
-```
-could not persist hwmon module module=nct6775 err="write /etc/modules-load.d/ventd.conf: read-only file system"
-```
+Module probing is therefore done once at install time by
+`ventd --probe-modules`, invoked from `scripts/install.sh` and
+`scripts/postinstall.sh` while the installer still holds root and lives
+outside the unit namespace. The winning module is persisted to
+`/etc/modules-load.d/ventd.conf`; `systemd-modules-load.service`
+re-loads it on every subsequent boot and the kernel-side udev rule
+hands `g+w` on the resulting pwm files to the `ventd` group.
 
-This is benign: `AutoloadModules` still `modprobe`s the module fresh on
-every start, so PWM channels appear regardless. The warn is noise, not
-a failure. Tracked for a follow-up — either widen `ReadWritePaths` to
-cover those dirs, drop the persist step entirely (systemd loads the
-module on each start anyway), or downgrade the log level.
+The long-running daemon never attempts these operations. At startup
+it runs `DiagnoseHwmon`, a strictly read-only enumeration of
+`/sys/class/hwmon`, and surfaces a remediation pointer in the journal
+when no PWM channels are visible.
