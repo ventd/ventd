@@ -28,7 +28,7 @@ func receiveOne(t *testing.T, path string) (out chan string, cleanup func()) {
 		defer wg.Done()
 		buf := make([]byte, 4096)
 		for {
-			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			n, err := conn.Read(buf)
 			if err != nil {
 				return
@@ -37,7 +37,7 @@ func receiveOne(t *testing.T, path string) (out chan string, cleanup func()) {
 		}
 	}()
 	return out, func() {
-		conn.Close()
+		_ = conn.Close()
 		wg.Wait()
 		close(out)
 	}

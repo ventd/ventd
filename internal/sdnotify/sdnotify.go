@@ -50,7 +50,7 @@ func Notify(states ...string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	for _, s := range states {
 		if _, err := conn.Write([]byte(s + "\n")); err != nil {
 			return err

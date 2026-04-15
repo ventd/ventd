@@ -86,7 +86,7 @@ func writePWMEnable(path, value string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := f.Write([]byte(value + "\n")); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
