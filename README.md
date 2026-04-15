@@ -10,7 +10,15 @@
 
 One static binary, one install command, one URL. Hardware detection, calibration, curve editing, and recovery all happen in the web UI. The terminal install command is the last terminal command you need to run.
 
-<!-- TODO: docs/images/dashboard.png — full-page screenshot of the dashboard at 1200×800. Replace this comment with: ![ventd dashboard](docs/images/dashboard.png) once captured. -->
+<p align="center">
+  <img src="docs/images/first-boot-setup.png" alt="ventd first-boot setup — token + password, no config yet" width="600">
+</p>
+
+<p align="center">
+  <em>First boot: ventd serves a setup page on <code>https://&lt;host&gt;:9999</code> the moment the daemon starts. Enter the one-time token, set a password, done.</em>
+</p>
+
+<!-- TODO(screenshot): docs/images/dashboard.png — populated dashboard with real fans / curves. Capture from a live daemon on hardware; the first-boot/login shots above were captured from a fresh daemon in a sandbox (no /sys/class/hwmon) so the post-setup views render empty. -->
 
 ## Features
 
