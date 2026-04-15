@@ -1,18 +1,19 @@
-// Command list-fans-probe is a Tier 2 validation helper. It compares the
-// pre-Tier-2 chip-blind sysfs walk against the Tier 2 capability-first
-// enumeration on the live host and prints:
+package main
+
+// list-fans-probe was historically a separate binary at
+// cmd/list-fans-probe. It compares the pre-Tier-2 chip-blind sysfs
+// walk against the Tier 2 capability-first enumeration on the live
+// host and prints classification, tuples, regressions, and a PASS/
+// FAIL line.
 //
-//   1. the classification of every hwmonN directory,
-//   2. the pre-Tier-2 discovered control tuples (hwmon_dir, control_path,
-//      fan_input_path),
-//   3. the post-Tier-2 discovered control tuples,
-//   4. a PASS/FAIL line. Missing-from-post (regression) is FAIL; new
-//      OpenLoop/ReadOnly surfacing is listed separately as net-new
-//      coverage and does not flag a regression.
+// Folded into the main ventd binary as a subcommand
+// (`ventd --list-fans-probe`) so distros only need to package one
+// binary, and so the validation tooling stays bisectable with the
+// daemon code that backs it.
 //
 // The writability probe sets pwm_enable to manual then restores the
-// original value. It does NOT change PWM duty cycle. Safe on live hosts.
-package main
+// original value. It does NOT change PWM duty cycle. Safe on live
+// hosts.
 
 import (
 	"fmt"
@@ -25,16 +26,19 @@ import (
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 )
 
-type tuple struct {
+type lfpTuple struct {
 	hwmonDir string
 	control  string // pwm* or fan*_target
 	fanInput string // companion fan*_input or "" if none
 	kind     string // "pwm" | "rpm_target"
 }
 
-func (t tuple) key() string { return t.kind + "\x00" + t.control }
+func (t lfpTuple) key() string { return t.kind + "\x00" + t.control }
 
-func main() {
+// runListFansProbe is the subcommand entry point. Returns the exit
+// code main should pass to os.Exit. Caller is responsible for
+// converting non-zero into a process exit.
+func runListFansProbe() int {
 	devices := hwmonpkg.EnumerateDevices(hwmonpkg.DefaultHwmonRoot)
 
 	dmi := hwmonpkg.ReadDMI("")
@@ -61,32 +65,32 @@ func main() {
 	}
 	fmt.Println()
 
-	pre := discoverPreTier2()
-	post := discoverPostTier2(devices)
-	sortTuples(pre)
-	sortTuples(post)
+	pre := lfpDiscoverPreTier2()
+	post := lfpDiscoverPostTier2(devices)
+	lfpSortTuples(pre)
+	lfpSortTuples(post)
 
 	fmt.Println("=== pre-Tier-2 tuples (hwmon_dir | control | fan_input) ===")
 	for _, t := range pre {
-		fmt.Printf("%s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, orDash(t.fanInput))
+		fmt.Printf("%s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, lfpOrDash(t.fanInput))
 	}
 	fmt.Println()
 	fmt.Println("=== post-Tier-2 tuples (hwmon_dir | control | fan_input) ===")
 	for _, t := range post {
-		fmt.Printf("%s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, orDash(t.fanInput))
+		fmt.Printf("%s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, lfpOrDash(t.fanInput))
 	}
 	fmt.Println()
 
-	preKey := map[string]tuple{}
+	preKey := map[string]lfpTuple{}
 	for _, t := range pre {
 		preKey[t.key()] = t
 	}
-	postKey := map[string]tuple{}
+	postKey := map[string]lfpTuple{}
 	for _, t := range post {
 		postKey[t.key()] = t
 	}
 
-	var regressions, additions []tuple
+	var regressions, additions []lfpTuple
 	for _, t := range pre {
 		if _, ok := postKey[t.key()]; !ok {
 			regressions = append(regressions, t)
@@ -103,7 +107,7 @@ func main() {
 		fmt.Println("  (none)")
 	} else {
 		for _, t := range additions {
-			fmt.Printf("+ %s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, orDash(t.fanInput))
+			fmt.Printf("+ %s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, lfpOrDash(t.fanInput))
 		}
 	}
 	fmt.Println()
@@ -113,31 +117,32 @@ func main() {
 		fmt.Println("  (none)")
 	} else {
 		for _, t := range regressions {
-			fmt.Printf("- %s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, orDash(t.fanInput))
+			fmt.Printf("- %s\t%s\t%s\t%s\n", t.kind, t.hwmonDir, t.control, lfpOrDash(t.fanInput))
 		}
 	}
 	fmt.Println()
 
 	if len(regressions) == 0 {
 		fmt.Println("=== PASS ===")
-		os.Exit(0)
+		return 0
 	}
 	fmt.Println("=== FAIL ===")
-	os.Exit(1)
+	return 1
 }
 
-// discoverPreTier2 replicates setup.discoverHwmonControls as it stood at
-// commit c1e925f — raw /sys/class/hwmon walk, chip-name "nvidia" skip,
-// writability probe per pwm channel, fan_target fallback per index.
-func discoverPreTier2() []tuple {
+// lfpDiscoverPreTier2 replicates setup.discoverHwmonControls as it
+// stood at commit c1e925f — raw /sys/class/hwmon walk, chip-name
+// "nvidia" skip, writability probe per pwm channel, fan_target
+// fallback per index.
+func lfpDiscoverPreTier2() []lfpTuple {
 	entries, err := os.ReadDir("/sys/class/hwmon")
 	if err != nil {
 		return nil
 	}
-	var tuples []tuple
+	var tuples []lfpTuple
 	for _, e := range entries {
 		dir := filepath.Join("/sys/class/hwmon", e.Name())
-		if readName(dir) == "nvidia" {
+		if lfpReadName(dir) == "nvidia" {
 			continue
 		}
 		pwmChannels := map[string]bool{}
@@ -147,11 +152,11 @@ func discoverPreTier2() []tuple {
 			if _, err := strconv.Atoi(suffix); err != nil {
 				continue
 			}
-			if _, err := os.Stat(p); err == nil && testPWMWritable(p) {
-				tuples = append(tuples, tuple{
+			if _, err := os.Stat(p); err == nil && lfpTestPWMWritable(p) {
+				tuples = append(tuples, lfpTuple{
 					hwmonDir: dir,
 					control:  p,
-					fanInput: fanInputFor(dir, suffix),
+					fanInput: lfpFanInputFor(dir, suffix),
 					kind:     "pwm",
 				})
 				pwmChannels[suffix] = true
@@ -167,11 +172,11 @@ func discoverPreTier2() []tuple {
 			if pwmChannels[num] {
 				continue
 			}
-			if testFanTargetWritable(p) {
-				tuples = append(tuples, tuple{
+			if lfpTestFanTargetWritable(p) {
+				tuples = append(tuples, lfpTuple{
 					hwmonDir: dir,
 					control:  p,
-					fanInput: fanInputFor(dir, num),
+					fanInput: lfpFanInputFor(dir, num),
 					kind:     "rpm_target",
 				})
 			}
@@ -180,10 +185,11 @@ func discoverPreTier2() []tuple {
 	return tuples
 }
 
-// discoverPostTier2 mirrors the new setup.discoverHwmonControls: classify
-// first, then probe writability on every Primary/OpenLoop candidate.
-func discoverPostTier2(devices []hwmonpkg.HwmonDevice) []tuple {
-	var tuples []tuple
+// lfpDiscoverPostTier2 mirrors the new setup.discoverHwmonControls:
+// classify first, then probe writability on every Primary/OpenLoop
+// candidate.
+func lfpDiscoverPostTier2(devices []hwmonpkg.HwmonDevice) []lfpTuple {
+	var tuples []lfpTuple
 	for _, dev := range devices {
 		switch dev.Class {
 		case hwmonpkg.ClassSkipNVIDIA, hwmonpkg.ClassNoFans, hwmonpkg.ClassReadOnly:
@@ -194,10 +200,10 @@ func discoverPostTier2(devices []hwmonpkg.HwmonDevice) []tuple {
 			if ch.EnablePath == "" {
 				continue
 			}
-			if !testPWMWritable(ch.Path) {
+			if !lfpTestPWMWritable(ch.Path) {
 				continue
 			}
-			tuples = append(tuples, tuple{
+			tuples = append(tuples, lfpTuple{
 				hwmonDir: dev.Dir,
 				control:  ch.Path,
 				fanInput: ch.FanInput,
@@ -209,8 +215,8 @@ func discoverPostTier2(devices []hwmonpkg.HwmonDevice) []tuple {
 			if writableIdx[t.Index] {
 				continue
 			}
-			if testFanTargetWritable(t.Path) {
-				tuples = append(tuples, tuple{
+			if lfpTestFanTargetWritable(t.Path) {
+				tuples = append(tuples, lfpTuple{
 					hwmonDir: dev.Dir,
 					control:  t.Path,
 					fanInput: t.InputPath,
@@ -222,7 +228,7 @@ func discoverPostTier2(devices []hwmonpkg.HwmonDevice) []tuple {
 	return tuples
 }
 
-func testPWMWritable(p string) bool {
+func lfpTestPWMWritable(p string) bool {
 	current, err := hwmonpkg.ReadPWM(p)
 	if err != nil {
 		return false
@@ -241,7 +247,7 @@ func testPWMWritable(p string) bool {
 	return true
 }
 
-func testFanTargetWritable(p string) bool {
+func lfpTestFanTargetWritable(p string) bool {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return false
@@ -255,12 +261,12 @@ func testFanTargetWritable(p string) bool {
 	return os.WriteFile(p, b, 0) == nil
 }
 
-func readName(dir string) string {
+func lfpReadName(dir string) string {
 	data, _ := os.ReadFile(filepath.Join(dir, "name"))
 	return strings.TrimSpace(string(data))
 }
 
-func fanInputFor(dir, idx string) string {
+func lfpFanInputFor(dir, idx string) string {
 	p := filepath.Join(dir, "fan"+idx+"_input")
 	if _, err := os.Stat(p); err == nil {
 		return p
@@ -268,7 +274,7 @@ func fanInputFor(dir, idx string) string {
 	return ""
 }
 
-func sortTuples(ts []tuple) {
+func lfpSortTuples(ts []lfpTuple) {
 	sort.Slice(ts, func(i, j int) bool {
 		if ts[i].control != ts[j].control {
 			return ts[i].control < ts[j].control
@@ -277,7 +283,7 @@ func sortTuples(ts []tuple) {
 	})
 }
 
-func orDash(s string) string {
+func lfpOrDash(s string) string {
 	if s == "" {
 		return "-"
 	}
