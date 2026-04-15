@@ -108,6 +108,32 @@ func TestSecurityHeadersOnAllResponses(t *testing.T) {
 	}
 }
 
+// TestCSPHasNoUnsafeInline pins the post-Phase-0.5 CSP shape. Any
+// regression that re-introduces 'unsafe-inline' on script-src or
+// style-src would silently re-open the XSS attack surface that the
+// dashboard rewrite closed; this test fails loud so the regression
+// is caught before merge. The e2e suite separately proves the page
+// actually works under this policy.
+func TestCSPHasNoUnsafeInline(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+	req := httptest.NewRequest("GET", "/login", nil)
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+	csp := rr.Result().Header.Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("CSP header missing")
+	}
+	if strings.Contains(csp, "'unsafe-inline'") {
+		t.Errorf("CSP still carries 'unsafe-inline': %q", csp)
+	}
+	// Sanity: the directives we depend on must still be present.
+	for _, want := range []string{"script-src 'self'", "style-src 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP missing %q directive: %q", want, csp)
+		}
+	}
+}
+
 // --- Rate limiter --------------------------------------------------------
 
 func TestLoginLimiterLockoutAndReset(t *testing.T) {
