@@ -76,6 +76,7 @@ h2 { font-size: 0.8rem; color: var(--fg2); text-transform: uppercase; letter-spa
 .section.active { display: block; }
 
 .hint { font-size: 0.72rem; color: var(--fg3); margin-top: 1.1rem; line-height: 1.5; }
+.muted { color: var(--fg3); }
 .hint code {
   background: var(--bg3); border: 1px solid var(--border);
   border-radius: 3px; padding: 1px 5px; color: var(--amber);
