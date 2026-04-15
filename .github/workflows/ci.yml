@@ -95,6 +95,14 @@ jobs:
           # not [Service], or systemd silently ignores it and recovery
           # never fires. See scripts/check-unit-onfailure.sh header.
           bash scripts/check-unit-onfailure.sh deploy/ventd.service
+          # Validation harness + self-test. Keep in the bash group because
+          # they both rely on process substitution / arrays.
+          shellcheck --severity=warning --exclude=SC1091 \
+                     --shell=bash validation/run-rig-checks.sh \
+                                  validation/test-rig-checks.sh
+          # Run the fixture-based self-test for 0a.i / 0a.iii false-positive
+          # fixes so the harness can't regress silently (issue #61).
+          bash validation/test-rig-checks.sh
           # POSIX hooks + init scripts. preremove.sh, postinstall.sh
           # and _ventd_account.sh all run under dash on Debian.
           shellcheck --severity=warning --exclude=SC1091,SC2034 \

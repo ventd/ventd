@@ -101,7 +101,9 @@ detect_pwm_enable_paths() {
 # ── PR #21 checks — install path + chip-agnostic udev ─────────────────────
 
 check_0a_i_udev_rule_chip_agnostic() {
-    local rule=/etc/udev/rules.d/90-ventd-hwmon.rules
+    # VENTD_UDEV_RULE lets the fixture test drive this with a synthetic
+    # rules file; unset in production, path stays at the canonical one.
+    local rule="${VENTD_UDEV_RULE:-/etc/udev/rules.d/90-ventd-hwmon.rules}"
     if [[ ! -f "$rule" ]]; then
         log "  $rule not found"
         return 1
@@ -109,24 +111,31 @@ check_0a_i_udev_rule_chip_agnostic() {
     log "  rule contents:"
     sed 's/^/    /' "$rule"
     # The rule must match SUBSYSTEM=="hwmon" with no chip-name predicate.
-    if ! grep -q 'SUBSYSTEM=="hwmon"' "$rule"; then
-        log "  no SUBSYSTEM==\"hwmon\" line"
+    if ! grep -Ev '^\s*#' "$rule" | grep -q 'SUBSYSTEM=="hwmon"'; then
+        log "  no (non-commented) SUBSYSTEM==\"hwmon\" line"
         return 1
     fi
-    if grep -E 'ATTR\{name\}|ATTRS\{name\}' "$rule" >/dev/null; then
+    # Only inspect non-commented lines. An amdgpu example lived commented-out
+    # in the shipped rule and was making the rig check fail spuriously.
+    if grep -Ev '^\s*#' "$rule" | grep -qE 'ATTR\{name\}|ATTRS\{name\}'; then
         log "  rule appears to gate on chip name (ATTR{name}=…) — not chip-agnostic"
         return 1
     fi
-    log "  triggering udev for hwmon subsystem..."
-    udevadm trigger --subsystem-match=hwmon
-    udevadm settle
-    log "  pwm* writability snapshot:"
-    for p in /sys/class/hwmon/*/pwm[0-9]*; do
-        [[ -e "$p" ]] || continue
-        local mode
-        mode=$(stat -c '%a' "$p" 2>/dev/null || echo "?")
-        log "    $p mode=$mode"
-    done
+    # Production run: exercise udev on the live hwmon subsystem. In the
+    # fixture test VENTD_UDEV_RULE is set and we skip the udev trigger —
+    # there's nothing to trigger against a file in validation/fixtures.
+    if [[ -z "${VENTD_UDEV_RULE:-}" ]]; then
+        log "  triggering udev for hwmon subsystem..."
+        udevadm trigger --subsystem-match=hwmon
+        udevadm settle
+        log "  pwm* writability snapshot:"
+        for p in /sys/class/hwmon/*/pwm[0-9]*; do
+            [[ -e "$p" ]] || continue
+            local mode
+            mode=$(stat -c '%a' "$p" 2>/dev/null || echo "?")
+            log "    $p mode=$mode"
+        done
+    fi
     return 0
 }
 
@@ -157,22 +166,45 @@ check_0a_ii_probe_modules_persists() {
 }
 
 check_0a_iii_enrich_chip_name_in_config() {
-    local cfg=/etc/ventd/config.yaml
+    # VENTD_CONFIG_YAML lets the fixture test drive this with a synthetic
+    # config; unset in production, path stays at the canonical one.
+    local cfg="${VENTD_CONFIG_YAML:-/etc/ventd/config.yaml}"
     if [[ ! -f "$cfg" ]]; then
         log "  $cfg not present (setup not run yet)"
         return 77
     fi
-    local sensor_count fan_count chip_count
-    sensor_count=$(grep -cE '^\s*-\s+name:' "$cfg" || true)
-    chip_count=$(grep -cE '^\s*chip_name:' "$cfg" || true)
-    fan_count=$(grep -cE '^\s*pwm_path:' "$cfg" || true)
-    log "  sensors+fans entries (approx): $sensor_count"
-    log "  pwm_path entries (fans):       $fan_count"
-    log "  chip_name entries:             $chip_count"
-    # Every hwmon Sensor and every hwmon Fan should carry a chip_name. nvidia
-    # entries are exempt; this check passes if chip_count >= fan_count and >0.
-    if [[ "$chip_count" -lt "$fan_count" || "$chip_count" -eq 0 ]]; then
-        log "  expected chip_name on every hwmon entry"
+    # Walk the fans: block, assert every fan with "type: hwmon" has a
+    # "chip_name:" line. nvidia fans have no chip_name by design
+    # (pwm_path: "0" is the GPU index, not a sysfs path) and must be
+    # excluded from this denominator. Counting pwm_path globally would
+    # false-positive as soon as a user adds an nvidia fan.
+    local hwmon_total hwmon_missing_chip
+    read -r hwmon_total hwmon_missing_chip < <(awk '
+        /^fans:/                                          { in_fans = 1; next }
+        /^[a-zA-Z_]+:$/ && in_fans                        { in_fans = 0 }
+        !in_fans                                          { next }
+        /^[[:space:]]*-[[:space:]]+name:/ {
+            if (in_block && is_hwmon && !has_chip) { missing++ }
+            if (in_block && is_hwmon)              { total++ }
+            in_block = 1; is_hwmon = 0; has_chip = 0
+            next
+        }
+        in_block && /^[[:space:]]*type:[[:space:]]*hwmon/ { is_hwmon = 1 }
+        in_block && /^[[:space:]]*chip_name:/             { has_chip = 1 }
+        END {
+            if (in_block && is_hwmon && !has_chip) { missing++ }
+            if (in_block && is_hwmon)              { total++ }
+            printf "%d %d\n", total+0, missing+0
+        }
+    ' "$cfg")
+    log "  hwmon fans in config:         $hwmon_total"
+    log "  hwmon fans missing chip_name: $hwmon_missing_chip"
+    if [[ "$hwmon_total" -eq 0 ]]; then
+        log "  no hwmon fans in config (nothing to enrich)"
+        return 77
+    fi
+    if [[ "$hwmon_missing_chip" -gt 0 ]]; then
+        log "  expected chip_name on every hwmon fan; $hwmon_missing_chip missing"
         return 1
     fi
     return 0
@@ -366,33 +398,38 @@ check_0b_viii_selinux_clean() {
 }
 
 # ── runner ───────────────────────────────────────────────────────────────
+#
+# Source-guard: when this file is `source`d by validation/test-rig-checks.sh
+# the helpers above get defined but no live checks run. Direct invocation
+# (sudo bash validation/run-rig-checks.sh) still runs the full matrix.
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+    log "ventd rig verification — PR #21 + PR #25"
+    log "host: $(hostname 2>/dev/null || echo unknown)"
+    log "kernel: $(uname -r)"
+    log "started: $(date -u +%FT%TZ)"
+    log "log: $LOG"
+    sep
 
-log "ventd rig verification — PR #21 + PR #25"
-log "host: $(hostname 2>/dev/null || echo unknown)"
-log "kernel: $(uname -r)"
-log "started: $(date -u +%FT%TZ)"
-log "log: $LOG"
-sep
+    # PR #21
+    check 0a.i   "udev rule present and chip-agnostic"     check_0a_i_udev_rule_chip_agnostic
+    check 0a.ii  "--probe-modules persists"                check_0a_ii_probe_modules_persists
+    check 0a.iii "EnrichChipName populates config"         check_0a_iii_enrich_chip_name_in_config
+    check 0a.iv  "hwmonN renumber survival"                check_0a_iv_renumber_survival
+    check 0a.v   "reboot survival"                         check_0a_v_reboot_survival
 
-# PR #21
-check 0a.i   "udev rule present and chip-agnostic"     check_0a_i_udev_rule_chip_agnostic
-check 0a.ii  "--probe-modules persists"                check_0a_ii_probe_modules_persists
-check 0a.iii "EnrichChipName populates config"         check_0a_iii_enrich_chip_name_in_config
-check 0a.iv  "hwmonN renumber survival"                check_0a_iv_renumber_survival
-check 0a.v   "reboot survival"                         check_0a_v_reboot_survival
+    # PR #25
+    check 0b.i    "kill -KILL triggers ventd-recover"      check_0b_i_kill_triggers_recover
+    check 0b.ii   "sd_notify watchdog active"              check_0b_ii_sd_notify_watchdog_active
+    check 0b.iii  "hung loop triggers restart"             check_0b_iii_hung_loop_triggers_restart
+    check 0b.iv   "calibration zero-PWM ceiling"           check_0b_iv_calibration_zero_pwm_ceiling
+    check 0b.v    "new fan detected within 10s"            check_0b_v_new_fan_within_10s
+    check 0b.vi   "rmmod;modprobe detected within 10s"     check_0b_vi_modprobe_cycle
+    check 0b.vii  "AppArmor clean"                         check_0b_vii_apparmor_clean
+    check 0b.viii "SELinux clean"                          check_0b_viii_selinux_clean
 
-# PR #25
-check 0b.i    "kill -KILL triggers ventd-recover"      check_0b_i_kill_triggers_recover
-check 0b.ii   "sd_notify watchdog active"              check_0b_ii_sd_notify_watchdog_active
-check 0b.iii  "hung loop triggers restart"             check_0b_iii_hung_loop_triggers_restart
-check 0b.iv   "calibration zero-PWM ceiling"           check_0b_iv_calibration_zero_pwm_ceiling
-check 0b.v    "new fan detected within 10s"            check_0b_v_new_fan_within_10s
-check 0b.vi   "rmmod;modprobe detected within 10s"     check_0b_vi_modprobe_cycle
-check 0b.vii  "AppArmor clean"                         check_0b_vii_apparmor_clean
-check 0b.viii "SELinux clean"                          check_0b_viii_selinux_clean
-
-sep
-log "summary: ${N_PASS} PASS  ${N_FAIL} FAIL  ${N_SKIP} SKIP  ${N_MANUAL} MANUAL"
-log "log: $LOG"
-sep
-exit 0
+    sep
+    log "summary: ${N_PASS} PASS  ${N_FAIL} FAIL  ${N_SKIP} SKIP  ${N_MANUAL} MANUAL"
+    log "log: $LOG"
+    sep
+    exit 0
+fi

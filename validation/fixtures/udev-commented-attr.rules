@@ -1,0 +1,18 @@
+# validation/fixtures/udev-commented-attr.rules — fixture for
+# check_0a_i_udev_rule_chip_agnostic in validation/run-rig-checks.sh.
+#
+# Models the shipped deploy/90-ventd-hwmon.rules: a chip-agnostic
+# SUBSYSTEM=="hwmon" match plus a COMMENTED OUT amdgpu ATTR{name}
+# example that must not be mistaken for an actual chip-name predicate.
+
+# Grant group ventd write access to every hwmon pwm* control file on
+# match, chip-agnostic — this is the active rule the check is meant
+# to find.
+SUBSYSTEM=="hwmon", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* /sys%p/pwm[0-9]*_enable 2>/dev/null'"
+
+# Example (COMMENTED OUT). Older drafts chip-gated to work around
+# amdgpu permission quirks. Retained as a documentation pointer only.
+# Keeping the ATTR{name}= token present as text is the point of this
+# fixture: the rig check must skip commented lines when grepping for
+# chip-name predicates.
+#SUBSYSTEM=="hwmon", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm[0-9]* 2>/dev/null; chmod g+w /sys%p/pwm[0-9]* 2>/dev/null'"
