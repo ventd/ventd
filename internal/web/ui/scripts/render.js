@@ -73,7 +73,9 @@ function renderHardware(){
     const btn = '<button class="add-sensor-btn'+(isAdded?' added':'')+'" '+
       (isAdded?'disabled ':'')+btnData+
       (isAdded?'' : ' data-action="add-sensor"')+
-      '>'+(isAdded?'\u2713':'+')+
+      '>'+(isAdded
+        ? '<svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#check"/></svg>'
+        : '<svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#plus"/></svg>')+
       '</button>';
     const vc = r.unit==='°C' ? tempClass(r.value) : valClass(r);
     return '<div class="hw-reading">'+
@@ -111,7 +113,7 @@ function renderHardware(){
     return '<div class="hw-device">'+
       '<div class="hw-device-name" data-action="toggle-hw" data-key="'+esc(key)+'">'+
         '<span>'+esc(dev.name)+'</span>'+
-        '<span class="toggle">'+(collapsed?'\u25b6':'\u25bc')+'</span>'+
+        '<span class="toggle"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#'+(collapsed?'chevron-right':'chevron-down')+'"/></svg></span>'+
       '</div>'+
       '<div class="hw-readings'+(collapsed?' collapsed':'')+'">'+readingsHtml+'</div>'+
     '</div>';
@@ -157,12 +159,12 @@ function renderSensorCards(){
           'data-orig="'+esc(s.name)+'" '+
           'data-action="rename-sensor" data-idx="'+i+'" '+
           'title="Click to rename">'+
-        '<span class="edit-icon">\u270e</span>'+
+        '<span class="edit-icon"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#pencil"/></svg></span>'+
       '</div>'+
       '<div class="sensor-path">'+esc(pathDisplay)+'</div>'+
       '<div class="'+valCls+'">'+val+'</div>'+
       '<div class="sensor-actions">'+
-        '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor">&#x2715;</button>'+
+        '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#trash-2"/></svg></button>'+
       '</div>'+
     '</div>';
   }).join('');
@@ -204,12 +206,12 @@ function renderFanCards(){
     if(isCalibrating){
       // Dynamic width (0–100%) is applied via el.style.width after
       // innerHTML so nothing inline lands in the markup.
-      calSection = '<div class="cal-running">\u23f3 Calibrating\u2026 PWM '+calSt.current_pwm+'</div>'+
+      calSection = '<div class="cal-running"><svg class="icon icon-spin" aria-hidden="true"><use href="/ui/icons/sprite.svg#loader"/></svg> Calibrating\u2026 PWM '+calSt.current_pwm+'</div>'+
         '<div class="cal-prog-bar"><div class="fill" data-width="'+calSt.progress+'"></div></div>';
     } else {
       const calBtnDisabled = isCalibrating || !pwmPath;
       calSection = '<button class="cal-btn" '+(calBtnDisabled?'disabled ':'')+
-        'data-action="calibrate" data-pwm="'+esc(pwmPath)+'" title="Measure start PWM and max RPM">\u25b6 Calibrate</button>';
+        'data-action="calibrate" data-pwm="'+esc(pwmPath)+'" title="Measure start PWM and max RPM"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#play"/></svg> Calibrate</button>';
     }
     let calResultRow = '';
     if(calRes && !isCalibrating){
@@ -226,7 +228,7 @@ function renderFanCards(){
     const detectBtn = '<button class="detect-btn" '+
       (detectDisabled?'disabled ':'')+
       'data-action="detect-rpm" data-pwm="'+esc(pwmPath)+'" data-idx="'+i+'" '+
-      'title="Auto-detect RPM sensor">\u{1F50D}</button>';
+      'title="Auto-detect RPM sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#search"/></svg></button>';
 
     const dCls = dutyClass(duty);
     return '<div class="card">'+
@@ -235,7 +237,7 @@ function renderFanCards(){
           'data-orig="'+esc(ctrl.fan)+'" '+
           'data-action="rename-fan" data-idx="'+i+'" '+
           'title="Click to rename">'+
-        '<span class="edit-icon">\u270e</span>'+
+        '<span class="edit-icon"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#pencil"/></svg></span>'+
       '</div>'+
       '<div class="fan-meta">'+
         '<div class="fan-rpm">'+rpm+'</div>'+
@@ -396,9 +398,11 @@ async function startCalibration(pwmPath){
 
 async function detectRPM(pwmPath, ctrlIdx, btn){
   if(!pwmPath || !cfg) return;
-  const orig = btn.textContent;
+  // Capture/restore innerHTML rather than textContent because the button
+  // now holds an inline <svg><use …></svg> icon, not bare text.
+  const orig = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = '\u23f3';
+  btn.innerHTML = '<svg class="icon icon-spin" aria-hidden="true"><use href="/ui/icons/sprite.svg#loader"/></svg>';
   notify('Detecting RPM sensor\u2026 (~5s)', 'ok');
   try {
     const r = await fetch('/api/detect-rpm?fan='+encodeURIComponent(pwmPath), {method:'POST'});
@@ -419,7 +423,7 @@ async function detectRPM(pwmPath, ctrlIdx, btn){
       markDirty(); renderFanCards();
     }
   } catch(e){ notify('Detect: '+e.message,'error'); }
-  finally { btn.disabled=false; btn.textContent=orig; }
+  finally { btn.disabled=false; btn.innerHTML=orig; }
 }
 
 // ── Hardware diagnostics render ──
@@ -643,9 +647,13 @@ function toggleSidebar(){
 // ── Theme toggle ──
 function applyTheme(theme){
   document.documentElement.setAttribute('data-theme', theme);
-  // Update both toggle buttons (header + setup wizard)
-  const icon = theme === 'light' ? '\u2600' : '\u263E'; // ☀ / ☾
-  document.querySelectorAll('.theme-btn').forEach(b => b.textContent = icon);
+  // Show the icon of the *opposite* theme the user can switch to: dark
+  // theme offers the sun, light theme offers the moon. Selector targets
+  // all toggle buttons (header, setup wizard, any future addition) via
+  // data-action so no button-specific class is required.
+  const iconName = theme === 'light' ? 'moon' : 'sun';
+  const svg = '<svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#'+iconName+'"/></svg>';
+  document.querySelectorAll('[data-action="toggle-theme"]').forEach(b => { b.innerHTML = svg; });
 }
 function toggleTheme(){
   const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
