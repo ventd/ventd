@@ -693,6 +693,7 @@ func buildConfig(
 			Type:        "hwmon",
 			Path:        cpuSensorPath,
 			HwmonDevice: hwmonpkg.StableDevice(cpuSensorPath),
+			ChipName:    chipNameOf(cpuSensorPath),
 		})
 	}
 	if hasGPUTemp {
@@ -711,6 +712,7 @@ func buildConfig(
 				Type:        "hwmon",
 				Path:        gpuTempPath,
 				HwmonDevice: hwmonpkg.StableDevice(gpuTempPath),
+				ChipName:    chipNameOf(gpuTempPath),
 			})
 		}
 	}
@@ -835,6 +837,7 @@ func buildConfig(
 			PWMPath:     f.pwmPath,
 			RPMPath:     f.rpmPath,
 			HwmonDevice: hwmonpkg.StableDevice(f.pwmPath),
+			ChipName:    f.chipName,
 			ControlKind: f.controlKind,
 			MinPWM:      minPWM,
 			MaxPWM:      255,
@@ -877,9 +880,10 @@ func buildConfig(
 			MaxPWM:      255,
 		}
 		if f.fanType == "hwmon" {
-			// AMD GPU: include RPM path, stable device, and control kind.
+			// AMD GPU: include RPM path, stable device, control kind, chip name.
 			fanEntry.RPMPath = f.rpmPath
 			fanEntry.HwmonDevice = hwmonpkg.StableDevice(f.pwmPath)
+			fanEntry.ChipName = f.chipName
 		}
 		cfg.Fans = append(cfg.Fans, fanEntry)
 		cfg.Controls = append(cfg.Controls, config.Control{
@@ -1367,6 +1371,22 @@ func readTrimmed(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// chipNameOf reads the hwmon chip name attached to the given sysfs path.
+// pwmPath / sensorPath both live under <hwmonN>/, and the chip's stable
+// identifier (nct6687, it87, amdgpu, ...) is at <hwmonN>/name. Used by
+// the config writer to populate ChipName so config.ResolveHwmonPaths can
+// re-anchor paths after a hwmonN reshuffle.
+//
+// Returns "" for non-hwmon paths or when the name file is unreadable.
+// An empty result is the documented signal that resolution should not
+// attempt to rewrite this entry.
+func chipNameOf(path string) string {
+	if path == "" {
+		return ""
+	}
+	return readTrimmed(filepath.Join(filepath.Dir(path), "name"))
 }
 
 // emitPreflightDiag pushes a hwdiag entry for a preflight blocker. Called

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,26 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// hwmonRootFS is the fs.FS used by Load to re-anchor hwmon paths via
+// ResolveHwmonPaths. Defaults to the live /sys/class/hwmon class
+// directory; tests override via SetHwmonRootFS so the resolver can be
+// driven from a fstest.MapFS fixture without touching real sysfs.
+var hwmonRootFS fs.FS = os.DirFS("/sys/class/hwmon")
+
+// SetHwmonRootFS overrides the fs.FS that Load passes to
+// ResolveHwmonPaths. Tests use it to drive the resolver from a fixture.
+// Pass nil to restore the default. Returns the previous root so tests
+// can restore it via t.Cleanup.
+func SetHwmonRootFS(fsys fs.FS) fs.FS {
+	prev := hwmonRootFS
+	if fsys == nil {
+		hwmonRootFS = os.DirFS("/sys/class/hwmon")
+	} else {
+		hwmonRootFS = fsys
+	}
+	return prev
+}
 
 const (
 	DefaultPollInterval = 2 * time.Second
@@ -274,12 +295,32 @@ func Empty() *Config {
 	}
 }
 
+// Load reads the YAML config at path, validates it, and re-anchors any
+// hwmon Sensor / Fan paths whose ChipName is set so they survive a
+// hwmonN renumbering across reboots. Re-anchor failures (chip missing,
+// chip ambiguous, malformed path) are fatal — refusing to start is
+// safer than writing PWM to a wrong-chip sysfs file. Entries with empty
+// ChipName are left untouched.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
-	return Parse(data)
+	cfg, err := Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	// Self-heal upgrade case: if the on-disk config pre-dates the
+	// ChipName field and the hwmon paths are still valid (no
+	// renumber happened), populate ChipName from the live name file
+	// so future renumbers can be re-anchored. If a renumber DID
+	// happen, the read fails silently and the resolver call below
+	// will surface the misconfiguration loudly.
+	EnrichChipName(cfg)
+	if err := ResolveHwmonPaths(cfg, hwmonRootFS); err != nil {
+		return nil, fmt.Errorf("resolve hwmon paths in %s: %w", path, err)
+	}
+	return cfg, nil
 }
 
 func Parse(data []byte) (*Config, error) {
@@ -296,7 +337,14 @@ func Parse(data []byte) (*Config, error) {
 // Save validates cfg, marshals it to YAML, and writes it atomically to path.
 // Returns the validated config (with defaults applied) for swapping into the
 // live pointer.
+//
+// EnrichChipName is called before marshal so every config produced via
+// Save (web UI submissions, calibration completions, password updates)
+// carries the chip identifier ResolveHwmonPaths needs on the next
+// boot. Operators authoring config through the UI never have to touch
+// the chip_name YAML field.
 func Save(cfg *Config, path string) (*Config, error) {
+	EnrichChipName(cfg)
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
