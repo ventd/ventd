@@ -366,6 +366,36 @@ check_conflicting_daemon
 check_pwm_holders
 check_port_9999
 
+# ── ventd account ────────────────────────────────────────────────────────────
+#
+# The daemon runs as the unprivileged "ventd" user/group. Access to pwm
+# sysfs files comes from DAC (group ownership applied by the udev rule
+# installed below) — not from capabilities. CapabilityBoundingSet= stays
+# empty in the unit. Account creation lives in _ventd_account.sh so
+# this script and the .deb/.rpm postinstall hook use one copy.
+
+ACCOUNT_HELPER=""
+for candidate in \
+    "${ASSET_DIR}/_ventd_account.sh" \
+    "${ASSET_DIR}/../scripts/_ventd_account.sh" \
+    "${TARBALL_ROOT:-}/scripts/_ventd_account.sh"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        ACCOUNT_HELPER="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$ACCOUNT_HELPER" ]]; then
+    echo "error: scripts/_ventd_account.sh not found — installer cannot create ventd account" >&2
+    exit 1
+fi
+
+# shellcheck source=scripts/_ventd_account.sh
+. "$ACCOUNT_HELPER"
+
+echo "Ensuring ventd system account exists..."
+ventd_create_account
+
 # ── Install ──────────────────────────────────────────────────────────────────
 
 echo "Installing ventd..."
@@ -373,6 +403,20 @@ echo "Installing ventd..."
 install -d -m 755 "$VENTD_PREFIX"
 install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
 echo "  ✓ binary → $VENTD_PREFIX/ventd"
+
+# /etc/ventd is group-readable (0750) so the ventd group (daemon only)
+# can read config while "other" stays locked out. On systemd,
+# ConfigurationDirectory= reasserts this on every start; the install
+# here is belt-and-braces for the wipe-and-reinstall path.
+#
+# chown is recursive: on upgrade from a prior User=root install the
+# directory already holds config.yaml / calibration.json / TLS
+# cert+key owned by root:root. Without -R those survive the upgrade
+# root-owned, the daemon starts as User=ventd, and config reads hit
+# EACCES. Mirrors the recursive chown in scripts/postinstall.sh for
+# the .deb/.rpm path.
+install -d -m 0750 /etc/ventd
+chown -R ventd:ventd /etc/ventd
 
 case "$INIT_SYSTEM" in
 
@@ -385,7 +429,6 @@ case "$INIT_SYSTEM" in
         ;;
 
     openrc)
-        install -d -m 0700 /etc/ventd
         install -m 755 "$OPENRC_SRC" /etc/init.d/ventd
         rc-update add ventd default
         rc-service ventd start
@@ -393,7 +436,6 @@ case "$INIT_SYSTEM" in
         ;;
 
     runit)
-        install -d -m 0700 /etc/ventd
         install -d -m 755 /etc/sv/ventd
         install -d -m 755 /etc/sv/ventd/log
         install -m 755 "$RUNIT_SRC" /etc/sv/ventd/run
@@ -421,10 +463,47 @@ EOF
         ;;
 
     unknown)
-        install -d -m 0700 /etc/ventd
         echo "  ! no init system detected — service not registered"
         ;;
 esac
+
+# ── udev rule for pwm group access ──────────────────────────────────────────
+#
+# ventd runs as the unprivileged "ventd" user; it can only write pwm<N>
+# and pwm<N>_enable if the kernel grants it via DAC. The shipped rule is
+# keyed on chip ATTR{name} (not on hwmonN index — those shift across
+# reboots per .claude/rules/hwmon-safety.md) and chgrp's matching files
+# to the ventd group with g+w.
+#
+# The rule ships with every example line commented out — the operator
+# uncomments (or adds) the line matching their chip. Discover it with:
+#   for n in /sys/class/hwmon/hwmon*/name; do echo "$(dirname "$n"): $(cat "$n")"; done
+
+UDEV_RULE_SRC=""
+for candidate in \
+    "${ASSET_DIR}/90-ventd-hwmon.rules" \
+    "${ASSET_DIR}/../deploy/90-ventd-hwmon.rules" \
+    "${TARBALL_ROOT:-}/deploy/90-ventd-hwmon.rules"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        UDEV_RULE_SRC="$candidate"
+        break
+    fi
+done
+
+if [[ -n "$UDEV_RULE_SRC" ]]; then
+    install -d -m 755 /etc/udev/rules.d
+    install -m 644 "$UDEV_RULE_SRC" /etc/udev/rules.d/90-ventd-hwmon.rules
+    echo "  ✓ udev rule → /etc/udev/rules.d/90-ventd-hwmon.rules"
+    echo "    (edit to uncomment the line matching your hwmon chip —"
+    echo "     see the comments in the file for discovery)"
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload >/dev/null 2>&1 || true
+        udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
+    fi
+else
+    echo "  ! udev rule template not found — skipping"
+    echo "    (pwm writes will fail until /sys/class/hwmon/*/pwm* are g+w for the ventd group)"
+fi
 
 # ── Post-start verification ─────────────────────────────────────────────────
 #

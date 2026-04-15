@@ -15,10 +15,13 @@ StandardError=journal
 SyslogIdentifier=ventd
 
 # Service user.
-# Runs as root today. The hardening below assumes root; if you migrate to a
-# dedicated ventd user, pair it with a udev rule that grants that user/group
-# write access to the pwm sysfs files (see deploy/README.md).
-User=root
+# Runs as the unprivileged "ventd" system user (created by the installer).
+# Write access to pwm sysfs files comes from DAC: the shipped udev rule
+# (deploy/90-ventd-hwmon.rules) chgrp's pwm<N>/pwm<N>_enable to the
+# ventd group and sets g+w. CapabilityBoundingSet= stays empty — do NOT
+# restore CAP_DAC_OVERRIDE here. See deploy/README.md.
+User=ventd
+Group=ventd
 
 # --- Sandbox: process isolation -------------------------------------------
 # ventd has no legitimate need to gain privileges or keep capabilities at
@@ -42,10 +45,10 @@ RuntimeDirectoryMode=0700
 # systemd creates /etc/ventd before ExecStart (and before any namespace
 # setup) with the mode below, so the installer does not pre-create it and
 # a stop/rm -rf/start cycle no longer trips status=226/NAMESPACE from the
-# ReadWritePaths below. Mode stays at 0700 (root-owned) until the
-# User=ventd migration introduces a group that needs read access.
+# ReadWritePaths below. Mode is 0750: the ventd group (daemon only) needs
+# read access; "other" stays locked out.
 ConfigurationDirectory=ventd
-ConfigurationDirectoryMode=0700
+ConfigurationDirectoryMode=0750
 # Enumerate every path ventd writes to.
 #   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
 #   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)

@@ -15,16 +15,16 @@ The shipped unit is sandboxed by default. Key points:
     cert + key.
   - `/run/ventd` — first-boot setup token.
   - `/sys/class/hwmon` — `pwm<N>` and `pwm<N>_enable`.
-- `ConfigurationDirectory=ventd` with `ConfigurationDirectoryMode=0700` —
+- `ConfigurationDirectory=ventd` with `ConfigurationDirectoryMode=0750` —
   systemd creates `/etc/ventd` before `ExecStart` (and before the namespace
   setup driven by `ReadWritePaths`), with the right mode, owned by the
-  unit's `User=`. The installer no longer pre-creates the directory under
-  systemd, so a `stop → rm -rf /etc/ventd → start` cycle no longer trips
-  `status=226/NAMESPACE`. Mode stays at `0700` (root-owned) until the
-  `User=ventd` migration introduces a group that needs read access.
+  unit's `User=` (`ventd:ventd`). The mode is `0750`, not `0700`, because
+  the `ventd` group (whose only member is the daemon account itself) needs
+  read access to `config.yaml` and the auto-generated TLS material; "other"
+  stays locked out.
 - Under OpenRC/runit (where `ConfigurationDirectory=` has no effect) the
-  installer creates `/etc/ventd` at mode `0700` itself — same end state,
-  different mechanism.
+  installer creates `/etc/ventd` at mode `0750` owned by `ventd:ventd` —
+  same end state, different mechanism.
 - `RuntimeDirectory=ventd` with `RuntimeDirectoryMode=0700` — systemd
   creates `/run/ventd` before `ExecStart` with mode 0700 and cleans it up
   on stop. The setup token must not be world-readable; the mode is
@@ -36,38 +36,52 @@ The shipped unit is sandboxed by default. Key points:
   `AF_NETLINK` the watcher silently falls back to 5-minute periodic
   rescans and fans/sensors added after boot aren't noticed.
 
-## Running as a non-root user (optional hardening)
+## User=ventd and the pwm udev rule
 
-The unit currently sets `User=root`. To drop to a dedicated user, create
-the account and a udev rule that widens DAC on the pwm sysfs nodes for
-the service group.
+The unit runs as `User=ventd` / `Group=ventd`. The installer creates
+that system account (nologin shell, no home directory) and owns
+`/etc/ventd` and `/run/ventd` as `ventd:ventd`. `CapabilityBoundingSet=`
+stays **empty** — no capabilities are granted to compensate for the
+dropped root privilege. Pwm write access is DAC-driven instead.
 
-Example udev rule — `/etc/udev/rules.d/60-ventd-hwmon.rules`:
+The shipped udev rule at `deploy/90-ventd-hwmon.rules` is copied to
+`/etc/udev/rules.d/90-ventd-hwmon.rules` by the installer. It
+chgrp's `pwm<N>` and `pwm<N>_enable` to the `ventd` group with `g+w`
+on every hwmon device bind — boot, hot-plug, or driver reload.
 
-```udev
-# Grant the "ventd" group write access to hwmon pwm control files.
-# Matches pwm<N> and pwm<N>_enable on any hwmon device.
-SUBSYSTEM=="hwmon", KERNEL=="hwmon[0-9]*", \
-  RUN+="/bin/sh -c 'chgrp ventd /sys%p/pwm* 2>/dev/null; chmod g+w /sys%p/pwm* 2>/dev/null'"
+**Keying.** The rule matches on `ATTR{name}` (the chip name, e.g.
+`nct6687`, `it87`, `amdgpu`), never on `KERNEL=="hwmon*"` or a
+specific `hwmonN` index. Indices reshuffle across reboots whenever
+driver load order changes (see `.claude/rules/hwmon-safety.md`);
+matching on chip name survives that.
+
+**Find your chip name:**
+
+```
+for n in /sys/class/hwmon/hwmon*/name; do
+  echo "$(dirname "$n"): $(cat "$n")"
+done
 ```
 
-Reload with:
+Open `/etc/udev/rules.d/90-ventd-hwmon.rules`, uncomment the line(s)
+that match, and reload:
 
 ```
 sudo udevadm control --reload
 sudo udevadm trigger --subsystem-match=hwmon
 ```
 
-Then edit the unit:
+Only group write (`g+w`) is granted. The rule is never world-writable
+and never setuid.
 
-```
-User=ventd
-Group=ventd
-```
+**Path precedence.** The installer writes to `/etc/udev/rules.d/`,
+which takes precedence over `/lib/udev/rules.d/` (or
+`/usr/lib/udev/rules.d/`) on every supported distro, so distro-shipped
+rules for the same hwmon device cannot shadow it.
 
-If you take this route, also make sure `/etc/ventd` and `/run/ventd`
-are owned by `ventd:ventd` (the install script handles this when it is
-told to use a non-root user).
+**Group membership.** Only the `ventd` daemon account is in the
+`ventd` group. Do not add interactive users to it. For CLI debugging
+of `/etc/ventd`, use `sudo -u ventd cat …` or plain `sudo`.
 
 ## Why not `DynamicUser=` / `StateDirectory=` / `RuntimeDirectory=`?
 
