@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ventd — Login</title>
+<link rel="stylesheet" href="/ui/styles/login.css">
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="14" cy="14" r="13" stroke="#4fc3a1" stroke-width="1.5" fill="none"/>
+      <circle cx="14" cy="14" r="3" fill="#4fc3a1"/>
+      <line x1="14" y1="4"  x2="14" y2="9"  stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="14" y1="19" x2="14" y2="24" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="4"  y1="14" x2="9"  y2="14" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="19" y1="14" x2="24" y2="14" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="7.1"  y1="7.1"  x2="10.7" y2="10.7" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="17.3" y1="17.3" x2="20.9" y2="20.9" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="20.9" y1="7.1"  x2="17.3" y2="10.7" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+      <line x1="10.7" y1="17.3" x2="7.1"  y2="20.9" stroke="#4fc3a1" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <div class="brand-text">
+      <h1>Ventd</h1>
+      <p>System Fan Controller</p>
+    </div>
+    <button class="theme-btn" id="themeBtn" title="Toggle theme">◐</button>
+  </div>
+
+  <!-- Section A: normal login -->
+  <div class="section active" id="secLogin">
+    <h2>Sign In</h2>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button class="btn" id="loginBtn">Sign In</button>
+    <div class="msg" id="loginMsg"></div>
+    <p class="hint">First time? Check the terminal / <code>journalctl -u ventd</code> for your setup token.</p>
+  </div>
+
+  <!-- Section B: first-boot — enter setup token + set password -->
+  <div class="section" id="secFirstBoot">
+    <h2>First Boot Setup</h2>
+    <div class="field">
+      <label for="setupToken">Setup Token</label>
+      <input type="text" id="setupToken" autocomplete="off" placeholder="XXXXX-XXXXX-XXXXX" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="newPassword">Create Password <span style="color:var(--fg3)">(min 8 chars)</span></label>
+      <input type="password" id="newPassword" autocomplete="new-password" placeholder="••••••••">
+    </div>
+    <div class="field">
+      <label for="confirmPassword">Confirm Password</label>
+      <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="••••••••">
+    </div>
+    <button class="btn" id="firstBootBtn">Create Password &amp; Continue</button>
+    <div class="msg" id="firstBootMsg"></div>
+    <p class="hint">Find your setup token in the terminal or via:<br><code>journalctl -u ventd | grep "Setup token"</code></p>
+  </div>
+</div>
+
+<script src="/ui/scripts/login.js" defer></script>
+</body>
+</html>

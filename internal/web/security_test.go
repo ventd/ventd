@@ -237,6 +237,107 @@ func TestLoginHandlerLocksOutThenResets(t *testing.T) {
 	}
 }
 
+// TestFirstBootProbeDoesNotConsumeAttempts guards against regression of
+// audit finding S2: the old login page probed for first-boot mode by
+// POSTing an empty password. That probe went through the rate limiter,
+// so five page loads on a freshly-started daemon would lock the operator
+// out for the full cooldown before they had ever typed a password.
+//
+// The fix moves the probe to GET /api/auth/state, and POST /login rejects
+// an empty password with 400 without calling recordFailure. This test
+// exercises both halves: GET probes don't touch the limiter, and five
+// empty POSTs followed by one real login still succeed.
+func TestFirstBootProbeDoesNotConsumeAttempts(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+	hash, err := HashPassword("correcthorse")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	live := config.Empty()
+	live.Web.PasswordHash = hash
+	srv.cfg.Store(live)
+
+	postLogin := func(pw string) int {
+		body := strings.NewReader("password=" + pw)
+		req := httptest.NewRequest("POST", "/login", body)
+		req.Host = "ventd.local:9999"
+		req.Header.Set("Origin", "http://ventd.local:9999")
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "10.0.0.7:55555"
+		rr := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	// Five GET probes against /api/auth/state — each must return 200 and
+	// none may touch the limiter. If any does, the real login below will
+	// already be locked out (the default threshold is 5).
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest("GET", "/api/auth/state", nil)
+		req.Host = "ventd.local:9999"
+		req.RemoteAddr = "10.0.0.7:55555"
+		rr := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("probe iter %d: status=%d body=%s", i, rr.Code, rr.Body.String())
+		}
+	}
+
+	// Five empty-password POSTs — the old code path — must each return 400
+	// and must NOT count as failed-login attempts. If they did, the last
+	// real login below would return 429.
+	for i := 0; i < 5; i++ {
+		if got := postLogin(""); got != http.StatusBadRequest {
+			t.Fatalf("empty POST iter %d: status=%d want 400", i, got)
+		}
+	}
+
+	// Real login from the same IP still succeeds.
+	if got := postLogin("correcthorse"); got != http.StatusOK {
+		t.Fatalf("real login after probes: status=%d want 200 (probe must not consume limiter)", got)
+	}
+}
+
+// TestAuthStateReportsFirstBoot covers the other half of S2: when the
+// daemon has no password configured, /api/auth/state must report that so
+// the login page knows to switch forms without making a POST.
+func TestAuthStateReportsFirstBoot(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+	// newSecuritySrv uses config.Empty() which has no PasswordHash —
+	// that is the first-boot state.
+	req := httptest.NewRequest("GET", "/api/auth/state", nil)
+	req.Host = "ventd.local:9999"
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type=%q want application/json", ct)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"first_boot":true`) {
+		t.Errorf("body=%s want first_boot:true", body)
+	}
+
+	// Once a password is set, the probe reports false.
+	hash, err := HashPassword("correcthorse")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	live := config.Empty()
+	live.Web.PasswordHash = hash
+	srv.cfg.Store(live)
+
+	req2 := httptest.NewRequest("GET", "/api/auth/state", nil)
+	req2.Host = "ventd.local:9999"
+	rr2 := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr2, req2)
+	if !strings.Contains(rr2.Body.String(), `"first_boot":false`) {
+		t.Errorf("after password set, body=%s want first_boot:false", rr2.Body.String())
+	}
+}
+
 // --- MaxBytesReader ------------------------------------------------------
 
 func TestConfigPutRejectsOversizedBody(t *testing.T) {

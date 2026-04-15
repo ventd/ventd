@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -123,6 +124,19 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s.mux.HandleFunc("/login", s.handleLogin)
 	s.mux.HandleFunc("/logout", s.handleLogout)
 	s.mux.HandleFunc("/api/ping", s.handlePing)
+	// Lightweight unauthenticated probe so the login page can decide which
+	// form to render (first-boot setup vs. normal password) without POSTing
+	// an empty password and tripping the per-IP login rate limiter.
+	// See audit finding S2: the old probe consumed one failed-login attempt
+	// per page load and could lock an operator out before they ever saw a
+	// password prompt.
+	s.mux.HandleFunc("/api/auth/state", s.handleAuthState)
+	// Static UI assets (HTML/CSS/JS) live under the embedded `ui/` tree.
+	// Authentication is intentionally NOT required: these are the same
+	// bytes the unauth'd /login page already depends on, and withholding
+	// the dashboard HTML behind auth gains nothing — the /api/* endpoints
+	// that return real data are auth-gated separately.
+	s.mux.Handle("/ui/", http.StripPrefix("/ui/", uiStaticHandler(uiSubFS())))
 
 	// All other routes require a valid session.
 	auth := s.requireAuth
@@ -255,13 +269,54 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
 }
 
+// handleAuthState reports whether the daemon is in first-boot mode (no
+// password configured yet). Deliberately cheap and untouchable by the
+// login rate limiter: the login page calls this once on load to decide
+// which form to show, and must not burn an attempt doing so.
+//
+// GET only; any other method is rejected. No caller-supplied input is
+// read, so there is nothing to validate. The response leaks one bit
+// (whether a password is set), which is the same bit a normal login
+// with a wrong password would already reveal — no new information
+// surface vs. the pre-fix behaviour.
+func (s *Server) handleAuthState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	live := s.cfg.Load()
+	w.Header().Set("Cache-Control", "no-store")
+	s.writeJSON(r, w, map[string]bool{"first_boot": live.Web.PasswordHash == ""})
+}
+
+// uiStaticHandler wraps http.FileServer(fs) with two small behaviours:
+//
+//   - Short-cacheable: the embedded assets are versioned with the binary,
+//     so a 5-minute cache ceiling is safe under default upgrade flow
+//     (systemctl restart ventd invalidates caches via connection reset,
+//     and 5 minutes is short enough that a misbuild is easy to recover
+//     from without a forced reload).
+//   - Defense-in-depth: strip any Cache-Control the FileServer set and
+//     replace with our own so policy lives in one place.
+//
+// Content-Type is derived from extension by the stdlib FileServer, which
+// is exactly what we want (.css → text/css, .js → application/javascript,
+// .html → text/html).
+func uiStaticHandler(root fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(root))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 // handleLogin handles GET (serve login page) and POST (authenticate).
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(loginHTML))
+		_, _ = w.Write(readUI("login.html"))
 
 	case http.MethodPost:
 		// Cap login form bodies before parsing so a huge payload cannot
@@ -287,23 +342,35 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 		live := s.cfg.Load()
 
-		// First-boot: no password set yet — return first_boot flag so the UI
-		// can switch to the setup-token + new-password form.
+		// First-boot: no password set yet. If the client sent a setup token,
+		// process the first-boot handshake. An empty POST is rejected with
+		// 400 so it is impossible for a misbehaving or malicious caller to
+		// use the /login endpoint as a zero-cost oracle for "is the daemon
+		// still in first-boot mode" — that probe moved to GET /api/auth/state
+		// which does not touch the rate limiter. See audit finding S2.
 		if live.Web.PasswordHash == "" {
-			// If the client sent a setup token, process first-boot login.
-			// Otherwise just tell the UI we're in first-boot mode.
 			if r.FormValue("setup_token") != "" {
 				s.handleFirstBootLogin(w, r, live, ipKey)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			s.writeJSON(r, w, map[string]interface{}{"error": "first boot", "first_boot": true})
+			w.WriteHeader(http.StatusBadRequest)
+			s.writeJSON(r, w, map[string]interface{}{"error": "first boot: use /api/auth/state to check status, then POST setup_token + new_password", "first_boot": true})
 			return
 		}
 
-		// Normal login: check password.
+		// Normal login: check password. Reject empty passwords early without
+		// consuming a rate-limiter slot — a UI probe asking "is this daemon
+		// in first-boot?" should already have used /api/auth/state, and we
+		// do not want a typo'd form submission to count against the brute-
+		// force budget.
 		password := r.FormValue("password")
+		if password == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			s.writeJSON(r, w, map[string]string{"error": "password required"})
+			return
+		}
 		if !checkPassword(live.Web.PasswordHash, password) {
 			locked := s.loginLim.recordFailure(ipKey)
 			if locked {
@@ -611,9 +678,17 @@ func (s *Server) handleHardware(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	// Only the root document is served from this handler. The mux pattern
+	// "/" matches every unclaimed path, so we have to guard against an
+	// authenticated user typo-navigating to /foo and getting the dashboard
+	// HTML for a path that shouldn't exist.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(dashboardHTML))
+	_, _ = w.Write(readUI("index.html"))
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>

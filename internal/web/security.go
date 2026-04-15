@@ -19,7 +19,19 @@ import (
 // over plain HTTP does nothing useful and poisons browsers if the
 // deployment later downgrades.
 func securityHeaders() func(http.Handler) http.Handler {
-	const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+	// CSP notes:
+	//
+	// All JS and CSS now loads from /ui/* (see internal/web/ui/ and
+	// ui.go's embed.FS), so `script-src 'self'` and `style-src 'self'`
+	// satisfy every file we serve. `'unsafe-inline'` remains on both
+	// directives only because the dashboard still carries a handful of
+	// legacy inline event handlers (`onclick=`) and inline style
+	// attributes (`style=`). Phase 1 / Session B of the UI overhaul
+	// will convert those to addEventListener and dedicated classes, at
+	// which point the two `'unsafe-inline'` tokens can be dropped.
+	// `img-src 'self' data:` is required for the inline SVG data: URIs
+	// the UI renders for fan/sensor glyphs.
+	const csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
