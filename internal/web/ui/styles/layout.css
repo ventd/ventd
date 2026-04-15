@@ -1,0 +1,70 @@
+/* ── Layout ──
+ *
+ * Page-level structural rules: the header bar, the main flex/grid
+ * shell, the sidebar's positioning (its contents — hw-device list,
+ * etc. — live in components.css), the section spacing, and the
+ * positioning rules for full-screen overlays (settings modal, setup
+ * wizard).
+ *
+ * Loaded after base.css. Phase 4.5 (mobile responsive) will extend
+ * this file with media queries against three canonical breakpoints
+ * (480 / 900 / 1280). All other rules in here are mobile-friendly
+ * defaults that already shrink — no fixed pixel widths except the
+ * sidebar.
+ */
+
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.6rem 1.5rem;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.header-brand { display: flex; align-items: center; gap: 10px; }
+.header-tagline { color: var(--fg3); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 1px; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+
+.layout { display: flex; min-height: calc(100vh - 52px); }
+
+/* Sidebar (positioning + collapse animation only — contents live in
+ * components.css under .hw-* and .sidebar-hdr). */
+.sidebar {
+  width: 260px; min-width: 260px;
+  background: var(--bg2); border-right: 1px solid var(--border);
+  padding: 10px 0; overflow-y: auto;
+  transition: width 0.2s, min-width 0.2s, padding 0.2s, border 0.2s;
+}
+.sidebar.collapsed { width: 0; min-width: 0; padding: 0; overflow: hidden; border-right: none; }
+
+main { flex: 1; padding: 1rem 1.5rem; max-width: 1100px; overflow-y: auto; }
+
+.section { margin-bottom: 2.5rem; }
+.section-hdr {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+/* Setup wizard overlay — full-viewport flex with internal scroll so
+ * the wizard's content area can grow without breaking the layout. */
+#setup-overlay {
+  position: fixed; inset: 0; background: var(--bg);
+  z-index: 200; display: flex; align-items: flex-start;
+  justify-content: center; padding: 2rem 1rem; overflow-y: auto;
+}
+#setup-overlay.hidden { display: none; }
+
+/* Wizard title row — brand on the left, theme toggle on the right. */
+.wizard-title-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 0.3rem;
+}
+.wizard-title-row h2 { margin: 0; }
+.wizard-title-row .icon-btn { margin-top: 2px; }
+
+/* Modal positioning — visibility is controlled by .open which flips
+ * display from none → flex. The card itself sits inside; styling for
+ * .modal-card / .modal-header / .modal-row lives in components.css. */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 300; align-items: center; justify-content: center;
+  display: none;
+}
+.modal-backdrop.open { display: flex; }

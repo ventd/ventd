@@ -1,0 +1,79 @@
+/* ── Base ──
+ *
+ * Box-model reset, body typography, root-level utility classes, and
+ * the keyframe animations consumed by component rules. Anything in
+ * here is content-agnostic — it doesn't know whether it's rendered
+ * inside a card, a modal, or the sidebar. Component rules build on
+ * top of these primitives.
+ *
+ * Loaded after tokens.css so var(--…) references resolve.
+ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  background: var(--bg); color: var(--fg);
+  /* Scale with viewport width: ~14px at 1280px, ~16px at 1440px, capped at 18px */
+  font-size: clamp(14px, 1.1vw, 18px);
+  transition: background 0.2s, color 0.2s;
+}
+h1 { color: var(--fg1); font-size: 1rem; letter-spacing: 0.05em; }
+h2 {
+  color: var(--fg2); font-size: 0.7rem; text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Hidden = display:none with !important so single-class toggles win
+ * against any structural display: rule. The HTML uses class="hidden"
+ * for initial-hidden state; JS toggles it via .classList.add/remove. */
+.hidden { display: none !important; }
+
+/* Live-data dot — pulsing teal when the daemon is reachable, red on
+ * error, dimmed grey otherwise. */
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fg3); flex-shrink: 0; transition: background 0.4s;
+}
+.live-dot.on { background: var(--teal); animation: pulse-dot 2.5s ease-in-out infinite; }
+.live-dot.err { background: var(--red); }
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 0 rgba(79,195,161,0.5); }
+  50%      { box-shadow: 0 0 0 5px rgba(79,195,161,0); }
+}
+
+/* Temperature heat colours — applied to numeric readouts whose value
+ * crosses the cool/warm/hot/crit thresholds. */
+.tc-cool { color: var(--teal); }
+.tc-warm { color: var(--amber); }
+.tc-hot  { color: var(--red2); }
+.tc-crit { color: var(--red); font-weight: bold; }
+
+/* Fan duty colours — apply to text and (with the .duty-bar .fill
+ * compound selector in components.css) to bar backgrounds. */
+.dc-low  { color: var(--teal); }
+.dc-mid  { color: var(--amber); }
+.dc-high { color: var(--red); }
+
+/* ── Utility classes (extracted from inline styles for CSP hardening) ──
+ * Scoped to single-axis effects: colour or layout, never both. */
+.text-fg2  { color: var(--fg2); }
+.text-fg3  { color: var(--fg3); }
+.text-fg4  { color: var(--fg4); }
+.text-teal { color: var(--teal); }
+.text-amber{ color: var(--amber); }
+.text-red  { color: var(--red); }
+.text-blue { color: var(--blue); }
+.no-shrink { flex-shrink: 0; }
+
+/* SVG class-based stroke/fill — used by miniSVG() and drawSVG() in
+ * scripts/app.js so the rendered SVG carries no inline style="..."
+ * attribute (which would re-pin style-src 'unsafe-inline'). */
+.svg-stroke-teal    { stroke: var(--teal); }
+.svg-stroke-blue    { stroke: var(--blue); }
+.svg-stroke-border  { stroke: var(--border); }
+.svg-stroke-border2 { stroke: var(--border2); }
+.svg-stroke-amber   { stroke: var(--amber); }
+.svg-fill-bg        { fill:   var(--bg); }
+.svg-fill-fg3       { fill:   var(--fg3); }
+.svg-fill-amber     { fill:   var(--amber); }
+.svg-text-mono      { font-family: monospace; }
