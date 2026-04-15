@@ -249,6 +249,9 @@ button.danger:hover { background: var(--red); color: #fff; }
 }
 .duty-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
 .duty-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s, background 0.3s; }
+.duty-bar .fill.dc-low  { background: var(--teal); }
+.duty-bar .fill.dc-mid  { background: var(--amber); }
+.duty-bar .fill.dc-high { background: var(--red); }
 .card select {
   width: 100%; padding: 3px 6px;
   background: var(--bg); border: 1px solid var(--border);
