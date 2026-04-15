@@ -501,4 +501,77 @@ button.danger:hover { background: var(--red); color: #fff; }
    * secondary affordance. hw-device-name is the tap target; its
    * chevron expands/collapses the reading list. */
   .hw-device-name { min-height: 44px; }
+
+  /* Range-slider thumbs — CSS min-height on the input box sizes
+   * the track's bounding rect, not the native thumb. Chrome/
+   * Chromium only honours width/height on ::-webkit-slider-thumb
+   * when the input opts into custom styling via
+   * -webkit-appearance:none; Firefox honours ::-moz-range-thumb
+   * unconditionally. Declaring both prefixes, with an explicit
+   * runnable-track rule so the slider stays visually intact when
+   * the UA widget is disabled on WebKit. Thumb is teal to match
+   * the primary accent and stays visible against the dark
+   * background on both themes. */
+  .manual-slider input[type="range"],
+  .fixed-slider input[type="range"],
+  .fg input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 44px;
+  }
+  .manual-slider input[type="range"]::-webkit-slider-runnable-track,
+  .fixed-slider input[type="range"]::-webkit-slider-runnable-track,
+  .fg input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px; background: var(--bg3); border-radius: 2px;
+  }
+  .manual-slider input[type="range"]::-webkit-slider-thumb,
+  .fixed-slider input[type="range"]::-webkit-slider-thumb,
+  .fg input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--teal); border: 0;
+    /* Centre the 44px thumb on the 4px track: (44-4)/2 = 20px up. */
+    margin-top: -20px;
+    cursor: pointer;
+  }
+  .manual-slider input[type="range"]::-moz-range-track,
+  .fixed-slider input[type="range"]::-moz-range-track,
+  .fg input[type="range"]::-moz-range-track {
+    height: 4px; background: var(--bg3); border-radius: 2px;
+  }
+  .manual-slider input[type="range"]::-moz-range-thumb,
+  .fixed-slider input[type="range"]::-moz-range-thumb,
+  .fg input[type="range"]::-moz-range-thumb {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--teal); border: 0;
+    cursor: pointer;
+  }
+
+  /* Checkboxes — widen the wrapping <label> hit area rather than
+   * scaling the native glyph. The label already uses display:flex
+   * with a centered gap; adding min-height + vertical padding
+   * reserves a 44-tall touch region while the checkbox box itself
+   * stays at UA-default size (matches the desktop look, keeps the
+   * adjacent text legible). .source-list is the only current
+   * callsite (mix-curve source selector); the selector is narrow
+   * on purpose so a future setup-wizard checkbox doesn't
+   * inadvertently inherit the bumped row height. */
+  .source-list label {
+    min-height: 44px;
+    padding: 4px 0;
+  }
+
+  /* Edit / delete glyph icons inside card-name-edit and fan cards.
+   * Mirrors the .icon-btn rule above — pads the hit target to
+   * 44×44 without enlarging the visible font-size: 0.7rem glyph
+   * (declared outside this block at line ~176 and intentionally
+   * small so it doesn't crowd the card title). inline-flex
+   * centers the glyph inside the expanded hit box. */
+  .edit-icon {
+    min-width: 44px; min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
