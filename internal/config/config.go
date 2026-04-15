@@ -311,6 +311,18 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One-shot compatibility repairs for configs written by earlier
+	// ventd versions. Currently only repopulates web.tls_cert/tls_key
+	// from a sibling first-boot keypair, so post-F2 installs stop
+	// crashlooping on configs that pre-date the relevant Save() fix.
+	// Mutations are persisted here so the next boot is idempotent.
+	if mutated, mErr := Migrate(cfg, path, nil); mErr != nil {
+		return nil, fmt.Errorf("migrate config %s: %w", path, mErr)
+	} else if mutated {
+		if _, sErr := Save(cfg, path); sErr != nil {
+			return nil, fmt.Errorf("persist migrated config %s: %w", path, sErr)
+		}
+	}
 	// Self-heal upgrade case: if the on-disk config pre-dates the
 	// ChipName field and the hwmon paths are still valid (no
 	// renumber happened), populate ChipName from the live name file
