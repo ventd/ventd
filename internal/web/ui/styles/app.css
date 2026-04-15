@@ -388,3 +388,126 @@ button.danger:hover { background: var(--red); color: #fff; }
 .fixed-slider { display: flex; align-items: center; gap: 8px; }
 .fixed-slider input[type=range] { flex: 1; }
 .fixed-slider .pct { color: var(--blue); font-size: 0.8rem; min-width: 35px; }
+.fixed-slider .num { width: 55px; }
+
+/* ── Utility classes (extracted from inline styles for CSP hardening) ── */
+.text-fg2  { color: var(--fg2); }
+.text-fg3  { color: var(--fg3); }
+.text-fg4  { color: var(--fg4); }
+.text-teal { color: var(--teal); }
+.text-amber{ color: var(--amber); }
+.text-red  { color: var(--red); }
+.text-blue { color: var(--blue); }
+.no-shrink { flex-shrink: 0; }
+
+/* Header brand SVG fill via CSS instead of inline */
+.brand-svg { fill: var(--teal); flex-shrink: 0; }
+/* Tagline / subtitle below brand */
+.brand-subtitle { color: var(--fg3); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 1px; }
+
+/* Header icon button (hamburger, settings cog, theme toggle) */
+.icon-btn {
+  background: none; border: 1px solid var(--border); color: var(--fg2);
+  padding: 4px 9px; border-radius: 4px; cursor: pointer;
+  font-family: inherit; font-size: 1rem; line-height: 1;
+}
+.icon-btn:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-bg); }
+
+/* Detect-RPM micro button */
+.detect-btn { font-size: 0.65rem; padding: 1px 5px; }
+
+/* Fixed-width inputs */
+.input-w-55 { width: 55px; }
+
+/* Header tweaks for setup wizard's title row */
+.wizard-title-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 0.3rem;
+}
+.wizard-title-row h2 { margin: 0; }
+.wizard-title-row .icon-btn { margin-top: 2px; }
+
+/* Setup wizard: phase / board / chip / log lines */
+.setup-phase-area { /* visibility toggled via .hidden */ }
+.setup-phase-status { color: var(--fg2); font-size: 0.85rem; margin-bottom: 0.8rem; min-height: 1.2em; }
+.setup-board-line   { color: var(--teal);  font-size: 0.82rem; margin-bottom: 0.4rem; font-weight: 600; }
+.setup-chip-line    { color: var(--amber); font-size: 0.82rem; margin-bottom: 0.8rem; }
+.setup-install-log {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px; font-size: 0.72rem; max-height: 160px; overflow-y: auto;
+  margin-bottom: 1rem; color: var(--fg2); font-family: monospace;
+}
+.setup-install-log .log-line { margin: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.setup-reboot-panel {
+  background: var(--amber-bg); border: 1px solid var(--amber);
+  border-radius: 8px; padding: 1.2rem 1.4rem; margin-top: 1rem;
+}
+.setup-reboot-title { font-weight: 600; margin-bottom: 0.5rem; color: var(--amber); }
+.setup-reboot-msg   { font-size: 0.85rem; margin-bottom: 1rem; line-height: 1.5; }
+.reboot-status      { margin-left: 1rem; font-size: 0.85rem; color: var(--fg2); }
+.setup-restarting   { color: var(--amber); font-size: 0.85rem; margin-top: 1rem; }
+#setup-apply-hint   { color: var(--fg2); font-size: 0.8rem; }
+
+/* Settings modal */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 300; align-items: center; justify-content: center;
+  display: none;
+}
+.modal-backdrop.open { display: flex; }
+.modal-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1.5rem;
+  width: 100%; max-width: 420px;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 1.2rem;
+}
+.modal-header h2 {
+  color: var(--fg1); font-size: 0.95rem;
+  text-transform: none; letter-spacing: 0;
+}
+.modal-close {
+  background: none; border: none; color: var(--fg2);
+  font-size: 1.1rem; cursor: pointer; padding: 0;
+}
+.modal-section { border-top: 1px solid var(--border); padding-top: 1rem; }
+.modal-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.6rem 0;
+}
+.modal-row .row-title    { color: var(--fg1); font-size: 0.85rem; }
+.modal-row .row-subtitle { color: var(--fg2); font-size: 0.75rem; margin-top: 2px; }
+.modal-row .danger       { flex-shrink: 0; margin-left: 1rem; }
+#settings-status { margin-top: 0.8rem; font-size: 0.8rem; color: var(--fg2); }
+
+/* Hardware sidebar empty-state */
+.hw-empty { color: var(--fg3); font-size: 0.75rem; padding: 8px 12px; }
+
+/* Inline temp value highlight inside system-status pills */
+.sys-status .sensor-name { color: var(--fg2); }
+.sys-status .sensor-val  { color: var(--teal); }
+.sys-status .dot         { color: var(--fg4); }
+
+/* Curve type-badge case */
+.type-badge { text-transform: uppercase; }
+
+/* SVG class-based stroke/fill (used in mini-graphs and the curve editor) */
+.svg-stroke-teal    { stroke: var(--teal); }
+.svg-stroke-blue    { stroke: var(--blue); }
+.svg-stroke-border  { stroke: var(--border); }
+.svg-stroke-border2 { stroke: var(--border2); }
+.svg-stroke-amber   { stroke: var(--amber); }
+.svg-fill-bg        { fill:   var(--bg); }
+.svg-fill-fg3       { fill:   var(--fg3); }
+.svg-fill-amber     { fill:   var(--amber); }
+.svg-text-mono      { font-family: monospace; }
+
+/* Curve editor SVG control points */
+.ctrl-point.min { fill: var(--teal); }
+.ctrl-point.max { fill: var(--blue); }
+.ctrl-point     { stroke: var(--bg2); stroke-width: 1.5; cursor: grab; }
+
+/* Setup error rendered with esc()-wrapped span */
+.cal-err { color: var(--red); }

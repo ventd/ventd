@@ -13,46 +13,46 @@
 <!-- Setup wizard overlay — shown on first boot when no config exists -->
 <div id="setup-overlay" class="hidden">
   <div class="setup-box">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.3rem">
-      <h2 style="margin:0">Ventd Setup</h2>
-      <button class="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode" style="margin-top:2px">&#9790;</button>
+    <div class="wizard-title-row">
+      <h2>Ventd Setup</h2>
+      <button class="icon-btn" data-action="toggle-theme" title="Toggle light/dark mode">&#9790;</button>
     </div>
     <p class="sub">Detecting your hardware and setting up fan control automatically.</p>
 
     <!-- Phase status shown while wizard is running -->
-    <div id="setup-phase-area" style="display:none">
-      <div id="setup-phase-status" style="color:var(--fg2);font-size:0.85rem;margin-bottom:0.8rem;min-height:1.2em"></div>
-      <div id="setup-board-line" style="display:none;color:var(--teal);font-size:0.82rem;margin-bottom:0.4rem;font-weight:600"></div>
-      <div id="setup-chip-line" style="display:none;color:var(--amber);font-size:0.82rem;margin-bottom:0.8rem"></div>
+    <div id="setup-phase-area" class="hidden">
+      <div id="setup-phase-status" class="setup-phase-status"></div>
+      <div id="setup-board-line" class="setup-board-line hidden"></div>
+      <div id="setup-chip-line"  class="setup-chip-line hidden"></div>
       <!-- Install log — visible during installing_driver phase -->
-      <div id="setup-install-log" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:0.72rem;max-height:160px;overflow-y:auto;margin-bottom:1rem;color:var(--fg2);font-family:monospace"></div>
+      <div id="setup-install-log" class="setup-install-log hidden"></div>
     </div>
 
-    <div id="setup-progress-area" style="display:none">
+    <div id="setup-progress-area" class="hidden">
       <table class="setup-fan-table" id="setup-fan-table">
         <thead><tr>
           <th>Fan</th><th>Type</th><th>Detection</th><th>Calibration</th><th>Result</th>
         </tr></thead>
         <tbody id="setup-fan-tbody"></tbody>
       </table>
-      <div id="setup-error" class="setup-error" style="display:none"></div>
+      <div id="setup-error" class="setup-error hidden"></div>
     </div>
 
-    <div id="setup-reboot-panel" style="display:none;background:var(--amber-bg,#2d2400);border:1px solid var(--amber,#c89020);border-radius:8px;padding:1.2rem 1.4rem;margin-top:1rem">
-      <div style="font-weight:600;margin-bottom:0.5rem;color:var(--amber,#c89020)">Reboot Required</div>
-      <div id="setup-reboot-msg" style="font-size:0.85rem;margin-bottom:1rem;line-height:1.5"></div>
-      <button class="primary" onclick="doReboot()" id="btn-reboot">Reboot Now</button>
-      <span id="reboot-status" style="margin-left:1rem;font-size:0.85rem;color:var(--fg2)"></span>
+    <div id="setup-reboot-panel" class="setup-reboot-panel hidden">
+      <div class="setup-reboot-title">Reboot Required</div>
+      <div id="setup-reboot-msg" class="setup-reboot-msg"></div>
+      <button class="primary" data-action="reboot" id="btn-reboot">Reboot Now</button>
+      <span id="reboot-status" class="reboot-status"></span>
     </div>
 
-    <div id="setup-done-area" style="display:none">
+    <div id="setup-done-area" class="hidden">
       <div class="setup-summary" id="setup-summary"></div>
       <div class="setup-actions" id="setup-actions">
-        <button id="btn-setup-apply" class="primary" onclick="setupApply()">Apply Configuration</button>
-        <span id="setup-apply-hint" style="color:var(--fg2);font-size:0.8rem"></span>
+        <button id="btn-setup-apply" class="primary" data-action="setup-apply">Apply Configuration</button>
+        <span id="setup-apply-hint"></span>
       </div>
-      <div style="display:none;color:var(--amber);font-size:0.85rem;margin-top:1rem" id="setup-restarting">
-        Restarting daemon… <span id="setup-restart-dots">.</span>
+      <div id="setup-restarting" class="setup-restarting hidden">
+        Restarting daemon&hellip; <span id="setup-restart-dots">.</span>
       </div>
     </div>
   </div>
@@ -60,7 +60,7 @@
 
 <header>
   <div class="header-brand">
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="var(--teal)" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+    <svg width="28" height="28" viewBox="0 0 24 24" class="brand-svg" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 12 Q8 9 9 4 Q13 3 13 8z" opacity="0.85"/>
       <path d="M12 12 Q15 8 20 9 Q21 13 16 13z" opacity="0.85"/>
       <path d="M12 12 Q16 15 15 20 Q11 21 11 16z" opacity="0.85"/>
@@ -77,35 +77,36 @@
     <span id="live-dot" class="live-dot" title="Live data"></span>
     <span id="dirty" class="badge" hidden>Unsaved</span>
     <button id="btn-apply" class="primary" disabled>Apply</button>
-    <button id="btn-sidebar" onclick="toggleSidebar()" title="Toggle hardware panel" style="padding:4px 8px">&#9776;</button>
-    <button id="btn-theme" class="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">&#9790;</button>
-    <button id="btn-settings" onclick="openSettings()" title="Settings" style="padding:4px 8px">&#9881;</button>
+    <button id="btn-sidebar"  class="icon-btn" data-action="toggle-sidebar" title="Toggle hardware panel">&#9776;</button>
+    <button id="btn-theme"    class="icon-btn" data-action="toggle-theme"   title="Toggle light/dark mode">&#9790;</button>
+    <button id="btn-settings" class="icon-btn" data-action="open-settings"  title="Settings">&#9881;</button>
   </div>
 </header>
 
 <!-- Settings modal -->
-<div id="settings-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:300;align-items:center;justify-content:center">
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.5rem;width:100%;max-width:420px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem">
-      <h2 style="color:var(--fg1);font-size:0.95rem;text-transform:none;letter-spacing:0">Settings</h2>
-      <button onclick="closeSettings()" style="background:none;border:none;color:var(--fg2);font-size:1.1rem;cursor:pointer;padding:0">&#10005;</button>
+<div id="settings-overlay" class="modal-backdrop">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button class="modal-close" data-action="close-settings">&#10005;</button>
     </div>
-    <div style="border-top:1px solid var(--border);padding-top:1rem">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0">
+    <div class="modal-section">
+      <div class="modal-row">
         <div>
-          <div style="color:var(--fg1);font-size:0.85rem">Reset to Initial Setup</div>
-          <div style="color:var(--fg2);font-size:0.75rem;margin-top:2px">Remove current config and re-run the setup wizard</div>
+          <div class="row-title">Reset to Initial Setup</div>
+          <div class="row-subtitle">Remove current config and re-run the setup wizard</div>
         </div>
-        <button class="danger" onclick="confirmReset()" style="flex-shrink:0;margin-left:1rem">Reset</button>
+        <button class="danger" data-action="confirm-reset">Reset</button>
       </div>
     </div>
-    <div id="settings-status" style="margin-top:0.8rem;font-size:0.8rem;color:var(--fg2)"></div>
+    <div id="settings-status"></div>
   </div>
 </div>
+
 <div class="layout">
   <div class="sidebar" id="sidebar">
     <div class="sidebar-hdr">Hardware Monitor</div>
-    <div id="hw-devices" style="color:var(--fg3);font-size:0.75rem;padding:8px 12px">Loading...</div>
+    <div id="hw-devices" class="hw-empty">Loading...</div>
   </div>
   <main>
     <div class="section hwdiag-section hidden" id="hwdiag-section">
@@ -124,10 +125,10 @@
       <div class="section-hdr">
         <h2>Curves</h2>
         <div class="add-btns">
-          <button onclick="addCurve('linear')">+ Linear</button>
-          <button onclick="addCurve('fixed')">+ Fixed</button>
-          <button onclick="addCurve('mix')">+ Mix</button>
-          <button onclick="autoCurve()">Auto</button>
+          <button data-action="add-curve" data-type="linear">+ Linear</button>
+          <button data-action="add-curve" data-type="fixed">+ Fixed</button>
+          <button data-action="add-curve" data-type="mix">+ Mix</button>
+          <button data-action="auto-curve">Auto</button>
         </div>
       </div>
       <div class="card-grid" id="curve-cards"></div>
