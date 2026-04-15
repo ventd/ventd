@@ -32,3 +32,7 @@ cover.html
 # Internal dev tooling
 /scripts/provision-test-vms.sh
 securitytodo.md
+
+# fresh-VM smoke harness artifacts
+/validation/.build/
+/validation/fresh-vm-smoke-*.md
