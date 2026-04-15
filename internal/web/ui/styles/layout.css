@@ -113,6 +113,7 @@ main { flex: 1; padding: 1rem 1.5rem; max-width: 1100px; overflow-y: auto; }
 .section { margin-bottom: 2.5rem; }
 .section-hdr {
   display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; row-gap: 0.4rem;
   margin-bottom: 0.6rem;
 }
 
