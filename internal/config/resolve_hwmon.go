@@ -10,6 +10,35 @@ import (
 	"strings"
 )
 
+// hwmonDevicePathOf resolves a hwmonN directory name to the stable
+// /sys/devices/... path behind its `device` symlink. Used only when
+// buildChipMap returns multiple hwmonN entries for the same chip_name
+// (common on dual-controller boards where two drivers — e.g. nct6683
+// and nct6687 — report identical `name` attributes), to disambiguate
+// via each Sensor/Fan's HwmonDevice field.
+//
+// Overridable so tests can drive the resolver without touching real
+// sysfs. The default walks the live filesystem via EvalSymlinks.
+var hwmonDevicePathOf = func(hwmonN string) (string, error) {
+	return filepath.EvalSymlinks(filepath.Join("/sys/class/hwmon", hwmonN, "device"))
+}
+
+// SetHwmonDevicePathResolver overrides the function used to resolve a
+// hwmonN directory to its stable /sys/devices/... path. Pass nil to
+// restore the default (EvalSymlinks against /sys/class/hwmon). Returns
+// the previous resolver so tests can restore it via t.Cleanup.
+func SetHwmonDevicePathResolver(f func(string) (string, error)) func(string) (string, error) {
+	prev := hwmonDevicePathOf
+	if f == nil {
+		hwmonDevicePathOf = func(hwmonN string) (string, error) {
+			return filepath.EvalSymlinks(filepath.Join("/sys/class/hwmon", hwmonN, "device"))
+		}
+	} else {
+		hwmonDevicePathOf = f
+	}
+	return prev
+}
+
 // EnrichChipName fills in ChipName for any hwmon Sensor or Fan that
 // lacks it by reading `dirname(path)/name`. Idempotent: entries with
 // a non-empty ChipName are left alone.
@@ -109,7 +138,7 @@ func ResolveHwmonPaths(cfg *Config, fsys fs.FS) error {
 		if s.Type != "hwmon" || s.ChipName == "" {
 			continue
 		}
-		hwmonDir, err := lookupChip("sensor", s.Name, s.ChipName, chipToHwmon)
+		hwmonDir, err := lookupChip("sensor", s.Name, s.ChipName, s.HwmonDevice, chipToHwmon)
 		if err != nil {
 			return err
 		}
@@ -125,7 +154,7 @@ func ResolveHwmonPaths(cfg *Config, fsys fs.FS) error {
 		if f.Type != "hwmon" || f.ChipName == "" {
 			continue
 		}
-		hwmonDir, err := lookupChip("fan", f.Name, f.ChipName, chipToHwmon)
+		hwmonDir, err := lookupChip("fan", f.Name, f.ChipName, f.HwmonDevice, chipToHwmon)
 		if err != nil {
 			return err
 		}
@@ -191,16 +220,68 @@ func buildChipMap(fsys fs.FS) (map[string][]string, error) {
 	return m, nil
 }
 
-func lookupChip(kind, entryName, chip string, chipToHwmon map[string][]string) (string, error) {
+// lookupChip picks the hwmonN directory that matches chip (the value
+// of `hwmonN/name`). When multiple hwmonN entries report the same
+// chip name — seen on boards that load both nct6683 and nct6687, for
+// example — the caller's configured device path (the stable
+// /sys/devices/... path from the Sensor/Fan's HwmonDevice field) is
+// used to disambiguate.
+//
+// Disambiguation rules:
+//   - Single match: device is ignored; return the sole match.
+//   - Multi-match + empty device: error. Operators see a clear
+//     instruction to set hwmon_device in their config.
+//   - Multi-match + non-empty device: resolve each candidate hwmonN's
+//     `device` symlink and pick the one whose resolved path equals
+//     device. If zero or >1 candidates resolve to device, error.
+//   - Any candidate whose symlink fails to resolve is skipped — the
+//     device may have been removed mid-boot; the remaining candidates
+//     are considered.
+func lookupChip(kind, entryName, chip, device string, chipToHwmon map[string][]string) (string, error) {
 	matches := chipToHwmon[chip]
 	switch len(matches) {
 	case 0:
 		return "", fmt.Errorf("%s %q: no hwmon device with chip_name %q", kind, entryName, chip)
 	case 1:
 		return matches[0], nil
-	default:
-		return "", fmt.Errorf("%s %q: chip_name %q matches multiple hwmon devices (%s); disambiguate with hwmon_device",
+	}
+
+	if device == "" {
+		return "", fmt.Errorf("%s %q: chip_name %q matches multiple hwmon devices (%s); set hwmon_device to the stable /sys/devices/... path to disambiguate",
 			kind, entryName, chip, strings.Join(matches, ", "))
+	}
+
+	// Resolve device path is an absolute /sys/devices/... path. Some
+	// callers may write hwmon_device with a trailing slash or embedded
+	// symlinks; canonicalise before comparing so equal paths compare
+	// equal. Failure to resolve the configured path is fatal: the
+	// operator wrote a path that doesn't exist on this system.
+	wantDevice, err := filepath.EvalSymlinks(device)
+	if err != nil {
+		return "", fmt.Errorf("%s %q: hwmon_device %q is not resolvable on this system: %w", kind, entryName, device, err)
+	}
+
+	var hits []string
+	for _, m := range matches {
+		got, err := hwmonDevicePathOf(m)
+		if err != nil {
+			// Candidate's device symlink is unreadable — skip it, another
+			// candidate may still match.
+			continue
+		}
+		if got == wantDevice {
+			hits = append(hits, m)
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return "", fmt.Errorf("%s %q: hwmon_device %q does not match any of chip_name %q candidates (%s)",
+			kind, entryName, device, chip, strings.Join(matches, ", "))
+	case 1:
+		return hits[0], nil
+	default:
+		return "", fmt.Errorf("%s %q: hwmon_device %q resolves to multiple hwmonN candidates (%s); this indicates a kernel-level duplicate and cannot be resolved from config alone",
+			kind, entryName, device, strings.Join(hits, ", "))
 	}
 }
 

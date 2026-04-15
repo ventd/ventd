@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -427,6 +428,156 @@ func TestResolveHwmonPaths_SymlinkedHwmonEntries(t *testing.T) {
 	}
 	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon5/temp1_input"; got != want {
 		t.Errorf("coretemp sensor path: got %q, want %q", got, want)
+	}
+}
+
+// TestResolveHwmonPaths_DisambiguateViaHwmonDevice covers the dual-
+// nct6687 rig scenario where two distinct drivers (e.g. nct6683 and
+// nct6687) load and both expose `name=nct6687` at their hwmonN/name
+// attribute. ChipName alone can't disambiguate; the Sensor/Fan's
+// configured HwmonDevice (stable /sys/devices/... path) picks the
+// right hwmonN by EvalSymlinks equality.
+func TestResolveHwmonPaths_DisambiguateViaHwmonDevice(t *testing.T) {
+	root := t.TempDir()
+	classDir := filepath.Join(root, "class", "hwmon")
+	if err := os.MkdirAll(classDir, 0o755); err != nil {
+		t.Fatalf("mkdir classDir: %v", err)
+	}
+
+	// Two chips, both report name=nct6687, distinct /sys/devices paths.
+	type chip struct {
+		hwmon, chipName, devicePath string
+	}
+	chips := []chip{
+		{"hwmon5", "nct6687", "devices/platform/nct6683.2592"},
+		{"hwmon6", "nct6687", "devices/platform/nct6687.2592"},
+	}
+	deviceFor := map[string]string{}
+	for _, c := range chips {
+		hwmonDir := filepath.Join(root, c.devicePath, "hwmon", c.hwmon)
+		if err := os.MkdirAll(hwmonDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", hwmonDir, err)
+		}
+		if err := os.WriteFile(filepath.Join(hwmonDir, "name"), []byte(c.chipName+"\n"), 0o644); err != nil {
+			t.Fatalf("write name: %v", err)
+		}
+		// class entry: symlink to the hwmonN dir
+		target, err := filepath.Rel(classDir, hwmonDir)
+		if err != nil {
+			t.Fatalf("rel: %v", err)
+		}
+		if err := os.Symlink(target, filepath.Join(classDir, c.hwmon)); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		// Resolved "device" path is the platform dir one up from hwmon/hwmonN.
+		deviceFor[c.hwmon] = filepath.Join(root, c.devicePath)
+	}
+
+	// Override the resolver to map hwmonN -> the absolute platform path we
+	// just built. Mirrors production: /sys/class/hwmon/hwmonN/device
+	// EvalSymlinks to /sys/devices/platform/<chip>.<addr>.
+	prev := SetHwmonDevicePathResolver(func(hwmonN string) (string, error) {
+		p, ok := deviceFor[hwmonN]
+		if !ok {
+			return "", fmt.Errorf("unknown hwmon %q", hwmonN)
+		}
+		return filepath.EvalSymlinks(p)
+	})
+	t.Cleanup(func() { SetHwmonDevicePathResolver(prev) })
+
+	fsys := os.DirFS(classDir)
+
+	// 1. Multi-match + HwmonDevice pointing at nct6687 resolves to hwmon6.
+	cfg := &Config{
+		Fans: []Fan{
+			{
+				Name:        "cpu_fan",
+				Type:        "hwmon",
+				PWMPath:     "/sys/class/hwmon/hwmon99/pwm1",
+				ChipName:    "nct6687",
+				HwmonDevice: filepath.Join(root, "devices/platform/nct6687.2592"),
+			},
+		},
+	}
+	if err := ResolveHwmonPaths(cfg, fsys); err != nil {
+		t.Fatalf("expected successful disambiguation; got %v", err)
+	}
+	if got, want := cfg.Fans[0].PWMPath, "/sys/class/hwmon/hwmon6/pwm1"; got != want {
+		t.Errorf("PWMPath: got %q, want %q", got, want)
+	}
+
+	// 2. Multi-match + HwmonDevice pointing at nct6683 resolves to hwmon5.
+	cfg.Fans[0].PWMPath = "/sys/class/hwmon/hwmon99/pwm1"
+	cfg.Fans[0].HwmonDevice = filepath.Join(root, "devices/platform/nct6683.2592")
+	if err := ResolveHwmonPaths(cfg, fsys); err != nil {
+		t.Fatalf("expected successful disambiguation; got %v", err)
+	}
+	if got, want := cfg.Fans[0].PWMPath, "/sys/class/hwmon/hwmon5/pwm1"; got != want {
+		t.Errorf("PWMPath (second): got %q, want %q", got, want)
+	}
+
+	// 3. Multi-match + empty HwmonDevice errors with a helpful message.
+	cfg.Fans[0].HwmonDevice = ""
+	cfg.Fans[0].PWMPath = "/sys/class/hwmon/hwmon99/pwm1"
+	err := ResolveHwmonPaths(cfg, fsys)
+	if err == nil {
+		t.Fatal("expected error when HwmonDevice empty on multi-match")
+	}
+	for _, want := range []string{"multiple", "hwmon_device", "hwmon5", "hwmon6", "nct6687"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q; got %v", want, err)
+		}
+	}
+
+	// 4. Multi-match + HwmonDevice pointing at a path that doesn't match
+	// any candidate errors clearly.
+	cfg.Fans[0].HwmonDevice = filepath.Join(root, "devices/platform/nct6999.0000")
+	if err := os.MkdirAll(cfg.Fans[0].HwmonDevice, 0o755); err != nil {
+		t.Fatalf("mkdir decoy: %v", err)
+	}
+	cfg.Fans[0].PWMPath = "/sys/class/hwmon/hwmon99/pwm1"
+	err = ResolveHwmonPaths(cfg, fsys)
+	if err == nil {
+		t.Fatal("expected error when HwmonDevice matches no candidate")
+	}
+	if !strings.Contains(err.Error(), "does not match any") {
+		t.Errorf("error should say 'does not match any'; got %v", err)
+	}
+
+	// 5. Multi-match + HwmonDevice that does not resolve on this system.
+	cfg.Fans[0].HwmonDevice = "/definitely/not/here/platform/ghost.0"
+	cfg.Fans[0].PWMPath = "/sys/class/hwmon/hwmon99/pwm1"
+	err = ResolveHwmonPaths(cfg, fsys)
+	if err == nil {
+		t.Fatal("expected error when HwmonDevice unresolvable")
+	}
+	if !strings.Contains(err.Error(), "not resolvable") {
+		t.Errorf("error should say 'not resolvable'; got %v", err)
+	}
+}
+
+// TestResolveHwmonPaths_SingleMatchIgnoresHwmonDevice — when there's
+// only one hwmonN for a chip, the configured HwmonDevice is ignored
+// even if it would not resolve. Single-match configs are unambiguous
+// and must keep working regardless of hwmon_device content.
+func TestResolveHwmonPaths_SingleMatchIgnoresHwmonDevice(t *testing.T) {
+	fsys := hwmonFS(map[string]string{"hwmon4": "nct6687"}, nil)
+	cfg := &Config{
+		Sensors: []Sensor{
+			{
+				Name:        "cpu",
+				Type:        "hwmon",
+				Path:        "/sys/class/hwmon/hwmon3/temp1_input",
+				ChipName:    "nct6687",
+				HwmonDevice: "/nonexistent/path/that/would/fail/EvalSymlinks",
+			},
+		},
+	}
+	if err := ResolveHwmonPaths(cfg, fsys); err != nil {
+		t.Fatalf("single-match should ignore HwmonDevice; got %v", err)
+	}
+	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon4/temp1_input"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
