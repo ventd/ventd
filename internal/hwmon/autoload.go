@@ -13,6 +13,70 @@ import (
 	"time"
 )
 
+// ─────────────────────────────────────────────────────────────────────
+// REVIEW NOTES — phoenixdnb
+// ─────────────────────────────────────────────────────────────────────
+//
+// Pre-merge review of PR #15 (downgrade repeat module-persist warning
+// to DEBUG). Scope is tiny; tests cover the gate. Notes below are
+// about the chosen strategy, not the implementation.
+//
+// STATUS
+//   UNTESTED ON RIG (phoenix-MS-7D25). Verify tonight:
+//     1. Fresh boot of the unit under ProtectSystem=strict. Expect
+//        one INFO line for "could not persist hwmon module" per
+//        distinct module name, no repeats at higher level.
+//     2. Restart the unit without reboot. The process-scoped gate
+//        resets, so expect INFO again. This is intended behaviour
+//        (operator restarted, deserves the state line).
+//     3. If the hardware watcher promotes a second module during a
+//        single process lifetime, the second persist failure for
+//        that new module should also be INFO (different key); a
+//        second attempt for the SAME module stays DEBUG.
+//
+// CROSS-REF securitytodo.md item #3 ("Module-persist log noise
+// under sandbox") AND item #5 (per PR #12 body's reference to
+// "module-persist warning"). PR #15's body claims both are closed.
+// Confirm against the live securitytodo.md — items #3 and #5 may
+// describe the same issue from different angles, or item #5 may
+// scope something narrower that this PR does NOT cover.
+//
+// CONCERNS
+//
+// 1. Option 2 (drop the persist step) may be the correct long-term
+//    fix, not Option 3 (log-downgrade). Reasoning:
+//      - The persist call ALWAYS fails under the shipped systemd unit
+//        because ProtectSystem=strict keeps /etc RO in the namespace
+//        and /etc/modules-load.d/ is not in ReadWritePaths.
+//      - The call therefore succeeds ONLY on non-systemd init systems
+//        (OpenRC, runit) — where ventd runs without the namespace —
+//        OR on a hand-hardened-away unit, which is out of support
+//        scope.
+//      - The installer (scripts/install.sh, scripts/postinstall.sh)
+//        runs as root OUTSIDE any unit namespace and COULD write
+//        /etc/modules-load.d/ventd.conf once at install time. The
+//        daemon would then never need to attempt the persist and this
+//        whole log path could go away.
+//    This PR is still worth landing as-is — Option 2 is a larger
+//    refactor and needs the installer change plus coordination with
+//    OpenRC/runit paths. Flag as a follow-up.
+//
+// 2. sync.Map grows unbounded (keyed on module name, never purged).
+//    In practice module-name cardinality is 1–5 over a process
+//    lifetime, so this is a theoretical leak, not an operational one.
+//    Not worth a mitigation.
+//
+// 3. Log message is unchanged across both paths. If any downstream
+//    log consumer string-matched on "could not persist hwmon module"
+//    and filtered by level (warn vs info vs debug), its filter now
+//    behaves differently. No consumer is known to do this, but
+//    tagged here in case one surfaces post-merge.
+//
+// README-DRIFT
+//   None — README.md does not document module-persist logging.
+//
+// ─────────────────────────────────────────────────────────────────────
+
 // persistWarned gates the module-persist log level: the first failure for a
 // given module name is logged at INFO with the full reason; every later
 // failure for that same module drops to DEBUG. The sandboxed unit cannot
