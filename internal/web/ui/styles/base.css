@@ -11,7 +11,7 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-sans);
   background: var(--bg); color: var(--fg);
   /* Scale with viewport width: ~14px at 1280px, ~16px at 1440px, capped at 18px */
   font-size: clamp(14px, 1.1vw, 18px);
@@ -76,4 +76,8 @@ h2 {
 .svg-fill-bg        { fill:   var(--bg); }
 .svg-fill-fg3       { fill:   var(--fg3); }
 .svg-fill-amber     { fill:   var(--amber); }
-.svg-text-mono      { font-family: monospace; }
+.svg-text-mono      { font-family: var(--font-mono); }
+
+/* Mono utility — apply to any ad-hoc numeric readout that isn't
+ * already covered by a data-readout component class. */
+.mono { font-family: var(--font-mono); }

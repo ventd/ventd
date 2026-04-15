@@ -1,4 +1,10 @@
 :root {
+  /* Font stacks mirror tokens.css so the login page (served pre-auth
+   * and outside the embedded ui/ tree loaded by index.html) inherits
+   * the same typography without depending on the dashboard bundle. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
   --bg:       #0d1117; --bg2: #161b22; --bg3: #21262d;
   --border:   #30363d;
   --fg:       #c9d1d9; --fg1: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
@@ -18,7 +24,7 @@
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-sans);
   background: var(--bg); color: var(--fg);
   font-size: 15px;
   min-height: 100vh;
@@ -80,4 +86,5 @@ h2 { font-size: 0.8rem; color: var(--fg2); text-transform: uppercase; letter-spa
 .hint code {
   background: var(--bg3); border: 1px solid var(--border);
   border-radius: 3px; padding: 1px 5px; color: var(--amber);
+  font-family: var(--font-mono);
 }
