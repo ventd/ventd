@@ -408,8 +408,15 @@ echo "  ✓ binary → $VENTD_PREFIX/ventd"
 # can read config while "other" stays locked out. On systemd,
 # ConfigurationDirectory= reasserts this on every start; the install
 # here is belt-and-braces for the wipe-and-reinstall path.
+#
+# chown is recursive: on upgrade from a prior User=root install the
+# directory already holds config.yaml / calibration.json / TLS
+# cert+key owned by root:root. Without -R those survive the upgrade
+# root-owned, the daemon starts as User=ventd, and config reads hit
+# EACCES. Mirrors the recursive chown in scripts/postinstall.sh for
+# the .deb/.rpm path.
 install -d -m 0750 /etc/ventd
-chown ventd:ventd /etc/ventd
+chown -R ventd:ventd /etc/ventd
 
 case "$INIT_SYSTEM" in
 
