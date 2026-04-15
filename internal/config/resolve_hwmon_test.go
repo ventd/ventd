@@ -556,28 +556,130 @@ func TestResolveHwmonPaths_DisambiguateViaHwmonDevice(t *testing.T) {
 	}
 }
 
-// TestResolveHwmonPaths_SingleMatchIgnoresHwmonDevice — when there's
-// only one hwmonN for a chip, the configured HwmonDevice is ignored
-// even if it would not resolve. Single-match configs are unambiguous
-// and must keep working regardless of hwmon_device content.
-func TestResolveHwmonPaths_SingleMatchIgnoresHwmonDevice(t *testing.T) {
+// TestResolveHwmonPaths_SingleMatchEmptyHwmonDevice — when there's
+// only one hwmonN for a chip AND hwmon_device is empty, the resolver
+// must still return the sole match. This preserves the behaviour of
+// configs that pre-date PR #42 (which introduced hwmon_device) and
+// haven't been re-saved through the current Save path.
+func TestResolveHwmonPaths_SingleMatchEmptyHwmonDevice(t *testing.T) {
 	fsys := hwmonFS(map[string]string{"hwmon4": "nct6687"}, nil)
 	cfg := &Config{
 		Sensors: []Sensor{
 			{
-				Name:        "cpu",
-				Type:        "hwmon",
-				Path:        "/sys/class/hwmon/hwmon3/temp1_input",
-				ChipName:    "nct6687",
-				HwmonDevice: "/nonexistent/path/that/would/fail/EvalSymlinks",
+				Name:     "cpu",
+				Type:     "hwmon",
+				Path:     "/sys/class/hwmon/hwmon3/temp1_input",
+				ChipName: "nct6687",
 			},
 		},
 	}
 	if err := ResolveHwmonPaths(cfg, fsys); err != nil {
-		t.Fatalf("single-match should ignore HwmonDevice; got %v", err)
+		t.Fatalf("single-match + empty HwmonDevice should succeed; got %v", err)
 	}
 	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon4/temp1_input"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// TestResolveHwmonPaths_SingleMatchHonoursHwmonDevice covers issue #86:
+// on a dual-Super-I/O board (two chips sharing a chip_name) where only
+// one chip has enumerated at daemon start, the resolver previously
+// returned the sole candidate unconditionally — silently binding every
+// fan to the wrong chip for hours. After the fix, a configured
+// hwmon_device must be honoured even when there is a single candidate:
+//   - matching hwmon_device        → resolve to the sole candidate
+//   - mismatched hwmon_device      → error ("does not match any")
+func TestResolveHwmonPaths_SingleMatchHonoursHwmonDevice(t *testing.T) {
+	root := t.TempDir()
+	classDir := filepath.Join(root, "class", "hwmon")
+	if err := os.MkdirAll(classDir, 0o755); err != nil {
+		t.Fatalf("mkdir classDir: %v", err)
+	}
+
+	// Only one chip has enumerated at this point — the nct6683.2592
+	// Super-I/O instance. The nct6687.2592 instance the operator
+	// configured against has not yet appeared.
+	realDir := filepath.Join(root, "devices/platform/nct6683.2592/hwmon/hwmon5")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", realDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "name"), []byte("nct6687\n"), 0o644); err != nil {
+		t.Fatalf("write name: %v", err)
+	}
+	target, err := filepath.Rel(classDir, realDir)
+	if err != nil {
+		t.Fatalf("rel: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(classDir, "hwmon5")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	enumeratedDevice := filepath.Join(root, "devices/platform/nct6683.2592")
+	configuredButMissing := filepath.Join(root, "devices/platform/nct6687.2592")
+	if err := os.MkdirAll(configuredButMissing, 0o755); err != nil {
+		t.Fatalf("mkdir decoy: %v", err)
+	}
+
+	prev := SetHwmonDevicePathResolver(func(hwmonN string) (string, error) {
+		if hwmonN == "hwmon5" {
+			return filepath.EvalSymlinks(enumeratedDevice)
+		}
+		return "", fmt.Errorf("unknown hwmon %q", hwmonN)
+	})
+	t.Cleanup(func() { SetHwmonDevicePathResolver(prev) })
+
+	fsys := os.DirFS(classDir)
+
+	cases := []struct {
+		name        string
+		hwmonDevice string
+		wantErr     bool
+		wantErrSub  string
+		wantPath    string
+	}{
+		{
+			name:        "matching_hwmon_device_resolves",
+			hwmonDevice: enumeratedDevice,
+			wantPath:    "/sys/class/hwmon/hwmon5/pwm1",
+		},
+		{
+			name:        "mismatched_hwmon_device_errors",
+			hwmonDevice: configuredButMissing,
+			wantErr:     true,
+			wantErrSub:  "does not match any",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Fans: []Fan{
+					{
+						Name:        "cpu_fan",
+						Type:        "hwmon",
+						PWMPath:     "/sys/class/hwmon/hwmon99/pwm1",
+						ChipName:    "nct6687",
+						HwmonDevice: tc.hwmonDevice,
+					},
+				},
+			}
+			err := ResolveHwmonPaths(cfg, fsys)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error (%s); got nil, PWMPath=%q", tc.wantErrSub, cfg.Fans[0].PWMPath)
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSub) {
+					t.Fatalf("error should contain %q; got %v", tc.wantErrSub, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveHwmonPaths: %v", err)
+			}
+			if got := cfg.Fans[0].PWMPath; got != tc.wantPath {
+				t.Errorf("PWMPath: got %q, want %q", got, tc.wantPath)
+			}
+		})
 	}
 }
 
