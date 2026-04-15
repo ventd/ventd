@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -787,4 +788,125 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) bool {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return cond()
+}
+
+func TestRemapKey(t *testing.T) {
+	const (
+		oldPath = "/sys/class/hwmon/hwmon3/pwm1"
+		newPath = "/sys/class/hwmon/hwmon4/pwm1"
+	)
+	seed := Result{PWMPath: oldPath, StartPWM: 60, MaxRPM: 1500}
+
+	t.Run("remaps existing key", func(t *testing.T) {
+		m := newManagerWith(t, map[string]Result{oldPath: seed})
+		m.RemapKey(oldPath, newPath)
+
+		all := m.AllResults()
+		if _, present := all[oldPath]; present {
+			t.Errorf("oldPath still present after remap")
+		}
+		got, ok := all[newPath]
+		if !ok {
+			t.Fatalf("newPath missing after remap; got keys %v", keys(all))
+		}
+		if got.PWMPath != newPath {
+			t.Errorf("PWMPath inside Result = %q, want %q (must be rewritten)", got.PWMPath, newPath)
+		}
+		if got.StartPWM != seed.StartPWM || got.MaxRPM != seed.MaxRPM {
+			t.Errorf("payload lost in remap: %+v", got)
+		}
+	})
+
+	t.Run("missing oldPath is a no-op", func(t *testing.T) {
+		m := newManagerWith(t, map[string]Result{newPath: seed})
+		m.RemapKey(oldPath, newPath)
+
+		all := m.AllResults()
+		if len(all) != 1 {
+			t.Fatalf("unexpected entries after no-op remap: %v", all)
+		}
+		if _, ok := all[newPath]; !ok {
+			t.Errorf("newPath clobbered by no-op remap")
+		}
+	})
+
+	t.Run("both keys present: new overwritten with old", func(t *testing.T) {
+		existing := Result{PWMPath: newPath, StartPWM: 99, MaxRPM: 9999}
+		m := newManagerWith(t, map[string]Result{oldPath: seed, newPath: existing})
+		m.RemapKey(oldPath, newPath)
+
+		all := m.AllResults()
+		if _, present := all[oldPath]; present {
+			t.Errorf("oldPath still present after remap")
+		}
+		got := all[newPath]
+		if got.StartPWM != seed.StartPWM || got.MaxRPM != seed.MaxRPM {
+			t.Errorf("RemapKey must overwrite the destination with the source payload; got %+v", got)
+		}
+	})
+}
+
+func TestSetDiagnosticStoreBackfillsPending(t *testing.T) {
+	// Seed an on-disk calibration.json whose schema_version is in the future so
+	// load() records a diagnostic. Then SetDiagnosticStore(nonNil) must
+	// replay that diagnostic into the attached store.
+	dir := t.TempDir()
+	calPath := filepath.Join(dir, "calibration.json")
+	envelope := map[string]any{
+		"schema_version": SchemaVersion + 1,
+		"results":        map[string]Result{},
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := os.WriteFile(calPath, raw, 0o644); err != nil {
+		t.Fatalf("write cal: %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := New(calPath, logger, nil)
+
+	diags := m.Diagnostics()
+	if len(diags) == 0 {
+		t.Fatal("expected load() to record a diagnostic for unsupported schema")
+	}
+
+	// Attaching nil is a no-op but must not panic.
+	m.SetDiagnosticStore(nil)
+
+	store := hwdiag.NewStore()
+	m.SetDiagnosticStore(store)
+
+	// The store should now contain the entry load() captured.
+	snap := store.Snapshot(hwdiag.Filter{})
+	if len(snap.Entries) != len(diags) {
+		t.Errorf("store holds %d entries after attach, want %d", len(snap.Entries), len(diags))
+	}
+	if len(snap.Entries) > 0 && snap.Entries[0].ID != diags[0].ID {
+		t.Errorf("store entry ID = %q, want %q", snap.Entries[0].ID, diags[0].ID)
+	}
+}
+
+// newManagerWith returns a Manager pre-seeded with the given results. It uses
+// an in-memory calibration path so save() writes into the test's tempdir.
+func newManagerWith(t *testing.T, seed map[string]Result) *Manager {
+	t.Helper()
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := New(calPath, logger, nil)
+	m.mu.Lock()
+	for k, v := range seed {
+		m.results[k] = v
+	}
+	m.mu.Unlock()
+	return m
+}
+
+func keys(m map[string]Result) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
