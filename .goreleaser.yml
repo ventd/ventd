@@ -71,6 +71,7 @@ archives:
       - scripts/install.sh
       - scripts/postinstall.sh
       - scripts/_ventd_account.sh
+      - scripts/ventd-wait-hwmon
   - id: musl
     ids:
       - ventd-musl
@@ -92,6 +93,7 @@ archives:
       - scripts/install.sh
       - scripts/postinstall.sh
       - scripts/_ventd_account.sh
+      - scripts/ventd-wait-hwmon
 
 checksum:
   name_template: "checksums.txt"
@@ -130,6 +132,10 @@ nfpms:
         dst: /usr/share/selinux/ventd/Makefile
       - src: scripts/_ventd_account.sh
         dst: /usr/share/ventd/_ventd_account.sh
+      - src: scripts/ventd-wait-hwmon
+        dst: /usr/local/sbin/ventd-wait-hwmon
+        file_info:
+          mode: 0755
       - src: config.example.yaml
         dst: /etc/ventd/config.example.yaml
         type: config

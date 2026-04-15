@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,6 +12,22 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// ErrHwmonDeviceNotReady means the configured hwmon_device path did not
+// exist on disk when the resolver ran. Typically a transient udev race
+// on cold boot: the driver for the second Super-I/O chip has not yet
+// enumerated its platform device by the time ventd starts. Startup
+// callers (LoadForStartup) should retry on this error until udev
+// settles; runtime callers (e.g. SIGHUP reload) should treat it as a
+// hard config error since the filesystem has stabilised by then.
+//
+// The sentinel deliberately terminates the error chain — wrapping is
+// done with %w against this sentinel, NOT against the underlying ENOENT
+// PathError. Before this change, ENOENT propagated all the way through
+// Load() and cmd/ventd used errors.Is(err, os.ErrNotExist) to detect
+// missing-config-file; the two conditions collided and the daemon
+// silently entered first-boot mode on cold boots. See issue #103.
+var ErrHwmonDeviceNotReady = errors.New("hwmon device not yet enumerated")
 
 // hwmonDevicePathOf resolves a hwmonN directory name to the stable
 // /sys/devices/... path behind its `device` symlink. Used only when
@@ -294,8 +311,21 @@ func lookupChip(kind, entryName, chip, device string, chipToHwmon map[string][]s
 	// symlinks; canonicalise before comparing so equal paths compare
 	// equal. Failure to resolve the configured path is fatal: the
 	// operator wrote a path that doesn't exist on this system.
+	//
+	// ENOENT here is a structurally different failure from any other
+	// EvalSymlinks error. On cold boot, udev may still be enumerating
+	// the second Super-I/O chip when ventd starts, and the configured
+	// path legitimately doesn't exist yet — that's a transient race
+	// to be retried, not a misconfiguration. Wrap ENOENT cases with
+	// ErrHwmonDeviceNotReady (see docs on the sentinel) so callers
+	// can detect the transient without the ENOENT leaking all the way
+	// out to cmd/ventd's os.ErrNotExist check.
 	wantDevice, err := filepath.EvalSymlinks(device)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%s %q: hwmon_device %q (%s): %w",
+				kind, entryName, device, err.Error(), ErrHwmonDeviceNotReady)
+		}
 		return "", fmt.Errorf("%s %q: hwmon_device %q is not resolvable on this system: %w", kind, entryName, device, err)
 	}
 

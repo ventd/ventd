@@ -114,17 +114,22 @@ func run() error {
 
 	logger.Info("ventd starting")
 
-	cfg, err := config.Load(*configPath)
-	firstBoot := false
+	// LoadForStartup discriminates three outcomes: first-boot (no config
+	// file), successful load, or a real startup failure. The helper's
+	// os.Stat gate is the critical fix for issue #103: before it, cmd/ventd
+	// used errors.Is(err, os.ErrNotExist) on Load's return, which also
+	// matched on transient hwmon_device ENOENT and silently dropped the
+	// daemon into first-boot mode on cold-boot udev races. The bounded
+	// retry inside LoadForStartup absorbs that race in-band so systemd's
+	// Restart=on-failure stays reserved for real startup failures.
+	cfg, firstBoot, err := config.LoadForStartup(*configPath, config.StartupOptions{
+		Timeout: config.DefaultStartupTimeout,
+	})
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("load config: %w", err)
-		}
-		// No config yet — first-boot mode. Start with an empty config so the
-		// web UI can serve the setup wizard.
+		return fmt.Errorf("load config: %w", err)
+	}
+	if firstBoot {
 		logger.Info("no config found, starting in first-boot mode", "path", *configPath)
-		cfg = config.Empty()
-		firstBoot = true
 	} else {
 		logger.Info("config loaded", "path", *configPath, "controls", len(cfg.Controls))
 	}

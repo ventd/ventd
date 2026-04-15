@@ -40,6 +40,26 @@ OnFailure=ventd-recover.service
 # the [Unit] section's OnFailure= triggers ventd-recover.service.
 Type=notify
 NotifyAccess=main
+
+# ExecStartPre gate for the cold-boot hwmon race (issue #103). Blocks
+# ventd from starting until every `hwmon_device:` path listed in
+# /etc/ventd/config.yaml has been created by udev, up to 30s. On a
+# healthy boot this is effectively instantaneous even when
+# systemd-udev-settle.service (see After= in [Unit]) returns early
+# under load. Belt-and-braces layer with the in-binary retry inside
+# config.LoadForStartup: either one alone closes the race, both
+# together survive old-binary/new-unit and new-binary/old-unit
+# upgrade matrices.
+#
+# The leading "-" is intentional: if the script is missing (e.g. a
+# partial upgrade that only replaced the binary), systemd treats the
+# non-zero status as non-fatal and falls through to ExecStart. The
+# in-binary retry still covers us in that case.
+#
+# Runs as root (no User= applied to ExecStartPre). Script reads the
+# 0640 ventd:ventd config and stats /sys/devices/... — no writes.
+ExecStartPre=-/usr/local/sbin/ventd-wait-hwmon
+
 ExecStart=/usr/local/bin/ventd -config /etc/ventd/config.yaml
 ExecReload=/bin/kill -HUP $MAINPID
 

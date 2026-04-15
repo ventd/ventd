@@ -545,14 +545,22 @@ func TestResolveHwmonPaths_DisambiguateViaHwmonDevice(t *testing.T) {
 	}
 
 	// 5. Multi-match + HwmonDevice that does not resolve on this system.
+	// ENOENT is a structurally different failure from permission denied
+	// or malformed symlinks: it's the cold-boot udev race, and the error
+	// chain terminates at ErrHwmonDeviceNotReady so startup callers can
+	// detect the transient without ENOENT leaking out to cmd/ventd's
+	// os.ErrNotExist check. See issue #103.
 	cfg.Fans[0].HwmonDevice = "/definitely/not/here/platform/ghost.0"
 	cfg.Fans[0].PWMPath = "/sys/class/hwmon/hwmon99/pwm1"
 	err = ResolveHwmonPaths(cfg, fsys)
 	if err == nil {
 		t.Fatal("expected error when HwmonDevice unresolvable")
 	}
-	if !strings.Contains(err.Error(), "not resolvable") {
-		t.Errorf("error should say 'not resolvable'; got %v", err)
+	if !errors.Is(err, ErrHwmonDeviceNotReady) {
+		t.Errorf("error should wrap ErrHwmonDeviceNotReady; got %v", err)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Errorf("error must NOT wrap os.ErrNotExist (cmd/ventd uses that predicate to detect missing config files; see #103); got %v", err)
 	}
 }
 
