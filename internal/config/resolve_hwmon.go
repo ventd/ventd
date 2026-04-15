@@ -253,19 +253,23 @@ func buildChipMap(fsys fs.FS) (map[string][]string, error) {
 }
 
 // lookupChip picks the hwmonN directory that matches chip (the value
-// of `hwmonN/name`). When multiple hwmonN entries report the same
-// chip name — seen on boards that load both nct6683 and nct6687, for
-// example — the caller's configured device path (the stable
-// /sys/devices/... path from the Sensor/Fan's HwmonDevice field) is
-// used to disambiguate.
+// of `hwmonN/name`). When the caller's Sensor/Fan has a non-empty
+// HwmonDevice (the stable /sys/devices/... path), the candidate's
+// `device` symlink target must match it; this protects against boards
+// that load two drivers sharing a chip_name (e.g. nct6683 + nct6687)
+// where one driver may not have enumerated yet when the daemon starts.
 //
 // Disambiguation rules:
-//   - Single match: device is ignored; return the sole match.
+//   - No match: error.
+//   - Single match + empty device: return the sole match. Preserves
+//     configs that pre-date PR #42 and don't carry hwmon_device.
+//   - Any match + non-empty device: resolve each candidate hwmonN's
+//     `device` symlink and pick the one whose resolved path equals
+//     device. If zero or >1 candidates resolve to device, error — even
+//     when there is only one candidate, so that a partially-enumerated
+//     sysfs can't bind fans to the wrong chip (issue #86).
 //   - Multi-match + empty device: error. Operators see a clear
 //     instruction to set hwmon_device in their config.
-//   - Multi-match + non-empty device: resolve each candidate hwmonN's
-//     `device` symlink and pick the one whose resolved path equals
-//     device. If zero or >1 candidates resolve to device, error.
 //   - Any candidate whose symlink fails to resolve is skipped — the
 //     device may have been removed mid-boot; the remaining candidates
 //     are considered.
@@ -275,7 +279,9 @@ func lookupChip(kind, entryName, chip, device string, chipToHwmon map[string][]s
 	case 0:
 		return "", fmt.Errorf("%s %q: no hwmon device with chip_name %q", kind, entryName, chip)
 	case 1:
-		return matches[0], nil
+		if device == "" {
+			return matches[0], nil
+		}
 	}
 
 	if device == "" {
