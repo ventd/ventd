@@ -1,0 +1,24 @@
+# Fixture: a pre-#59 (pre-TLS-migration) config.yaml.
+#
+# Represents a box where the setup wizard completed under a pre-F2 daemon:
+# web.password_hash is set, web.listen is a real LAN address, but the
+# TLS path fields were never persisted by the old Save(). The sibling
+# /etc/ventd/tls.crt and /etc/ventd/tls.key exist on disk (first-boot
+# generated them) but the config doesn't point to them, so a post-F2
+# daemon's RequireTransportSecurity() refuses to start.
+#
+# The migration in internal/config/migrate.go should detect the sibling
+# keypair, populate web.tls_cert / web.tls_key, and persist via Save()
+# before the transport-security check runs.
+#
+# Used by validation/fresh-vm-smoke.sh --migration-smoke.
+version: 1
+poll_interval: 5s
+web:
+  listen: 0.0.0.0:9999
+  password_hash: "$2a$10$abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUV"
+  session_ttl: 24h
+sensors: []
+fans: []
+curves: []
+controls: []
