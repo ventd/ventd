@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ventd/ventd/internal/config"
 )
 
@@ -243,6 +245,12 @@ func TestBuildConfig_CaseCurveEmittedWhenBothSensorsAndCaseFan(t *testing.T) {
 			name: "sys fan1", fanType: "hwmon", chipName: "nct6687",
 			pwmPath: "/sys/class/hwmon/hwmon3/pwm2", stopPWM: 30,
 		},
+		// A nvidia GPU fan is required for gpu_curve (and therefore
+		// case_curve) to be emitted.
+		{
+			name: "gpu0", fanType: "nvidia",
+			pwmPath: "0", stopPWM: 60,
+		},
 	}
 	cfg := buildConfig(fans, "coretemp",
 		"/sys/class/hwmon/hwmon0/temp1_input", 55.0,
@@ -293,6 +301,55 @@ func TestBuildConfig_CaseCurveNotEmittedWhenGPUAbsent(t *testing.T) {
 	}
 	if got := findCurveForFan(cfg, "sys fan"); got != "cpu_curve" {
 		t.Errorf("sys fan bound to %q, want cpu_curve fallback", got)
+	}
+}
+
+// TestBuildConfig_CaseCurveNotEmittedWhenGPUSensorButNoGPUFans reproduces
+// the NVML-permission-fail rig scenario (phoenix-MS-7D25, 2026-04-15):
+// the GPU temperature sensor is detected via NVML, but calibration could
+// not write to any GPU fan (NVML set-fan-speed returned Insufficient
+// Permissions), so no nvidia fan made it into the fan list. Previously
+// buildConfig emitted case_curve referencing gpu_curve, but gpu_curve was
+// never emitted (it's gated on len(gpuFans) > 0), so config.Parse rejected
+// the Apply with `source "gpu_curve" is not defined`. case_curve must
+// now be gated on len(gpuFans) > 0 to match gpu_curve's emission.
+func TestBuildConfig_CaseCurveNotEmittedWhenGPUSensorButNoGPUFans(t *testing.T) {
+	fans := []fanDiscovery{
+		{
+			name: "cpu fan", fanType: "hwmon", chipName: "nct6687",
+			pwmPath: "/sys/class/hwmon/hwmon3/pwm1", stopPWM: 40,
+		},
+		{
+			name: "sys fan1", fanType: "hwmon", chipName: "nct6687",
+			pwmPath: "/sys/class/hwmon/hwmon3/pwm2", stopPWM: 30,
+		},
+		// No nvidia/amdgpu fan — NVML set-fan-speed failed during calibration.
+	}
+	// hasGPUTemp=true: the GPU sensor was detected via NVML.
+	cfg := buildConfig(fans, "coretemp",
+		"/sys/class/hwmon/hwmon0/temp1_input", 55.0,
+		true, "", 62.0, &HWProfile{})
+
+	for _, c := range cfg.Curves {
+		if c.Name == "case_curve" {
+			t.Errorf("case_curve emitted without any GPU fan: %+v", c)
+		}
+		if c.Name == "gpu_curve" {
+			t.Errorf("gpu_curve emitted without any GPU fan: %+v", c)
+		}
+	}
+	if got := findCurveForFan(cfg, "sys fan1"); got != "cpu_curve" {
+		t.Errorf("sys fan1 bound to %q, want cpu_curve fallback", got)
+	}
+
+	// Critical contract: the generated config must pass config.Parse.
+	// Previously it failed with: curve "case_curve": source "gpu_curve" is not defined.
+	buf, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if _, err := config.Parse(buf); err != nil {
+		t.Fatalf("generated config fails its own validation: %v", err)
 	}
 }
 

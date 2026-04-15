@@ -824,9 +824,14 @@ func buildConfig(
 	}
 
 	// case_curve: max(cpu_curve, gpu_curve) for fans that should respond to
-	// both CPU and GPU temperatures. Only created when both sensors AND hwmon
-	// fans exist — cpu_curve is only generated when len(hwmonFans) > 0.
-	hasCaseCurve := hasCPUSensor && hasGPUTemp && len(hwmonFans) > 0
+	// both CPU and GPU temperatures. Only created when both referenced curves
+	// will actually be emitted — cpu_curve requires hasCPUSensor+hwmonFans,
+	// gpu_curve requires len(gpuFans) > 0. Gating on len(gpuFans) > 0 keeps
+	// case_curve from referencing a gpu_curve that was never created on
+	// NVML-permission-fail rigs where the GPU sensor is detected but no GPU
+	// fans are controllable (observed on phoenix-MS-7D25, 2026-04-15: Apply
+	// rejected with `source "gpu_curve" is not defined`).
+	hasCaseCurve := hasCPUSensor && hasGPUTemp && len(hwmonFans) > 0 && len(gpuFans) > 0
 	if hasCaseCurve {
 		cfg.Curves = append(cfg.Curves, config.CurveConfig{
 			Name:     "case_curve",
