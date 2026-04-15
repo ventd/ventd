@@ -95,15 +95,25 @@ func TestLoad_NoChipNameNoOpsBackwardCompat(t *testing.T) {
 	// stay as written; ResolveHwmonPaths's "empty ChipName ⇒ leave
 	// alone" contract preserves backward compatibility for hand-pinned
 	// paths (and for upgrades where Save hasn't enriched yet).
+	//
+	// Use hwmon999 rather than hwmon3 because EnrichChipName reads
+	// dirname(path)/name via os.ReadFile against REAL /sys (see
+	// resolve_hwmon.go:EnrichChipName — it deliberately bypasses the
+	// swappable hwmonRootFS because sysfs paths from /sys/devices/...
+	// are absolute and not rooted at the class dir). On hosts whose
+	// /sys/class/hwmon/hwmon3 points at a real chip (e.g. a Logitech
+	// hidpp_battery on some Linux desktops), the read would succeed
+	// and populate ChipName, defeating the no-op assertion. hwmon999
+	// is guaranteed absent on any real host.
 	withHwmonRootFS(t, fstest.MapFS{
-		"hwmon3/name": &fstest.MapFile{Data: []byte("nct6687\n")},
+		"hwmon999/name": &fstest.MapFile{Data: []byte("nct6687\n")},
 	})
 
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, makeMinimalConfigYAML(
-		"/sys/class/hwmon/hwmon3/temp1_input", "",
-		"/sys/class/hwmon/hwmon3/pwm1", "",
+		"/sys/class/hwmon/hwmon999/temp1_input", "",
+		"/sys/class/hwmon/hwmon999/pwm1", "",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +122,7 @@ func TestLoad_NoChipNameNoOpsBackwardCompat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon3/temp1_input"; got != want {
+	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon999/temp1_input"; got != want {
 		t.Errorf("Sensor.Path: got %q, want %q (must not rewrite without ChipName)", got, want)
 	}
 }
