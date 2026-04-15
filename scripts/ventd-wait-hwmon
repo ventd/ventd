@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# ventd-wait-hwmon — systemd ExecStartPre gate for the cold-boot hwmon race.
+#
+# Waits up to $TIMEOUT seconds for every `hwmon_device:` path listed in
+# /etc/ventd/config.yaml to exist on disk, so udev's Super-I/O enumeration
+# has completed before the daemon resolves hwmon paths. Exits 0 on success,
+# non-zero on timeout so systemd refuses to start ventd — Restart=on-failure
+# + RestartSec=1s then retries until udev settles.
+#
+# This script is the operator-visible half of the #103 fix. The in-binary
+# retry inside config.LoadForStartup covers the case where the unit file
+# is older than the binary; this script covers the case where the binary
+# is older than the unit. Two independent layers, no shared state.
+#
+# Design notes:
+#   - No config? Exit 0. First-boot is handled inside the daemon; blocking
+#     startup on an absent config would prevent the setup wizard from
+#     running.
+#   - No hwmon_device entries? Exit 0. The resolver gracefully handles
+#     legacy configs without the field.
+#   - Config unreadable? Exit 0. The daemon itself will surface the parse
+#     error with a clearer message than we can here.
+#   - POSIX sh-ish, no yaml libraries — the hwmon_device entries follow a
+#     predictable `  hwmon_device: /path` grammar that a simple awk pass
+#     can extract reliably. If a future schema change breaks this parser,
+#     the gate fails open (no hwmon_device entries → exit 0).
+
+set -u
+
+CONFIG_PATH="${VENTD_CONFIG_PATH:-/etc/ventd/config.yaml}"
+TIMEOUT="${VENTD_WAIT_HWMON_TIMEOUT:-30}"
+POLL_INTERVAL="${VENTD_WAIT_HWMON_POLL:-0.5}"
+
+log() {
+    printf '[ventd-wait-hwmon] %s\n' "$*"
+}
+
+if [[ ! -f "$CONFIG_PATH" ]]; then
+    log "no config at $CONFIG_PATH — first-boot path, nothing to wait on"
+    exit 0
+fi
+
+# Extract every hwmon_device: /path value. awk is chosen over yq to keep
+# the runtime dependency surface at "what POSIX already provides". The
+# config's grammar at this key is stable — /path values, quoted or not.
+mapfile -t DEVICES < <(awk '
+    /^[[:space:]]*hwmon_device:/ {
+        sub(/^[[:space:]]*hwmon_device:[[:space:]]*/, "")
+        gsub(/^"|"$/, "")
+        gsub(/^'\''|'\''$/, "")
+        if (length($0) > 0) print
+    }
+' "$CONFIG_PATH" 2>/dev/null | sort -u)
+
+if [[ ${#DEVICES[@]} -eq 0 ]]; then
+    log "no hwmon_device entries in $CONFIG_PATH — nothing to wait on"
+    exit 0
+fi
+
+log "waiting up to ${TIMEOUT}s for ${#DEVICES[@]} hwmon_device path(s): ${DEVICES[*]}"
+
+deadline=$(( SECONDS + TIMEOUT ))
+while true; do
+    missing=0
+    for dev in "${DEVICES[@]}"; do
+        if [[ ! -e "$dev" ]]; then
+            missing=$(( missing + 1 ))
+        fi
+    done
+    if [[ $missing -eq 0 ]]; then
+        log "all hwmon_device paths present after ${SECONDS}s"
+        exit 0
+    fi
+    if [[ $SECONDS -ge $deadline ]]; then
+        log "TIMEOUT: ${missing}/${#DEVICES[@]} hwmon_device path(s) still missing after ${TIMEOUT}s"
+        for dev in "${DEVICES[@]}"; do
+            [[ -e "$dev" ]] || log "  missing: $dev"
+        done
+        exit 1
+    fi
+    sleep "$POLL_INTERVAL"
+done

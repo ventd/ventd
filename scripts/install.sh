@@ -504,6 +504,31 @@ install -d -m 755 "$VENTD_PREFIX"
 install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
 echo "  ✓ binary → $VENTD_PREFIX/ventd"
 
+# ventd-wait-hwmon: ExecStartPre gate for the cold-boot udev race
+# (issue #103). Lives under /usr/local/sbin because it's a root-only
+# systemd helper; operators never run it by hand. Only referenced by
+# deploy/ventd.service — openrc/runit installs ship the script too
+# so a later init-system switch works without a reinstall, but their
+# service wrappers don't invoke it.
+WAIT_HWMON_SRC=""
+for candidate in \
+    "${ASSET_DIR}/ventd-wait-hwmon" \
+    "${ASSET_DIR}/../scripts/ventd-wait-hwmon" \
+    "${TARBALL_ROOT:-}/scripts/ventd-wait-hwmon"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        WAIT_HWMON_SRC="$candidate"
+        break
+    fi
+done
+if [[ -n "$WAIT_HWMON_SRC" ]]; then
+    install -d -m 755 /usr/local/sbin
+    install -m 755 "$WAIT_HWMON_SRC" /usr/local/sbin/ventd-wait-hwmon
+    echo "  ✓ wait-hwmon helper → /usr/local/sbin/ventd-wait-hwmon"
+else
+    echo "  ! ventd-wait-hwmon not found in asset tree — cold-boot race"
+    echo "    will rely on in-binary retry alone (still correct, one layer)"
+fi
+
 # /etc/ventd is group-readable (0750) so the ventd group (daemon only)
 # can read config while "other" stays locked out. On systemd,
 # ConfigurationDirectory= reasserts this on every start; the install

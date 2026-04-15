@@ -261,6 +261,30 @@ case "$chip_rc" in
             "$(printf '%s' "$chip_err" | tr '\n' ';' | sed 's/  */ /g')" ;;
 esac
 
+# 4i — ventd did NOT silently enter first-boot mode this boot (issue #103).
+#
+# Before the #103 fix, a cold-boot udev race where the second Super-I/O
+# chip's platform dir hadn't been created yet caused Load()'s resolver to
+# emit an error wrapping os.ErrNotExist. cmd/ventd then mis-classified
+# that as "no config file" and dropped into first-boot / setup-wizard
+# mode, wiping the operator's configured state for the rest of that boot
+# (until a manual restart once udev settled). Gate 4e catches some
+# resolver errors in the journal, but not this one — the first-boot
+# branch ran cleanly. We assert the daemon's own "first-boot mode" marker
+# is absent from the journal, AND (belt-and-braces) that /etc/ventd/config.yaml
+# was present this boot so first-boot would have been incorrect.
+first_boot_hits="$(journalctl -u ventd -b 0 --no-pager 2>/dev/null \
+    | grep -c 'starting in first-boot mode')"
+cfg_present="no"
+[[ -f /etc/ventd/config.yaml ]] && cfg_present="yes"
+if [[ "$cfg_present" == "yes" && "$first_boot_hits" -eq 0 ]]; then
+    check 4i "cold-boot did not fall into first-boot mode (#103)" 0 \
+        "first-boot-hits=$first_boot_hits config=present"
+else
+    check 4i "cold-boot did not fall into first-boot mode (#103)" 1 \
+        "first-boot-hits=$first_boot_hits config=$cfg_present"
+fi
+
 log ""
 log "summary: $pass PASS / $fail FAIL"
 log "log: $LOG"
