@@ -1,0 +1,109 @@
+policy_module(ventd, 1.0.0)
+
+# ─────────────────────────────────────────────────────────────────────
+# ventd SELinux policy module
+# ─────────────────────────────────────────────────────────────────────
+#
+# Confines /usr/local/bin/ventd to the operations it actually needs:
+# read its config under /etc/ventd, read sysfs hwmon descriptors, write
+# the pwm<N> and pwm<N>_enable nodes the udev rule chgrp'd to the ventd
+# group, bind the web UI port (9999/tcp), and talk to journald.
+#
+# Build:
+#   make -f /usr/share/selinux/devel/Makefile ventd.pp
+#
+# Install:
+#   sudo semodule -i ventd.pp
+#   sudo restorecon -Rv /usr/local/bin/ventd /etc/ventd /run/ventd
+#
+# Test:
+#   sudo getenforce          # Enforcing
+#   sudo systemctl restart ventd
+#   sudo ausearch -m AVC -ts recent | grep ventd   # should be empty
+#
+# If new AVC denials appear after a kernel/distro upgrade, either:
+#   - audit2allow -M ventd-local <<< "$(ausearch -m AVC -ts recent)"
+#     and stack the local module, or
+#   - file an issue at https://github.com/ventd/ventd with the AVC
+#     output so this base policy can be widened upstream.
+# ─────────────────────────────────────────────────────────────────────
+
+require {
+    type init_t;
+    type sysfs_t;
+    type tmp_t;
+    type net_conf_t;
+    type random_device_t;
+    type urandom_device_t;
+    type proc_t;
+    type devpts_t;
+    type unconfined_t;
+    type hwdata_t;
+    class file { read write open getattr setattr ioctl };
+    class dir { read search getattr open };
+    class lnk_file { read getattr };
+    class chr_file { read write open getattr ioctl };
+    class tcp_socket { create bind listen accept setopt getopt read write };
+    class netlink_kobject_uevent_socket { create bind read getopt setopt };
+    class capability { net_bind_service };
+    class process { setrlimit };
+}
+
+# Domain types for the daemon and its on-disk binary.
+type ventd_t;
+type ventd_exec_t;
+type ventd_etc_t;
+type ventd_var_run_t;
+
+# Standard daemon initialisation pattern.
+init_daemon_domain(ventd_t, ventd_exec_t)
+
+# Config dir at /etc/ventd: read-only for the daemon; the wizard-driven
+# Save path goes through a tmp+rename whose tmp inherits etc context
+# under restorecon. type_transition keeps the on-disk type stable.
+files_etc_filetrans(ventd_t, ventd_etc_t, file)
+allow ventd_t ventd_etc_t:dir { read search getattr open };
+allow ventd_t ventd_etc_t:file { read open getattr ioctl };
+
+# Atomic writes for config.yaml — open + write + rename (.tmp). The
+# rename target inherits etc context via type_transition.
+allow ventd_t ventd_etc_t:file { write setattr };
+
+# Runtime dir at /run/ventd for the setup token.
+files_pid_filetrans(ventd_t, ventd_var_run_t, { dir file })
+allow ventd_t ventd_var_run_t:dir { read search write add_name remove_name open getattr };
+allow ventd_t ventd_var_run_t:file { create read write unlink open getattr };
+
+# Sysfs hwmon access. The daemon reads everything under
+# /sys/class/hwmon/ and writes pwm<N> / pwm<N>_enable on devices the
+# udev rule has chgrp'd to the ventd group.
+allow ventd_t sysfs_t:dir { read search open getattr };
+allow ventd_t sysfs_t:file { read open getattr ioctl };
+allow ventd_t sysfs_t:lnk_file { read getattr };
+# pwm writes:
+allow ventd_t sysfs_t:file { write setattr };
+
+# Random device for setup-token generation.
+allow ventd_t urandom_device_t:chr_file { read open getattr ioctl };
+
+# /etc/resolv.conf, /etc/nsswitch.conf for getaddrinfo if the operator
+# binds the web UI to a hostname rather than a literal IP.
+allow ventd_t net_conf_t:file { read open getattr ioctl };
+
+# TCP listener on the configured web port (9999 by default — operators
+# can re-map via SELinux semanage if they chose a different port).
+allow ventd_t self:tcp_socket { create bind listen accept setopt getopt read write };
+allow ventd_t self:capability net_bind_service;
+
+# AF_NETLINK socket for the hwmon uevent watcher. Without this,
+# DiagnoseHwmon's hot-plug detection silently degrades to the periodic
+# rescan path (still meets the 10s upper bound, but with extra CPU).
+allow ventd_t self:netlink_kobject_uevent_socket { create bind read getopt setopt };
+
+# Journald access — the daemon's slog writes to stderr, journald reads
+# it via the systemd socket the unit inherits.
+init_dontaudit_use_fds(ventd_t)
+
+# Allow setrlimit for the per-tick timer goroutines. Some kernels
+# audit RLIMIT_NOFILE bumps on Go runtimes.
+allow ventd_t self:process { setrlimit };

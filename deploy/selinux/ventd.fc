@@ -1,0 +1,13 @@
+# SELinux file contexts for ventd.
+#
+# Tells the kernel which on-disk paths get which type label, so the
+# domain-transition rules in ventd.te apply to the right files.
+#
+# Apply with:
+#   sudo restorecon -Rv /usr/local/bin/ventd /etc/ventd /run/ventd
+
+/usr/local/bin/ventd            --      gen_context(system_u:object_r:ventd_exec_t,s0)
+/usr/bin/ventd                  --      gen_context(system_u:object_r:ventd_exec_t,s0)
+
+/etc/ventd(/.*)?                        gen_context(system_u:object_r:ventd_etc_t,s0)
+/run/ventd(/.*)?                        gen_context(system_u:object_r:ventd_var_run_t,s0)
