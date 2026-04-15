@@ -36,3 +36,4 @@ securitytodo.md
 # fresh-VM smoke harness artifacts
 /validation/.build/
 /validation/fresh-vm-smoke-*.md
+release-notes/*-dryrun.txt
