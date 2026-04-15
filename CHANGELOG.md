@@ -6,6 +6,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [v0.2.0]
 
+**Status:** unreleased — blocked by [#103](https://github.com/ventd/ventd/issues/103).
+
 This release closes the daemon-hardening stream begun in v0.1.x: every
 README claim now holds in code, every safety contract has a regression
 test, and the install path no longer assumes any particular fan chip.
