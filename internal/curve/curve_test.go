@@ -4,53 +4,10 @@ import (
 	"testing"
 )
 
-// ─────────────────────────────────────────────────────────────────────
-// REVIEW NOTES — phoenixdnb (PR #18, curve + calibrate pure tests)
-// ─────────────────────────────────────────────────────────────────────
-//
-// Tests-only PR, no production code touched. Risk: near-zero.
-//
-// STATUS
-//   No hardware verification required — pure-logic tests. Green on
-//   CI is sufficient sign-off. No RIG steps.
-//
-// CROSS-REF securitytodo.md — PR #18 doesn't claim to close a
-// securitytodo item, but coverage gaps in internal/curve were
-// implicitly tracked by PR #17's COVERAGE.md snapshot (0.0% → 100%).
-// Verify the live securitytodo.md treats these as a named
-// prerequisite rather than generic hygiene.
-//
-// OBSERVATIONS
-//
-// 1. "missing sensor returns MaxPWM" is a SAFETY INVARIANT.
-//    TestLinearEvaluate asserts that a Linear curve whose named
-//    sensor is absent from the reading map returns MaxPWM. That is
-//    conservative fail-safe — lose the sensor, go to full speed —
-//    and it is the right behaviour. But the test encodes it without
-//    documenting why. If anyone later "optimises" this to return
-//    the last known value, the safety contract silently weakens.
-//    Worth a one-line doc comment next to the assertion, or (better)
-//    a comment in internal/curve/linear.go above the fallback branch.
-//    Not this PR's scope — flag in a follow-up.
-//
-// 2. "average rounds down" table row is mislabelled.
-//    (10+12)/2 = 11 exactly — no rounding. The label survives as a
-//    cosmetic mismatch. Not worth a PR, worth mentioning.
-//
-// 3. ParseMixFunc case sensitivity.
-//    TestParseMixFunc locks "MAX" as an error. That matches the YAML
-//    convention (lowercase keywords), so documented-and-tested is
-//    fine. Different concern from the ChipName case issue in PR #20:
-//    YAML keywords are always lowercase by project convention, while
-//    hwmon chip names come from kernel and are always lowercase too
-//    — but operator-authored configs for ChipName have no such
-//    convention guard. Unrelated to this PR, but worth remembering
-//    when #20 lands.
-//
-// README-DRIFT
-//   None — tests only.
-//
-// ─────────────────────────────────────────────────────────────────────
+// Note: TestLinearEvaluate's "missing sensor returns MaxPWM" case is a
+// SAFETY INVARIANT — fail-open to full speed when sensor data is
+// absent. Do not "optimise" Linear.Evaluate to fall back to a last
+// known value; that would silently weaken the safety contract.
 
 func TestLinearEvaluate(t *testing.T) {
 	c := &Linear{

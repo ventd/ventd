@@ -13,81 +13,34 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 )
 
-// ─────────────────────────────────────────────────────────────────────
-// REVIEW NOTES — phoenixdnb (PR #19, docs correctness sweep)
-// ─────────────────────────────────────────────────────────────────────
+// Safety envelope — what this watchdog actually covers.
 //
-// PR #19 is docs-only but its central claim concerns THIS file's
-// behaviour. Reviewed on #19 branch; PR #19's description of actual
-// behaviour was verified against the code directly.
+// Covered:
+//   - Graceful process exit (SIGTERM, SIGINT, context cancel).
+//     Restore() runs from the defer chain in cmd/ventd/main.go.
+//   - Panic inside Restore() — recovered per-entry by restoreOne's
+//     defer/recover, so one bad fan does not abort restore for the
+//     rest. See TestRestorePanicInOneEntryContinuesLoop.
 //
-// STATUS
-//   No hardware verification required — docs-only PR. Notes below
-//   live in code so future README authors see the real safety
-//   envelope without having to reverse-engineer it again.
+// NOT covered (do not surface these as guarantees in user-facing docs):
+//   - SIGKILL (kill -9). Process dies before defers run; nothing
+//     restores pwm_enable. Fan stays at the last-written PWM.
+//   - Kernel panic. Same — user-space defers never execute.
+//   - Power loss. Obviously — no user-space code runs at all.
+//   - Daemon crash via uncaught panic outside a recovered frame.
+//     The per-entry recover in restoreOne covers panics DURING
+//     restore; panics during steady-state control are caught at
+//     the controller layer (see internal/controller), not here.
 //
-// CROSS-REF securitytodo.md — #19 doesn't claim to close a
-// securitytodo item; the README drift it fixes is safety-facing, not
-// security-facing. If securitytodo.md tracks user-facing safety
-// attestations, cross-check there anyway.
-//
-// ACTUAL SAFETY ENVELOPE (what this watchdog really does)
-//
-//   COVERED:
-//     - Graceful process exit (SIGTERM, SIGINT, context cancel).
-//       Restore() runs from the defer chain in cmd/ventd/main.go.
-//     - Panic INSIDE Restore() → recovered per-entry by restoreOne's
-//       defer/recover, so one bad fan doesn't abort restore for the
-//       rest. Covered by TestRestorePanicInOneEntryContinuesLoop.
-//
-//   NOT COVERED:
-//     - SIGKILL (kill -9). Process dies before defers run; nothing
-//       restores pwm_enable. Fan stays at last-written PWM.
-//     - Kernel panic. Same — user-space defers never execute.
-//     - Power loss. Obviously — no user-space code runs at all.
-//     - Daemon crash via uncaught panic OUTSIDE a recovered frame.
-//       The per-entry recover in restoreOne covers panics during
-//       restore; panics during steady-state control are not caught
-//       here (they are caught at the controller layer separately —
-//       see internal/controller).
-//
-//   FALLBACK BEHAVIOUR (when origEnable is unknown / unsupported):
-//     - hwmon non-rpm_target fans: WritePWM(path, 255) — full speed.
-//       This is intentionally noisy: WARN log, not silent. See line
-//       where "wrote PWM=255 as safe fallback" fires.
-//     - hwmon rpm_target fans (pre-RDNA amdgpu): WriteFanTarget with
-//       max_rpm. Same fail-safe pattern.
-//     - nvidia fans: nvidia.ResetFanToAuto — hand control back to
-//       the NVIDIA driver's autonomous curve. Never write PWM=255
-//       on NVIDIA GPUs (the NVML abstraction doesn't expose a
-//       matching primitive and auto is the safer equivalent).
-//
-// README-DRIFT (PR #19 addresses; do NOT drift again)
-//
-// Main-branch README.md claims "Hardware watchdog restores fan state
-// on any exit path — signal, crash, panic, or power loss — within
-// two seconds". That is WRONG in four ways:
-//
-//   1. "Hardware" → software. No BIOS/IPMI/hardware watchdog is
-//      involved. Fan control reverts via user-space writes in defer
-//      chains.
-//   2. "Any exit path" → only graceful exits (see NOT COVERED).
-//      SIGKILL, kernel panic, power loss do NOT trigger a restore.
-//   3. "Within two seconds" → no such timer exists. Restore is
-//      effectively instantaneous on graceful exit; there is no
-//      upper bound encoded here. The two-second figure appears to
-//      be aspirational.
-//   4. Calls out "crash" and "panic" as if hardware restore covers
-//      them. Panics INSIDE the restore path ARE recovered per entry
-//      (tested); panics outside are handled elsewhere or kill the
-//      process, in which case SIGKILL-like behaviour applies.
-//
-// If these four points ever need to be re-surfaced in user-facing
-// docs (README, SECURITY.md, install.md), this block is the source
-// of truth. Do not edit the README from this branch per the review
-// rules; fix docs in the correctness-sweep PR (#19) only.
-//
-// ─────────────────────────────────────────────────────────────────────
+// Fallback behaviour when origEnable is unknown or unsupported:
+//   - hwmon non-rpm_target fans: WritePWM(path, 255) — full speed.
+//     Intentionally noisy: WARN log, not silent.
+//   - hwmon rpm_target fans (pre-RDNA amdgpu): WriteFanTarget with
+//     max_rpm. Same fail-safe pattern.
+//   - nvidia fans: nvidia.ResetFanToAuto — hand control back to the
+//     NVIDIA driver's autonomous curve. Never write PWM=255 on
+//     NVIDIA GPUs (the NVML abstraction does not expose a matching
+//     primitive; auto is the safer equivalent).
 
 type entry struct {
 	pwmPath    string
