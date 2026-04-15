@@ -23,10 +23,22 @@ function tempClass(val){
 }
 
 // dutyColor returns a CSS variable reference for a fan duty % (0-100).
+// Retained for any legacy caller; prefer dutyClass() inside templates
+// so the colour lands via a CSS class and the element carries no inline
+// style attribute (which would re-introduce a style-src 'unsafe-inline'
+// requirement).
 function dutyColor(pct){
   if(pct < 50) return 'var(--teal)';
   if(pct < 75) return 'var(--amber)';
   return 'var(--red)';
+}
+
+// dutyClass maps a fan duty % to one of .dc-low / .dc-mid / .dc-high.
+// The CSS file maps each class to the same teal/amber/red palette.
+function dutyClass(pct){
+  if(pct < 50) return 'dc-low';
+  if(pct < 75) return 'dc-mid';
+  return 'dc-high';
 }
 
 function sensorUnit(s){
@@ -304,24 +316,26 @@ function renderFanCards(){
     if(isManual){
       controlRow = '<div class="manual-slider">'+
         '<input type="range" min="0" max="100" step="1" value="'+manualPct+'" '+
-          'oninput="updManualPWM('+i+',+this.value,this)">'+
+          'data-action="manual-pwm" data-idx="'+i+'">'+
         '<span class="manual-pct">'+manualPct+'%</span>'+
       '</div>';
     } else {
       const opts = cfg.curves.map(c =>
         '<option value="'+esc(c.name)+'"'+(c.name===ctrl.curve?' selected':'')+'>'+esc(c.name)+'</option>'
       ).join('');
-      controlRow = '<select onchange="updCtrl('+i+',this.value)">'+opts+'</select>';
+      controlRow = '<select data-action="ctrl-curve" data-idx="'+i+'">'+opts+'</select>';
     }
 
     let calSection = '';
     if(isCalibrating){
+      // Dynamic width (0–100%) is applied via el.style.width after
+      // innerHTML so nothing inline lands in the markup.
       calSection = '<div class="cal-running">\u23f3 Calibrating\u2026 PWM '+calSt.current_pwm+'</div>'+
-        '<div class="cal-prog-bar"><div class="fill" style="width:'+calSt.progress+'%"></div></div>';
+        '<div class="cal-prog-bar"><div class="fill" data-width="'+calSt.progress+'"></div></div>';
     } else {
       const calBtnDisabled = isCalibrating || !pwmPath;
       calSection = '<button class="cal-btn" '+(calBtnDisabled?'disabled ':'')+
-        'onclick="startCalibration(\''+esc(pwmPath)+'\')" title="Measure start PWM and max RPM">\u25b6 Calibrate</button>';
+        'data-action="calibrate" data-pwm="'+esc(pwmPath)+'" title="Measure start PWM and max RPM">\u25b6 Calibrate</button>';
     }
     let calResultRow = '';
     if(calRes && !isCalibrating){
@@ -335,16 +349,17 @@ function renderFanCards(){
 
     const hasRPM = fanCfg && (fanCfg.rpm_path || fanCfg.type !== 'nvidia');
     const detectDisabled = !pwmPath || (fanCfg && fanCfg.type==='nvidia') || isCalibrating;
-    const detectBtn = '<button style="font-size:0.65rem;padding:1px 5px" '+
+    const detectBtn = '<button class="detect-btn" '+
       (detectDisabled?'disabled ':'')+
-      'onclick="detectRPM(\''+esc(pwmPath)+'\','+i+',this)" title="Auto-detect RPM sensor">\u{1F50D}</button>';
+      'data-action="detect-rpm" data-pwm="'+esc(pwmPath)+'" data-idx="'+i+'" '+
+      'title="Auto-detect RPM sensor">\u{1F50D}</button>';
 
+    const dCls = dutyClass(duty);
     return '<div class="card">'+
       '<div class="card-name-edit">'+
         '<input type="text" value="'+esc(ctrl.fan)+'" '+
           'data-orig="'+esc(ctrl.fan)+'" '+
-          'onblur="renameFan('+i+',this)" '+
-          'onkeydown="if(event.key===\'Enter\'){this.blur();}" '+
+          'data-action="rename-fan" data-idx="'+i+'" '+
           'title="Click to rename">'+
         '<span class="edit-icon">\u270e</span>'+
       '</div>'+
@@ -353,18 +368,26 @@ function renderFanCards(){
         detectBtn+
       '</div>'+
       '<div class="fan-duty">'+
-        '<div class="duty-bar"><div class="fill" style="width:'+duty+'%;background:'+dutyColor(duty)+'"></div></div>'+
-        '<span style="color:'+dutyColor(duty)+'">'+duty+'%</span>'+
+        '<div class="duty-bar"><div class="fill '+dCls+'" data-width="'+duty+'"></div></div>'+
+        '<span class="'+dCls+'">'+duty+'%</span>'+
       '</div>'+
       '<div class="mode-toggle">'+
-        '<button class="mode-btn'+(isManual?'':' active')+'" onclick="setManualMode('+i+',false)">Curve</button>'+
-        '<button class="mode-btn'+(isManual?' active':'')+'" onclick="setManualMode('+i+',true)">Manual</button>'+
+        '<button class="mode-btn'+(isManual?'':' active')+'" data-action="set-mode" data-idx="'+i+'" data-manual="0">Curve</button>'+
+        '<button class="mode-btn'+(isManual?' active':'')+'" data-action="set-mode" data-idx="'+i+'" data-manual="1">Manual</button>'+
       '</div>'+
       controlRow+
       calSection+
       calResultRow+
     '</div>';
   }).join('');
+
+  // Apply dynamic widths — anything that varies per render goes via
+  // element.style assignment rather than an inline style= attribute,
+  // which would keep style-src 'unsafe-inline' pinned. Element-level
+  // style assignment is not affected by CSP.
+  document.querySelectorAll('#fan-cards [data-width]').forEach(el => {
+    el.style.width = el.dataset.width + '%';
+  });
 }
 
 function renderCurveCards(){
@@ -1207,6 +1230,42 @@ document.addEventListener('click', (e) => {
     case 'add-sensor':
       addSensorFromReading(el);
       break;
+    // ── fan group ──
+    case 'calibrate':
+      startCalibration(el.dataset.pwm);
+      break;
+    case 'detect-rpm':
+      detectRPM(el.dataset.pwm, +el.dataset.idx, el);
+      break;
+    case 'set-mode':
+      setManualMode(+el.dataset.idx, el.dataset.manual === '1');
+      break;
+  }
+});
+
+// input: range sliders and any other live-commit inputs.
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || !el.dataset || !el.dataset.action) return;
+  const action = el.dataset.action;
+  switch (action) {
+    // ── fan group ──
+    case 'manual-pwm':
+      updManualPWM(+el.dataset.idx, +el.value, el);
+      break;
+  }
+});
+
+// change: selects and number inputs that commit on blur/submit.
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || !el.dataset || !el.dataset.action) return;
+  const action = el.dataset.action;
+  switch (action) {
+    // ── fan group ──
+    case 'ctrl-curve':
+      updCtrl(+el.dataset.idx, el.value);
+      break;
   }
 });
 
@@ -1220,6 +1279,10 @@ document.addEventListener('blur', (e) => {
     // ── sensor group ──
     case 'rename-sensor':
       renameSensor(+el.dataset.idx, el);
+      break;
+    // ── fan group ──
+    case 'rename-fan':
+      renameFan(+el.dataset.idx, el);
       break;
   }
 }, true);
