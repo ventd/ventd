@@ -90,11 +90,16 @@ jobs:
           # bash entry point.
           shellcheck --severity=warning --exclude=SC1091 \
                      --shell=bash scripts/install.sh \
-                                  scripts/check-unit-onfailure.sh
+                                  scripts/check-unit-onfailure.sh \
+                                  scripts/check-unit-ordering.sh
           # Deploy-unit regression guard: OnFailure= must live in [Unit],
           # not [Service], or systemd silently ignores it and recovery
           # never fires. See scripts/check-unit-onfailure.sh header.
           bash scripts/check-unit-onfailure.sh deploy/ventd.service
+          # Deploy-unit regression guard: After=systemd-udev-settle.service
+          # must be present under [Unit] so multi-chip boards don't race
+          # between udev and ventd's resolver on cold boot (#86).
+          bash scripts/check-unit-ordering.sh deploy/ventd.service
           # Validation harness + self-test. Keep in the bash group because
           # they both rely on process substitution / arrays.
           shellcheck --severity=warning --exclude=SC1091 \

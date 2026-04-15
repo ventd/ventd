@@ -3,6 +3,25 @@ Description=Fan Control Daemon
 Documentation=https://github.com/ventd/ventd
 After=local-fs.target
 
+# Wait for udev to finish enumerating and rule-processing every hwmon
+# device before ventd starts resolving chip_name / hwmon_device. On
+# boards with multiple Super-I/O chips whose drivers load concurrently
+# (e.g. nct6683d + nct6687d on MSI Z690/Z790) udev can finish the
+# second chip up to ~6 seconds after userspace boots — well after a
+# fast systemd unit order would otherwise run ventd's resolver. That
+# race is the root cause of #86: the single-candidate branch in
+# lookupChip used to return the first chip without checking
+# hwmon_device; PR #86 made that branch fail loud, but it's still
+# preferable to close the race entirely so correct configs don't
+# start failing on cold boot for timing-only reasons.
+#
+# systemd-udev-settle.service has a 180s TimeoutSec; in practice a
+# healthy hwmon probe completes in well under 10s. If the unit times
+# out systemd lets dependants start anyway, so this After= only ever
+# delays us, never blocks indefinitely. See also
+# scripts/check-unit-ordering.sh.
+After=systemd-udev-settle.service
+
 # OnFailure: run ventd-recover.service to reset pwm_enable on every
 # hwmon device when the main daemon exits unexpectedly. Covers
 # SIGKILL, OOM, hardware-watchdog kill, and any panic that escapes
