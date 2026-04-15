@@ -36,7 +36,7 @@ sudo cat /run/ventd/setup-token
 - **Init systems:** systemd, OpenRC, runit
 - **Architectures:** amd64, arm64
 - **C library:** glibc and musl
-- **GPU:** NVIDIA (via NVML), AMD (via amdgpu hwmon). Intel Arc fan control is read-only at the kernel level; monitoring only.
+- **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require a one-time udev rule, see [NVIDIA GPU fan control](docs/nvidia-fan-control.md)), AMD (via amdgpu hwmon). Intel Arc fan control is read-only at the kernel level; monitoring only.
 
 ## How it compares
 
@@ -55,6 +55,7 @@ sudo cat /run/ventd/setup-token
 - [Installation guide](docs/install.md)
 - [Configuration reference](docs/config.md)
 - [Hardware compatibility](docs/hardware.md)
+- [NVIDIA GPU fan control](docs/nvidia-fan-control.md) — required udev/cool-bits setup for GPU fan *writes*; temperature reading works out of the box
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## Safety
