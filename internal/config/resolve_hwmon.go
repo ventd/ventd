@@ -160,9 +160,13 @@ func buildChipMap(fsys fs.FS) (map[string][]string, error) {
 		if !strings.HasPrefix(name, "hwmon") {
 			continue
 		}
-		if !e.IsDir() {
-			continue
-		}
+		// Do NOT filter on e.IsDir(): in real sysfs every entry under
+		// /sys/class/hwmon is a symlink into /sys/devices/..., and
+		// DirEntry.IsDir() reads the dirent type (not the symlink
+		// target) so it returns false for every live hwmon chip. The
+		// fs.ReadFile below is the source of truth: if `name` is
+		// missing or unreadable the entry is skipped, which covers
+		// both "not a hwmon device" and "virtual class entry" cases.
 		suffix := name[len("hwmon"):]
 		if suffix == "" || !allDigits(suffix) {
 			continue
@@ -170,7 +174,8 @@ func buildChipMap(fsys fs.FS) (map[string][]string, error) {
 		data, err := fs.ReadFile(fsys, name+"/name")
 		if err != nil {
 			// hwmonN without a readable name is harmless — class entries
-			// for virtual devices. Skip silently.
+			// for virtual devices, or a plain file named `hwmonN` that
+			// isn't a chip directory. Skip silently.
 			continue
 		}
 		chip := strings.TrimSpace(string(data))
