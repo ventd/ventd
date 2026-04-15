@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -330,6 +332,101 @@ func TestResolveHwmonPaths_ReadDirError(t *testing.T) {
 	}
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error should wrap sentinel via %%w; got %v", err)
+	}
+}
+
+// TestResolveHwmonPaths_SymlinkedHwmonEntries exercises the production
+// sysfs layout where every `/sys/class/hwmon/hwmonN` is a symlink into
+// `/sys/devices/.../hwmon/hwmonN`. DirEntry.IsDir() returns false for
+// the symlink (it reads the dirent type, not the target), so any filter
+// that skips non-directories breaks buildChipMap on real hardware. The
+// existing MapFS-based tests cannot catch this because fstest.MapFS
+// synthesizes implicit directory entries whose IsDir() returns true.
+//
+// Regression guard for the phoenix-MS-7D25 rig failure where every
+// hwmon chip (coretemp, nct6687, nvme, …) was invisible to the resolver
+// and ventd refused to start with any real config.
+func TestResolveHwmonPaths_SymlinkedHwmonEntries(t *testing.T) {
+	root := t.TempDir()
+
+	classDir := filepath.Join(root, "class", "hwmon")
+	if err := os.MkdirAll(classDir, 0o755); err != nil {
+		t.Fatalf("mkdir classDir: %v", err)
+	}
+
+	// Mirror the live sysfs layout: real chip directories under
+	// devices/.../hwmon/, class entries are symlinks to them.
+	type chip struct {
+		hwmon, chipName, devicePath string
+	}
+	chips := []chip{
+		{"hwmon0", "acpitz", "devices/virtual/thermal/thermal_zone0"},
+		{"hwmon4", "nct6687", "devices/platform/nct6687.2592/hwmon"},
+		{"hwmon5", "coretemp", "devices/platform/coretemp.0/hwmon"},
+		{"hwmon6", "nct6687", "devices/platform/nct6687.2593/hwmon"},
+	}
+	for _, c := range chips {
+		realDir := filepath.Join(root, c.devicePath, c.hwmon)
+		if err := os.MkdirAll(realDir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", realDir, err)
+		}
+		if err := os.WriteFile(filepath.Join(realDir, "name"), []byte(c.chipName+"\n"), 0o644); err != nil {
+			t.Fatalf("write name: %v", err)
+		}
+		// Class entry is a relative symlink, same shape as real
+		// /sys/class/hwmon/hwmonN -> ../../devices/...
+		target, err := filepath.Rel(classDir, realDir)
+		if err != nil {
+			t.Fatalf("rel: %v", err)
+		}
+		link := filepath.Join(classDir, c.hwmon)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatalf("symlink %s -> %s: %v", link, target, err)
+		}
+	}
+
+	// Sanity check: the class dir should list 4 entries, all symlinks.
+	entries, err := os.ReadDir(classDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != len(chips) {
+		t.Fatalf("fixture built %d entries, want %d", len(entries), len(chips))
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Fatalf("fixture entry %q reports IsDir()=true; symlink regression won't reproduce", e.Name())
+		}
+	}
+
+	fsys := os.DirFS(classDir)
+
+	cfg := &Config{
+		Sensors: []Sensor{
+			{Name: "cpu_package", Type: "hwmon", ChipName: "coretemp",
+				Path: "/sys/class/hwmon/hwmon99/temp1_input"},
+		},
+		Fans: []Fan{
+			{Name: "cpu_fan", Type: "hwmon", ChipName: "nct6687",
+				PWMPath: "/sys/class/hwmon/hwmon99/pwm1"},
+		},
+	}
+
+	if err := ResolveHwmonPaths(cfg, fsys); err == nil {
+		// Ambiguous nct6687 is expected — two chips share the name.
+		t.Fatal("ResolveHwmonPaths accepted ambiguous nct6687 without error")
+	} else if !strings.Contains(err.Error(), "nct6687") ||
+		!strings.Contains(err.Error(), "multiple") {
+		t.Fatalf("expected ambiguity error for nct6687; got %v", err)
+	}
+
+	// Drop the ambiguous fan, re-run: coretemp should resolve to hwmon5.
+	cfg.Fans = nil
+	if err := ResolveHwmonPaths(cfg, fsys); err != nil {
+		t.Fatalf("ResolveHwmonPaths: %v", err)
+	}
+	if got, want := cfg.Sensors[0].Path, "/sys/class/hwmon/hwmon5/temp1_input"; got != want {
+		t.Errorf("coretemp sensor path: got %q, want %q", got, want)
 	}
 }
 
