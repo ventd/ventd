@@ -4,17 +4,13 @@ All notable changes to ventd are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.2.0] — DRAFT pending rig verification
+## [v0.2.0]
 
 This release closes the daemon-hardening stream begun in v0.1.x: every
 README claim now holds in code, every safety contract has a regression
 test, and the install path no longer assumes any particular fan chip.
-
-> **DRAFT status.** This entry will be finalised after the rig runs
-> `validation/run-rig-checks.sh` and fills in
-> `validation/phoenix-MS-7D25-v0.2.0-final.md` on phoenix-MS-7D25.
-> Until then, none of the items below are guaranteed against real
-> hardware.
+Rig re-verified on phoenix-MS-7D25 (see
+`validation/phoenix-MS-7D25-v0.2.0-final-pass.md`).
 
 ### Added — installation path
 
