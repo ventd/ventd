@@ -1,0 +1,59 @@
+# validation/fixtures/config-with-nvidia-fan.yaml — fixture for
+# check_0a_iii_enrich_chip_name_in_config.
+#
+# Two hwmon fans (each with the mandatory chip_name) alongside one
+# nvidia fan (pwm_path is a GPU index, not a sysfs path, and nvidia
+# fans legitimately have no chip_name). The check must count only
+# the hwmon fans in the denominator; counting the nvidia fan against
+# the chip_name count was the pre-fix false positive.
+version: 1
+poll_interval: 2s
+web:
+    listen: 0.0.0.0:9999
+    password_hash: $2a$12$fixtureHashDoesNotAuthenticateAnythingReal0123456789
+    tls_cert: /etc/ventd/tls.crt
+    tls_key: /etc/ventd/tls.key
+sensors:
+    - name: gpu_temp
+      type: nvidia
+      path: "0"
+      metric: temp
+fans:
+    - name: Cpu Fan
+      type: hwmon
+      pwm_path: /sys/class/hwmon/hwmon6/pwm1
+      rpm_path: /sys/class/hwmon/hwmon6/fan1_input
+      hwmon_device: /sys/devices/platform/nct6687.2592
+      chip_name: nct6687
+      control_kind: pwm
+      min_pwm: 12
+      max_pwm: 255
+    - name: System Fan
+      type: hwmon
+      pwm_path: /sys/class/hwmon/hwmon6/pwm3
+      rpm_path: /sys/class/hwmon/hwmon6/fan3_input
+      hwmon_device: /sys/devices/platform/nct6687.2592
+      chip_name: nct6687
+      control_kind: pwm
+      min_pwm: 14
+      max_pwm: 255
+    - name: gpu0
+      type: nvidia
+      pwm_path: "0"
+      min_pwm: 12
+      max_pwm: 255
+curves:
+    - name: gpu_curve
+      type: linear
+      sensor: gpu_temp
+      min_temp: 50
+      max_temp: 94
+      min_pwm: 12
+      max_pwm: 255
+controls:
+    - fan: Cpu Fan
+      curve: gpu_curve
+    - fan: System Fan
+      curve: gpu_curve
+    - fan: gpu0
+      curve: gpu_curve
