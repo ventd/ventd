@@ -83,6 +83,16 @@ func TestCheckResolvable_NilInput(t *testing.T) {
 // TestCheckResolvable_EmptyChipNameIgnored matches ResolveHwmonPaths
 // semantics: entries without ChipName are left alone, so the check
 // passes even if the fsys is empty.
+//
+// Uses /sys/class/hwmon/hwmon99/… so that EnrichChipName (called via
+// CheckResolvable) reads real sysfs — which is inevitable since
+// EnrichChipName bypasses the fsys injection for Save() correctness,
+// see resolve_hwmon.go:65-68 — and silently no-ops: index 99 doesn't
+// exist on any real host, so os.ReadFile returns ENOENT, ChipName
+// stays empty, and the resolver skips the entry as the test expects.
+// Without this, a live hwmon0 on the test host (coretemp, acpitz,
+// hidpp_battery_*, etc.) would leak into ChipName via EnrichChipName
+// and the test would see the resolver reject the populated chip.
 func TestCheckResolvable_EmptyChipNameIgnored(t *testing.T) {
 	prev := SetHwmonRootFS(fstest.MapFS{})
 	t.Cleanup(func() { SetHwmonRootFS(prev) })
@@ -91,7 +101,7 @@ func TestCheckResolvable_EmptyChipNameIgnored(t *testing.T) {
 		Sensors: []Sensor{{
 			Name: "cpu_temp",
 			Type: "hwmon",
-			Path: "/sys/class/hwmon/hwmon0/temp1_input",
+			Path: "/sys/class/hwmon/hwmon99/temp1_input",
 			// ChipName intentionally empty (pre-upgrade config shape).
 		}},
 	}
