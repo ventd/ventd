@@ -169,6 +169,29 @@ Back-of-envelope on a laptop with a warm image cache:
   when the local squashfs cache is suspect (see _Recovery: corrupted
   cached image_ below). Normal runs reuse the warm cache.
 
+- `--migration-smoke` — opt-in. Upgrade-path smoke for issue #59. For
+  each selected target, pre-seeds `/etc/ventd/config.yaml` from
+  `validation/fixtures/pre-tls-config.yaml` plus an openssl-generated
+  self-signed `tls.crt` / `tls.key` pair, then runs `scripts/install.sh`.
+  The new `M1` assertion verifies `config.Load`'s TLS-path migration
+  populated `web.tls_cert` / `web.tls_key` and persisted the result —
+  the regression gate for pre-F3 configs that would otherwise make a
+  post-F2 daemon crashloop on `RequireTransportSecurity()`.
+
+  The seeded config has `password_hash` set, so `first_boot` is false and
+  the daemon generates no setup token. The `A4` (wizard-mode), `A5`
+  (setup token), and `A9` (uninstall) assertions are skipped when this
+  flag is active; they test fresh-install invariants, not the upgrade
+  path. The remaining six assertions still run.
+
+  ```
+  validation/fresh-vm-smoke.sh --migration-smoke                    # all targets
+  validation/fresh-vm-smoke.sh --migration-smoke fedora-42 arch     # subset
+  ```
+
+  Reports land under `validation/fresh-vm-smoke-migration-<target>-<date>.md`
+  so a normal run and a migration run on the same day don't clobber.
+
 ### Environment overrides
 
 All documented in the script header (`validation/fresh-vm-smoke.sh`).

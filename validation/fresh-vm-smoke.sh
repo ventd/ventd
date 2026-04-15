@@ -20,6 +20,15 @@
 #                      warm cache. Use this when the local squashfs cache
 #                      is suspect (see validation/README.md "Recovery:
 #                      corrupted cached image").
+#   --migration-smoke  Run the upgrade-path smoke for issue #59 instead of
+#                      the standard fresh-install smoke: pre-seed each
+#                      container with validation/fixtures/pre-tls-config.yaml
+#                      plus an openssl-generated tls.crt / tls.key pair, run
+#                      install.sh, then assert config.Load's migration
+#                      populated web.tls_cert / web.tls_key before the
+#                      daemon started. Skips the wizard-mode and
+#                      setup-token assertions, which are fresh-install
+#                      specific. Opt-in; slower per target.
 #
 # Environment overrides:
 #   VENTD_SMOKE_BRIDGE   Incus bridge name (default: incusbr0).
@@ -61,6 +70,7 @@ TIMEOUT_BOOT="${VENTD_SMOKE_TIMEOUT_BOOT:-60}"
 TIMEOUT_PING="${VENTD_SMOKE_TIMEOUT_PING:-60}"
 KEEP="${VENTD_SMOKE_KEEP:-0}"
 REFRESH_IMAGES=0
+MIGRATION_SMOKE=0
 
 RUN_ID="$$-$(date -u +%Y%m%dT%H%M%SZ)"
 HTTP_PID=""
@@ -281,6 +291,45 @@ bootstrap_tools() {
     esac
 }
 
+# Install openssl into the target if missing. Only called when MIGRATION_SMOKE
+# is on, so the extra package-manager churn doesn't slow normal runs.
+bootstrap_openssl() {
+    local inst="$1" target="$2"
+    case "$target" in
+        alpine)
+            cexec "$inst" "command -v openssl >/dev/null || apk add --no-cache openssl >/dev/null" ;;
+        debian-12|ubuntu-24.04)
+            cexec "$inst" "command -v openssl >/dev/null || (apt-get update -qq && apt-get install -y -qq openssl)" ;;
+        fedora-42)
+            cexec "$inst" "command -v openssl >/dev/null || dnf -y -q install openssl" ;;
+        arch)
+            cexec "$inst" "command -v openssl >/dev/null || pacman -Sy --noconfirm --quiet openssl >/dev/null" ;;
+        opensuse-tumbleweed)
+            cexec "$inst" "command -v openssl >/dev/null || zypper -q -n install openssl" ;;
+    esac
+}
+
+# Seed a pre-#59 ventd install: a config.yaml that predates the TLS-path
+# persistence fix, paired with a self-signed cert + key at the sibling paths
+# the migration looks for. Run BEFORE scripts/install.sh so the first daemon
+# start sees the state a real upgrade would land in.
+seed_migration_fixture() {
+    local inst="$1"
+    cexec "$inst" "install -d -m 0755 /etc/ventd"
+    incus file push "$PROJECT_ROOT/validation/fixtures/pre-tls-config.yaml" \
+        "$inst/etc/ventd/config.yaml" --mode 0644 >/dev/null
+    # Self-signed pair, 1-day validity — we only need it to parse as a
+    # keypair; it's torn down with the container at end of run.
+    cexec "$inst" "
+        openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout /etc/ventd/tls.key \
+            -out /etc/ventd/tls.crt \
+            -days 1 -subj '/CN=ventd-smoke-migration' >/dev/null 2>&1
+        chmod 0644 /etc/ventd/tls.crt
+        chmod 0640 /etc/ventd/tls.key
+    "
+}
+
 # ── Assertions ────────────────────────────────────────────────────────────
 #
 # Each assertion runs inside the container and prints:
@@ -377,6 +426,30 @@ assert_wizard_mode() {
         assertion A4 FAIL "daemon not in first-boot mode. Body: ${body:-"(empty)"}"
         echo '```'
         cexec "$inst" "curl -kv -m 3 https://127.0.0.1:9999/api/auth/state 2>&1 | tail -n 20"
+        echo '```'
+    fi
+}
+
+# Upgrade-path smoke (issue #59): the seeded pre-TLS config.yaml had no
+# web.tls_cert/web.tls_key, and we dropped a sibling TLS pair at
+# /etc/ventd/tls.{crt,key} before install.sh. config.Load must have
+# fired the TLS-path migration on first daemon start and persisted the
+# populated fields back. If config.yaml on disk still lacks them, the
+# migration didn't run (pre-#71 regression) or didn't Save — both are
+# FAIL conditions the operator needs to see named.
+assert_tls_migration() {
+    local inst="$1"
+    local cfg
+    cfg=$(cexec "$inst" "cat /etc/ventd/config.yaml 2>/dev/null" 2>/dev/null || echo "")
+    local cert_ok=0 key_ok=0
+    grep -qE '^[[:space:]]*tls_cert:[[:space:]]*/etc/ventd/tls\.crt' <<<"$cfg" && cert_ok=1
+    grep -qE '^[[:space:]]*tls_key:[[:space:]]*/etc/ventd/tls\.key'  <<<"$cfg" && key_ok=1
+    if (( cert_ok == 1 && key_ok == 1 )); then
+        assertion M1 PASS "config migrated: tls_cert + tls_key populated and persisted"
+    else
+        assertion M1 FAIL "config.yaml still lacks tls_cert or tls_key after install (migration did not fire or did not Save)"
+        echo '```'
+        echo "$cfg"
         echo '```'
     fi
 }
@@ -563,9 +636,13 @@ run_target() {
     inst="${inst:0:63}"
     inst="${inst%"${inst##*[!-]}"}"   # strip trailing dashes
 
-    local date_tag
+    local date_tag report_infix
     date_tag=$(date -u +%Y%m%d-%H%M)
-    local report="$HARNESS_DIR/fresh-vm-smoke-${target}-${date_tag}.md"
+    report_infix=""
+    if (( MIGRATION_SMOKE == 1 )); then
+        report_infix="-migration"
+    fi
+    local report="$HARNESS_DIR/fresh-vm-smoke${report_infix}-${target}-${date_tag}.md"
 
     info "=== target: $target (instance: $inst) ==="
 
@@ -596,6 +673,21 @@ run_target() {
         echo "## Overall: FAIL" >> "$report"
         return 1
     }
+
+    if (( MIGRATION_SMOKE == 1 )); then
+        bootstrap_openssl "$inst" "$target" || {
+            echo "FAIL: openssl install failed." >> "$report"
+            echo >> "$report"
+            echo "## Overall: FAIL" >> "$report"
+            return 1
+        }
+        seed_migration_fixture "$inst" || {
+            echo "FAIL: could not seed pre-TLS config fixture." >> "$report"
+            echo >> "$report"
+            echo "## Overall: FAIL" >> "$report"
+            return 1
+        }
+    fi
 
     local init
     init=$(cexec "$inst" "[ -d /run/systemd/system ] && echo systemd || (command -v rc-service >/dev/null 2>&1 && echo openrc || echo unknown)" 2>/dev/null || echo unknown)
@@ -629,12 +721,22 @@ bash scripts/install.sh >/tmp/install.log 2>&1
         assert_install_exit     "$inst" "$install_rc"
         assert_service_active   "$inst" "$init"
         assert_api_ping         "$inst"
-        assert_wizard_mode      "$inst"
-        assert_setup_token      "$inst" "$init"
+        if (( MIGRATION_SMOKE == 1 )); then
+            # Migration smoke replaces A4/A5/A9 with M1 — the seeded
+            # config already has a password_hash so first_boot=false,
+            # no setup token gets generated, and uninstall is not the
+            # behavior this run is gating.
+            assert_tls_migration    "$inst"
+        else
+            assert_wizard_mode      "$inst"
+            assert_setup_token      "$inst" "$init"
+        fi
         assert_config_dir_owner "$inst"
         assert_no_fatal         "$inst" "$init"
         assert_run_user         "$inst"
-        assert_uninstall        "$inst" "$init"
+        if (( MIGRATION_SMOKE == 0 )); then
+            assert_uninstall    "$inst" "$init"
+        fi
     } >> "$report"
 
     # Summarise.
@@ -686,6 +788,10 @@ main() {
         case "$1" in
             --refresh-images)
                 REFRESH_IMAGES=1
+                shift
+                ;;
+            --migration-smoke)
+                MIGRATION_SMOKE=1
                 shift
                 ;;
             --help|-h)
