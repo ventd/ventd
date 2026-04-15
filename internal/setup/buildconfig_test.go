@@ -26,8 +26,8 @@ func TestBuildConfig_MinimalHwmonCPUOnly(t *testing.T) {
 	if cfg.Version != config.CurrentVersion {
 		t.Errorf("Version = %d, want %d", cfg.Version, config.CurrentVersion)
 	}
-	if cfg.PollInterval.Duration.Seconds() != 2 {
-		t.Errorf("PollInterval = %v, want 2s", cfg.PollInterval.Duration)
+	if cfg.PollInterval.Seconds() != 2 {
+		t.Errorf("PollInterval = %v, want 2s", cfg.PollInterval)
 	}
 	if cfg.Web.Listen != "0.0.0.0:9999" {
 		t.Errorf("Web.Listen = %q, want 0.0.0.0:9999", cfg.Web.Listen)
