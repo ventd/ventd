@@ -74,3 +74,27 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath -ldflags="-s -w" -o ventd-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/ventd/
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint shipped shell scripts (bash entry, POSIX hooks, init scripts)
+        # SC1091 silenced — _ventd_account.sh is sourced via dynamic
+        # path resolution that shellcheck can't follow statically.
+        # SC2034 silenced — OpenRC's `name=` and `description=` vars
+        # are consumed by the framework, not by the script body.
+        run: |
+          set -e
+          # bash entry point.
+          shellcheck --severity=warning --exclude=SC1091 \
+                     --shell=bash scripts/install.sh
+          # POSIX hooks + init scripts. preremove.sh, postinstall.sh
+          # and _ventd_account.sh all run under dash on Debian.
+          shellcheck --severity=warning --exclude=SC1091,SC2034 \
+                     --shell=sh scripts/postinstall.sh \
+                                scripts/preremove.sh \
+                                scripts/_ventd_account.sh \
+                                scripts/ventd.openrc \
+                                scripts/ventd.runit

@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # GitHub Actions versions used in .github/workflows/.
+  # Pinned by SHA in our workflows, so updates are PR'd by Dependabot
+  # whenever a security advisory or material upstream fix lands.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+
+  # Go module deps. golang.org/x/* in particular ships CVE fixes
+  # frequently and the daemon ships static binaries that bake the
+  # exact version, so a stale dep is a stale binary.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
