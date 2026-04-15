@@ -75,10 +75,12 @@
       <div class="header-tagline">System Fan Controller</div>
     </div>
   </div>
-  <div class="header-actions">
+  <div class="header-status">
     <span id="sys-status" class="sys-status"></span>
     <span id="live-dot" class="live-dot" title="Live data"></span>
     <span id="dirty" class="badge" hidden>Unsaved</span>
+  </div>
+  <div class="header-actions">
     <button id="btn-apply" class="primary" disabled>Apply</button>
     <button id="btn-sidebar"  class="icon-btn" data-action="toggle-sidebar" title="Toggle hardware panel"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#menu"/></svg></button>
     <button id="btn-theme"    class="icon-btn" data-action="toggle-theme"   title="Toggle light/dark mode"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#moon"/></svg></button>
@@ -111,6 +113,11 @@
     <div class="sidebar-hdr">Hardware Monitor</div>
     <div id="hw-devices" class="hw-empty">Loading...</div>
   </div>
+  <!-- Backdrop for the mobile off-canvas drawer. Sibling-of-sidebar
+       placement lets `.sidebar.open ~ .sidebar-backdrop` toggle
+       visibility in pure CSS; a tap closes the drawer via the
+       `close-sidebar` data-action dispatch in render.js. -->
+  <div id="sidebar-backdrop" class="sidebar-backdrop" data-action="close-sidebar" aria-hidden="true"></div>
   <main>
     <div class="section hwdiag-section hidden" id="hwdiag-section">
       <div class="section-hdr"><h2>Diagnostics</h2></div>

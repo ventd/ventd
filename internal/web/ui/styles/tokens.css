@@ -18,6 +18,25 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* Responsive breakpoints — canonical source of truth for the three
+   * layout brackets the dashboard supports. CSS doesn't interpolate
+   * custom properties into @media queries, so media rules throughout
+   * the codebase use the literal px values documented here; whenever
+   * a new query appears, the width MUST match one of these three.
+   *
+   *   mobile  < 480px   — phones, portrait. Drawer sidebar, stacked UI.
+   *   tablet  480–899   — landscape phones, small tablets. 2-up grid,
+   *                       sidebar still off-canvas.
+   *   desktop ≥ 900px   — laptops and up. Inline sidebar, 3-up grid
+   *                       that expands via auto-fit on wider screens.
+   *
+   * Do not add intermediate breakpoints — each additional query
+   * multiplies the real-device test surface without buying design
+   * value. The 1280px reference lives here as documentation only. */
+  --bp-mobile:  480px;
+  --bp-tablet:  900px;
+  --bp-desktop: 1280px;
+
   --bg:        #0d1117;
   --bg2:       #161b22;
   --bg3:       #21262d;

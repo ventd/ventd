@@ -6,26 +6,42 @@
  * positioning rules for full-screen overlays (settings modal, setup
  * wizard).
  *
- * Loaded after base.css. Phase 4.5 (mobile responsive) will extend
- * this file with media queries against three canonical breakpoints
- * (480 / 900 / 1280). All other rules in here are mobile-friendly
- * defaults that already shrink — no fixed pixel widths except the
- * sidebar.
+ * Loaded after base.css. Media queries in this file target the three
+ * canonical breakpoints documented in tokens.css (480/900/1280).
+ * No other file adds breakpoints.
  */
 
+/* Header is a 3-column grid (brand / status / actions) on desktop, and
+ * reflows at <480px into a brand + actions row with status pulled onto
+ * a second row that spans both columns. Grid areas keep the reflow
+ * declarative — no JS touches this layout. */
 header {
-  display: flex; justify-content: space-between; align-items: center;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "brand status actions";
+  align-items: center;
+  gap: 0.8rem;
   padding: 0.6rem 1.5rem;
   background: var(--bg2); border-bottom: 1px solid var(--border);
 }
-.header-brand { display: flex; align-items: center; gap: 10px; }
+.header-brand   { grid-area: brand;   display: flex; align-items: center; gap: 10px; }
+.header-status  { grid-area: status;  display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.header-actions { grid-area: actions; display: flex; align-items: center; gap: 10px; }
 .header-tagline { color: var(--fg3); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 1px; }
-.header-actions { display: flex; align-items: center; gap: 10px; }
 
 .layout { display: flex; min-height: calc(100vh - 52px); }
 
-/* Sidebar (positioning + collapse animation only — contents live in
- * components.css under .hw-* and .sidebar-hdr). */
+/* Sidebar positioning — contents live in components.css under .hw-*
+ * and .sidebar-hdr. Two behaviour modes keyed on viewport:
+ *
+ *   desktop (≥900px) — inline flex column, 260px wide. `.collapsed`
+ *   shrinks it to 0 so operators can reclaim screen width.
+ *
+ *   mobile (<900px) — off-canvas drawer, position: fixed, translated
+ *   off-screen by default. `.open` slides it in and the sibling
+ *   backdrop fades up behind it. `.collapsed` is a no-op at this
+ *   viewport; render.js resets both classes when the matchMedia
+ *   listener fires on a breakpoint crossing. */
 .sidebar {
   width: 260px; min-width: 260px;
   background: var(--bg2); border-right: 1px solid var(--border);
@@ -34,7 +50,65 @@ header {
 }
 .sidebar.collapsed { width: 0; min-width: 0; padding: 0; overflow: hidden; border-right: none; }
 
+/* Backdrop is part of the DOM at all times so the `.sidebar.open ~
+ * .sidebar-backdrop` selector can reveal it without JS. Hidden by
+ * default — visibility flips only on mobile viewports when the
+ * drawer is open. */
+.sidebar-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+}
+
 main { flex: 1; padding: 1rem 1.5rem; max-width: 1100px; overflow-y: auto; }
+
+/* ── Responsive: tablet and below (<900px) ── */
+@media (max-width: 899px) {
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 85vw; max-width: 320px;
+    min-width: 0;
+    padding: 10px 0;
+    z-index: 210;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border-right: 1px solid var(--border);
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: 0 0 24px rgba(0,0,0,0.5); }
+  /* Desktop-only collapse has no meaning at this viewport — keep the
+   * class so localStorage state survives a round-trip but disable its
+   * visual effect. */
+  .sidebar.collapsed { width: 85vw; max-width: 320px; padding: 10px 0; border-right: 1px solid var(--border); overflow-y: auto; }
+  .sidebar.open ~ .sidebar-backdrop { display: block; }
+  main { padding: 0.8rem 1rem; max-width: none; }
+}
+
+/* ── Responsive: mobile (<480px) ── */
+@media (max-width: 479px) {
+  header {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "brand   actions"
+      "status  status";
+    row-gap: 0.3rem;
+    padding: 0.5rem 0.9rem;
+  }
+  .header-status  { justify-content: flex-start; flex-wrap: wrap; }
+  .header-tagline { display: none; }
+  /* Apply stays visible but caps its footprint so it doesn't crowd
+   * the three icon buttons in the actions cell. */
+  #btn-apply { min-width: 60px; padding: 4px 10px; }
+  .sys-status { font-size: 0.68rem; }
+}
+
+/* ── Responsive: desktop (≥900px) ── */
+@media (min-width: 900px) {
+  /* Backdrop never shows on desktop even if an older DOM still has
+   * the `.open` class lingering from a viewport resize. */
+  .sidebar-backdrop { display: none !important; }
+}
 
 .section { margin-bottom: 2.5rem; }
 .section-hdr {
