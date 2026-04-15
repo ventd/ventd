@@ -429,6 +429,20 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		defer m.wd.Deregister(pwmPath)
 	}
 
+	// PWM=0 safety sentinel. Calibration sweeps that probe stop_pwm
+	// drive PWM to 0 intentionally; the sentinel escalates to
+	// SafePWMFloor if 0 is held longer than ZeroPWMMaxDuration so
+	// a hung sweep can never leave a fan stopped under load. See
+	// internal/calibrate/safety.go for the full design note.
+	sentinel := NewZeroPWMSentinel(m.logger, func() {
+		if isNvidia {
+			_ = nvidia.WriteFanSpeed(uint(gpuIdx), SafePWMFloor)
+		} else {
+			_ = hwmon.WritePWM(pwmPath, SafePWMFloor)
+		}
+	})
+	defer sentinel.Stop()
+
 	// Safety: restore fan control when we exit, regardless of outcome.
 	// The terminal state ("complete" | "error" | "aborted") is decided here so
 	// callers polling Status see the right label after the goroutine exits.
@@ -564,6 +578,12 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			writeErr = nvidia.WriteFanSpeed(uint(gpuIdx), pwm)
 		} else {
 			writeErr = hwmon.WritePWMSafe(pwmPath, pwm)
+		}
+		if writeErr == nil {
+			// Notify the safety sentinel of the new commanded PWM
+			// after a successful write. Set(0) arms the 2s
+			// escalation timer; Set(non-zero) cancels it.
+			sentinel.Set(pwm)
 		}
 		if writeErr != nil {
 			rs.mu.Lock()

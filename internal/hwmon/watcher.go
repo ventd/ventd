@@ -12,10 +12,23 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 )
 
-// Default timings. Exposed as variables (not consts) so tests can shorten
-// them — production callers use NewWatcher which sets the real values.
+// Default timings. README's "Plug a new fan or GPU in; ventd notices
+// within ten seconds" promise is satisfied two ways:
+//
+//   - Uevent path (default on systemd / container hosts that allow
+//     AF_NETLINK): reaction is sub-second after kernel emits the
+//     ADD/REMOVE event.
+//
+//   - Periodic rescan path (fallback for environments where AF_NETLINK
+//     is filtered, e.g. some restricted containers, custom seccomp
+//     policies, or VENTD_DISABLE_UEVENT=1 set for testing): the rescan
+//     ticker runs every 10 seconds, capping detection latency at the
+//     same 10s upper bound the README promises.
+//
+// Cost: a rescan stats ~50 sysfs files on a typical desktop, finishing
+// in well under 1 ms. Running every 10s adds negligible CPU.
 const (
-	defaultRescanPeriod = 5 * time.Minute
+	defaultRescanPeriod = 10 * time.Second
 	defaultDebounce     = 2 * time.Second
 )
 
