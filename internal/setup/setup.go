@@ -652,16 +652,25 @@ func (m *Manager) run(ctx context.Context) {
 // validateGeneratedConfig round-trips cfg through yaml.Marshal + config.Parse
 // so any validation rule Apply would enforce (sensor/fan/curve/control
 // reference integrity, type constraints, etc.) fails here instead of on the
-// Apply click. A passing result is not a guarantee the config is optimal for
-// the hardware — only that it is internally consistent and will survive the
-// Save path.
+// Apply click. It then runs config.CheckResolvable against the live hwmon
+// root so any chip_name / hwmon_device mismatch that would make the daemon
+// fatal on next boot surfaces as a wizard error now — closes the
+// "wizard writes a config the daemon refuses to load" class of bug
+// (see usability.md: "Never emit a config the resolver will reject on
+// the next boot"). A passing result is not a guarantee the config is
+// optimal for the hardware — only that it is internally consistent,
+// resolvable against current sysfs, and will survive the Save path.
 func validateGeneratedConfig(cfg *config.Config) error {
 	buf, err := yaml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal generated config: %w", err)
 	}
-	if _, err := config.Parse(buf); err != nil {
+	parsed, err := config.Parse(buf)
+	if err != nil {
 		return err
+	}
+	if err := config.CheckResolvable(parsed); err != nil {
+		return fmt.Errorf("resolver would reject this config on daemon start: %w", err)
 	}
 	return nil
 }
