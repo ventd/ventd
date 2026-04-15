@@ -174,6 +174,7 @@ type Sensor struct {
 	Path        string `yaml:"path" json:"path"`
 	Metric      string `yaml:"metric,omitempty" json:"metric,omitempty"` // nvidia: temp(default), util, mem_util, power, clock_gpu, clock_mem, fan_pct
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
+	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor Path across renumbering
 }
 
 type Fan struct {
@@ -182,6 +183,7 @@ type Fan struct {
 	PWMPath     string `yaml:"pwm_path" json:"pwm_path"`
 	RPMPath     string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"` // override auto-derived fan*_input path
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
+	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor PWMPath/RPMPath across renumbering
 	// ControlKind distinguishes how the PWMPath is written. Empty or "pwm"
 	// means a standard pwm* duty-cycle file (0–255). "rpm_target" means a
 	// fan*_target RPM setpoint file (pre-RDNA AMD amdgpu cards).
@@ -390,7 +392,7 @@ func validateHwmonSysfsPath(p, basePrefix, baseSuffix string) error {
 	}
 	// Stat is best-effort: if the file exists it must be regular.
 	// Non-existent paths are allowed so configs survive transient hwmon
-	// renumbering and resolveHwmonPaths() runs before controllers start.
+	// renumbering and ResolveHwmonPaths runs before controllers start.
 	if fi, err := os.Lstat(cleaned); err == nil {
 		if fi.Mode()&os.ModeSymlink != 0 {
 			fi, err = os.Stat(cleaned)
