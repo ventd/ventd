@@ -4,15 +4,15 @@ All notable changes to ventd are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v0.2.0]
-
-**Status:** unreleased — blocked by [#103](https://github.com/ventd/ventd/issues/103).
+## [v0.2.0] — 2026-04-16
 
 This release closes the daemon-hardening stream begun in v0.1.x: every
 README claim now holds in code, every safety contract has a regression
 test, and the install path no longer assumes any particular fan chip.
 Rig re-verified on phoenix-MS-7D25 (see
-`validation/phoenix-MS-7D25-v0.2.0-final-pass.md`).
+`validation/phoenix-MS-7D25-v0.2.0-final-pass.md`), with a second
+post-#103 cold-boot re-verify confirming the udev-race fix also holds
+clean (9/9 PASS including the new 4i gate).
 
 ### Added — installation path
 
@@ -88,6 +88,24 @@ Rig re-verified on phoenix-MS-7D25 (see
   (e.g. dual-`nct6687` on MSI MAG Z790). Single-match chips ignore
   the field; empty `hwmon_device` on an ambiguous chip still errors
   loudly and names both candidate `hwmonN` entries. (#42)
+- Resolver now honours `hwmon_device` on the single-match path too.
+  On dual-Super-I/O boards where one driver had not yet enumerated
+  when ventd started, the resolver previously returned the sole
+  candidate unconditionally and bound every fan to the wrong chip
+  for the lifetime of that boot. New code validates the candidate's
+  `device` symlink against the configured path and errors loudly
+  when they don't match. (#86)
+- Cold-boot first-boot mode fall-through closed. When the configured
+  `hwmon_device` hadn't been created by udev yet, the resolver's
+  ENOENT propagated through `Load()` as a wrapped `os.ErrNotExist`
+  and `cmd/ventd` mis-classified it as "no config yet", wiping the
+  operator's setup state until a manual restart. Three independent
+  layers now close this: a sentinel `ErrHwmonDeviceNotReady` that
+  terminates the error chain inside the resolver, a new
+  `config.LoadForStartup` helper that discriminates first-boot via
+  `os.Stat` before calling `Load()` and retries on the sentinel for
+  up to 30s, and an `ExecStartPre=ventd-wait-hwmon` gate in the
+  shipped systemd unit as belt-and-braces. (#103)
 - `config.writeFileSync` chown-matches the atomic `.tmp` to the
   parent config dir's owner before the rename when the writer's
   euid is 0, so any `sudo ventd ...` invocation stops silently
