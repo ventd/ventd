@@ -1,0 +1,66 @@
+/* ── Theme variables ──
+ *
+ * Single source of truth for every colour and font-family token used
+ * across the dashboard. All other stylesheets in this directory pull
+ * from these custom properties; never hard-code a colour outside this
+ * file.
+ *
+ * The dark palette is :root (default); the light palette overrides
+ * via [data-theme="light"], which is set on <html> by the theme
+ * toggle in scripts/app.js. Both palettes carry the same set of
+ * names so component rules don't need to branch on theme.
+ */
+:root {
+  --bg:        #0d1117;
+  --bg2:       #161b22;
+  --bg3:       #21262d;
+  --bg4:       #1a1f26;
+  --border:    #30363d;
+  --border2:   #1a1f26;
+  --fg:        #c9d1d9;
+  --fg1:       #e6edf3;
+  --fg2:       #8b949e;
+  --fg3:       #484f58;
+  --fg4:       #2a3a4a;
+  --teal:      #4fc3a1;
+  --teal-h:    #3da88a;
+  --teal-bg:   #1a3a2a;
+  --teal-bg2:  #2a4a3a;
+  --amber:     #e6a23c;
+  --amber-bg:  #2a2a1a;
+  --red:       #f85149;
+  --red-bg:    #3a1a1a;
+  --red2:      #f97583;
+  --blue:      #58a6ff;
+  --blue-bg:   #1a2a3a;
+  --purple:    #d2a8ff;
+  --cyan:      #79c0ff;
+  --btn-pri-fg:#0d1117;
+}
+[data-theme="light"] {
+  --bg:        #f6f8fa;
+  --bg2:       #ffffff;
+  --bg3:       #f3f4f6;
+  --bg4:       #e8ecf0;
+  --border:    #d0d7de;
+  --border2:   #e8ecf0;
+  --fg:        #24292f;
+  --fg1:       #1f2328;
+  --fg2:       #57606a;
+  --fg3:       #8c959f;
+  --fg4:       #afb8c1;
+  --teal:      #0b8a6e;
+  --teal-h:    #096e57;
+  --teal-bg:   #d1f5ee;
+  --teal-bg2:  #b8e8de;
+  --amber:     #7d4e00;
+  --amber-bg:  #fff3cd;
+  --red:       #cf222e;
+  --red-bg:    #ffebe9;
+  --red2:      #d73a49;
+  --blue:      #0969da;
+  --blue-bg:   #ddf4ff;
+  --purple:    #8250df;
+  --cyan:      #0550ae;
+  --btn-pri-fg:#ffffff;
+}
