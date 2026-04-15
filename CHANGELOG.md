@@ -10,10 +10,11 @@ This release closes the daemon-hardening stream begun in v0.1.x: every
 README claim now holds in code, every safety contract has a regression
 test, and the install path no longer assumes any particular fan chip.
 
-> **DRAFT status.** This entry will be finalised after `validation/run-
-> rig-checks.sh` is executed on phoenix-MS-7D25 and the results are
-> committed to `validation/phoenix-MS-7D25-PR21-PR25.md`. Until then,
-> none of the items below are guaranteed against real hardware.
+> **DRAFT status.** This entry will be finalised after the rig runs
+> `validation/run-rig-checks.sh` and fills in
+> `validation/phoenix-MS-7D25-v0.2.0-final.md` on phoenix-MS-7D25.
+> Until then, none of the items below are guaranteed against real
+> hardware.
 
 ### Added — installation path
 
@@ -54,6 +55,58 @@ test, and the install path no longer assumes any particular fan chip.
   and rebases stored paths onto the current numbering. Existing v0.1.x
   configs continue to load unchanged. (#21)
 
+### Changed — web UI
+
+- Phase 0 hardening: Content-Security-Policy tightened (no
+  `'unsafe-inline'` on `script-src` or `style-src`), first-boot probe
+  + lockout UI unblocked so the setup wizard is reachable when the
+  daemon has no config yet. (#26)
+- Phase 0.5 refactor: `ui/styles/app.css` split into
+  `tokens.css` / `base.css` / `layout.css` / `components.css`, and
+  `ui/scripts/app.js` split into five defer-loaded modules
+  (`state`, `api`, `render`, `curve-editor`, `setup`). No behaviour
+  change; edits now scoped to the module that owns the feature. (#30)
+- Typography: body now renders in the system sans-serif stack with
+  monospace reserved for numeric readouts (PWM %, RPM, temperatures).
+  Readability on every platform without shipping a webfont. (#39)
+- Iconography: Unicode glyph placeholders replaced by a bundled
+  Lucide SVG sprite served from `ui/icons/sprite.svg`. Consistent
+  rendering across browsers; no external requests. (#48)
+- Live updates: fan state now streams over Server-Sent Events
+  (`GET /api/events`) with the polling code path retained as a
+  fallback. The dashboard reflects PWM / RPM / temperature changes
+  without the old poll cadence. (#47)
+
+### Fixed
+
+- Resolver now walks `/sys/class/hwmon` symlinks instead of stopping
+  at `DirEntry.IsDir()==false`. The pre-fix behaviour returned an
+  empty chip map on real sysfs and the daemon crash-looped on
+  `no hwmon device with chip_name <...>` for every config. Regression
+  test builds a real-symlink tempdir to keep the next refactor
+  honest. (#31)
+- Resolver now consumes the `hwmon_device` config field as a
+  tiebreaker when two hwmon chips report the same `name`
+  (e.g. dual-`nct6687` on MSI MAG Z790). Single-match chips ignore
+  the field; empty `hwmon_device` on an ambiguous chip still errors
+  loudly and names both candidate `hwmonN` entries. (#42)
+- `config.writeFileSync` chown-matches the atomic `.tmp` to the
+  parent config dir's owner before the rename when the writer's
+  euid is 0, so any `sudo ventd ...` invocation stops silently
+  leaving `root:root` files in `/etc/ventd` that the `User=ventd`
+  systemd unit can no longer read. `install.sh`'s no-init-system
+  fallback hint switched from `sudo ventd` to `sudo -u ventd ventd`
+  so operators stop hitting the same footgun. (#38)
+- Setup wizard now round-trips the generated config through
+  `config.Parse` before the Review screen, so any emitter
+  regression fails as a wizard error instead of an Apply-time dead
+  end that the zero-terminal UX can't escape. (#32)
+- `case_curve` emission now gated on `len(gpuFans) > 0` so rigs
+  with a detected GPU sensor but no controllable GPU fan
+  (NVML insufficient-permissions — common on the default hardened
+  unit) stop generating configs that reference an undeclared
+  `gpu_curve`. Case fans fall back to `cpu_curve`. (#33)
+
 ### Tests
 
 - `internal/setup` coverage 5.9% → 56.0%. New tests cover the wizard's
@@ -70,9 +123,30 @@ test, and the install path no longer assumes any particular fan chip.
 
 - New rig-side verification harness at `validation/run-rig-checks.sh`
   drives every PR #21 / PR #25 reproducer in one command, with results
-  templated by `validation/phoenix-MS-7D25-PR21-PR25.md`. (PR-F1.3)
+  templated by `validation/phoenix-MS-7D25-PR21-PR25.md`. (#27)
+- v0.2.0-specific runbook at
+  `validation/phoenix-MS-7D25-v0.2.0-final.md` adds three sections
+  covering the F2 fixes (config ownership under systemd, hwmon
+  resolution on dual-nct6687, NVIDIA docs walkthrough). (#44)
+- Fresh-VM install smoke harness at `validation/fresh-vm-smoke/`
+  runs the curl-pipe-bash installer against pristine Debian/Ubuntu/
+  Fedora/Arch images, confirming the install path before every
+  release tag. (#45)
 - _(TBD: replace with link to the populated phoenix-MS-7D25 results
   document once the rig run completes.)_
+
+### Chores
+
+- Gitignore `AGENTS.md` so locally-scoped agent notes stay out of
+  the tree. (#29)
+- CI: resolved the `actions/checkout@v6` + `govulncheck-action`
+  duplicate `Authorization` header that was 400-ing vuln scans. (#41)
+- Test hygiene: `TestLoad_NoChipNameNoOpsBackwardCompat` decoupled
+  from host `/sys` — uses a guaranteed-missing `hwmon999` reference
+  so `EnrichChipName` ENOENTs cleanly on any rig regardless of
+  local hwmon enumeration. (#49)
+- Dependencies: bumped `actions/setup-go` to v6 and
+  `goreleaser/goreleaser-action` to v7. (#22, #23)
 
 ### Known issues
 
@@ -82,5 +156,15 @@ test, and the install path no longer assumes any particular fan chip.
   the daemon's default hardened systemd posture and returns
   `Insufficient Permissions`. A one-time udev rule (or cool-bits /
   capability alternatives) unblocks GPU fan writes. See
-  [docs/nvidia-fan-control.md](docs/nvidia-fan-control.md). Pure-hwmon
-  rigs (CPU, chassis, AIO fans — no NVIDIA fan control) are unaffected.
+  [docs/nvidia-fan-control.md](docs/nvidia-fan-control.md) for the
+  three options and their trade-offs. Pure-hwmon rigs (CPU, chassis,
+  AIO fans — no NVIDIA fan control) are unaffected. (#34)
+- **Setup wizard doesn't remediate missing kernel modules.** If a
+  sensor the wizard wants to reference requires a kernel module that
+  isn't loaded at scan time (e.g. `coretemp` not loaded on some
+  stripped-down images), the wizard currently writes a config the
+  resolver will reject on the next boot instead of surfacing a
+  "[Attempt load]" remediation card. The fatal daemon path is closed
+  by PR #32's pre-validate check; the remediation UI is deferred to
+  a later session. Tracked as
+  [#36](https://github.com/ventd/ventd/issues/36).
