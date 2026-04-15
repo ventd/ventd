@@ -411,6 +411,68 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// REVIEW NOTES — phoenixdnb (PR #16, error-wrap audit)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Cross-cutting chore PR; 16 wraps across 6 files:
+//   internal/config/config.go        (Duration.UnmarshalJSON)
+//   internal/hwmon/autoload.go       (appendIfMissing: 3 wraps)
+//   internal/hwmon/install.go        (runLogDir)
+//   internal/web/auth.go             (HashPassword, setup-token rand,
+//                                     randomHex)
+//   internal/web/selfsigned.go       (fingerprintCert, writeFile:
+//                                     5 wraps — open/write/sync/close/
+//                                     rename)
+//   internal/web/server.go           (TLS + plaintext listeners)
+//
+// STATUS
+//   No hardware-gated path touched — pure error-wrapping. Unit tests
+//   cover call sites. No RIG verification required.
+//
+// CROSS-REF securitytodo.md — PR #16 does not claim to close any
+// specific securitytodo item. It is hygiene for future auditability.
+// Confirm it is tracked there (or explicitly out-of-scope) in the
+// live doc.
+//
+// CONCERNS
+//
+// 1. ListenAndServe branch safety (this function, below).
+//    The `!= http.ErrServerClosed` comparison relies on stdlib
+//    returning that sentinel by identity, not wrapped. If a future
+//    stdlib change ever wraps it, `errors.Is(err, http.ErrServerClosed)`
+//    is the correct check. Today it is direct return, so the `!=`
+//    works. Not introduced by this PR — inherited. Flagged here so
+//    it is visible next to the wrap.
+//
+// 2. Double-path in the wrapped message for os.* errors.
+//    os.ReadFile / os.OpenFile / os.Rename return *PathError which
+//    already embeds the path in its Error() string. The new wraps in
+//    hwmon/autoload.go and web/selfsigned.go add the path again, so
+//    final text reads like "hwmon: read /etc/X: open /etc/X: no
+//    such file or directory". Cosmetic duplication, not a bug —
+//    errors.Is / errors.As still work through %w. Easy to drop the
+//    path from the wrap prefix if the double-print bothers anyone
+//    later.
+//
+// 3. Prefix-namespace split inside the `web` package.
+//    server.go and auth.go wrap with "web: …"; selfsigned.go wraps
+//    with "tls: …". Unusual — most packages use a single prefix.
+//    Harmless, just worth noting if anyone later greps logs by prefix.
+//
+// 4. fmt.Errorf("%w", nil) risk in ListenAndServe.
+//    If the stdlib ever returned nil from ListenAndServeTLS while
+//    the server was still open, the `!=` comparison would let nil
+//    through into fmt.Errorf and we'd synthesise a bogus error.
+//    Current stdlib always returns non-nil, so this is purely
+//    defensive. Guard with `if err != nil && err != http.ErrServerClosed`
+//    if anyone wants belt-and-braces.
+//
+// README-DRIFT
+//   None.
+//
+// ─────────────────────────────────────────────────────────────────────
+
 func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	s.tlsActive = tlsCert != "" && tlsKey != ""
 	s.httpSrv.Addr = addr
