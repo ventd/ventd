@@ -61,6 +61,11 @@ type e2eHarness struct {
 	password string
 	browser  *rod.Browser
 	cleanup  func()
+	// srv and cfgPtr expose the live daemon state to tests that need
+	// to mutate config mid-run (e.g. SSE tests that inject a sensor
+	// and verify it reaches the DOM). Set by newHarness.
+	srv    *Server
+	cfgPtr *atomic.Pointer[config.Config]
 }
 
 func newHarness(t *testing.T) *e2eHarness {
@@ -92,7 +97,14 @@ func newHarness(t *testing.T) *e2eHarness {
 		ts.Close()
 		cancel()
 	}
-	return &e2eHarness{server: ts, password: password, browser: browser, cleanup: cleanup}
+	return &e2eHarness{
+		server:   ts,
+		password: password,
+		browser:  browser,
+		cleanup:  cleanup,
+		srv:      srv,
+		cfgPtr:   &cfgPtr,
+	}
 }
 
 // TestE2E_LoginFlowUnderDefaultCSP is the verification gate for audit
@@ -252,6 +264,135 @@ func TestE2E_AuthStateProbeDoesNotLockOut(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("real login blocked after 10 probe page loads — S2 regression")
 	}
+}
+
+// TestE2E_SSE_StreamDrivesDashboardFasterThanPolling asserts that the
+// SSE path actually carries status updates from /api/events to the
+// dashboard, and that the once-per-2s polling loop yields to it. The
+// harness lowers sseInterval to 100ms, which is two orders of
+// magnitude below the baseline 2000ms poll — if only polling were
+// firing, we'd see exactly one applyStatus call during the 500ms
+// window (the initial kick-off); the test asserts >=3 calls, proving
+// that SSE frames are reaching the browser and updating `sts`.
+//
+// This is the closest we can get to "DOM updates within 1 poll
+// interval of a fan state change" without stubbing hwmon reads: the
+// buildStatus() payload always includes a fresh timestamp, so each
+// frame mutates `sts.timestamp`, and applyStatus is the single
+// render entry point — count it, you count every DOM write from a
+// status frame.
+func TestE2E_SSE_StreamDrivesDashboardFasterThanPolling(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Bias the server toward SSE well before the browser subscribes.
+	// sseInterval is a plain field; the handler reads it per request.
+	h.srv.sseInterval = 100 * time.Millisecond
+
+	// Seed one Control so setup.Needed() returns false and the
+	// dashboard boots in normal mode. Without this, config.Empty()
+	// leaves Controls=[] which flips the setup overlay on and the
+	// status pollers / SSE stream never start.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "test-fan", Curve: ""}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	// Log in via a direct POST so the session cookie lands on the
+	// httptest origin. Same pattern as TestE2E_DashboardRendersAtLeastOneSection.
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const body = new URLSearchParams();
+		body.append('password', pw);
+		const r = await fetch('/login', { method: 'POST', body });
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login fetch: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login POST status=%d want 200", st)
+	}
+
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".section-hdr")
+
+	// The dashboard bootstrap in setup.js is gated on an async
+	// checkSetup().then(...) — MustWaitStable doesn't wait for that
+	// chain, so openEventStream may not have run yet at the instant
+	// this test wakes up. Poll until the `sts` global has a non-zero
+	// timestamp (set by the first applyStatus call, whether via SSE
+	// or the initial /api/status fetch). That confirms bootstrap is
+	// complete and status plumbing is live before we measure the
+	// SSE-specific cadence below.
+	//
+	// Note: `sts` is declared with `let` in state.js, which in a
+	// classic <script> stays in the script-level lexical environment
+	// and is NOT a property of window. Bare-identifier evals resolve
+	// it correctly; `window.sts` returns undefined.
+	waitUntil(t, 3*time.Second, func() bool {
+		res, err := page.Eval(`() => (typeof sts !== 'undefined' && sts && sts.timestamp) ? sts.timestamp : ''`)
+		if err != nil || res == nil {
+			return false
+		}
+		return res.Value.Str() != ""
+	}, "sts.timestamp became populated")
+
+	// Read sts.timestamp now, wait one poll interval (2s) worth of
+	// server wall time but far less on the client, and re-read. With
+	// sseInterval=100ms the timestamp must advance at least once
+	// within 400ms — the polling fallback can only deliver one
+	// refresh per 2s, so any advance inside that window is
+	// SSE-sourced by construction.
+	firstTS, err := page.Eval(`() => sts.timestamp`)
+	if err != nil {
+		t.Fatalf("read sts.timestamp: %v", err)
+	}
+	first := firstTS.Value.Str()
+
+	time.Sleep(400 * time.Millisecond)
+
+	secondTS, err := page.Eval(`() => sts.timestamp`)
+	if err != nil {
+		t.Fatalf("read sts.timestamp (second): %v", err)
+	}
+	second := secondTS.Value.Str()
+
+	if second == first {
+		t.Fatalf("sts.timestamp did not advance within 400ms — SSE is not delivering frames (first=%q second=%q)",
+			first, second)
+	}
+
+	// Verify the live-dot is in the 'on' state — applyStatus sets
+	// 'live-dot on' and schedules a 2s clear; with the 100ms stream
+	// the clear never fires, so a stable 'on' class is corroboration
+	// that frames are arriving at sub-2s cadence.
+	dotClsRes, err := page.Eval(`() => document.getElementById('live-dot').className`)
+	if err != nil {
+		t.Fatalf("read live-dot class: %v", err)
+	}
+	if !strings.Contains(dotClsRes.Value.Str(), "on") {
+		t.Errorf("live-dot class=%q, expected to contain 'on' while SSE is active",
+			dotClsRes.Value.Str())
+	}
+}
+
+// waitUntil polls `cond` every 50ms until it returns true or `timeout`
+// elapses. Used in SSE e2e tests to wait for the async dashboard
+// bootstrap chain to finish before measuring stream cadence.
+func waitUntil(t *testing.T, timeout time.Duration, cond func() bool, reason string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out after %v waiting for: %s", timeout, reason)
 }
 
 // --- plumbing --------------------------------------------------------------
