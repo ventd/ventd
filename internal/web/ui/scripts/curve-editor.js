@@ -228,13 +228,32 @@ function deleteCurve(){
 }
 
 // ── Drag ──
+//
+// Unified via PointerEvents so mouse, touch, and stylus share one
+// code path. The previous split (mousedown + touchstart) was brittle
+// on touch: Chrome suppresses the compatibility mouse events for ~300ms
+// after a touchstart but only when preventDefault lands on the exact
+// right event, and touches.length handling had to reach into event
+// internals the unified pointer API already exposes. PointerEvents
+// also let us call setPointerCapture on the control-point element so
+// the drag keeps tracking even when the finger leaves the SVG's
+// bounding box — the common failure mode on phones where a fast drag
+// toward the edge drops the grab.
+//
+// touch-action: none on #curve-svg (components.css) is paired with
+// the preventDefault below; browsers need both to stop the default
+// pan/zoom gesture from intercepting the drag.
+
+// dragPointerId remembers which pointer owns the capture so pointerup
+// / pointercancel can release the right one even if a second pointer
+// (multi-touch) lands during a drag.
+let dragPointerId = null;
 
 function svgPt(e){
   const svg=document.getElementById('curve-svg');
   if(!svg) return null;
   const pt=svg.createSVGPoint();
-  const ev=e.touches?e.touches[0]:e;
-  pt.x=ev.clientX; pt.y=ev.clientY;
+  pt.x=e.clientX; pt.y=e.clientY;
   return pt.matrixTransform(svg.getScreenCTM().inverse());
 }
 function onDrag(e){
@@ -255,25 +274,40 @@ function onDrag(e){
   if(mt)mt.value=c.min_temp; if(Mt)Mt.value=c.max_temp;
   if(mp)mp.value=p2pct(c.min_pwm); if(Mp)Mp.value=p2pct(c.max_pwm);
 }
-function endDrag(){
+function endDrag(e){
+  // Drop the .dragging affordance on whichever point owns it — the
+  // element may have been replaced by a re-render between pointerdown
+  // and pointerup, so match by data-point rather than element identity.
+  if(dragging){
+    document.querySelectorAll('.ctrl-point.dragging').forEach(el=>el.classList.remove('dragging'));
+  }
+  if(dragPointerId!=null && e && e.target && e.target.releasePointerCapture){
+    try { e.target.releasePointerCapture(dragPointerId); } catch(_){}
+  }
   dragging=null;
-  document.removeEventListener('mousemove',onDrag);
-  document.removeEventListener('mouseup',endDrag);
-  document.removeEventListener('touchmove',onDrag);
-  document.removeEventListener('touchend',endDrag);
+  dragPointerId=null;
+  document.removeEventListener('pointermove',onDrag);
+  document.removeEventListener('pointerup',endDrag);
+  document.removeEventListener('pointercancel',endDrag);
 }
-document.addEventListener('mousedown',e=>{
+document.addEventListener('pointerdown',e=>{
   if(!e.target.classList.contains('ctrl-point')) return;
-  e.preventDefault(); dragging=e.target.dataset.point;
-  document.addEventListener('mousemove',onDrag);
-  document.addEventListener('mouseup',endDrag);
+  // Ignore secondary pointers during an active drag so multi-touch
+  // doesn't hijack the capture.
+  if(dragging) return;
+  e.preventDefault();
+  dragging=e.target.dataset.point;
+  dragPointerId=e.pointerId;
+  e.target.classList.add('dragging');
+  // setPointerCapture is best-effort: headless Chromium in CI emits
+  // pointer events but some test harnesses don't register the capture.
+  // Swallow failures — the document-level listeners below keep the
+  // drag alive either way.
+  try { e.target.setPointerCapture(e.pointerId); } catch(_){}
+  document.addEventListener('pointermove',onDrag);
+  document.addEventListener('pointerup',endDrag);
+  document.addEventListener('pointercancel',endDrag);
 });
-document.addEventListener('touchstart',e=>{
-  if(!e.target.classList.contains('ctrl-point')) return;
-  e.preventDefault(); dragging=e.target.dataset.point;
-  document.addEventListener('touchmove',onDrag,{passive:false});
-  document.addEventListener('touchend',endDrag);
-},{passive:false});
 
 // ── Settings ──
 //

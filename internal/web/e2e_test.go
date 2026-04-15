@@ -708,6 +708,179 @@ func TestE2E_Responsive_CardGridReflow(t *testing.T) {
 	}
 }
 
+// TestE2E_Responsive_CurveEditorTouchDrag verifies Phase 4.5 PR 3 —
+// the curve editor's control points accept a PointerEvent drag and
+// the SVG's touch-action is disabled so a real finger drag wouldn't
+// be pre-empted by the browser's pan/zoom gesture. Simulated via
+// PointerEvent dispatch at pointerType=touch; ReadsBack cfg.curves[0]
+// to assert the drag's numeric effect on (min_temp, min_pwm).
+//
+// Regression target: the pre-PR-3 handler split (mousedown +
+// touchstart) would register only one of the two during a real
+// finger drag, dropping the grab on fast moves. Unified PointerEvents
+// mean both device kinds drive the same code path; the test exercises
+// the touch pointerType explicitly.
+func TestE2E_Responsive_CurveEditorTouchDrag(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Seed a sensor + fan + one linear curve so the editor has
+	// something to render against. MinTemp=30 / MaxTemp=70 gives
+	// plenty of room for a drag to move min_temp down.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu-curve"}}
+	seeded.Fans = []config.Fan{
+		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+	}
+	seeded.Sensors = []config.Sensor{
+		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
+	}
+	seeded.Curves = []config.CurveConfig{{
+		Name:    "cpu-curve",
+		Type:    "linear",
+		Sensor:  "CPU Temperature",
+		MinTemp: 30, MaxTemp: 70,
+		MinPWM: 60, MaxPWM: 220,
+	}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+	time.Sleep(200 * time.Millisecond)
+
+	// Open the editor by selecting the only curve card; drawSVG
+	// emits .ctrl-point.min and .ctrl-point.max once the editor
+	// is rendered.
+	page.MustElement(".curve-card").MustClick()
+	page.Timeout(2 * time.Second).MustElement(".ctrl-point.min")
+
+	// #curve-svg must carry touch-action: none. Paired with the
+	// preventDefault in the pointermove handler, this is what keeps
+	// the browser from hijacking the drag on real touch devices.
+	touchAction := getComputedStyle(t, page, "#curve-svg", "touch-action")
+	if touchAction != "none" {
+		t.Errorf("#curve-svg touch-action=%q want none", touchAction)
+	}
+
+	// Capture pre-drag curve state so the assertion can show the
+	// delta the drag was supposed to introduce.
+	pre, err := page.Eval(`() => ({
+		min_temp: cfg.curves[0].min_temp,
+		min_pwm:  cfg.curves[0].min_pwm,
+	})`)
+	if err != nil {
+		t.Fatalf("read pre state: %v", err)
+	}
+	preMinTemp := pre.Value.Get("min_temp").Int()
+	preMinPWM := pre.Value.Get("min_pwm").Int()
+
+	// Dispatch a pointerdown on the min ctrl-point, then a
+	// pointermove ~+40 / -20 in client space, then pointerup.
+	// pointerType:'touch' exercises the coarse-pointer code path
+	// the PR is about; bubbles:true lets the document-level
+	// listeners in curve-editor.js catch pointermove/pointerup.
+	if _, err := page.Eval(`() => {
+		const dot = document.querySelector('.ctrl-point.min');
+		const r = dot.getBoundingClientRect();
+		const x0 = r.left + r.width/2, y0 = r.top + r.height/2;
+		const mk = (type, x, y) => new PointerEvent(type, {
+			bubbles: true, cancelable: true,
+			clientX: x, clientY: y,
+			pointerId: 101, pointerType: 'touch', isPrimary: true,
+		});
+		dot.dispatchEvent(mk('pointerdown', x0, y0));
+		document.dispatchEvent(mk('pointermove', x0 + 40, y0 - 20));
+		document.dispatchEvent(mk('pointerup',   x0 + 40, y0 - 20));
+	}`); err != nil {
+		t.Fatalf("dispatch pointer drag: %v", err)
+	}
+
+	// Small settle so the redraw dispatched from onDrag lands.
+	time.Sleep(50 * time.Millisecond)
+
+	post, err := page.Eval(`() => ({
+		min_temp: cfg.curves[0].min_temp,
+		min_pwm:  cfg.curves[0].min_pwm,
+	})`)
+	if err != nil {
+		t.Fatalf("read post state: %v", err)
+	}
+	postMinTemp := post.Value.Get("min_temp").Int()
+	postMinPWM := post.Value.Get("min_pwm").Int()
+
+	// Either axis could in principle clamp to a boundary; require
+	// at least one axis to have moved so the test fails loudly on
+	// a fully-broken drag handler.
+	if postMinTemp == preMinTemp && postMinPWM == preMinPWM {
+		t.Errorf("pointer drag produced no change: min_temp %d→%d, min_pwm %d→%d",
+			preMinTemp, postMinTemp, preMinPWM, postMinPWM)
+	}
+
+	// The .dragging affordance is added on pointerdown and must be
+	// dropped by endDrag so the cursor returns to grab. Checking
+	// after pointerup so the class has been cleaned up.
+	draggingCount, err := page.Eval(`() => document.querySelectorAll('.ctrl-point.dragging').length`)
+	if err != nil {
+		t.Fatalf("count dragging: %v", err)
+	}
+	if n := draggingCount.Value.Int(); n != 0 {
+		t.Errorf("after pointerup, .ctrl-point.dragging count=%d want 0", n)
+	}
+
+	// Emulate a coarse-pointer, no-hover, touch device so the
+	// (hover:none) and (pointer:coarse) rule in components.css
+	// applies. Chrome needs three calls to make all three of the
+	// relevant UA signals land:
+	//
+	//   setEmulatedMedia  — flips @media (hover:…) and (pointer:…)
+	//   setTouchEmulationEnabled — flips window.navigator.maxTouchPoints
+	//     and matchMedia('(pointer: coarse)').matches
+	//   setDeviceMetricsOverride with Mobile:true — flips the
+	//     'Mobile' branch inside Blink
+	//
+	// viewport / media alone doesn't flip pointer:coarse; without
+	// touch emulation the query still reports 'pointer: fine'.
+	if err := (proto.EmulationSetEmulatedMedia{
+		Features: []*proto.EmulationMediaFeature{
+			{Name: "hover", Value: "none"},
+			{Name: "pointer", Value: "coarse"},
+		},
+	}).Call(page); err != nil {
+		t.Fatalf("emulate coarse-pointer media: %v", err)
+	}
+	maxTouch := 1
+	if err := (proto.EmulationSetTouchEmulationEnabled{
+		Enabled:        true,
+		MaxTouchPoints: &maxTouch,
+	}).Call(page); err != nil {
+		t.Fatalf("enable touch emulation: %v", err)
+	}
+	setViewport(t, page, 375, 812)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+	page.MustElement(".curve-card").MustClick()
+	page.Timeout(2 * time.Second).MustElement(".ctrl-point.min")
+	time.Sleep(100 * time.Millisecond)
+
+	r := getComputedStyle(t, page, ".ctrl-point.min", "r")
+	if r != "12px" {
+		t.Errorf("at 375px (coarse pointer), .ctrl-point r=%q want 12px", r)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

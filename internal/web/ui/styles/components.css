@@ -387,10 +387,28 @@ button.danger:hover { background: var(--red); color: #fff; }
 .fixed-slider .pct { color: var(--blue); font-size: 0.8rem; min-width: 35px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .fixed-slider .num { width: 55px; }
 
-/* Curve editor SVG control points (drawn via drawSVG()). */
-.ctrl-point.min { fill: var(--teal); }
-.ctrl-point.max { fill: var(--blue); }
-.ctrl-point     { stroke: var(--bg2); stroke-width: 1.5; cursor: grab; }
+/* Curve editor SVG control points (drawn via drawSVG()).
+ *
+ * touch-action: none on #curve-svg is load-bearing for mobile: by
+ * default a finger dragging across the SVG would trigger browser
+ * pan/zoom before the pointermove handler can call preventDefault
+ * on the later events. Disabling touch actions on the element lets
+ * the unified PointerEvent drag path in curve-editor.js own gesture
+ * handling from pointerdown.
+ *
+ * Coarse-pointer devices (phones, tablets) get a larger control-
+ * point radius + thicker stroke so the dot is grabbable by a
+ * finger without a stylus. 12 / 2.5 keeps the visible dot well
+ * inside the plot area at the 510×255 viewBox; the full 44×44
+ * touch-target audit lands in Phase 4.5 PR 4. */
+#curve-svg            { touch-action: none; }
+.ctrl-point.min       { fill: var(--teal); }
+.ctrl-point.max       { fill: var(--blue); }
+.ctrl-point           { stroke: var(--bg2); stroke-width: 1.5; cursor: grab; }
+.ctrl-point.dragging  { cursor: grabbing; }
+@media (hover: none) and (pointer: coarse) {
+  .ctrl-point { r: 12; stroke-width: 2.5; }
+}
 
 /* ── Responsive: card grid + card internals ──
  *
