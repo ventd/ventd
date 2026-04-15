@@ -108,13 +108,18 @@ sudo rm -rf /etc/ventd
 
 ## First boot
 
-On first start with no config, `ventd` runs the setup wizard on `http://<your-ip>:9999`. It prints a one-time setup token to the systemd journal; find it with:
+On first start with no config, `ventd` runs the setup wizard on `http://<your-ip>:9999`. It generates a one-time setup token and publishes it in two places, both kept out of journald so the token is not retained in persistent logs:
+
+- `/run/ventd/setup-token` (0600, root-only) — the reliable path under systemd
+- The controlling TTY, if one is attached (e.g. when you start the daemon by hand)
+
+Read the token with:
 
 ```
-sudo journalctl -u ventd | grep 'Setup token'
+sudo cat /run/ventd/setup-token
 ```
 
-Enter the token in the browser and the wizard walks you through hardware detection, calibration, and initial config.
+The journal does log `first-boot: setup token written` with the file path — you can use that to confirm the daemon reached first-boot state. Enter the token in the browser and the wizard walks you through hardware detection, calibration, and initial config.
 
 ## Verification
 

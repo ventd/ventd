@@ -2,122 +2,154 @@
 
 `ventd` generates its config automatically during the setup wizard. You should never have to edit YAML by hand. This document describes the schema for users who want to inspect or customise the generated file.
 
-Config lives at `/etc/ventd/config.yaml`. Edits take effect on `SIGHUP` or on daemon restart — the web UI's "Apply" button sends the signal for you.
+Config lives at `/etc/ventd/config.yaml`. Edits take effect on `SIGHUP` or on daemon restart — the web UI's "Apply" button sends the signal for you. A full, annotated reference lives at `config.example.yaml` in the repo root; that file is the source of truth for field names.
 
 ## Top-level structure
 
 ```yaml
 version: 1
+poll_interval: 2s
+
 web:
-  listen: "0.0.0.0:9999"
-  password_hash: "..."          # set by the web UI; do not edit manually
-  tls_cert: ""                  # path to PEM cert, optional
-  tls_key: ""                   # path to PEM key, optional
-poll_interval_ms: 1000
-pump_minimum: 80                # PWM floor for anything classified as a pump
+  listen: 0.0.0.0:9999
+  password_hash: ""          # set by the web UI on first boot; do not edit manually
+  # tls_cert: /etc/ventd/cert.pem
+  # tls_key:  /etc/ventd/key.pem
+  session_ttl: 24h
+
 sensors:
-  - name: cpu_temp
+  - name: cpu_package
     type: hwmon
-    path: /sys/class/hwmon/hwmon3/temp1_input
-  - name: gpu_temp
+    path: /sys/class/hwmon/hwmon4/temp1_input
+
+  - name: gpu_0
     type: nvidia
-    path: "0"                   # GPU index, string
-    metric: temp                # temp | util | mem_util | power | clock_gpu | clock_mem | fan_pct
+    path: "0"                 # GPU index, string
+    # metric: temp            # temp (default) | util | mem_util | power | clock_gpu | clock_mem | fan_pct
+
 fans:
   - name: cpu_fan
     type: hwmon
-    pwm_path: /sys/class/hwmon/hwmon3/pwm1
-    rpm_path: /sys/class/hwmon/hwmon3/fan1_input
-    start_pwm: 40
-    stop_pwm: 30
-    min_pwm: 50
+    pwm_path: /sys/class/hwmon/hwmon6/pwm1
+    min_pwm: 30
     max_pwm: 255
-    max_rpm: 2100
-    is_pump: false
-    allow_stop: false
-    curve: cpu_curve
+
 curves:
-  - name: cpu_curve
+  - name: cpu_linear
     type: linear
-    source: cpu_temp
-    points:
-      - { temp: 40, pwm: 30 }
-      - { temp: 80, pwm: 100 }
+    sensor: cpu_package
+    min_temp: 40.0
+    max_temp: 80.0
+    min_pwm: 30
+    max_pwm: 255
+
+controls:
+  - fan: cpu_fan
+    curve: cpu_linear
 ```
 
 ## Fields
 
+### `version`
+
+Schema version for the on-disk config. Currently `1`. Future migrations will bump this and rewrite the file in place.
+
+### `poll_interval`
+
+How often the controller reads sensors, evaluates curves, and writes PWM. Expressed as a Go duration string (`500ms`, `1s`, `2s`). Default `2s`. Going below `500ms` wastes CPU for no gain on most thermal workloads.
+
 ### `web.listen`
 
-Default: `0.0.0.0:9999`. Binds to all interfaces on the local network. If you want localhost-only, set to `127.0.0.1:9999`. For HTTPS, front with Nginx or Caddy, or set `tls_cert` / `tls_key` for direct TLS termination.
+Bind address for the web UI. Default `0.0.0.0:9999` (all interfaces). Loopback-only: `127.0.0.1:9999`. For TLS, set `tls_cert` / `tls_key`; `ventd` also auto-generates a self-signed pair on first boot when both fields are blank and the listener is non-loopback.
 
-### `poll_interval_ms`
+### `web.session_ttl`
 
-How often the controller reads sensors, evaluates curves, and writes PWM. Default 1000 ms. Going below 500 ms wastes CPU for no gain on most thermal workloads.
+How long an authenticated browser session stays valid. Duration string; default 24h.
 
-### `pump_minimum`
+### `web.trust_proxy`
 
-Hard floor in PWM units (0–255) for any fan with `is_pump: true`. Pumps must never stop under load — AIOs lose flow, loops lose circulation. Default 80.
+List of CIDRs (e.g. `["127.0.0.1/32"]`) whose requests are allowed to set `X-Forwarded-For`. When the peer address is inside a trusted CIDR, the rate limiter and access logs use the left-most XFF entry as the client IP; otherwise XFF is ignored. Empty (default) disables XFF entirely. Set this when fronting `ventd` with Nginx, Caddy, or a reverse-proxy sidecar.
+
+### `web.login_fail_threshold` / `web.login_lockout_cooldown`
+
+Consecutive failed logins from the same peer IP before a lockout (`login_fail_threshold`) and how long that lockout lasts (`login_lockout_cooldown`, duration string). Zero means "use the built-in defaults".
 
 ### `sensors[]`
 
-Each sensor has a `name` (used as a key from curves), a `type` (`hwmon` or `nvidia`), and a `path`.
+Each sensor has a `name` (referenced by curves), a `type` (`hwmon` or `nvidia`), and a `path`.
 
-- `hwmon` sensors: `path` is the full sysfs path to a `temp*_input` file.
-- `nvidia` sensors: `path` is the GPU index as a string (`"0"`, `"1"`). `metric` selects what is read: `temp` (default), `util`, `mem_util`, `power`, `clock_gpu`, `clock_mem`, `fan_pct`.
+- `hwmon` — `path` is the full sysfs path to a `temp*_input` file.
+- `nvidia` — `path` is the GPU index as a string (`"0"`, `"1"`). `metric` selects what is read: `temp` (default), `util`, `mem_util`, `power`, `clock_gpu`, `clock_mem`, `fan_pct`.
+
+Optional `hwmon_device` — stable `/sys/devices/...` path used to re-resolve the `path` after hwmon renumbering (`hwmon3 → hwmon4` across reboots). Set by the setup wizard when it detects the device.
 
 ### `fans[]`
 
-Each fan has a `name`, a `type` (`hwmon` or `nvidia`), paths to the PWM and RPM sysfs entries, and PWM bounds learned during calibration:
+Each fan entry describes a writable control:
 
-- `start_pwm` — minimum PWM at which the fan reliably starts from stopped
-- `stop_pwm` — minimum PWM at which an already-spinning fan stays running
-- `min_pwm` — runtime clamp floor. `start_pwm` on first write; can be driven down to `stop_pwm` once spinning.
+- `name` — referenced by `controls` entries
+- `type` — `hwmon` or `nvidia`
+- `pwm_path` — for `hwmon`, the sysfs `pwm*` file; for `nvidia`, the GPU index as a string
+- `rpm_path` — optional override for auto-derived `fan*_input`
+- `hwmon_device` — stable `/sys/devices/...` path for path re-resolution across reboots
+- `control_kind` — `""`/`"pwm"` (default, standard PWM file) or `"rpm_target"` (pre-RDNA AMD, which exposes `fan*_target` instead of `pwm*`)
+- `min_pwm` — runtime clamp floor (0–255). Every write is raised to at least this value before hitting sysfs.
 - `max_pwm` — runtime clamp ceiling (usually 255)
-- `max_rpm` — RPM observed at `max_pwm`
-- `is_pump` — if true, `min_pwm` is raised to `pump_minimum` regardless
-- `allow_stop` — if true, permits PWM=0 writes (fan stops completely). Default false.
-- `curve` — name of the curve that drives this fan
+- `is_pump` — when true, `min_pwm` is raised to `pump_minimum` regardless of what the curve asks for
+- `pump_minimum` — hard PWM floor for this pump (only meaningful with `is_pump: true`)
+
+Calibration results — start PWM, stop PWM, max RPM, the PWM→RPM curve — are stored separately in `/etc/ventd/calibration.json` and are not part of `config.yaml`. Rerun calibration from the web UI rather than editing that file by hand.
 
 ### `curves[]`
 
 Three curve types are supported.
 
-**Linear** — piecewise-linear interpolation from temperature to PWM:
+**Linear** — single-segment interpolation from temperature to PWM. Below `min_temp` returns `min_pwm`; above `max_temp` returns `max_pwm`; in between is linearly interpolated.
 
 ```yaml
-- name: cpu_curve
+- name: cpu_linear
   type: linear
-  source: cpu_temp
-  points:
-    - { temp: 30, pwm: 20 }
-    - { temp: 80, pwm: 100 }
+  sensor: cpu_package
+  min_temp: 40.0
+  max_temp: 80.0
+  min_pwm: 30
+  max_pwm: 255
 ```
 
-Values outside the range are clamped to the endpoints. Between points, PWM is interpolated linearly. `pwm` values are percentages (0–100), converted to 0–255 internally.
+PWM values are raw 0–255, the same units hwmon uses. If you want "30 %", write `77` (≈ 0.30 × 255).
 
-**Fixed** — constant PWM regardless of temperature:
+**Fixed** — constant PWM regardless of temperature. Useful for pumps or noise-sensitive presets.
 
 ```yaml
-- name: pump_curve
+- name: pump_fixed
   type: fixed
   value: 100
 ```
 
-Useful for pumps that should run at a constant speed, or for noise-sensitive deployments where you want a fixed cap.
-
-**Mix** — combines multiple source curves with an aggregation function:
+**Mix** — evaluates several source curves and aggregates their outputs. Case fans usually want `function: max` over CPU and GPU curves so the loudest source wins.
 
 ```yaml
-- name: case_curve
+- name: case_mix
   type: mix
-  mode: max          # max | min | average
-  sources:
-    - cpu_curve
-    - gpu_curve
+  function: max           # max | min | average
+  sources: [cpu_linear, gpu_linear]
 ```
 
-Case fans usually want `mix` with `mode: max` over CPU and GPU curves — the loudest source wins, protecting both components.
+`sources` is a list of **curve names**, not sensor names.
+
+### `controls[]`
+
+Binds a fan to a curve. Every fan you want `ventd` to drive needs a `controls` entry; fans without one are left alone (other than the watchdog's `pwm_enable` restore on exit).
+
+```yaml
+controls:
+  - fan: cpu_fan
+    curve: cpu_linear
+  - fan: sys_fan1
+    curve: case_mix
+```
+
+Optional `manual_pwm: <0–255>` pins the fan to a fixed duty and bypasses the curve — useful for one-off diagnostics from the web UI.
 
 ## Hot reload
 
@@ -127,25 +159,16 @@ Case fans usually want `mix` with `mode: max` over CPU and GPU curves — the lo
 sudo systemctl reload ventd
 ```
 
-Curves, sensor assignments, and PWM overrides take effect immediately. Adding or removing fans requires a full restart because the watchdog registrations are set at startup.
+The systemd unit wires `ExecReload=/bin/kill -HUP $MAINPID` so `systemctl reload` is the recommended entry point. Curve definitions, sensor assignments, and control bindings take effect on the next poll. Adding or removing fans requires a full restart because watchdog registrations are set at startup.
 
 ## Validation
 
 `ventd` validates the config on load. Common errors:
 
 - Unknown sensor name referenced from a curve
-- Unknown curve name referenced from a fan
+- Unknown curve name referenced from a `controls` entry
 - Cyclic curve dependencies (mix curve references itself)
-- `start_pwm > max_pwm` or `stop_pwm > start_pwm`
+- `min_pwm > max_pwm`
 - `is_pump: true` with `min_pwm` below `pump_minimum` (auto-raised with a warning)
 
-Errors are logged to the journal and surfaced in the web UI. The daemon refuses to apply an invalid config and keeps running with the previous one.
-
-## Backups
-
-Before the web UI's "Apply" writes a new config, the old one is saved to `/etc/ventd/config.yaml.bak`. Restore with:
-
-```
-sudo cp /etc/ventd/config.yaml.bak /etc/ventd/config.yaml
-sudo systemctl reload ventd
-```
+On a failed reload the daemon logs the error and keeps running with the previously loaded config — it never crashes the process on bad YAML. The current load state is visible in the web UI.
