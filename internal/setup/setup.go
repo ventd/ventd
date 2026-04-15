@@ -602,6 +602,11 @@ func (m *Manager) run(ctx context.Context) {
 	var cpuCurrentTemp float64
 	if cpuSensorPath != "" {
 		cpuCurrentTemp, _ = hwmonpkg.ReadValue(cpuSensorPath)
+	} else {
+		// The wizard wanted a CPU sensor but /sys/class/hwmon exposed no
+		// coretemp / k10temp / acpitz. Surface a remediation diag so the UI
+		// can offer a one-click modprobe; doesn't block the wizard.
+		m.emitCPUSensorModuleMissingDiag()
 	}
 
 	// GPU temp: prefer NVML (NVIDIA), fall back to AMD GPU hwmon sensor.
@@ -1560,9 +1565,7 @@ func (m *Manager) emitDMICandidatesFor(info hwmonpkg.DMIInfo) {
 			Remediation: &hwdiag.Remediation{
 				AutoFixID: hwdiag.AutoFixTryModuleLoad,
 				Label:     "Try loading " + nd.ChipName,
-				// Endpoint intentionally empty: the UI renders the button with
-				// a TODO tooltip per hwdiag.Remediation. The install-driver
-				// endpoint wiring lands with the Tier 3 UI pass.
+				Endpoint:  "/api/setup/load-module",
 			},
 			Context: map[string]any{
 				"driver_key":   nd.Key,
@@ -1572,6 +1575,93 @@ func (m *Manager) emitDMICandidatesFor(info hwmonpkg.DMIInfo) {
 			},
 		})
 	}
+}
+
+// emitCPUSensorModuleMissingDiag surfaces a remediation card when the wizard
+// wanted a CPU temperature sensor but no enumerable chip was present in
+// /sys/class/hwmon. The UI renders a "Load <module>" button that POSTs to
+// /api/setup/load-module; the server-side allowlist (internal/setup/modprobe.go)
+// is the choke point that decides what's actually permitted.
+//
+// Skipped when the DMI path already proposed the same module so the UI
+// doesn't render two cards for the same fix. Also skipped when no vendor can
+// be inferred from /proc/cpuinfo — we refuse to guess; "no CPU sensor" is
+// better UX than a button that loads the wrong driver.
+func (m *Manager) emitCPUSensorModuleMissingDiag() {
+	m.mu.Lock()
+	store := m.diagStore
+	m.mu.Unlock()
+	if store == nil {
+		return
+	}
+
+	module, chipName := cpuSensorModuleForVendor(readCPUVendor())
+	if module == "" {
+		return
+	}
+
+	// Suppress when the DMI pass already proposed the same module — the
+	// existing dmi.candidate.* entry is the canonical one in that case and
+	// will carry the same /api/setup/load-module endpoint.
+	dmiID := hwdiag.IDDMICandidatePrefix + module
+	for _, e := range store.Snapshot(hwdiag.Filter{}).Entries {
+		if e.ID == dmiID {
+			return
+		}
+	}
+
+	store.Set(hwdiag.Entry{
+		ID:        hwdiag.IDHwmonCPUModuleMissing,
+		Component: hwdiag.ComponentHwmon,
+		Severity:  hwdiag.SeverityWarn,
+		Summary:   "CPU temperature sensor needs the " + module + " kernel module",
+		Detail: "No CPU temperature sensor was detected. Your CPU's thermal sensor " +
+			"driver (" + module + ") is not loaded, so fan curves can't react to CPU " +
+			"temperature. Click the button to load it now and persist it for future boots.",
+		Affected: []string{module},
+		Remediation: &hwdiag.Remediation{
+			AutoFixID: hwdiag.AutoFixTryModuleLoad,
+			Label:     "Load " + chipName + " driver",
+			Endpoint:  "/api/setup/load-module",
+		},
+		Context: map[string]any{
+			"module":    module,
+			"chip_name": chipName,
+		},
+	})
+}
+
+// cpuSensorModuleForVendor maps a /proc/cpuinfo vendor_id to the kernel
+// module that reports CPU temperatures for it. Returns "", "" for unknown
+// vendors so the caller can skip emitting a remediation the user can't use.
+func cpuSensorModuleForVendor(vendor string) (module, chipName string) {
+	switch vendor {
+	case "GenuineIntel":
+		return "coretemp", "coretemp"
+	case "AuthenticAMD", "HygonGenuine":
+		return "k10temp", "k10temp"
+	default:
+		return "", ""
+	}
+}
+
+// readCPUVendor returns the vendor_id from /proc/cpuinfo (e.g.
+// "GenuineIntel", "AuthenticAMD"), or "" if it can't be read. ARM systems
+// don't expose vendor_id; the empty return ensures the CPU-module-missing
+// emitter stays silent on those hosts.
+func readCPUVendor() string {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.SplitN(string(data), "\n", 50) {
+		if strings.HasPrefix(line, "vendor_id") {
+			if i := strings.IndexByte(line, ':'); i >= 0 {
+				return strings.TrimSpace(line[i+1:])
+			}
+		}
+	}
+	return ""
 }
 
 // emitBuildFailedDiag surfaces a generic OOT build failure after every

@@ -132,6 +132,18 @@ button.danger:hover { background: var(--red); color: #fff; }
 .hwdiag-fix { margin-left: auto; }
 .hwdiag-detail { margin-top: 0.4rem; color: var(--fg2); font-size: 0.9rem; white-space: pre-wrap; }
 .hwdiag-affected { margin-top: 0.3rem; color: var(--fg3); font-size: 0.8rem; font-family: var(--font-mono); }
+.hwdiag-inline-error { margin-top: 0.5rem; color: var(--red); font-size: 0.85rem; }
+.hwdiag-spinner {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: hwdiag-spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes hwdiag-spin { to { transform: rotate(360deg); } }
 
 /* ── Cards (sensor + fan + curve common shell) ──
  *

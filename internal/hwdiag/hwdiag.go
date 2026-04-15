@@ -240,4 +240,10 @@ const (
 	// the most recent add/remove across all hwmon devices; the UI surfaces it
 	// with a "Re-run setup" button (AutoFixReRunSetup → /api/setup/start).
 	IDHardwareChanged = "hardware.topology_changed"
+
+	// hwmon component — missing CPU temperature driver. Emitted by the setup
+	// wizard when /sys/class/hwmon has no enumerated CPU chip (coretemp on
+	// Intel, k10temp on AMD). The UI surfaces a "Load coretemp"/"Load k10temp"
+	// button that POSTs to /api/setup/load-module.
+	IDHwmonCPUModuleMissing = "hwmon.cpu_module_missing"
 )

@@ -159,13 +159,63 @@ async function loadHwdiag(){
     renderHwdiag(snap.entries || []);
   } catch(_){ /* silent; diagnostics are non-critical */ }
 }
-async function hwdiagRunRemediation(endpoint, fix, btn){
+// hwdiagRunRemediation posts to the remediation endpoint. When the hwdiag
+// entry carries a `context` map (e.g. {module:"coretemp"}), the button's
+// data-hwdiag-context attr holds it as JSON and we forward it as the POST
+// body. Endpoints that don't accept a body ignore it; the existing install-*
+// handlers don't read r.Body so the extra payload is harmless.
+//
+// UX per usability.md:
+//   - button shows a spinner while the request is in flight so the operator
+//     sees that the click landed (modprobe can take a second or two)
+//   - failures render inline beneath the button rather than as a toast so
+//     the error stays visible next to the card that produced it, not off in
+//     the top-right corner
+async function hwdiagRunRemediation(endpoint, fix, btn, payload){
   if(!endpoint) return;
+  const item = btn.closest('.hwdiag-item');
+  hwdiagClearInlineError(item);
+  const origLabel = btn.innerHTML;
   btn.disabled = true;
+  btn.innerHTML = '<span class="hwdiag-spinner" aria-hidden="true"></span> Working…';
   try {
-    const r = await fetch(endpoint, {method:'POST'});
-    if(r.ok){ notify('Remediation started: '+fix, 'ok'); }
-    else { notify('Remediation failed ('+r.status+')', 'error'); }
-  } catch(e){ notify('Remediation failed: '+e.message, 'error'); }
-  finally { btn.disabled = false; loadHwdiag(); }
+    const init = {method:'POST'};
+    if(payload){
+      init.headers = {'Content-Type':'application/json'};
+      init.body = JSON.stringify(payload);
+    }
+    const r = await fetch(endpoint, init);
+    let body = null;
+    try { body = await r.json(); } catch(_){ /* not JSON — fine */ }
+    if(!r.ok){
+      hwdiagShowInlineError(item, 'Remediation failed (HTTP '+r.status+').');
+    } else if(body && body.kind === 'install_log' && body.success === false){
+      hwdiagShowInlineError(item, body.error || 'Remediation reported failure.');
+    } else {
+      notify('Remediation started: '+fix, 'ok');
+    }
+  } catch(e){ hwdiagShowInlineError(item, 'Remediation failed: '+e.message); }
+  finally {
+    btn.disabled = false;
+    btn.innerHTML = origLabel;
+    loadHwdiag();
+  }
+}
+
+// hwdiagShowInlineError appends an error row to the card currently running a
+// remediation. Scoped to the card (not a toast) so the operator sees the
+// failure next to the thing they clicked.
+function hwdiagShowInlineError(item, msg){
+  if(!item) return;
+  hwdiagClearInlineError(item);
+  const err = document.createElement('div');
+  err.className = 'hwdiag-inline-error';
+  err.textContent = msg;
+  item.appendChild(err);
+}
+
+function hwdiagClearInlineError(item){
+  if(!item) return;
+  const prev = item.querySelector(':scope > .hwdiag-inline-error');
+  if(prev) prev.remove();
 }
