@@ -472,7 +472,7 @@ esac
 # ventd runs as the unprivileged "ventd" user; it can only write pwm<N>
 # and pwm<N>_enable if the kernel grants it via DAC. The shipped rule is
 # keyed on chip ATTR{name} (not on hwmonN index — those shift across
-# reboots per .claude/rules/hwmon-safety.md) and chgrp's matching files
+# reboots when driver load order changes) and chgrp's matching files
 # to the ventd group with g+w.
 #
 # The rule ships with every example line commented out — the operator

@@ -52,8 +52,7 @@ on every hwmon device bind — boot, hot-plug, or driver reload.
 **Keying.** The rule matches on `ATTR{name}` (the chip name, e.g.
 `nct6687`, `it87`, `amdgpu`), never on `KERNEL=="hwmon*"` or a
 specific `hwmonN` index. Indices reshuffle across reboots whenever
-driver load order changes (see `.claude/rules/hwmon-safety.md`);
-matching on chip name survives that.
+driver load order changes; matching on chip name survives that.
 
 **Find your chip name:**
 
