@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# validation/ufw-incus.rules — UFW rules so incusbr0 coexists with
+# Ubuntu 24.04's default-deny firewall stance without breaking the
+# fresh-VM smoke harness (validation/fresh-vm-smoke.sh).
+#
+# Source:
+#   https://linuxcontainers.org/incus/docs/main/howto/network_bridge_firewalld/
+#
+# What this covers (why each rule):
+#   1. Base policies. Incoming stays default-deny — the whole point of
+#      running UFW. Routed must be permissive enough that containers
+#      reach the outside; without that, `curl` inside a guest hangs
+#      and the matrix install step times out.
+#   2. Bridge opens. `allow in on incusbr0` + `route allow in/out on
+#      incusbr0` lets host↔guest and guest-through-host traffic flow.
+#      Same three rules the upstream Incus doc recommends.
+#   3. DHCP v4/v6 on udp/67 and udp/547 specifically. The upstream doc
+#      calls this out separately because `allow in on <br>` is not
+#      sufficient on some UFW builds for broadcast DHCP without the
+#      explicit port rule.
+#   4. DNS on port 53. Guests resolve hostnames through the host's
+#      dnsmasq. Without this the apt/dnf/pacman bootstrap step fails
+#      and the matrix report gets empty log tails.
+#
+# Usage:
+#   sudo bash validation/ufw-incus.rules        # apply rules (adds to /etc/ufw/*.rules)
+#   sudo ufw enable                             # then enable
+#   sudo ufw status verbose                     # verify
+#
+# Rollback:
+#   sudo ufw reset --force                      # wipes all rules + disables
+#
+# See validation/FIREWALL.md for the full test + rollback procedure.
+
+set -euo pipefail
+
+BRIDGE="${BRIDGE:-incusbr0}"
+
+if [[ $EUID -ne 0 ]]; then
+    echo "error: must run as root (sudo bash $0)" >&2
+    exit 1
+fi
+
+if ! command -v ufw >/dev/null 2>&1; then
+    echo "error: ufw not installed" >&2
+    exit 1
+fi
+
+# 1. Base policies.
+ufw default deny incoming
+ufw default allow outgoing
+# "routed" governs the FORWARD chain (guest-to-internet through
+# the host). UFW's default is deny-routed, which breaks the matrix
+# because the first thing each container does after boot is curl the
+# tarball from the host's http.server — fine — but then apt/dnf/pacman
+# reaches outside through the bridge, and THAT traverses the route
+# chain. Flip it to allow; bridge-specific route rules below narrow
+# what's actually permitted to traverse the bridge.
+ufw default allow routed
+
+# 2. Bridge opens.
+ufw allow in on "$BRIDGE"
+ufw route allow in on "$BRIDGE"
+ufw route allow out on "$BRIDGE"
+
+# 3. DHCP — guests request v4/v6 addresses from dnsmasq on the host.
+ufw allow in on "$BRIDGE" to any port 67 proto udp
+ufw allow in on "$BRIDGE" to any port 547 proto udp
+
+# 4. DNS — guests resolve through the host's dnsmasq.
+ufw allow in on "$BRIDGE" to any port 53
+
+echo "ufw-incus.rules: rules staged. 'sudo ufw enable' to activate."
+echo "  (see validation/FIREWALL.md for the full test procedure.)"
