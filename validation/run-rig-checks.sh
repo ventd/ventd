@@ -354,6 +354,14 @@ check_0b_vi_modprobe_cycle() {
 }
 
 check_0b_vii_apparmor_clean() {
+    local profile=/etc/apparmor.d/usr.local.bin.ventd
+    if [ -f "$profile" ]; then
+        if ! grep -Eq '^profile ventd /\{usr/bin,usr/local/bin\}/ventd' "$profile"; then
+            log "  profile attach token does not cover both install paths"
+            log "  expected: profile ventd /{usr/bin,usr/local/bin}/ventd ..."
+            return 1
+        fi
+    fi
     if ! command -v aa-status >/dev/null; then
         log "  aa-status not present (no AppArmor); skip"
         return 77
