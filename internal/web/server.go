@@ -197,6 +197,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
 		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
 		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
+		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
+		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
+		{name: "system/security", handler: s.handleSystemSecurity, auth: true},
+		{name: "system/diagnostics", handler: s.handleSystemDiagnostics, auth: true},
 	})
 
 	// Root document is served from the catch-all handler, authenticated.

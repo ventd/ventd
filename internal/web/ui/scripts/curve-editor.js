@@ -322,6 +322,23 @@ function openSettings(){
   el.classList.add('open');
   document.getElementById('settings-status').textContent = '';
   document.querySelector('#settings-overlay .danger').disabled = false;
+  // Seed the display controls from the same localStorage keys the
+  // toggle-theme / apply-theme path writes to, so the select reflects
+  // the live state every time the modal opens.
+  const themeSel = document.getElementById('setting-theme');
+  if(themeSel){
+    try { themeSel.value = localStorage.getItem('ventd-theme') || 'dark'; } catch(_){}
+  }
+  const unitSel = document.getElementById('setting-temp-unit');
+  if(unitSel){
+    try { unitSel.value = localStorage.getItem('ventd-temp-unit') || 'c'; } catch(_){}
+  }
+  // Populate the system-status + about sections on open; the daemon
+  // endpoints are cheap but not free (systemctl shell-outs are cached
+  // server-side), so we call them only when the modal is actually
+  // visible rather than on every 2s SSE tick.
+  if (typeof loadSystemStatus === 'function') loadSystemStatus();
+  if (typeof loadAboutInfo === 'function') loadAboutInfo();
 }
 function closeSettings(){
   document.getElementById('settings-overlay').classList.remove('open');

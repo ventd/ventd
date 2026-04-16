@@ -265,3 +265,156 @@ function hwdiagClearInlineError(item){
   const prev = item.querySelector(':scope > .hwdiag-inline-error');
   if(prev) prev.remove();
 }
+
+// ── System status ─────────────────────────────────────────────────
+//
+// The Settings modal's "System Status" section aggregates four
+// read-only daemon endpoints into a single row-list. Each row is a
+// one-liner — icon + label + status text — because the section sits
+// inside a modal and must read at a glance. The dashboard's banner
+// builds on the same `/api/system/diagnostics` response so both
+// surfaces stay in sync (banner counts + modal body).
+
+async function loadSystemStatus(){
+  const body = document.getElementById('system-status-body');
+  if(!body) return;
+  body.innerHTML = '<div class="sys-row">Loading…</div>';
+  try {
+    const [wd, rec, sec, diag] = await Promise.all([
+      fetch('/api/system/watchdog').then(r=>r.ok?r.json():null),
+      fetch('/api/system/recovery').then(r=>r.ok?r.json():null),
+      fetch('/api/system/security').then(r=>r.ok?r.json():null),
+      fetch('/api/system/diagnostics').then(r=>r.ok?r.json():null),
+    ]);
+    body.innerHTML = renderSystemStatus(wd, rec, sec, diag);
+  } catch(e){
+    body.innerHTML = '<div class="sys-row sys-row-err">Could not load system status: '+esc(e.message)+'</div>';
+  }
+}
+
+function renderSystemStatus(wd, rec, sec, diag){
+  let out = '';
+  // Watchdog
+  if(wd){
+    if(wd.enabled){
+      out += renderSysRow('Watchdog',
+        'healthy (' + (wd.interval_ms/1000).toFixed(1) + 's interval)', 'ok');
+    } else {
+      out += renderSysRow('Watchdog',
+        'not active (running outside systemd)', 'muted');
+    }
+  }
+  // Crash recovery
+  if(rec){
+    if(rec.installed){
+      out += renderSysRow('Crash recovery',
+        rec.service_active ? 'armed' : 'installed (service inactive)',
+        rec.service_active ? 'ok' : 'warn');
+    } else {
+      out += renderSysRow('Crash recovery', 'not installed', 'muted');
+    }
+  }
+  // MAC policies — one row per LSM, skipping "unsupported" so a vanilla
+  // desktop isn't peppered with non-actionable rows.
+  if(sec){
+    if(sec.selinux_module && sec.selinux_module !== 'unsupported'){
+      out += renderSysRow('SELinux module',
+        sec.selinux_module, sec.selinux_module === 'loaded' ? 'ok' : 'warn');
+    }
+    if(sec.apparmor_profile && sec.apparmor_profile !== 'unsupported'){
+      out += renderSysRow('AppArmor profile',
+        sec.apparmor_profile, sec.apparmor_profile === 'loaded' ? 'ok' : 'warn');
+    }
+  }
+  // Diagnostics roll-up counts; the full list lives in the wizard's
+  // /api/hwdiag surface, this modal shows the summary.
+  if(diag){
+    const c = diag.counts || {};
+    const warn = c.warn || 0;
+    const err = c.error || 0;
+    const info = c.info || 0;
+    let text = 'no issues';
+    let kind = 'ok';
+    if(err > 0){ text = err + ' error'+(err===1?'':'s'); kind = 'err'; }
+    else if(warn > 0){ text = warn + ' warning'+(warn===1?'':'s'); kind = 'warn'; }
+    else if(info > 0){ text = info + ' info note'+(info===1?'':'s'); kind = 'muted'; }
+    out += renderSysRow('Diagnostics', text, kind);
+  }
+  return out || '<div class="sys-row sys-row-muted">No system status available.</div>';
+}
+
+function renderSysRow(label, value, cls){
+  return '<div class="sys-row sys-row-'+cls+'">'+
+    '<span class="sys-label">'+esc(label)+'</span>'+
+    '<span class="sys-value">'+esc(value)+'</span>'+
+  '</div>';
+}
+
+async function loadAboutInfo(){
+  const body = document.getElementById('about-body');
+  if(!body) return;
+  body.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/version');
+    if(!r.ok){ body.textContent = 'Could not load version info.'; return; }
+    const v = await r.json();
+    body.innerHTML =
+      '<div class="about-row"><span class="about-lbl">Version</span><span class="about-val">'+esc(v.version||'unknown')+'</span></div>'+
+      '<div class="about-row"><span class="about-lbl">Commit</span><span class="about-val about-mono">'+esc((v.commit||'').slice(0,12))+'</span></div>'+
+      '<div class="about-row"><span class="about-lbl">Built</span><span class="about-val about-mono">'+esc(v.build_date||'')+'</span></div>'+
+      '<div class="about-row"><span class="about-lbl">License</span><span class="about-val">GPL-3.0</span></div>'+
+      '<div class="about-row"><a class="about-link" href="https://github.com/ventd/ventd/releases" target="_blank" rel="noopener">GitHub releases →</a></div>';
+  } catch(e){
+    body.textContent = 'Could not load version info: ' + e.message;
+  }
+}
+
+// ── Diagnostics banner ────────────────────────────────────────────
+//
+// The banner sits at the top of the dashboard and surfaces
+// WARN/ERROR-severity diagnostic entries so they can't be missed.
+// Polled alongside hwdiag so the daemon's 10s rescan cadence
+// propagates without a second poll loop. sessionStorage suppresses
+// the banner for the rest of the tab's lifetime once dismissed —
+// a refresh re-shows it so an operator who closes it then comes
+// back later doesn't miss a newly-risen warning.
+
+let diagBannerSeverity = '';
+async function loadDiagnosticsForBanner(){
+  const banner = document.getElementById('diag-banner');
+  const text = document.getElementById('diag-banner-text');
+  if(!banner || !text) return;
+  try {
+    if(sessionStorage.getItem('ventd.diag-banner.dismissed') === '1'){
+      banner.classList.add('hidden');
+      return;
+    }
+  } catch(_){}
+  try {
+    const r = await fetch('/api/system/diagnostics');
+    if(!r.ok) return;
+    const d = await r.json();
+    const c = d.counts || {};
+    if((c.error||0) > 0){
+      banner.classList.remove('hidden');
+      banner.classList.add('diag-banner-err');
+      banner.classList.remove('diag-banner-warn');
+      text.textContent = 'Hardware diagnostics: ' + c.error + ' error'+(c.error===1?'':'s')+'.';
+      diagBannerSeverity = 'error';
+    } else if((c.warn||0) > 0){
+      banner.classList.remove('hidden');
+      banner.classList.add('diag-banner-warn');
+      banner.classList.remove('diag-banner-err');
+      text.textContent = 'Hardware diagnostics: ' + c.warn + ' warning'+(c.warn===1?'':'s')+'.';
+      diagBannerSeverity = 'warn';
+    } else {
+      banner.classList.add('hidden');
+      diagBannerSeverity = '';
+    }
+  } catch(_){}
+}
+function dismissDiagBanner(){
+  const banner = document.getElementById('diag-banner');
+  if(banner) banner.classList.add('hidden');
+  try { sessionStorage.setItem('ventd.diag-banner.dismissed', '1'); } catch(_){}
+}

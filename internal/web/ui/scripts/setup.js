@@ -317,6 +317,7 @@ checkSetup().then(()=>{
   if(overlay.classList.contains('hidden')){
     // Normal mode: load dashboard immediately.
     loadConfig(); loadStatus(); loadHardware(); loadCalibration(); loadHwdiag();
+    if (typeof loadDiagnosticsForBanner === 'function') loadDiagnosticsForBanner();
 
     // Status updates: prefer SSE (/api/events) for live frames. Start
     // the 2s poll as a fallback, and let the SSE handlers swap between
@@ -331,5 +332,8 @@ checkSetup().then(()=>{
     setInterval(loadHardware,3000);
     setInterval(loadCalibration,5000);
     setInterval(loadHwdiag,10000);
+    if (typeof loadDiagnosticsForBanner === 'function') {
+      setInterval(loadDiagnosticsForBanner, 30000);
+    }
   }
 });
