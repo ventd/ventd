@@ -118,6 +118,14 @@ jobs:
         with:
           go-version: "1.25.x"
           cache: true
+      - name: gofmt
+        run: |
+          fmt_diff="$(gofmt -l .)"
+          if [ -n "$fmt_diff" ]; then
+            echo "::error::gofmt drift detected in:"
+            echo "$fmt_diff"
+            exit 1
+          fi
       - name: Install golangci-lint from source (Go 1.25 compatible)
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
       - name: Run golangci-lint
