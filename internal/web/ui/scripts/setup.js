@@ -354,6 +354,10 @@ checkSetup().then(()=>{
     loadConfig(); loadStatus(); loadHardware(); loadCalibration(); loadHwdiag();
     if (typeof loadDiagnosticsForBanner === 'function') loadDiagnosticsForBanner();
     if (typeof loadProfiles === 'function') loadProfiles();
+    // Seed the client-side sparkline buffer from the server's ring —
+    // without this the first minute of the dashboard's life shows
+    // empty sparklines until the SSE stream catches the buffer up.
+    if (typeof loadHistory === 'function') loadHistory();
     // Sync panic UI on boot — a freshly-loaded tab must reflect
     // an already-active panic started by another client.
     if (typeof pollPanicState === 'function') pollPanicState();

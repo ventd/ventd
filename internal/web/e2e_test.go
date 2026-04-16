@@ -2500,6 +2500,115 @@ func TestE2E_CurveEditor_HysteresisAndSmoothingFields(t *testing.T) {
 	}
 }
 
+// TestE2E_Sparklines_AppearOnSensorAndFanCards verifies that a
+// sensor card and a fan card each get an SVG sparkline wrapper once
+// the history store has recorded a few samples. Pre-seeds the
+// server-side store so the client's loadHistory() bootstrap call
+// returns populated buffers on first render — the test shouldn't
+// have to wait for the sampler's 2 s tick to accumulate points.
+func TestE2E_Sparklines_AppearOnSensorAndFanCards(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Push the SSE cadence down so the follow-up frames (post-load)
+	// arrive quickly. Pure field, no goroutine started here.
+	h.srv.sseInterval = 100 * time.Millisecond
+
+	// Seed sensors + controls so the cards render real tiles.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{
+		{Fan: "cpu-fan", Curve: ""},
+	}
+	seeded.Fans = []config.Fan{
+		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+	}
+	seeded.Sensors = []config.Sensor{
+		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
+	}
+	h.cfgPtr.Store(&seeded)
+
+	// Inject samples directly into the server's history store so
+	// the browser's first /api/history call returns populated
+	// buffers. Record() is the same path the sampler goroutine
+	// uses, mutex-protected.
+	base := time.Unix(1_700_000_000, 0)
+	for i := 0; i < 10; i++ {
+		h.srv.history.Record("CPU Temperature", float32(40+i), base.Add(time.Duration(i)*time.Second))
+		h.srv.history.Record("cpu-fan", float32(i*8), base.Add(time.Duration(i)*time.Second))
+	}
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login status=%d want 200", st)
+	}
+	page.MustNavigate(h.server.URL + "/").MustWaitLoad()
+	page.Timeout(5 * time.Second).MustElement(".section-hdr")
+
+	// Wait for the client to accumulate enough samples that the
+	// sparkline generator emits a path (>= 2 points required). The
+	// client seeds via /api/history on boot, so the first render
+	// after that fetch completes will already have the injected
+	// samples — but rendering is triggered by the next SSE frame,
+	// not by loadHistory itself.
+	waitUntil(t, 10*time.Second, func() bool {
+		r, err := page.Eval(`() => {
+			const sensor = document.querySelector('.sensor-card .sparkline-wrap svg path');
+			const fan = document.querySelector('.fan-card .sparkline-wrap svg path');
+			return !!(sensor && sensor.getAttribute('d') && fan && fan.getAttribute('d'));
+		}`)
+		if err != nil || r == nil {
+			return false
+		}
+		return r.Value.Bool()
+	}, "sparkline path appears on both sensor and fan cards")
+
+	// The sensor card value is °C → wrapper carries the tc-* heat
+	// class, the fan card carries the dc-* duty class. Assert the
+	// wrapper class so the stroke inherits the semantic colour.
+	sensorCls, err := page.Eval(`() => {
+		const el = document.querySelector('.sensor-card .sparkline-wrap');
+		return el ? el.className : '';
+	}`)
+	if err != nil {
+		t.Fatalf("read sensor wrapper class: %v", err)
+	}
+	if !strings.Contains(sensorCls.Value.Str(), "tc-") {
+		t.Errorf("sensor sparkline wrapper missing tc-* heat class: got %q", sensorCls.Value.Str())
+	}
+	fanCls, err := page.Eval(`() => {
+		const el = document.querySelector('.fan-card .sparkline-wrap');
+		return el ? el.className : '';
+	}`)
+	if err != nil {
+		t.Fatalf("read fan wrapper class: %v", err)
+	}
+	if !strings.Contains(fanCls.Value.Str(), "dc-") {
+		t.Errorf("fan sparkline wrapper missing dc-* duty class: got %q", fanCls.Value.Str())
+	}
+
+	// Mobile breakpoint: sparkline shrinks to the 60×24 variant.
+	// Assert via computed width to catch regressions in the media
+	// query independently of the inline attributes.
+	setViewport(t, page, 375, 700)
+	// Give the card a tick to repaint after the viewport change.
+	time.Sleep(150 * time.Millisecond)
+	width := getComputedStyle(t, page, ".sensor-card .sparkline-wrap", "width")
+	if width != "60px" {
+		t.Errorf("narrow viewport sparkline width = %q, want 60px", width)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

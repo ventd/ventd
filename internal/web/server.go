@@ -100,6 +100,12 @@ type Server struct {
 	// button. Zero value is a ready-to-use mutex; active=false means
 	// the controllers run their normal tick loop.
 	panic panicState
+
+	// history keeps the last hour of sensor/fan samples so the
+	// dashboard can render per-card sparklines without a round trip
+	// per tick. Lost on daemon restart — the UI seeds from /api/history
+	// once on page load and then appends from the existing SSE stream.
+	history *HistoryStore
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -124,6 +130,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
 		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
 		sseInterval:    defaultSSEInterval,
+		history:        NewHistoryStore(defaultSSEInterval, historyDefaultWindow),
 	}
 	// Construct the http.Server at New-time rather than ListenAndServe-time
 	// so Shutdown() can safely be called from another goroutine without
@@ -197,6 +204,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "panic/cancel", handler: s.handlePanicCancel, auth: true},
 		{name: "profile", handler: s.handleProfile, auth: true},
 		{name: "profile/active", handler: s.handleProfileActive, auth: true},
+		{name: "history", handler: s.handleHistory, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
@@ -230,6 +238,11 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	// without per-handler opt-in. tlsActive is detected per-request via r.TLS.
 	s.handler = securityHeaders()(originCheck(logger)(s.mux))
 	s.httpSrv.Handler = s.handler
+
+	// Kick off the per-metric history sampler. Goroutine exits when
+	// the daemon-scoped ctx is cancelled (same pattern as
+	// expireSetupToken) so Shutdown() doesn't leak the ticker.
+	go s.runHistorySampler(ctx)
 	return s
 }
 

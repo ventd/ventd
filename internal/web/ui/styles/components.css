@@ -372,6 +372,37 @@ button.danger:hover { background: var(--red); color: #fff; }
   font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .sensor-actions { display: flex; justify-content: flex-end; }
 
+/* ── Sparklines (Session D 3c) ──
+   Per-card trend strip. The <svg> is generated at a fixed 80×30
+   viewBox; the wrapper's width/height and preserveAspectRatio="none"
+   on the SVG let CSS resize it to the narrow-viewport 60×24 target
+   without the path needing to be regenerated. Path stroke inherits
+   the wrapper's colour class (tc-*/dc-*) via stroke="currentColor",
+   so the sparkline tracks the same teal/amber/red ramp the numeric
+   value and duty bar already use. */
+.sparkline-wrap {
+  display: block;
+  width: 80px; height: 30px;
+  margin: -2px 0 6px 0;
+  color: var(--fg3);
+  opacity: 0.9;
+}
+.sparkline-wrap.tc-cool { color: var(--teal); }
+.sparkline-wrap.tc-warm { color: var(--amber); }
+.sparkline-wrap.tc-hot  { color: var(--red2); }
+.sparkline-wrap.tc-crit { color: var(--red); }
+.sparkline-wrap.dc-low  { color: var(--teal); }
+.sparkline-wrap.dc-mid  { color: var(--amber); }
+.sparkline-wrap.dc-high { color: var(--red); }
+.sparkline {
+  display: block;
+  width: 100%; height: 100%;
+  overflow: visible;
+}
+@media (max-width: 480px){
+  .sparkline-wrap { width: 60px; height: 24px; }
+}
+
 /* Fan cards */
 .fan-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .fan-rpm { color: var(--fg2); font-size: 0.8rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
