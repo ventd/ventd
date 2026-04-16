@@ -33,6 +33,9 @@ cover.html
 /scripts/provision-test-vms.sh
 securitytodo.md
 
+# CC issue-logger local backlog
+.claude/issue-backlog.jsonl
+
 # fresh-VM smoke harness artifacts
 /validation/.build/
 /validation/fresh-vm-smoke-*.md
