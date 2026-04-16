@@ -11,14 +11,20 @@
 #      running UFW. Routed must be permissive enough that containers
 #      reach the outside; without that, `curl` inside a guest hangs
 #      and the matrix install step times out.
-#   2. Bridge opens. `allow in on incusbr0` + `route allow in/out on
+#   2. Host services. SSH (22/tcp) and the ventd web UI (9999/tcp) on
+#      the host's primary interface. Without these, enabling UFW locks
+#      remote access and breaks the "zero-terminal after install" LAN
+#      URL in .claude/rules/usability.md — the install script prints a
+#      http://<host>:9999 URL as its one terminal output, and that has
+#      to keep working across `ufw enable`.
+#   3. Bridge opens. `allow in on incusbr0` + `route allow in/out on
 #      incusbr0` lets host↔guest and guest-through-host traffic flow.
 #      Same three rules the upstream Incus doc recommends.
-#   3. DHCP v4/v6 on udp/67 and udp/547 specifically. The upstream doc
+#   4. DHCP v4/v6 on udp/67 and udp/547 specifically. The upstream doc
 #      calls this out separately because `allow in on <br>` is not
 #      sufficient on some UFW builds for broadcast DHCP without the
 #      explicit port rule.
-#   4. DNS on port 53. Guests resolve hostnames through the host's
+#   5. DNS on port 53. Guests resolve hostnames through the host's
 #      dnsmasq. Without this the apt/dnf/pacman bootstrap step fails
 #      and the matrix report gets empty log tails.
 #
@@ -58,16 +64,21 @@ ufw default allow outgoing
 # what's actually permitted to traverse the bridge.
 ufw default allow routed
 
-# 2. Bridge opens.
+# 2. Host services on the primary interface. Not bridge-scoped — they
+#    need to stay LAN-reachable on the host itself.
+ufw allow 22/tcp   comment 'ssh'
+ufw allow 9999/tcp comment 'ventd web UI (see usability.md)'
+
+# 3. Bridge opens.
 ufw allow in on "$BRIDGE"
 ufw route allow in on "$BRIDGE"
 ufw route allow out on "$BRIDGE"
 
-# 3. DHCP — guests request v4/v6 addresses from dnsmasq on the host.
+# 4. DHCP — guests request v4/v6 addresses from dnsmasq on the host.
 ufw allow in on "$BRIDGE" to any port 67 proto udp
 ufw allow in on "$BRIDGE" to any port 547 proto udp
 
-# 4. DNS — guests resolve through the host's dnsmasq.
+# 5. DNS — guests resolve through the host's dnsmasq.
 ufw allow in on "$BRIDGE" to any port 53
 
 echo "ufw-incus.rules: rules staged. 'sudo ufw enable' to activate."
