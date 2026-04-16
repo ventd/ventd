@@ -63,6 +63,19 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
     systemctl restart ventd.service || true
 
+    # Post-reboot verifier (issue #111). The package already placed the
+    # unit file and helper script on disk via nfpms.contents; opt into
+    # enabling it by exporting VENTD_INSTALL_POSTREBOOT_VERIFY=1 before
+    # running the package manager (dpkg / rpm / apt / dnf). Off by
+    # default — reboot semantics are operator-controlled.
+    if [ "${VENTD_INSTALL_POSTREBOOT_VERIFY:-0}" = "1" ]; then
+        if [ -f /lib/systemd/system/ventd-postreboot-verify.service ] \
+           || [ -f /usr/lib/systemd/system/ventd-postreboot-verify.service ]; then
+            systemctl enable ventd-postreboot-verify.service || true
+            echo "  ✓ post-reboot verifier enabled (fires on next boot)"
+        fi
+    fi
+
     echo ""
     echo "ventd installed. Open http://$(hostname -I | awk '{print $1}'):9999 to set up."
     echo "The one-time setup token is in: journalctl -u ventd --since '1 minute ago' | grep 'Setup token'"

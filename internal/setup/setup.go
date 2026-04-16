@@ -105,7 +105,24 @@ type Manager struct {
 	logger        *slog.Logger
 	cancel        context.CancelFunc // fired by Abort; nil until Start wires it
 	diagStore     *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
+
+	// Sysfs/procfs roots. Defaults resolve to the production paths; tests use
+	// NewWithRoots to inject a t.TempDir()-rooted fixture tree. Keeping these
+	// on the Manager rather than as free-function args means run() can call
+	// the discovery methods without threading a config through every step.
+	hwmonRoot    string // e.g. "/sys/class/hwmon"
+	procRoot     string // e.g. "/proc"
+	powercapRoot string // e.g. "/sys/class/powercap"
 }
+
+// Default path roots used when the Manager is constructed via New. Exported
+// so tests that need to assert production defaults don't have to duplicate
+// the strings.
+const (
+	defaultHwmonRoot    = "/sys/class/hwmon"
+	defaultProcRoot     = "/proc"
+	defaultPowercapRoot = "/sys/class/powercap"
+)
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. When set, the
 // setup manager emits OOT-preflight blockers (Secure Boot, kernel headers,
@@ -116,13 +133,24 @@ func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
 	m.mu.Unlock()
 }
 
-// New creates a Manager. NVML lifecycle is managed via the refcount-safe
-// nvidia.Init/Shutdown pair; setup does not need to know whether the
-// daemon already initialised NVML.
+// New creates a Manager with the production sysfs/procfs path roots. NVML
+// lifecycle is managed via the refcount-safe nvidia.Init/Shutdown pair;
+// setup does not need to know whether the daemon already initialised NVML.
 func New(cal *calibrate.Manager, logger *slog.Logger) *Manager {
+	return NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
+}
+
+// NewWithRoots is the test constructor: it takes explicit roots for
+// /sys/class/hwmon, /proc, and /sys/class/powercap so a fixture tree can
+// stand in for the real kernel interfaces. Production code uses New; this
+// exists so hardware-discovery code paths remain testable.
+func NewWithRoots(cal *calibrate.Manager, logger *slog.Logger, hwmonRoot, procRoot, powercapRoot string) *Manager {
 	return &Manager{
-		cal:    cal,
-		logger: logger,
+		cal:          cal,
+		logger:       logger,
+		hwmonRoot:    hwmonRoot,
+		procRoot:     procRoot,
+		powercapRoot: powercapRoot,
 	}
 }
 
@@ -364,7 +392,7 @@ func (m *Manager) run(ctx context.Context) {
 	m.setPhase("scanning_fans", "Detecting fan controllers...")
 	var initial []FanState
 
-	hwmonCtrls := discoverHwmonControls()
+	hwmonCtrls := m.discoverHwmonControls()
 	for _, ctrl := range hwmonCtrls {
 		initial = append(initial, FanState{
 			Name:        hwmonFanName(ctrl.path),
@@ -601,7 +629,7 @@ func (m *Manager) run(ctx context.Context) {
 	}
 
 	// Discover CPU/GPU temp sensors for curve generation.
-	cpuSensorName, cpuSensorPath := discoverCPUTempSensor()
+	cpuSensorName, cpuSensorPath := m.discoverCPUTempSensor()
 	var cpuCurrentTemp float64
 	if cpuSensorPath != "" {
 		cpuCurrentTemp, _ = hwmonpkg.ReadValue(cpuSensorPath)
@@ -622,7 +650,7 @@ func (m *Manager) run(ctx context.Context) {
 		gpuCurrentTemp, _ = nvidia.ReadTemp(0)
 		// gpuTempPath stays empty: sensor is emitted as type "nvidia"
 	} else {
-		_, amdPath := discoverAMDGPUTemp()
+		_, amdPath := m.discoverAMDGPUTemp()
 		if amdPath != "" {
 			hasGPUTemp = true
 			gpuTempPath = amdPath
@@ -633,7 +661,7 @@ func (m *Manager) run(ctx context.Context) {
 	// Build hardware profile: CPU/GPU model, TDP, thermal limits.
 	// buildConfig uses the thermal limits to set curve max temps and appends
 	// human-readable notes explaining the choices to profile.CurveNotes.
-	profile := gatherProfile(cpuSensorPath, nvmlOK, gpuTempPath)
+	profile := m.gatherProfile(cpuSensorPath, nvmlOK, gpuTempPath)
 
 	cfg := buildConfig(doneFans, cpuSensorName, cpuSensorPath, cpuCurrentTemp, hasGPUTemp, gpuTempPath, gpuCurrentTemp, profile)
 
@@ -999,7 +1027,7 @@ type discoveredControl struct {
 // numerically so hwmon2/pwm1 always comes before hwmon10/pwm2.
 //
 // Discovery is capability-first: hwmonpkg.EnumerateDevices classifies every
-// /sys/class/hwmon/hwmonN entry by what files it exposes, independent of chip
+// hwmonN entry under m.hwmonRoot by what files it exposes, independent of chip
 // name. This pass then promotes every Primary/OpenLoop PWM candidate that
 // survives a writability probe, and every fanN_target channel whose companion
 // pwmN is not already a writable candidate.
@@ -1008,9 +1036,9 @@ type discoveredControl struct {
 //   - pwm[N]      — standard PWM duty-cycle (0–255), the common case
 //   - fan[N]_target — RPM setpoint (pre-RDNA AMD amdgpu cards); only included
 //     when no writable pwm[N] covers the same channel index
-func discoverHwmonControls() []discoveredControl {
+func (m *Manager) discoverHwmonControls() []discoveredControl {
 	var ctrls []discoveredControl
-	for _, dev := range hwmonpkg.EnumerateDevices(hwmonpkg.DefaultHwmonRoot) {
+	for _, dev := range hwmonpkg.EnumerateDevices(m.hwmonRoot) {
 		// NVIDIA devices are routed through NVML; ClassNoFans has nothing to
 		// contribute. ClassReadOnly is reported to diagnostics elsewhere but
 		// cannot be driven, so skip it for control discovery.
@@ -1150,8 +1178,10 @@ func titleCaseWords(s string) string {
 // Pass 3: ACPI thermal zone (acpitz) as a last resort — present on virtually
 //
 //	all x86 systems, though less accurate than coretemp/k10temp.
-func discoverCPUTempSensor() (name, path string) {
-	entries, _ := os.ReadDir("/sys/class/hwmon")
+//
+// Reads from m.hwmonRoot so tests can point at a fixture tree.
+func (m *Manager) discoverCPUTempSensor() (name, path string) {
+	entries, _ := os.ReadDir(m.hwmonRoot)
 
 	// cpuChips are chip driver names that exclusively report CPU temperatures.
 	// k8temp: older AMD K8/K10 (pre-Zen); zenpower/zenpower2: out-of-tree AMD Zen;
@@ -1169,7 +1199,7 @@ func discoverCPUTempSensor() (name, path string) {
 
 	// Pass 1: known CPU chip names — prefer package/die temp labels.
 	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		dir := filepath.Join(m.hwmonRoot, e.Name())
 		chip := readTrimmed(filepath.Join(dir, "name"))
 		if !cpuChips[chip] {
 			continue
@@ -1195,7 +1225,7 @@ func discoverCPUTempSensor() (name, path string) {
 	// it is tried as a last resort in pass 3.
 	skipChips := map[string]bool{"amdgpu": true, "nvidia": true, "nouveau": true, "radeon": true, "acpitz": true}
 	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		dir := filepath.Join(m.hwmonRoot, e.Name())
 		chip := readTrimmed(filepath.Join(dir, "name"))
 		if skipChips[chip] {
 			continue
@@ -1217,7 +1247,7 @@ func discoverCPUTempSensor() (name, path string) {
 	// Pass 3: ACPI thermal zone — present on virtually all x86 systems.
 	// Less accurate than coretemp/k10temp but better than nothing.
 	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		dir := filepath.Join(m.hwmonRoot, e.Name())
 		if readTrimmed(filepath.Join(dir, "name")) != "acpitz" {
 			continue
 		}
@@ -1232,10 +1262,12 @@ func discoverCPUTempSensor() (name, path string) {
 
 // discoverAMDGPUTemp returns the best AMD GPU temperature sensor path.
 // Prefers junction/hotspot (temp2_input) over edge (temp1_input).
-func discoverAMDGPUTemp() (name, path string) {
-	entries, _ := os.ReadDir("/sys/class/hwmon")
+//
+// Reads from m.hwmonRoot so tests can point at a fixture tree.
+func (m *Manager) discoverAMDGPUTemp() (name, path string) {
+	entries, _ := os.ReadDir(m.hwmonRoot)
 	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		dir := filepath.Join(m.hwmonRoot, e.Name())
 		if readTrimmed(filepath.Join(dir, "name")) != "amdgpu" {
 			continue
 		}
@@ -1256,10 +1288,13 @@ func discoverAMDGPUTemp() (name, path string) {
 }
 
 // gatherProfile reads CPU/GPU hardware metadata for curve tuning and display.
-func gatherProfile(cpuSensorPath string, nvmlOK bool, gpuTempPath string) *HWProfile {
+// Reads from m.procRoot and m.powercapRoot so tests can point at a fixture
+// tree; NVML and AMD GPU hwmon paths continue to use the caller-supplied
+// absolute paths (those are already resolved against m.hwmonRoot upstream).
+func (m *Manager) gatherProfile(cpuSensorPath string, nvmlOK bool, gpuTempPath string) *HWProfile {
 	p := &HWProfile{}
-	p.CPUModel = readCPUModel()
-	p.CPUTDPW = readRAPLTDPW()
+	p.CPUModel = m.readCPUModel()
+	p.CPUTDPW = m.readRAPLTDPW()
 	if cpuSensorPath != "" {
 		p.CPUThermalC = readHwmonCritC(cpuSensorPath)
 	}
@@ -1297,9 +1332,9 @@ func gatherProfile(cpuSensorPath string, nvmlOK bool, gpuTempPath string) *HWPro
 	return p
 }
 
-// readCPUModel returns the CPU model name from /proc/cpuinfo.
-func readCPUModel() string {
-	data, err := os.ReadFile("/proc/cpuinfo")
+// readCPUModel returns the CPU model name from <procRoot>/cpuinfo.
+func (m *Manager) readCPUModel() string {
+	data, err := os.ReadFile(filepath.Join(m.procRoot, "cpuinfo"))
 	if err != nil {
 		return ""
 	}
@@ -1314,11 +1349,12 @@ func readCPUModel() string {
 }
 
 // readRAPLTDPW reads the CPU package TDP from Intel RAPL in watts.
-// Returns 0 if unavailable (e.g. AMD CPUs, no RAPL support).
-func readRAPLTDPW() int {
+// Returns 0 if unavailable (e.g. AMD CPUs, no RAPL support). Reads from
+// m.powercapRoot so tests can point at a fixture tree.
+func (m *Manager) readRAPLTDPW() int {
 	for _, p := range []string{
-		"/sys/class/powercap/intel-rapl/intel-rapl:0/constraint_0_power_limit_uw",
-		"/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw",
+		filepath.Join(m.powercapRoot, "intel-rapl", "intel-rapl:0", "constraint_0_power_limit_uw"),
+		filepath.Join(m.powercapRoot, "intel-rapl:0", "constraint_0_power_limit_uw"),
 	} {
 		if data := readTrimmed(p); data != "" {
 			uw, err := strconv.ParseInt(data, 10, 64)
@@ -1598,7 +1634,7 @@ func (m *Manager) emitCPUSensorModuleMissingDiag() {
 		return
 	}
 
-	module, chipName := cpuSensorModuleForVendor(readCPUVendor())
+	module, chipName := cpuSensorModuleForVendor(m.readCPUVendor())
 	if module == "" {
 		return
 	}
@@ -1648,12 +1684,12 @@ func cpuSensorModuleForVendor(vendor string) (module, chipName string) {
 	}
 }
 
-// readCPUVendor returns the vendor_id from /proc/cpuinfo (e.g.
+// readCPUVendor returns the vendor_id from <procRoot>/cpuinfo (e.g.
 // "GenuineIntel", "AuthenticAMD"), or "" if it can't be read. ARM systems
 // don't expose vendor_id; the empty return ensures the CPU-module-missing
 // emitter stays silent on those hosts.
-func readCPUVendor() string {
-	data, err := os.ReadFile("/proc/cpuinfo")
+func (m *Manager) readCPUVendor() string {
+	data, err := os.ReadFile(filepath.Join(m.procRoot, "cpuinfo"))
 	if err != nil {
 		return ""
 	}

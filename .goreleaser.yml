@@ -61,6 +61,8 @@ archives:
       - config.example.yaml
       - deploy/ventd.service
       - deploy/ventd-recover.service
+      - deploy/ventd-postreboot-verify.service
+      - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/usr.local.bin.ventd
       - deploy/selinux/ventd.te
@@ -83,6 +85,8 @@ archives:
       - config.example.yaml
       - deploy/ventd.service
       - deploy/ventd-recover.service
+      - deploy/ventd-postreboot-verify.service
+      - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/usr.local.bin.ventd
       - deploy/selinux/ventd.te
@@ -120,6 +124,12 @@ nfpms:
         dst: /lib/systemd/system/ventd.service
       - src: deploy/ventd-recover.service
         dst: /lib/systemd/system/ventd-recover.service
+      - src: deploy/ventd-postreboot-verify.service
+        dst: /lib/systemd/system/ventd-postreboot-verify.service
+      - src: deploy/postreboot-verify.sh
+        dst: /usr/local/sbin/ventd-postreboot-verify.sh
+        file_info:
+          mode: 0755
       - src: deploy/90-ventd-hwmon.rules
         dst: /lib/udev/rules.d/90-ventd-hwmon.rules
       - src: deploy/apparmor.d/usr.local.bin.ventd

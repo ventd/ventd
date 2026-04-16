@@ -57,7 +57,7 @@ Summary: **5 PASS, 0 FAIL, 8 SKIP, 0 MANUAL**.
 | 0a.ii | `--probe-modules` persists                | PASS   | `/etc/modules-load.d/ventd.conf` = `nct6683`, loaded. |
 | 0a.iii| `EnrichChipName` populates config         | PASS   | After PR #76: `hwmon fans in config: 4 / missing chip_name: 0`. The nvidia `gpu0` fan is no longer counted in the denominator. |
 | 0a.iv | hwmonN renumber survival                  | SKIP   | Manual. Partially covered by 0a.v's post-reboot verifier. |
-| 0a.v  | Reboot survival                           | SKIP → deferred | `validation/postreboot-verify.sh` + `ventd-postreboot-verify.service` (from PR #54). Enable on next iteration, reboot, read `/var/log/ventd/postreboot-*.log`. |
+| 0a.v  | Reboot survival                           | SKIP → deferred | `validation/postreboot-verify.sh` + `ventd-postreboot-verify.service` (from PR #54). Enable on next iteration, reboot, read `/var/log/ventd/postreboot-*.log`. Shipping artifacts promoted to `deploy/postreboot-verify.sh` + `deploy/ventd-postreboot-verify.service` in PR #164 (opt-in via `VENTD_INSTALL_POSTREBOOT_VERIFY=1` in `scripts/install.sh` / `scripts/postinstall.sh`). Rig reboot PASS tracked under #167. |
 
 ### PR #25 — watchdog, recovery, calibration safety
 

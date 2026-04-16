@@ -7,9 +7,14 @@
 #   sudo ./install.sh /path/to/ventd-binary   # install a locally-built binary
 #
 # Environment overrides:
-#   VENTD_VERSION  Pin to a specific release tag (e.g. v0.4.0). Default: latest.
-#   VENTD_REPO     GitHub repo slug. Default: ventd/ventd.
-#   VENTD_PREFIX   Install prefix for the binary. Default: /usr/local/bin.
+#   VENTD_VERSION                     Pin to a specific release tag (e.g. v0.4.0). Default: latest.
+#   VENTD_REPO                        GitHub repo slug. Default: ventd/ventd.
+#   VENTD_PREFIX                      Install prefix for the binary. Default: /usr/local/bin.
+#   VENTD_INSTALL_POSTREBOOT_VERIFY   Set to 1 to install + enable the
+#                                     ventd-postreboot-verify oneshot
+#                                     unit. Fires once on next boot
+#                                     and logs PASS/FAIL under
+#                                     /var/log/ventd/. Default: off.
 #
 # What this script does:
 #   1. If no local binary is provided, downloads the release tarball for the
@@ -35,6 +40,7 @@ VENTD_VERSION="${VENTD_VERSION:-}"
 # validation/; defaults match the shipped layout).
 VENTD_SYSTEMD_DIR="${VENTD_SYSTEMD_DIR:-/etc/systemd/system}"
 VENTD_ETC_DIR="${VENTD_ETC_DIR:-/etc/ventd}"
+VENTD_SBIN_DIR="${VENTD_SBIN_DIR:-/usr/local/sbin}"
 
 # Test-mode short-circuits. When set to "1", destructive operations
 # against the running system (systemctl, udevadm, account creation,
@@ -620,6 +626,36 @@ case "$INIT_SYSTEM" in
             echo "    safety net unavailable; graceful-exit watchdog still active"
         fi
 
+        # Post-reboot verifier (issue #111). Opt-in via
+        # VENTD_INSTALL_POSTREBOOT_VERIFY=1. When set, the one-shot
+        # service and its helper script land on disk here and the unit
+        # is enabled below so it fires once on the next boot, writing
+        # PASS/FAIL to /var/log/ventd/postreboot-<TS>.log.
+        VERIFY_ENABLE=0
+        if [[ "${VENTD_INSTALL_POSTREBOOT_VERIFY:-0}" == "1" ]]; then
+            VERIFY_UNIT_SRC="$(find_unit ventd-postreboot-verify.service 2>/dev/null)" || VERIFY_UNIT_SRC=""
+            VERIFY_SCRIPT_SRC=""
+            for candidate in \
+                "${ASSET_DIR}/postreboot-verify.sh" \
+                "${ASSET_DIR}/../deploy/postreboot-verify.sh" \
+                "${TARBALL_ROOT:-}/deploy/postreboot-verify.sh"; do
+                if [[ -n "$candidate" && -f "$candidate" ]]; then
+                    VERIFY_SCRIPT_SRC="$candidate"
+                    break
+                fi
+            done
+            if [[ -n "$VERIFY_UNIT_SRC" && -n "$VERIFY_SCRIPT_SRC" ]]; then
+                install -d -m 755 "$VENTD_SBIN_DIR"
+                install -m 0755 "$VERIFY_SCRIPT_SRC" "$VENTD_SBIN_DIR/ventd-postreboot-verify.sh"
+                install -m 0644 "$VERIFY_UNIT_SRC" "$VENTD_SYSTEMD_DIR/ventd-postreboot-verify.service"
+                echo "  ✓ post-reboot verifier → $VENTD_SBIN_DIR/ventd-postreboot-verify.sh"
+                echo "  ✓ post-reboot verifier unit → $VENTD_SYSTEMD_DIR/ventd-postreboot-verify.service"
+                VERIFY_ENABLE=1
+            else
+                echo "  ! VENTD_INSTALL_POSTREBOOT_VERIFY=1 but verifier assets not found — skipped"
+            fi
+        fi
+
         if [[ "$VENTD_TEST_MODE" != "1" ]]; then
             systemctl daemon-reload
             if (( WAS_ACTIVE == 1 )); then
@@ -629,6 +665,10 @@ case "$INIT_SYSTEM" in
                 systemctl enable ventd.service
                 systemctl start ventd.service
                 echo "  ✓ systemd unit → $SERVICE_DST (enabled + started)"
+            fi
+            if (( VERIFY_ENABLE == 1 )); then
+                systemctl enable ventd-postreboot-verify.service
+                echo "  ✓ post-reboot verifier enabled (fires on next boot)"
             fi
         else
             echo "  ✓ systemd unit → $SERVICE_DST (test mode — systemctl skipped)"

@@ -314,11 +314,13 @@ func TestEmitCPUSensorModuleMissingDiag_SuppressedByDMI(t *testing.T) {
 		Context:   map[string]any{"module": "coretemp"},
 	})
 
-	// readCPUVendor reads /proc/cpuinfo; we can't override it without
-	// broader plumbing. Skip on non-Intel/AMD hosts — the direct
-	// cpuSensorModuleForVendor coverage in TestEmitCPUSensorModuleMissingDiag
-	// pins the mapping.
-	vendor := readCPUVendor()
+	// readCPUVendor reads /proc/cpuinfo; this test uses the live vendor
+	// (newTestManager wires the production /proc root). Skip on non-Intel
+	// hosts — the direct cpuSensorModuleForVendor coverage in
+	// TestEmitCPUSensorModuleMissingDiag pins the mapping, and the
+	// fixture-rooted manager tests in manager_fixtures_test.go exercise
+	// the vendor read against synthetic cpuinfo.
+	vendor := m.readCPUVendor()
 	if vendor != "GenuineIntel" {
 		t.Skipf("skip on non-Intel host (vendor=%q); DMI suppression is host-independent logic", vendor)
 	}
