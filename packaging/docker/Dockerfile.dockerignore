@@ -1,0 +1,46 @@
+# BuildKit looks for `<Dockerfile>.dockerignore` next to the Dockerfile
+# before falling back to `.dockerignore` at the build-context root. Using
+# that convention here keeps the ignore rules scoped to the Docker build
+# even though docker-compose's context is the repo root (../..).
+#
+# A plain `.dockerignore` here would NOT apply to a repo-root build
+# context, which is why this file has the prefixed name.
+
+# VCS and tooling state
+.git
+.github
+.gitignore
+.gitattributes
+.claude
+.idea
+.vscode
+
+# Build and release artefacts — large and never needed inside the image
+dist
+build
+coverage
+*.out
+*.log
+*.prof
+
+# Existing packaging channels — not needed for the Docker build
+packaging/aur
+packaging/docker/config
+
+# Documentation — the Dockerfile does not ship docs
+*.md
+!README.md
+COVERAGE.md
+CHANGELOG.md
+release-notes
+validation
+
+# Local editor / OS clutter
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Test binaries and Go cache artefacts that can leak in
+*.test
+vendor

@@ -1,0 +1,93 @@
+# ventd — docker-compose reference configuration.
+#
+# Runs the alpine-based image built by ./Dockerfile. See
+# packaging/docker/README.md for the full design-spike notes on
+# /sys/class/hwmon access, uevent hot-plug detection, and host
+# prerequisites (udev rule, GID mapping). Read that before touching
+# this file.
+#
+# Quick start (from the repo root):
+#   mkdir -p packaging/docker/config
+#   cp config.example.yaml packaging/docker/config/config.yaml
+#   docker compose -f packaging/docker/docker-compose.yml up -d
+#   # open http://localhost:9999
+
+services:
+  ventd:
+    # Build from source at the repo root so the Dockerfile can COPY
+    # go.mod / cmd / internal. A published image is NOT provided —
+    # see README.md "Image publishing".
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+      args:
+        VERSION: dev
+        COMMIT: unknown
+        BUILD_DATE: unknown
+    image: ventd:local
+    container_name: ventd
+    restart: unless-stopped
+
+    # network_mode: host is the default here because kobject uevents
+    # (NETLINK_KOBJECT_UEVENT) are delivered per-network-namespace and
+    # only the host namespace receives them. Without host networking
+    # ventd still works, but falls back to a 5-minute periodic rescan
+    # for topology changes (see internal/hwmon/watcher.go). The web UI
+    # also lives on the LAN on port 9999 which matches the native
+    # install's behaviour.
+    #
+    # If you need a bridged network for reverse-proxy reasons,
+    # comment out network_mode: host, uncomment the ports: block,
+    # and read README.md § "Bridged networking (no uevents)" first.
+    network_mode: host
+    # ports:
+    #   - "9999:9999"
+
+    volumes:
+      # Config directory. Do NOT add :ro — the web UI's "save
+      # settings" path writes config.yaml.tmp and atomically rename(2)s
+      # it over config.yaml, which requires the *parent directory* to
+      # be writable. A read-only mount fails the first settings-save
+      # with EROFS. The password_hash set on first boot persists here
+      # across container restarts.
+      - ./config:/etc/ventd
+
+      # Sysfs — required read-write. PWM writes go to
+      # /sys/class/hwmon/hwmonN/pwmM and pwm_enable, and uevent hot-
+      # plug triggers arrive via /sys subtree notifications. /sys:ro
+      # will break fan control outright.
+      - /sys:/sys:rw
+
+    # Security envelope:
+    #   - no-new-privileges blocks setuid escalations inside the
+    #     container (ventd itself is unprivileged and does not
+    #     setuid, but this is defence in depth).
+    #   - privileged: false — explicitly. ventd does not need it.
+    #   - Capabilities are the minimum set needed for PWM writes
+    #     via DAC and for netlink uevent delivery:
+    #       * (none) if the host udev rule aligns GID 472 with
+    #         /sys/class/hwmon pwm files (the default). In that
+    #         case you can drop: ["ALL"] entirely.
+    #       * DAC_OVERRIDE as the only safe fallback if the udev
+    #         rule is NOT installed; see README.md "Host
+    #         prerequisites" for the tradeoff.
+    #     Uncomment exactly one of the two blocks below.
+    security_opt:
+      - no-new-privileges:true
+    # cap_drop:
+    #   - ALL
+    # cap_add:
+    #   - DAC_OVERRIDE
+
+    # Match the host's ventd group so the udev rule's g+w on
+    # pwm<N>/pwm<N>_enable applies. If your host's ventd group is
+    # not GID 472, either re-create it there (`groupmod -g 472
+    # ventd` on the host) or override this line.
+    user: "472:472"
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9999/api/ping >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
