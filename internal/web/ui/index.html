@@ -108,6 +108,23 @@
   </div>
 </div>
 
+<!-- Apply confirmation modal (diff preview) -->
+<div id="apply-overlay" class="modal-backdrop">
+  <div class="modal-card modal-card-wide">
+    <div class="modal-header">
+      <h2>Apply changes</h2>
+      <button class="modal-close" data-action="close-apply" title="Close"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#x"/></svg></button>
+    </div>
+    <p class="modal-intro">You're about to commit these changes to the running daemon:</p>
+    <div id="apply-diff" class="apply-diff" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button data-action="close-apply">Cancel</button>
+      <button id="btn-apply-confirm" class="primary" data-action="confirm-apply">Apply</button>
+    </div>
+    <div id="apply-status" class="apply-status"></div>
+  </div>
+</div>
+
 <div class="layout">
   <div class="sidebar" id="sidebar">
     <div class="sidebar-hdr">Hardware Monitor</div>

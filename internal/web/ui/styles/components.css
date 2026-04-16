@@ -490,6 +490,54 @@ button.danger:hover { background: var(--red); color: #fff; }
 .modal-row .danger       { flex-shrink: 0; margin-left: 1rem; }
 #settings-status { margin-top: 0.8rem; font-size: 0.8rem; color: var(--fg2); }
 
+/* ── Apply diff modal ──
+ *
+ * Wider than the settings modal so long field-diff lines don't wrap
+ * aggressively. Body scrolls inside the card so the actions row stays
+ * pinned at the bottom — a Cancel + Apply pair that's always reachable
+ * even on a config with dozens of changes. */
+.modal-card-wide { max-width: 620px; }
+.modal-intro { color: var(--fg2); font-size: 0.85rem; margin: 0 0 0.8rem; }
+.apply-diff { margin-bottom: 1rem; }
+.apply-diff-empty { color: var(--fg2); font-size: 0.85rem; }
+.apply-diff-group { margin-bottom: 1rem; }
+.apply-diff-group h3 {
+  color: var(--fg2); font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin: 0 0 0.4rem;
+}
+.apply-diff-list { list-style: none; padding: 0; margin: 0; }
+.apply-diff-item {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.5rem 0.7rem; margin-bottom: 6px;
+  font-size: 0.8rem;
+}
+.apply-pill {
+  display: inline-block; font-size: 0.65rem; font-weight: 600;
+  padding: 1px 6px; border-radius: 3px; margin-right: 8px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.apply-pill-added    { background: var(--teal-bg);  color: var(--teal); }
+.apply-pill-removed  { background: var(--red-bg);   color: var(--red); }
+.apply-pill-modified { background: var(--amber-bg); color: var(--amber); }
+.apply-diff-name { color: var(--fg1); font-weight: 600; }
+.apply-diff-fields { list-style: none; padding: 0; margin: 6px 0 0 1.4rem; }
+.apply-diff-fields li {
+  font-family: var(--font-mono); font-size: 0.72rem;
+  color: var(--fg2); margin: 2px 0;
+}
+.apply-diff-field { color: var(--fg2); }
+.apply-diff-from  { color: var(--red);  text-decoration: line-through; }
+.apply-diff-to    { color: var(--teal); }
+.apply-diff-arrow { color: var(--fg3); }
+.modal-actions {
+  display: flex; justify-content: flex-end; gap: 0.6rem;
+  margin-top: 1rem; padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+.apply-status { margin-top: 0.6rem; font-size: 0.8rem; color: var(--fg2); }
+.apply-status-err { color: var(--red); }
+
 /* ── Curve cards ── */
 .curve-card { cursor: pointer; transition: border-color 0.15s; }
 .curve-card:hover { border-color: var(--teal); }
