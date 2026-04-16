@@ -589,6 +589,117 @@ controls: []
 	}
 }
 
+// TestPointsCurveValidation pins the validate() rules for the points
+// type: min 2 anchors, sensor must exist, strictly increasing Temp
+// after sort. The happy path produces a sorted, deduped slice the
+// runtime can trust.
+func TestPointsCurveValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		points  []CurvePoint
+		wantErr string
+	}{
+		{"valid 3 sorted", []CurvePoint{{Temp: 40, PWM: 50}, {Temp: 60, PWM: 150}, {Temp: 80, PWM: 250}}, ""},
+		{"valid 2 sorted", []CurvePoint{{Temp: 40, PWM: 80}, {Temp: 80, PWM: 250}}, ""},
+		{"single point rejected", []CurvePoint{{Temp: 40, PWM: 80}}, "at least 2 anchors"},
+		{"empty rejected", []CurvePoint{}, "at least 2 anchors"},
+		{"duplicate temps rejected", []CurvePoint{{Temp: 40, PWM: 50}, {Temp: 40, PWM: 150}}, "strictly increasing"},
+		{"reversed sorts, ok", []CurvePoint{{Temp: 80, PWM: 250}, {Temp: 40, PWM: 50}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Version: CurrentVersion,
+				Sensors: []Sensor{{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"}},
+				Curves: []CurveConfig{{
+					Name: "p", Type: "points", Sensor: "cpu", Points: tc.points,
+				}},
+			}
+			err := validate(cfg)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				// Verify the points are sorted ascending.
+				for k := 1; k < len(cfg.Curves[0].Points); k++ {
+					if cfg.Curves[0].Points[k].Temp <= cfg.Curves[0].Points[k-1].Temp {
+						t.Errorf("points not ascending after validate: %v", cfg.Curves[0].Points)
+					}
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestPointsCurveSensorMustExist pins the cross-reference check:
+// points curves, like linear curves, must bind to a defined sensor.
+func TestPointsCurveSensorMustExist(t *testing.T) {
+	cfg := &Config{
+		Version: CurrentVersion,
+		Sensors: []Sensor{{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"}},
+		Curves: []CurveConfig{{
+			Name: "ghost", Type: "points", Sensor: "missing",
+			Points: []CurvePoint{{Temp: 40, PWM: 80}, {Temp: 80, PWM: 250}},
+		}},
+	}
+	err := validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("undefined sensor: err = %v", err)
+	}
+}
+
+// TestPointsCurveRoundTripPreservesOrder pins the YAML round-trip: an
+// operator's carefully-ordered anchors survive Parse → Marshal → Parse
+// in the same shape they were authored in.
+func TestPointsCurveRoundTripPreservesOrder(t *testing.T) {
+	yamlBody := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+curves:
+  - name: pts
+    type: points
+    sensor: cpu
+    points:
+      - {temp: 30, pwm: 0}
+      - {temp: 55, pwm: 100}
+      - {temp: 75, pwm: 220}
+controls: []
+`)
+	cfg, err := Parse(yamlBody)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := len(cfg.Curves[0].Points); got != 3 {
+		t.Fatalf("Points len = %d; want 3", got)
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), "type: points") {
+		t.Fatalf("re-marshal dropped type;\n%s", out)
+	}
+	if !strings.Contains(string(out), "temp: 30") || !strings.Contains(string(out), "pwm: 220") {
+		t.Fatalf("re-marshal dropped anchors;\n%s", out)
+	}
+	if _, err := Parse(out); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+}
+
 // TestCurveHysteresisSmoothingRejectNegative pins the validate()
 // sanity check. Negative values are never meaningful (a negative
 // deadband would invert the gate; a negative EMA window is incoherent);

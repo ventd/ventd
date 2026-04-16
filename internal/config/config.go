@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -270,6 +271,13 @@ type CurveConfig struct {
 	Function string   `yaml:"function,omitempty" json:"function,omitempty"`
 	Sources  []string `yaml:"sources,omitempty" json:"sources,omitempty"`
 
+	// points fields — used by the "points" curve type. Each anchor
+	// pins a (temperature, pwm) coordinate; the runtime interpolates
+	// linearly between adjacent anchors and clamps outside the
+	// first/last. validate() sorts by ascending Temp at load time, so
+	// the runtime can assume a sorted slice.
+	Points []CurvePoint `yaml:"points,omitempty" json:"points,omitempty"`
+
 	// Hysteresis is a per-curve deadband (in sensor units, typically °C)
 	// applied to ramp-DOWN transitions only. The controller suppresses a
 	// new lower PWM write until the current temperature has dropped this
@@ -285,6 +293,17 @@ type CurveConfig struct {
 	// default) passes raw readings through unchanged. Intended to damp
 	// noisy sensors that cause PWM jitter at steady state.
 	Smoothing Duration `yaml:"smoothing,omitempty" json:"smoothing,omitempty"`
+}
+
+// CurvePoint is one anchor in a multi-point curve. Temp is in the
+// curve's sensor unit (°C for hwmon temps); PWM is the raw 0–255 duty
+// cycle the anchor pins. validate() enforces Temp ordering but does
+// not check PWM monotonicity — curves with a non-monotonic slope are
+// unusual but legal (an operator who wants a fan to slow down above a
+// threshold to avoid resonance, for example).
+type CurvePoint struct {
+	Temp float64 `yaml:"temp" json:"temp"`
+	PWM  uint8   `yaml:"pwm" json:"pwm"`
 }
 
 type Control struct {
@@ -712,6 +731,28 @@ func validate(cfg *Config) error {
 			}
 			if c.MaxPWM < c.MinPWM {
 				return fmt.Errorf("config: curve %q: max_pwm (%d) must be >= min_pwm (%d)", c.Name, c.MaxPWM, c.MinPWM)
+			}
+		case "points":
+			if _, ok := sensors[c.Sensor]; !ok {
+				return fmt.Errorf("config: curve %q: sensor %q is not defined", c.Name, c.Sensor)
+			}
+			if len(c.Points) < 2 {
+				return fmt.Errorf("config: curve %q: points curve requires at least 2 anchors, got %d", c.Name, len(c.Points))
+			}
+			// Sort in place so the runtime can assume ascending Temp on
+			// every tick; the sorted slice is what validate() hands back
+			// via the slice header and what Save() marshals out to YAML.
+			sort.SliceStable(cfg.Curves[i].Points, func(a, b int) bool {
+				return cfg.Curves[i].Points[a].Temp < cfg.Curves[i].Points[b].Temp
+			})
+			// After sort, reject duplicates — equal temps collapse the
+			// interpolation denominator to zero and are almost certainly
+			// a typo rather than an intentional vertical step.
+			for k := 1; k < len(cfg.Curves[i].Points); k++ {
+				if cfg.Curves[i].Points[k].Temp <= cfg.Curves[i].Points[k-1].Temp {
+					return fmt.Errorf("config: curve %q: points must have strictly increasing temps, got %.2f <= %.2f at index %d",
+						c.Name, cfg.Curves[i].Points[k].Temp, cfg.Curves[i].Points[k-1].Temp, k)
+				}
 			}
 		case "fixed":
 			// Value defaults to 0; clamped by fan min_pwm at runtime

@@ -144,6 +144,85 @@ func TestMixEmptySources(t *testing.T) {
 	}
 }
 
+// TestPointsEvaluate pins the multi-point interpolation contract:
+// clamp below the first anchor, clamp above the last, linear-interpolate
+// between adjacent anchors. The "missing sensor returns last anchor"
+// case is a SAFETY INVARIANT paralleling Linear's "missing sensor
+// returns MaxPWM" — failing high keeps the fan loud on sensor loss.
+func TestPointsEvaluate(t *testing.T) {
+	c := &Points{
+		SensorName: "cpu",
+		Anchors: []PointAnchor{
+			{Temp: 40, PWM: 50},
+			{Temp: 60, PWM: 150},
+			{Temp: 80, PWM: 250},
+		},
+	}
+	cases := []struct {
+		name    string
+		sensors map[string]float64
+		want    uint8
+	}{
+		{"below first clamps to first PWM", map[string]float64{"cpu": 20}, 50},
+		{"at first returns first PWM", map[string]float64{"cpu": 40}, 50},
+		{"midpoint of first segment", map[string]float64{"cpu": 50}, 100}, // halfway between 50 and 150
+		{"at mid anchor returns mid PWM", map[string]float64{"cpu": 60}, 150},
+		{"midpoint of second segment", map[string]float64{"cpu": 70}, 200}, // halfway between 150 and 250
+		{"at last returns last PWM", map[string]float64{"cpu": 80}, 250},
+		{"above last clamps to last PWM", map[string]float64{"cpu": 100}, 250},
+		{"missing sensor returns last PWM (fail-high)", map[string]float64{"gpu": 75}, 250},
+		{"empty sensors returns last PWM", map[string]float64{}, 250},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := c.Evaluate(tc.sensors); got != tc.want {
+				t.Errorf("Evaluate(%v) = %d, want %d", tc.sensors, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPointsEvaluate_SingleAnchor pins degenerate-case behaviour: a
+// single-anchor curve behaves like a Fixed with that anchor's PWM.
+// The runtime guard in validate() rejects single-anchor configs; this
+// test documents the defensive fallback in Evaluate for any code path
+// that constructs the struct directly.
+func TestPointsEvaluate_SingleAnchor(t *testing.T) {
+	c := &Points{SensorName: "cpu", Anchors: []PointAnchor{{Temp: 50, PWM: 128}}}
+	for _, tempC := range []float64{20, 50, 100} {
+		if got := c.Evaluate(map[string]float64{"cpu": tempC}); got != 128 {
+			t.Errorf("single anchor at %v°C = %d, want 128", tempC, got)
+		}
+	}
+}
+
+// TestPointsEvaluate_FourAnchors exercises a non-degenerate multi-point
+// curve with non-uniform spacing, matching the shape an operator would
+// draw in the editor: gentle early, aggressive mid-band, plateau.
+func TestPointsEvaluate_FourAnchors(t *testing.T) {
+	c := &Points{
+		SensorName: "cpu",
+		Anchors: []PointAnchor{
+			{Temp: 30, PWM: 0},
+			{Temp: 50, PWM: 80},
+			{Temp: 65, PWM: 200},
+			{Temp: 85, PWM: 255},
+		},
+	}
+	// Midway in the 30→50 segment: 40°C → 40 PWM.
+	if got := c.Evaluate(map[string]float64{"cpu": 40}); got != 40 {
+		t.Errorf("40°C = %d, want 40", got)
+	}
+	// Midway in the 50→65 segment: 57.5°C → (80+200)/2 = 140.
+	if got := c.Evaluate(map[string]float64{"cpu": 57.5}); got != 140 {
+		t.Errorf("57.5°C = %d, want 140", got)
+	}
+	// Anchor boundary hits exact PWM.
+	if got := c.Evaluate(map[string]float64{"cpu": 65}); got != 200 {
+		t.Errorf("65°C = %d, want 200", got)
+	}
+}
+
 func TestMixPropagatesSensors(t *testing.T) {
 	// Mix must pass the sensor map unchanged to each source so nested curves
 	// see the same readings.

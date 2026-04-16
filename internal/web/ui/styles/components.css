@@ -669,9 +669,14 @@ button.danger:hover { background: var(--red); color: #fff; }
   text-transform: uppercase;
 }
 .type-linear { background: var(--teal-bg);  color: var(--teal); }
+.type-points { background: var(--teal-bg);  color: var(--teal); }
 .type-fixed  { background: var(--blue-bg);  color: var(--blue); }
 .type-mix    { background: var(--amber-bg); color: var(--amber); }
 .mini-graph { display: block; width: 100%; height: 36px; margin: 2px 0; }
+.points-hint {
+  color: var(--fg3); font-size: 0.75rem; font-style: italic;
+  line-height: 1.4; padding: 4px 0;
+}
 .card-output { font-size: 0.75rem; color: var(--fg2); }
 
 /* Mix-curve source links — each source name inside a mix curve's
