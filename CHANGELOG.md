@@ -15,6 +15,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The rebind path itself landed in #112; this flag gates it so
   v0.2.x semantics are preserved until an operator opts in. Closes
   #95 and #98. (#125)
+- `ventd-postreboot-verify.service` ships under `deploy/` alongside
+  `deploy/postreboot-verify.sh`. Opt in at install time with
+  `VENTD_INSTALL_POSTREBOOT_VERIFY=1` (`scripts/install.sh`) or before
+  `dpkg -i` / `rpm -i` (handled by `scripts/postinstall.sh`). Runs once
+  on the next boot, writes PASS/FAIL across the 4a–4i gates to
+  `/var/log/ventd/postreboot-<TS>.log`. Disabled by default.
+  `internal/packaging/unit_postreboot_verify_test.go` guards the
+  shipping unit's section hygiene (OnFailure/After/Wants in `[Unit]`;
+  Type/ExecStart/RemainAfterExit in `[Service]`; no `file:///home/…`
+  path in `Documentation=`). Closes #111. (#164)
 
 ### Changed — systemd unit
 
