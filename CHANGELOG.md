@@ -52,6 +52,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.claude/rules/hwmon-safety.md` to a named subtest. Controller
   statement coverage: 12.0 % → 88.0 %. All 12 safety subtests pass
   under `-race`. (#118, #124)
+- `internal/setup/manager_roots_test.go` covers the six hardware-
+  discovery methods (`discoverCPUTempSensor`, `discoverAMDGPUTemp`,
+  `discoverHwmonControls`, `readCPUModel`, `readCPUVendor`,
+  `readRAPLTDPW`, `gatherProfile`) against fixture trees under
+  `t.TempDir()`. Replaces four `#131` `t.Skip` placeholders with 33
+  table-driven subcases. Closes #131. (#163)
+
+### Changed — test seams
+
+- `setup.Manager` gains `hwmonRoot`, `procRoot`, and `powercapRoot`
+  fields plus a `NewWithRoots(cal, logger, hwmonRoot, procRoot,
+  powercapRoot)` test constructor. `New(cal, logger)` still takes the
+  production defaults; no public signature changed. Mirrors the
+  pattern already used by `hwmonpkg.EnumerateDevices(root)` and
+  `config.SetHwmonRootFS`. Unblocks #132 (calibrate.Manager interface)
+  and #133 (wizard state-machine tests). (#163)
 
 ### Infrastructure
 
