@@ -67,11 +67,11 @@ type recoveryStatus struct {
 // dashboard that polls "System Status" every 5s doesn't spawn a
 // process per tick.
 type cachedRecovery struct {
-	mu      sync.Mutex
-	snap    recoveryStatus
-	at      time.Time
-	ttl     time.Duration
-	lookPath func(string) (string, error) // test seam
+	mu       sync.Mutex
+	snap     recoveryStatus
+	at       time.Time
+	ttl      time.Duration
+	lookPath func(string) (string, error)           // test seam
 	runCmd   func(ctx string, args ...string) error // test seam
 }
 

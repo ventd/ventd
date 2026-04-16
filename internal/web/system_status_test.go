@@ -268,9 +268,9 @@ func TestSystemStatus_MethodNotAllowed(t *testing.T) {
 
 type fakeStat struct{ name string }
 
-func (f fakeStat) Name() string       { return f.name }
-func (fakeStat) Size() int64          { return 0 }
-func (fakeStat) Mode() os.FileMode    { return 0 }
+func (f fakeStat) Name() string    { return f.name }
+func (fakeStat) Size() int64       { return 0 }
+func (fakeStat) Mode() os.FileMode { return 0 }
 func (fakeStat) ModTime() (t time.Time) {
 	return
 }
