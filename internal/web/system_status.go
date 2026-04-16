@@ -2,7 +2,6 @@ package web
 
 import (
 	"bytes"
-	"errors"
 	"net/http"
 	"os"
 	"os/exec"
@@ -263,8 +262,3 @@ func orElse(a, b string) string {
 	return b
 }
 
-// errSkip is a sentinel used when a handler wants to short-circuit
-// without 500-ing. Kept unexported for potential future shared use;
-// currently unused because each handler returns a sensible zero
-// value on missing-binary rather than erroring.
-var errSkip = errors.New("skip")
