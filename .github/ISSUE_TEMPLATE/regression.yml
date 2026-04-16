@@ -1,0 +1,30 @@
+name: Regression
+description: Something that worked in a prior release and stopped.
+title: "[regression] "
+labels: ["regression", "bug"]
+body:
+  - type: input
+    id: last_good
+    attributes:
+      label: Last known-good version
+      placeholder: "v0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: first_bad
+    attributes:
+      label: First bad version
+      placeholder: "v0.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal output
+      render: shell

@@ -1,0 +1,49 @@
+name: Bug report
+description: Something ventd does that it shouldn't.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution + version
+      placeholder: "Ubuntu 24.04, Arch 2026-04, NixOS 25.05, ..."
+    validations:
+      required: true
+  - type: input
+    id: ventd_version
+    attributes:
+      label: ventd version
+      description: Output of `ventd --version`
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...  2. ...  3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: journal
+    attributes:
+      label: Journal output
+      description: "`journalctl -u ventd --since '10 minutes ago'`"
+      render: shell
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware summary (optional)
+      description: "motherboard, CPU cooler, GPU, any AIO"
