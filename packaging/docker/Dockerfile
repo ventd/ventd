@@ -91,8 +91,22 @@ VOLUME ["/etc/ventd"]
 # deploy/ventd.service is not reachable here. The container runtime's
 # restart policy + this HEALTHCHECK are the equivalent loop:
 # /api/ping is unauthenticated (see internal/web/server.go:274) and
-# returns 200 once the HTTP server is listening.
+# returns 200 once the web server is listening.
+#
+# Dual-probe (HTTPS first, HTTP fallback) is intentional (see #165).
+# The web server runs plain HTTP on :9999 pre-wizard and HTTPS on
+# :9999 post-wizard once the setup flow generates a self-signed cert
+# (internal/web/selfsigned.go). A single-protocol probe flips from
+# healthy to unhealthy the moment the user submits the wizard. The
+# --no-check-certificate flag on the HTTPS probe is deliberate: the
+# cert is self-signed, locally generated, and the loopback socket is
+# inside the container's own network namespace — certificate identity
+# isn't adding any security property the socket boundary doesn't
+# already give. The HTTP fallback covers the pre-wizard window;
+# either succeeding is healthy; both failing is unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:9999/api/ping >/dev/null 2>&1 || exit 1
+    CMD wget -qO- --no-check-certificate https://127.0.0.1:9999/api/ping >/dev/null 2>&1 \
+        || wget -qO- http://127.0.0.1:9999/api/ping >/dev/null 2>&1 \
+        || exit 1
 
 ENTRYPOINT ["/usr/local/bin/ventd", "-config", "/etc/ventd/config.yaml"]
