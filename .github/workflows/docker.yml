@@ -1,0 +1,152 @@
+# Docker packaging CI.
+#
+# Builds packaging/docker/Dockerfile on every push to main and every
+# pull_request that touches a Docker-adjacent path, and runs a smoke
+# test against the amd64 image. No registry push — images live only
+# inside the runner. Publishing stays a Phoenix-only action (see
+# .claude/rules/collaboration.md).
+#
+# The amd64 job builds, loads the image on the runner, boots the
+# container, and polls /api/ping. On first-boot the daemon auto-
+# generates a self-signed TLS cert and binds HTTPS on 0.0.0.0:9999
+# (see cmd/ventd/main.go ~L158), so the poll uses `curl -fsk
+# https://...`. `/api/ping` is unauthenticated (internal/web/
+# server.go) and returns 200 once the HTTP server is listening.
+#
+# The arm64 job builds under QEMU emulation. QEMU cross-builds can
+# flake on shared runners, so it is marked continue-on-error: true
+# for now — tracked as a follow-up once we see the flake rate on
+# real traffic.
+
+name: docker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/docker/**'
+      - 'deploy/**'
+      - 'scripts/**'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packaging/docker/**'
+      - 'deploy/**'
+      - 'scripts/**'
+      - '.github/workflows/docker.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-amd64:
+    name: build amd64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          platforms: linux/amd64
+          tags: ventd:ci
+          load: false
+          outputs: type=docker,dest=/tmp/ventd-ci-amd64.tar
+          cache-from: type=gha,scope=docker-amd64
+          cache-to: type=gha,mode=max,scope=docker-amd64
+          build-args: |
+            VERSION=ci
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
+
+      - name: Upload image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: ventd-ci-amd64
+          path: /tmp/ventd-ci-amd64.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  build-arm64:
+    name: build arm64
+    runs-on: ubuntu-24.04
+    # QEMU-based cross-builds can flake on hosted runners. Keep the
+    # amd64 job as the hard gate; arm64 is advisory until we have
+    # signal on the real failure rate. Tracked as a follow-up.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build arm64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/docker/Dockerfile
+          platforms: linux/arm64
+          tags: ventd:ci-arm64
+          load: false
+          cache-from: type=gha,scope=docker-arm64
+          cache-to: type=gha,mode=max,scope=docker-arm64
+          build-args: |
+            VERSION=ci
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
+
+  smoke-amd64:
+    name: smoke amd64
+    needs: build-amd64
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download image tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: ventd-ci-amd64
+          path: /tmp
+
+      - name: Load image
+        run: docker load --input /tmp/ventd-ci-amd64.tar
+
+      - name: Run container
+        run: |
+          docker run --detach \
+            --name ventd-smoke \
+            --publish 9999:9999 \
+            ventd:ci
+
+      - name: Poll /api/ping
+        run: |
+          # First-boot binds HTTPS with a self-signed cert, so -k is
+          # required. /api/ping is unauthenticated and returns 200
+          # once the web server is listening.
+          for attempt in $(seq 1 30); do
+            code=$(curl -sk -o /tmp/ping.body -w '%{http_code}' \
+                     "https://127.0.0.1:9999/api/ping" || true)
+            if [ "$code" = "200" ]; then
+              echo "ping OK after ${attempt}s: $(cat /tmp/ping.body)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ping failed after 30s (last HTTP code: ${code:-none})"
+          exit 1
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs ventd-smoke
+
+      - name: Stop container
+        if: always()
+        run: |
+          docker stop ventd-smoke || true
+          docker rm ventd-smoke || true

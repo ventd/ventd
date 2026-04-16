@@ -15,6 +15,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The rebind path itself landed in #112; this flag gates it so
   v0.2.x semantics are preserved until an operator opts in. Closes
   #95 and #98. (#125)
+- `ventd-postreboot-verify.service` ships under `deploy/` alongside
+  `deploy/postreboot-verify.sh`. Opt in at install time with
+  `VENTD_INSTALL_POSTREBOOT_VERIFY=1` (`scripts/install.sh`) or before
+  `dpkg -i` / `rpm -i` (handled by `scripts/postinstall.sh`). Runs once
+  on the next boot, writes PASS/FAIL across the 4a–4i gates to
+  `/var/log/ventd/postreboot-<TS>.log`. Disabled by default.
+  `internal/packaging/unit_postreboot_verify_test.go` guards the
+  shipping unit's section hygiene (OnFailure/After/Wants in `[Unit]`;
+  Type/ExecStart/RemainAfterExit in `[Service]`; no `file:///home/…`
+  path in `Documentation=`). Closes #111. (#164)
 
 ### Changed — systemd unit
 
@@ -52,6 +62,22 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.claude/rules/hwmon-safety.md` to a named subtest. Controller
   statement coverage: 12.0 % → 88.0 %. All 12 safety subtests pass
   under `-race`. (#118, #124)
+- `internal/setup/manager_roots_test.go` covers the six hardware-
+  discovery methods (`discoverCPUTempSensor`, `discoverAMDGPUTemp`,
+  `discoverHwmonControls`, `readCPUModel`, `readCPUVendor`,
+  `readRAPLTDPW`, `gatherProfile`) against fixture trees under
+  `t.TempDir()`. Replaces four `#131` `t.Skip` placeholders with 33
+  table-driven subcases. Closes #131. (#163)
+
+### Changed — test seams
+
+- `setup.Manager` gains `hwmonRoot`, `procRoot`, and `powercapRoot`
+  fields plus a `NewWithRoots(cal, logger, hwmonRoot, procRoot,
+  powercapRoot)` test constructor. `New(cal, logger)` still takes the
+  production defaults; no public signature changed. Mirrors the
+  pattern already used by `hwmonpkg.EnumerateDevices(root)` and
+  `config.SetHwmonRootFS`. Unblocks #132 (calibrate.Manager interface)
+  and #133 (wizard state-machine tests). (#163)
 
 ### Infrastructure
 
@@ -61,6 +87,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preserve the libc-only binary guarantee; race coverage comes from
   the other three rows. Satisfies the CI matrix acceptance gate in
   the v0.3.0 plan. (#114)
+- New `.github/workflows/docker.yml` builds `packaging/docker/Dockerfile`
+  on every push to `main` and PR touching `packaging/docker/**`,
+  `deploy/**`, or `scripts/**`. Three jobs: `build amd64` (exports
+  the image as an artifact), `build arm64` (QEMU emulation,
+  `continue-on-error: true` until the cross-build flake rate is
+  characterised), `smoke amd64` (loads the artifact, runs the
+  container detached, polls `/api/ping` for up to 30 s, dumps logs
+  on failure). No registry push. (#162, closes #144)
+
+### Changed — Docker packaging
+
+- `packaging/docker/Dockerfile` now accepts `--build-arg VENTD_GID=<n>`
+  (default `472`), threading the override into `addgroup -S -g
+  "${VENTD_GID}" ventd` so hosts whose `ventd` group landed on a
+  different system GID can align without a source edit. UID stays
+  fixed at 472 because only the group participates in the sysfs DAC
+  check that `deploy/90-ventd-hwmon.rules` sets up.
+  `packaging/docker/docker-compose.yml` interpolates `VENTD_GID`
+  into both `build.args` and the runtime `user:` line, so a single
+  `VENTD_GID=...` env var aligns the image group and the process
+  gid. (#162, closes #143)
 
 ### Added
 

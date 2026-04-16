@@ -1,0 +1,30 @@
+[Unit]
+# One-shot post-reboot verifier. Fires once per boot after ventd has
+# started, runs the 4a–4i assertions in
+# /usr/local/sbin/ventd-postreboot-verify.sh, and writes a timestamped
+# log under /var/log/ventd.
+#
+# Not enabled by default. Operators opt in either at install time by
+# setting VENTD_INSTALL_POSTREBOOT_VERIFY=1 before running
+# scripts/install.sh (or the .deb/.rpm postinstall hook), or by hand:
+#   sudo systemctl enable ventd-postreboot-verify.service
+#
+# After reboot:
+#   sudo cat /var/log/ventd/postreboot-*.log
+#   sudo systemctl status ventd-postreboot-verify
+Description=ventd post-reboot rig verification (one-shot)
+Documentation=https://github.com/ventd/ventd
+After=ventd.service
+Wants=ventd.service
+ConditionPathExists=/usr/local/sbin/ventd-postreboot-verify.sh
+
+[Service]
+Type=oneshot
+User=root
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/sbin/ventd-postreboot-verify.sh
+RemainAfterExit=yes
+SyslogIdentifier=ventd-postreboot-verify
+
+[Install]
+WantedBy=multi-user.target

@@ -24,6 +24,10 @@ services:
         VERSION: dev
         COMMIT: unknown
         BUILD_DATE: unknown
+        # Override to match the host ventd group GID if it is not 472.
+        # Typical usage:
+        #   VENTD_GID=$(getent group ventd | cut -d: -f3) docker compose build
+        VENTD_GID: ${VENTD_GID:-472}
     image: ventd:local
     container_name: ventd
     restart: unless-stopped
@@ -81,9 +85,11 @@ services:
 
     # Match the host's ventd group so the udev rule's g+w on
     # pwm<N>/pwm<N>_enable applies. If your host's ventd group is
-    # not GID 472, either re-create it there (`groupmod -g 472
-    # ventd` on the host) or override this line.
-    user: "472:472"
+    # not GID 472, set VENTD_GID in the environment before
+    # `docker compose build && up` — it flows into both the image
+    # (ARG VENTD_GID) and the runtime group here. UID stays 472;
+    # only the group participates in the sysfs DAC check.
+    user: "472:${VENTD_GID:-472}"
 
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9999/api/ping >/dev/null 2>&1 || exit 1"]

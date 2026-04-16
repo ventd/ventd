@@ -49,23 +49,6 @@ func TestDetect_EmptyHwmonReturnsFriendlyError(t *testing.T) {
 	}
 }
 
-func TestDetect_PopulatedHwmonReturnsFriendlyNames(t *testing.T) {
-	// Invariant: usability.md — user-facing fan names must be friendly
-	// ("CPU Fan", "System Fan 1"), never raw sysfs paths or PWM numbers.
-	//
-	// This test requires exercising discoverHwmonControls + hwmonFanName
-	// against a fake hwmon tree. discoverHwmonControls hard-codes
-	// hwmonpkg.DefaultHwmonRoot ("/sys/class/hwmon") and run() calls it
-	// without a root override. Testing the full flow requires extracting
-	// the hwmon root into a Manager field — a setup.go change.
-	//
-	// hwmonFanName itself is unit-tested in fixtures_test.go with fake
-	// layouts (TestHwmonFanName_WithLabel, _FallbackToChipPrefix, etc.)
-	// and already asserts friendly-name output. This test documents the
-	// gap at the orchestration level.
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable fan discovery")
-}
-
 // ---------- calibrate/* ----------
 
 func TestCalibrate_AbortRestoresPWMWithin2s(t *testing.T) {
@@ -413,27 +396,4 @@ func TestValidateGeneratedConfig_RejectsDanglingCurveReference(t *testing.T) {
 	if err == nil {
 		t.Fatal("validateGeneratedConfig accepted a control referencing an undefined curve")
 	}
-}
-
-// ---------- discoverCPUTempSensor / discoverAMDGPUTemp ----------
-
-func TestDiscoverCPUTempSensor_NotTestableWithoutRootOverride(t *testing.T) {
-	// discoverCPUTempSensor hard-codes /sys/class/hwmon. Testing its
-	// 3-pass logic (known chips → label fallback → acpitz) requires
-	// extracting the root path into a parameter or Manager field.
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable sensor discovery")
-}
-
-func TestDiscoverAMDGPUTemp_NotTestableWithoutRootOverride(t *testing.T) {
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable sensor discovery")
-}
-
-// ---------- gatherProfile ----------
-
-func TestGatherProfile_NotTestableWithoutDependencyInjection(t *testing.T) {
-	// gatherProfile calls readCPUModel (/proc/cpuinfo), readRAPLTDPW
-	// (/sys/class/powercap), nvidia.* functions, and readHwmonCritC.
-	// The last is already unit-tested; the others hard-code procfs/sysfs
-	// paths.
-	t.Skip("tracked by #131: extract procfs/sysfs roots for testable hardware profile gathering")
 }
