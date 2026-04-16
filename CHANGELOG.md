@@ -6,6 +6,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — web UI empty-state copy
+
+- Every empty dashboard section now renders explanatory copy instead of
+  blank containers. Sensors shows "No sensors configured yet." with an
+  "Open Hardware Monitor" button, Controls shows the setup-wizard hint,
+  Curves shows the sensor-to-fan binding explainer, and the hardware
+  sidebar now tells the user the kernel module probably isn't loaded
+  (with `sudo ventd --probe-modules` as the terminal fallback). A new
+  `.empty-state` component in `components.css` styles all four variants.
+  First step of v0.3 Session C Phase 2 — IA surfacing.
+
 ### Added — hwmon topology resilience (v0.3 stream)
 
 - `hwmon.dynamic_rebind` config flag (default `false`). When `true`,
