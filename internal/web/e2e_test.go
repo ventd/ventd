@@ -1898,13 +1898,20 @@ func TestE2E_SettingsModal_PopulatedSections(t *testing.T) {
 	if _, err := page.Eval(`() => document.getElementById('btn-settings').click()`); err != nil {
 		t.Fatalf("click settings: %v", err)
 	}
-	waitUntil(t, 3*time.Second, func() bool {
-		res, err := page.Eval(`() => document.querySelector('#system-status-body .sys-row') !== null`)
+	waitUntil(t, 5*time.Second, func() bool {
+		res, err := page.Eval(`() => {
+      const el = document.getElementById('system-status-body');
+      if (!el) return false;
+      const text = el.textContent || '';
+      return text.includes('Watchdog')
+        && text.includes('Crash recovery')
+        && text.includes('Diagnostics');
+    }`)
 		if err != nil {
 			return false
 		}
 		return res.Value.Bool()
-	}, "system-status-body never populated")
+	}, "system-status-body never fully populated (Watchdog/Crash recovery/Diagnostics)")
 
 	for _, hdr := range []string{"Display", "System Status", "About", "Advanced"} {
 		res, _ := page.Eval(`(h) => [...document.querySelectorAll('.modal-section-hdr')].some(e => e.textContent === h)`, hdr)
