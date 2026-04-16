@@ -380,7 +380,7 @@ func parseSensorsDetectModules(output string) []candidate {
 }
 
 var (
-	sdDriverRe = regexp.MustCompile(`^Driver ` + "`" + `([^']+)` + `':`)
+	sdDriverRe = regexp.MustCompile(`^Driver ` + "`" + `([^']+)` + `'`)
 	sdChipRe   = regexp.MustCompile(`Chip ` + "`" + `([^']+)` + `'`)
 )
 
@@ -703,6 +703,8 @@ func moduleFromPath(pwmPath string) string {
 		return "it87"
 	case strings.HasPrefix(name, "nct677"):
 		return "nct6775"
+	case name == "nct6683":
+		return "nct6683"
 	case strings.HasPrefix(name, "nct678"):
 		return "nct6683"
 	case strings.HasPrefix(name, "nct6687"):

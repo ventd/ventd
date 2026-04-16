@@ -1,0 +1,32 @@
+# sensors-detect version 3.6.0
+# Board: ASUSTeK COMPUTER INC. ROG STRIX X670E-E GAMING WIFI
+# Kernel: 6.10.0-generic x86_64
+
+Now follows a summary of the probes I have just done.
+Just press ENTER to continue:
+
+Driver `coretemp' (loaded):
+  * Chip `Intel digital thermal sensor' (confidence: 9)
+
+Driver `nct6775' (should be inserted):
+  * ISA bus, address 0x290
+    Chip `Nuvoton NCT6798D Super IO Sensors' (confidence: 9)
+
+Driver `it87' (should be inserted):
+  * ISA bus, address 0xa40
+    Chip `ITE IT8625E Super IO Sensors' (confidence: 9)
+
+Do you want to overwrite /etc/modules-load.d/lm-sensors.conf? (yes/NO): y
+
+To load everything that is needed, add this to /etc/modules-load.d/lm-sensors.conf:
+
+#----cut here----
+# Chip drivers
+coretemp
+nct6775
+it87
+# Chip driver options
+options it87 force_id=0x8625
+#----cut here----
+
+Successful!
