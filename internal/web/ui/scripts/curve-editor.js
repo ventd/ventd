@@ -40,6 +40,8 @@ function renderLinearEditor(el,c){
     '<option value="'+esc(s.name)+'"'+(s.name===c.sensor?' selected':'')+'>'+esc(s.name)+'</option>'
   ).join('');
   const ax = curveAxisLabel(c);
+  const hys = (c.hysteresis != null) ? c.hysteresis : 0;
+  const sm = durationToSec(c.smoothing);
   el.innerHTML = '<div class="editor">'+
     '<div class="editor-svg"><svg id="curve-svg" viewBox="0 0 510 255" xmlns="http://www.w3.org/2000/svg"></svg></div>'+
     '<div class="editor-form">'+
@@ -52,10 +54,42 @@ function renderLinearEditor(el,c){
       '<div class="fg"><label>Min %</label><input type="number" id="f-minp" value="'+p2pct(c.min_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="min_pwm"></div>'+
       '<div class="fg"><label>Max %</label><input type="number" id="f-maxp" value="'+p2pct(c.max_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="max_pwm"></div>'+
       '<div class="fg"></div>'+
+      '<div class="fg"><label title="Prevents fan oscillation. Sensor must drop this far below threshold before fan ramps down.">Hysteresis (°C)</label>'+
+        '<input type="number" id="f-hys" value="'+hys+'" min="0" max="10" step="0.5" data-action="upd-field-num" data-field="hysteresis"></div>'+
+      '<div class="fg"><label title="Exponential smoothing window applied to sensor reads. Higher values dampen noise but slow response.">Smoothing (s)</label>'+
+        '<input type="number" id="f-sm" value="'+sm+'" min="0" max="60" step="1" data-action="upd-duration-sec" data-field="smoothing"></div>'+
+      '<div class="fg"></div>'+
     '</div>'+
     '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
   drawSVG(c);
+}
+
+// durationToSec parses a Go time.Duration string ("5s", "1m30s", "") into
+// whole seconds. The on-wire format always uses unit suffixes because
+// config.Duration.MarshalJSON emits d.String(); this handles the common
+// cases the UI can round-trip without importing a full parser. Unknown /
+// missing / zero-valued inputs collapse to 0 so the input renders empty
+// ("no smoothing") rather than NaN.
+function durationToSec(v){
+  if(v == null || v === '' || v === '0s') return 0;
+  if(typeof v === 'number') return v;
+  if(typeof v !== 'string') return 0;
+  // Matches leading integer seconds ("5s", "90s"); "1m30s" yields 0 here
+  // and shows as empty — if an operator hand-edits the YAML to that shape
+  // the UI won't mis-display a partial value.
+  const m = v.match(/^(\d+)s$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+// updDurationSec turns a seconds integer back into a Go-duration string
+// ("5s" / ""). Empty string means zero-value Duration, which the daemon
+// serializes via omitempty so the YAML stays clean.
+function updDurationSec(f, sec){
+  if(selIdx<0 || isNaN(sec) || sec < 0) return;
+  cfg.curves[selIdx][f] = sec > 0 ? (sec + 's') : '';
+  markDirty();
+  renderCurveCards();
 }
 
 function renderFixedEditor(el,c){

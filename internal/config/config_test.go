@@ -482,3 +482,129 @@ func TestValidateAllowStopGateFixtures(t *testing.T) {
 		})
 	}
 }
+
+// TestCurveHysteresisSmoothingRoundTripPreservesNothingForZeroValue pins
+// the backwards-compat contract introduced with PR 3a (Session D). A
+// v0.2.x config with no hysteresis or smoothing must parse unchanged and
+// re-marshal without emitting those keys — otherwise every existing
+// on-disk config would start drifting a `hysteresis: 0` or
+// `smoothing: 0s` line into diff output on the first save.
+func TestCurveHysteresisSmoothingRoundTripPreservesNothingForZeroValue(t *testing.T) {
+	v02Curve := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu
+    min_temp: 40
+    max_temp: 80
+    min_pwm: 30
+    max_pwm: 255
+controls: []
+`)
+	cfg, err := Parse(v02Curve)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Curves[0].Hysteresis != 0 {
+		t.Fatalf("Hysteresis = %v; want 0", cfg.Curves[0].Hysteresis)
+	}
+	if cfg.Curves[0].Smoothing.Duration != 0 {
+		t.Fatalf("Smoothing = %v; want 0", cfg.Curves[0].Smoothing.Duration)
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), "hysteresis:") {
+		t.Fatalf("round-trip emitted hysteresis: on zero value;\n---\n%s\n---", out)
+	}
+	if strings.Contains(string(out), "smoothing:") {
+		t.Fatalf("round-trip emitted smoothing: on zero value;\n---\n%s\n---", out)
+	}
+}
+
+// TestCurveHysteresisSmoothingRoundTripEnabled covers the opt-in path:
+// an operator who sets hysteresis and smoothing must get those values
+// back unchanged after a Parse → Marshal → Parse cycle. Guards against
+// a silent drop if either field gets a typo in its yaml struct tag.
+func TestCurveHysteresisSmoothingRoundTripEnabled(t *testing.T) {
+	withBoth := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu
+    min_temp: 40
+    max_temp: 80
+    min_pwm: 30
+    max_pwm: 255
+    hysteresis: 3.5
+    smoothing: 4s
+controls: []
+`)
+	cfg, err := Parse(withBoth)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Curves[0].Hysteresis != 3.5 {
+		t.Fatalf("Hysteresis = %v; want 3.5", cfg.Curves[0].Hysteresis)
+	}
+	if cfg.Curves[0].Smoothing.String() != "4s" {
+		t.Fatalf("Smoothing = %s; want 4s", cfg.Curves[0].Smoothing.Duration)
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), "hysteresis: 3.5") {
+		t.Fatalf("round-trip dropped hysteresis: 3.5;\n---\n%s\n---", out)
+	}
+	if !strings.Contains(string(out), "smoothing: 4s") {
+		t.Fatalf("round-trip dropped smoothing: 4s;\n---\n%s\n---", out)
+	}
+	cfg2, err := Parse(out)
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if cfg2.Curves[0].Hysteresis != 3.5 {
+		t.Fatalf("re-parse Hysteresis = %v; want 3.5", cfg2.Curves[0].Hysteresis)
+	}
+	if cfg2.Curves[0].Smoothing.String() != "4s" {
+		t.Fatalf("re-parse Smoothing = %s; want 4s", cfg2.Curves[0].Smoothing)
+	}
+}
+
+// TestCurveHysteresisSmoothingRejectNegative pins the validate()
+// sanity check. Negative values are never meaningful (a negative
+// deadband would invert the gate; a negative EMA window is incoherent);
+// reject at config load rather than letting them drift into the control
+// loop.
+func TestCurveHysteresisSmoothingRejectNegative(t *testing.T) {
+	bad := &Config{
+		Version: CurrentVersion,
+		Sensors: []Sensor{{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"}},
+		Curves: []CurveConfig{{
+			Name: "bad", Type: "linear", Sensor: "cpu",
+			MinTemp: 40, MaxTemp: 80, MinPWM: 30, MaxPWM: 255,
+			Hysteresis: -1,
+		}},
+	}
+	if err := validate(bad); err == nil || !strings.Contains(err.Error(), "hysteresis") {
+		t.Fatalf("negative hysteresis: err = %v", err)
+	}
+}

@@ -753,6 +753,9 @@ document.addEventListener('change', (e) => {
     case 'upd-pct-field':
       updPctField(el.dataset.field, +el.value);
       break;
+    case 'upd-duration-sec':
+      updDurationSec(el.dataset.field, +el.value);
+      break;
     case 'fixed-pct':
       updFixedPct(+el.value);
       break;
