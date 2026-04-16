@@ -48,7 +48,9 @@ README; the only difference is where you read the token from.
 - Alpine 3.20 base (musl libc).
 - Single static `ventd` binary at `/usr/local/bin/ventd`, built with
   `CGO_ENABLED=0 -tags nonvidia -trimpath`.
-- Unprivileged `ventd` user (UID/GID 472).
+- Unprivileged `ventd` user (UID 472, GID 472 by default; GID is
+  overridable via `--build-arg VENTD_GID=...` — see "Permissions"
+  below).
 - `HEALTHCHECK` against the unauthenticated `/api/ping` endpoint.
 
 The image does **not** include the systemd unit, the udev rule, the
@@ -98,11 +100,11 @@ Two consequences:
    --subsystem-match=hwmon` before the container is useful. If the
    host also has a native `ventd` install, this is already done.
 2. The in-container `ventd` user must share a GID with the host's
-   `ventd` group so the `g+w` bit applies. The Dockerfile pins
-   `ventd` to GID 472, and the compose file sets `user: "472:472"`.
-   If your host's `ventd` group has a different GID (typical when
-   `useradd --system` picked the first free sub-500 GID), align one
-   of the two sides:
+   `ventd` group so the `g+w` bit applies. The Dockerfile defaults
+   `ventd` to GID 472, and the compose file defaults `user` to
+   `472:472`. If your host's `ventd` group has a different GID
+   (typical when `useradd --system` picked the first free sub-500
+   GID), align one of the two sides:
 
    ```bash
    # option A: move the host group (if no other service uses it)
@@ -110,13 +112,24 @@ Two consequences:
    sudo udevadm trigger --subsystem-match=hwmon
 
    # option B: rebuild the image with the host's GID
-   docker compose build --build-arg VENTD_GID=$(getent group ventd | cut -d: -f3)
-   # (Dockerfile does not currently accept this arg — patch welcome;
-   # today the edit is a one-line addgroup/adduser tweak.)
+   #   sets both the build-arg (so the in-image group is created
+   #   with that GID) and the runtime user: value (so the
+   #   container process runs under it).
+   VENTD_GID=$(getent group ventd | cut -d: -f3) \
+     docker compose -f packaging/docker/docker-compose.yml up -d --build
+
+   # or, with plain docker:
+   docker build \
+     --build-arg VENTD_GID=$(getent group ventd | cut -d: -f3) \
+     --file packaging/docker/Dockerfile \
+     --tag ventd:local \
+     .
    ```
 
-   Run `ls -l /sys/class/hwmon/hwmon*/pwm*` on the host to confirm
-   the group on the pwm files matches the in-container UID before
+   The UID stays fixed at 472 regardless — only the group
+   participates in the sysfs DAC check. Run
+   `ls -l /sys/class/hwmon/hwmon*/pwm*` on the host to confirm the
+   group on the pwm files matches the in-container GID before
    assuming permissions are wrong.
 
 ### Fallback: no udev rule on the host
@@ -193,8 +206,8 @@ Minimum viable host setup:
    loaded the drivers.
 2. `deploy/90-ventd-hwmon.rules` installed at
    `/etc/udev/rules.d/90-ventd-hwmon.rules` and reloaded.
-3. A `ventd` group on the host with GID 472 (or the image rebuilt
-   to match the host GID — see "Permissions" above).
+3. A `ventd` group on the host with GID 472, or the image rebuilt
+   with `--build-arg VENTD_GID=<host-gid>` (see "Permissions" above).
 4. `docker compose` v2 (the v1 `docker-compose` Python tool is end-
    of-life; the compose file is v2 syntax).
 
