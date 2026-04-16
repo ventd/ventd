@@ -166,6 +166,34 @@ func TestParseSensorsDetectChips(t *testing.T) {
 			input: "just some text\nno drivers here\n",
 			want:  map[string]string{},
 		},
+		{
+			name: "should-be-inserted variant captures driver name",
+			input: "Driver `nct6775' (should be inserted):\n" +
+				"  * ISA bus, address 0x290\n" +
+				"    Chip `Nuvoton NCT6798D Super IO Sensors' (confidence: 9)\n",
+			want: map[string]string{"nct6775": "Nuvoton NCT6798D Super IO Sensors"},
+		},
+		{
+			name: "loaded variant captures driver name",
+			input: "Driver `it87' (loaded):\n" +
+				"    Chip `ITE IT8625E Super IO Sensors' (confidence: 9)\n",
+			want: map[string]string{"it87": "ITE IT8625E Super IO Sensors"},
+		},
+		{
+			name: "bare driver line with no trailing colon",
+			input: "Driver `coretemp'\n" +
+				"  * Chip `Intel digital thermal sensor' (confidence: 9)\n",
+			want: map[string]string{"coretemp": "Intel digital thermal sensor"},
+		},
+		{
+			name:  "should-be-inserted fixture",
+			input: readTestdata(t, "sensors-detect-should-be-inserted.txt"),
+			want: map[string]string{
+				"coretemp": "Intel digital thermal sensor",
+				"nct6775":  "Nuvoton NCT6798D Super IO Sensors",
+				"it87":     "ITE IT8625E Super IO Sensors",
+			},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -475,10 +503,10 @@ func TestModuleFromPath(t *testing.T) {
 		// nct6687 case and returns nct6687d.
 		{name: "nct6687 name → nct6687d", chipName: "nct6687", wantModule: "nct6687d"},
 		{name: "nct6687d name → nct6687d", chipName: "nct6687d", wantModule: "nct6687d"},
-		// nct6683 chip name itself does NOT match any HasPrefix case
-		// (nct668 isn't a prefix in the switch); documents a real
-		// gap in the name → module mapping.
-		{name: "nct6683 chip name hits no case → empty", chipName: "nct6683", wantModule: ""},
+		// nct6683 chip uses the dedicated nct6683 in-tree driver, not
+		// nct6775. Matched by an exact-name case so it isn't shadowed
+		// by an over-broad HasPrefix later in the switch.
+		{name: "nct6683 chip name → nct6683", chipName: "nct6683", wantModule: "nct6683"},
 		{name: "w83627ehf prefix → w83627ehf module", chipName: "w836", wantModule: "w83627ehf"},
 		{name: "f71882fg prefix → f71882fg module", chipName: "f7182", wantModule: "f71882fg"},
 		{name: "asus_ec exact match → asus_ec_sensors", chipName: "asus_ec", wantModule: "asus_ec_sensors"},
