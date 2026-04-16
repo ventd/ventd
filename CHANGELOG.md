@@ -4,6 +4,17 @@ All notable changes to ventd are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Infrastructure
+
+- CI `build-and-test` expanded to a four-distro matrix (Ubuntu 24.04,
+  Fedora 41, Arch, Alpine 3.20) and all four rows are required on
+  `main`. Alpine builds with `CGO_ENABLED=0` and skips `-race` to
+  preserve the libc-only binary guarantee; race coverage comes from
+  the other three rows. Satisfies the CI matrix acceptance gate in
+  the v0.3.0 plan. (#114)
+
 ## [v0.2.0] — 2026-04-16
 
 This release closes the daemon-hardening stream begun in v0.1.x: every
