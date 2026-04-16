@@ -30,6 +30,18 @@ import (
 const (
 	defaultRescanPeriod = 10 * time.Second
 	defaultDebounce     = 2 * time.Second
+	// defaultRebindMinInterval caps how often the watcher can fire a rebind
+	// trigger at the daemon. A flapping driver ("device gone" → "device back"
+	// on a loose sensor connection) could otherwise pingpong the whole
+	// controller teardown + restart cycle, which costs ~1-2s of pwm_enable=2
+	// fallback every time per Option A's documented tradeoff.
+	//
+	// 10 s is deliberately larger than the 2 s settle window: the settle
+	// guards a single topology-change event; the rebind rate limit guards
+	// repeated add events crossing the settle line. At 10 s a genuinely
+	// recurring flap surfaces in the hwdiag diagnostic but stops taking the
+	// daemon down every cycle. See issue #95 for the full rationale.
+	defaultRebindMinInterval = 10 * time.Second
 )
 
 // DeviceFingerprint captures the shape of one hwmon device to the precision
@@ -114,15 +126,36 @@ type Watcher struct {
 	debounce       time.Duration
 	disableUevents bool
 
-	// Internal state. Only the Run goroutine touches these; no locks needed.
-	stable  map[string]DeviceFingerprint // confirmed topology; key = StableDevice
-	pending map[string]pendingChange     // in-flight candidates still inside the debounce window
+	// rebindTrigger is invoked once per `action=added` promotion, rate-limited
+	// by rebindMinInterval. Implementation lives in main.go — it inspects
+	// liveCfg to decide whether the added device matches a configured
+	// HwmonDevice and, if so, signals restartCh. Split this way so the
+	// watcher package stays independent of config. See issue #95.
+	rebindTrigger     RebindTrigger
+	rebindMinInterval time.Duration
 
-	emissions int // diagnostic emit count (exposed for tests)
+	// Internal state. Only the Run goroutine touches these; no locks needed.
+	stable       map[string]DeviceFingerprint // confirmed topology; key = StableDevice
+	pending      map[string]pendingChange     // in-flight candidates still inside the debounce window
+	lastRebindAt time.Time                    // last wallclock at which rebindTrigger fired
+
+	emissions   int // diagnostic emit count (exposed for tests)
+	rebindCalls int // rebindTrigger invocation count (exposed for tests)
+	rebindDrops int // rebindTrigger invocations suppressed by rate limit (exposed for tests)
 }
 
+// RebindTrigger is called on every `action=added` promotion, rate-limited to
+// WithRebindMinInterval. key is the added device's StableDevice path; fp is
+// the freshly promoted fingerprint.
+//
+// The callback runs on the watcher's Run goroutine — it must not block.
+// Signalling an unbuffered channel inside the callback is a deadlock;
+// use a buffered-by-one channel with a `select { case ch <- ...: default: }`
+// send instead.
+type RebindTrigger func(key string, fp DeviceFingerprint)
+
 type pendingChange struct {
-	fp      *DeviceFingerprint // nil means "device currently absent"
+	fp         *DeviceFingerprint // nil means "device currently absent"
 	observedAt time.Time
 }
 
@@ -161,18 +194,33 @@ func WithoutUevents() Option {
 	return func(w *Watcher) { w.subscribe = nil; w.disableUevents = true }
 }
 
+// WithRebindTrigger installs a callback fired on every action=added
+// promotion, rate-limited to the watcher's rebind-min-interval. See
+// RebindTrigger for the callback contract.
+func WithRebindTrigger(t RebindTrigger) Option {
+	return func(w *Watcher) { w.rebindTrigger = t }
+}
+
+// WithRebindMinInterval overrides the minimum interval between successive
+// rebind-trigger invocations. Production is 10 s; tests use shorter values
+// to exercise the rate-limit path quickly.
+func WithRebindMinInterval(d time.Duration) Option {
+	return func(w *Watcher) { w.rebindMinInterval = d }
+}
+
 // NewWatcher constructs a Watcher with production defaults, applying opts on
 // top. store must be non-nil — a watcher without a diagnostic sink is a
 // no-op; callers that genuinely don't want diagnostics should skip the
 // watcher instead.
 func NewWatcher(store *hwdiag.Store, logger *slog.Logger, opts ...Option) *Watcher {
 	w := &Watcher{
-		logger:       logger,
-		store:        store,
-		rescanPeriod: defaultRescanPeriod,
-		debounce:     defaultDebounce,
-		enumerate:    func() []HwmonDevice { return EnumerateDevices("") },
-		subscribe:    subscribeUevents,
+		logger:            logger,
+		store:             store,
+		rescanPeriod:      defaultRescanPeriod,
+		debounce:          defaultDebounce,
+		rebindMinInterval: defaultRebindMinInterval,
+		enumerate:         func() []HwmonDevice { return EnumerateDevices("") },
+		subscribe:         subscribeUevents,
 	}
 	for _, o := range opts {
 		o(w)
@@ -195,7 +243,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	w.stable = snapshotFingerprints(w.enumerate())
 	w.pending = make(map[string]pendingChange)
-	w.logger.Info("hwmon watcher started", "devices", len(w.stable), "rescan_period", w.rescanPeriod, "debounce", w.debounce)
+	w.logger.Info("hwmon watcher started",
+		"devices", len(w.stable),
+		"rescan_period", w.rescanPeriod,
+		"debounce", w.debounce,
+		"rebind_min_interval", w.rebindMinInterval,
+		"rebind_trigger_installed", w.rebindTrigger != nil)
 
 	rescan := time.NewTicker(w.rescanPeriod)
 	defer rescan.Stop()
@@ -358,6 +411,26 @@ func (w *Watcher) promote(key string, prev DeviceFingerprint, cur *DeviceFingerp
 		},
 	})
 	w.emissions++
+
+	// Issue #95 — on `action=added`, invite the daemon to re-resolve hwmon
+	// paths and rebind controllers. Scoped to `added` only; `removed` is a
+	// separate tracker (fail-safe restore on a disappearing chip has its own
+	// design). The trigger is rate-limited so a flapping driver doesn't
+	// ping-pong controller teardowns.
+	if action == "added" && cur != nil && w.rebindTrigger != nil {
+		if now.Sub(w.lastRebindAt) >= w.rebindMinInterval {
+			w.lastRebindAt = now
+			w.rebindCalls++
+			w.rebindTrigger(key, *cur)
+		} else {
+			w.rebindDrops++
+			w.logger.Debug("hwmon rebind trigger suppressed by rate limit",
+				"device", key,
+				"chip_name", cur.ChipName,
+				"since_last", now.Sub(w.lastRebindAt).String(),
+				"min_interval", w.rebindMinInterval)
+		}
+	}
 }
 
 func hardwareSummary(action, key string, prev DeviceFingerprint, cur *DeviceFingerprint) string {
