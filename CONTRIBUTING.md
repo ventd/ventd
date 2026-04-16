@@ -50,6 +50,91 @@ sudo apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 \
 If you already have a Chromium installed and would rather rod use
 that, set `VENTD_E2E_CHROMIUM=/path/to/chrome`.
 
+## Non-Linux contributors
+
+`ventd` is a Linux daemon. It reads and writes `/sys/class/hwmon/` and
+ships as a systemd service, so parts of the test surface cannot execute
+on macOS or native Windows. This section is for contributors working
+from a non-Linux host.
+
+### What builds natively off Linux
+
+On macOS the full module compiles without extra flags:
+
+```
+go build ./...
+go vet ./...
+```
+
+Packages that do not open `/sys` at runtime also pass `go test` on
+macOS as of the current tree:
+
+```
+go test -count=1 ./internal/config/ ./internal/calibrate/... ./internal/curve/
+```
+
+If one of these later grows a real sysfs dependency the test will
+start failing with `/sys/...` errors — at that point run the test in
+a Linux guest rather than stubbing the kernel interface.
+
+Native Windows builds fail outright: `internal/config` uses
+`syscall.Stat_t` and `internal/nvidia` uses `purego.Dlopen`, neither
+of which compiles on Windows. Windows contributors go through WSL;
+see below.
+
+### What requires a Linux host
+
+The following cannot be exercised off Linux:
+
+- Anything under `internal/hwmon/` and the parts of `internal/calibrate`
+  and `internal/controller` that drive real fans.
+- `internal/sdnotify` against a live systemd — the package compiles
+  anywhere, but the heartbeat is a no-op without `NOTIFY_SOCKET` set.
+- The watchdog restore path — it writes to real `pwm_enable`.
+- The end-to-end suite (`-tags=e2e`) — headless Chromium loaded by
+  `rod`.
+
+### macOS workflow
+
+Use [UTM](https://mac.getutm.app/) or
+[Multipass](https://multipass.run/) for an Ubuntu 24.04 LTS guest.
+Inside the guest the flow is the same as the Linux setup above:
+
+```
+go build ./cmd/ventd/
+go test -race ./...
+```
+
+Edit on the host, sync into the guest for the test run. Container
+runtimes on macOS (Docker, Podman) route through a hidden Linux VM
+that does not expose a matching `/sys` tree, so container-based test
+runs will not match Linux CI.
+
+### Windows workflow
+
+WSL2 with an Ubuntu 24.04 distro is the supported Windows path.
+
+```
+wsl --install -d Ubuntu-24.04
+```
+
+Ubuntu 24.04's packaged `golang-go` lags the required Go minor
+version. Install Go 1.25 or later from the tarball at
+[go.dev/dl](https://go.dev/dl/) inside the WSL shell, clone the
+repo, and follow the Linux instructions in
+[Development setup](#development-setup).
+
+`go test -race` requires CGO, which the native Windows toolchain
+lacks out of the box. Running the race detector from WSL picks up
+the distro's `gcc` and works without extra setup.
+
+### CI as a fallback
+
+`.github/workflows/ci.yml` runs the full test matrix across Ubuntu,
+Fedora, Arch, and Alpine on every PR. If setting up a VM is a
+barrier for a first contribution, open a draft PR and let CI verify
+the Linux-gated behaviour.
+
 ## What blocks a merge
 
 - `go vet ./...` must pass.
