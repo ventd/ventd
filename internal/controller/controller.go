@@ -35,6 +35,21 @@ type Controller struct {
 	wd        *watchdog.Watchdog
 	cal       CalibrationChecker
 	logger    *slog.Logger
+	// onSensorRead is called after each completed tick that attempted a
+	// sensor read. Nil in tests; main.go wires it to web.ReadyState so the
+	// /readyz probe reflects whether the control loop is still ticking.
+	onSensorRead func()
+}
+
+// Option configures a Controller. Functional options keep New's positional
+// signature stable across tests while letting main.go plumb optional hooks.
+type Option func(*Controller)
+
+// WithSensorReadHook installs a callback fired at the end of each control
+// tick. Used by /readyz to observe "sensor read in the last N seconds"
+// without coupling the controller package to internal/web.
+func WithSensorReadHook(hook func()) Option {
+	return func(c *Controller) { c.onSensorRead = hook }
 }
 
 func New(
@@ -44,8 +59,9 @@ func New(
 	wd *watchdog.Watchdog,
 	cal CalibrationChecker,
 	logger *slog.Logger,
+	opts ...Option,
 ) *Controller {
-	return &Controller{
+	c := &Controller{
 		fanName:   fanName,
 		curveName: curveName,
 		pwmPath:   pwmPath,
@@ -55,6 +71,10 @@ func New(
 		cal:       cal,
 		logger:    logger.With("fan", fanName, "curve", curveName),
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // Run starts the control loop. It takes manual control of the PWM channel
@@ -118,6 +138,14 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 			return nil
 		case <-ticker.C:
 			c.tick()
+			// Signal liveness to anything observing the control loop
+			// (currently /readyz via web.ReadyState). Fires every tick
+			// interval regardless of whether the tick was a full sensor
+			// read, a manual-mode PWM write, or a calibration yield —
+			// all three prove the loop is still iterating.
+			if c.onSensorRead != nil {
+				c.onSensorRead()
+			}
 		}
 	}
 }

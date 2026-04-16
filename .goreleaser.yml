@@ -24,7 +24,7 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X main.buildDate={{.Date}}
 
   # musl-compatible build — fully static, NVIDIA support compiled out.
   # Required for Alpine, Void-musl, and other musl-libc distros where
@@ -47,7 +47,7 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X main.buildDate={{.Date}}
 
 archives:
   - id: default

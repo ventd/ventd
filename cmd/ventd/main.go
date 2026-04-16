@@ -27,6 +27,14 @@ import (
 	"github.com/ventd/ventd/internal/web"
 )
 
+// Build-time metadata populated by -ldflags -X from .goreleaser.yml.
+// Defaults keep `go build` and `go run` producing a sensible string.
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
+
 // errRestart is returned by run() when a self-exec restart is requested
 // (e.g. after the web setup wizard writes the initial config).
 var errRestart = errors.New("restart")
@@ -59,7 +67,16 @@ func run() error {
 	doListFans := flag.Bool("list-fans-probe", false, "validation helper: enumerate every hwmon device, classify, probe writability, and print PASS/FAIL")
 	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
 	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
+	showVersion := flag.Bool("version", false, "print version information and exit")
+	versionJSON := flag.Bool("json", false, "with --version: emit JSON instead of plain text")
 	flag.Parse()
+
+	// --version must short-circuit before any logging or subsystem init so it
+	// prints cleanly on stdout and never touches hwmon / NVML. Exits 0 by
+	// returning nil from run(); main() then returns without os.Exit.
+	if *showVersion {
+		return printVersion(os.Stdout, *versionJSON)
+	}
 
 	logger := buildLogger(*logLevel)
 
@@ -270,6 +287,12 @@ func runDaemon(
 		}
 	}()
 
+	// Readiness snapshot driven by this function and the controller tick.
+	// Populated before web.New so the first /healthz hit after startup
+	// already sees the correct state machine. Nil-safe in tests — the
+	// web server tolerates SetReadyState(nil) and returns 503 until wired.
+	readyState := web.NewReadyState()
+
 	// systemd Type=notify integration. Tells systemd we're up so the
 	// service transitions to "active" only after configs are loaded
 	// and controllers are running. Pairs with WatchdogSec= in the
@@ -279,6 +302,11 @@ func runDaemon(
 	stopHeartbeat := sdnotify.StartHeartbeat()
 	defer stopHeartbeat()
 	defer func() { _ = sdnotify.Notify(sdnotify.Stopping) }()
+	// Latch the /readyz watchdog gate once the heartbeat (or its no-op
+	// off-systemd equivalent) is armed. From here on, /readyz's second gate
+	// is the sensor-read freshness check, which is the only signal that can
+	// actually go stale at runtime.
+	readyState.SetWatchdogPinged()
 
 	// Calibration manager: persists results across restarts. The watchdog
 	// is shared with controllers — calibrate registers each fan at sweep
@@ -361,6 +389,8 @@ func runDaemon(
 	// requests before run() returns — otherwise the HTTP handler goroutines
 	// outlive wd.Restore() and can observe a half-torn-down daemon.
 	webSrv := web.New(ctx, &liveCfg, configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
+	webSrv.SetReadyState(readyState)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -386,6 +416,9 @@ func runDaemon(
 				ctrl.Fan, ctrl.Curve,
 				fanCfg.PWMPath, fanCfg.Type,
 				&liveCfg, wd, cal, logger,
+				controller.WithSensorReadHook(func() {
+					readyState.MarkSensorRead(time.Now())
+				}),
 			)
 			wg.Add(1)
 			go func(c *controller.Controller) {
@@ -401,6 +434,10 @@ func runDaemon(
 	// transitions from "activating" to "active" — and so dependent
 	// units (timers, sockets, downstream services) can start.
 	_ = sdnotify.Notify(sdnotify.Ready)
+	// Flip /healthz from 503 to 200 at the same point systemd sees us
+	// become active. Readiness (/readyz) still depends on the sensor-read
+	// freshness check so it can go stale at runtime independently.
+	readyState.SetHealthy()
 
 	for {
 		select {
