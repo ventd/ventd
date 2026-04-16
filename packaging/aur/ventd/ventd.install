@@ -1,0 +1,97 @@
+# shellcheck shell=sh
+#
+# pacman install hook for ventd / ventd-bin.
+#
+# Creates the unprivileged "ventd" system account, normalises
+# /etc/ventd ownership, reloads udev so the shipped 90-ventd-hwmon.rules
+# applies without a reboot, and runs `ventd --probe-modules` once to
+# persist the right Super-I/O driver for subsequent boots.
+#
+# Does NOT call `systemctl enable` or `systemctl start` — Arch
+# convention is that the user enables services themselves. The
+# post-install message prints the command to run.
+
+_ventd_account() {
+    if ! getent group ventd >/dev/null 2>&1; then
+        groupadd --system ventd
+    fi
+    if ! getent passwd ventd >/dev/null 2>&1; then
+        useradd --system --gid ventd --no-create-home \
+                --home-dir /nonexistent \
+                --shell /usr/bin/nologin \
+                --comment "ventd fan control daemon" ventd
+    fi
+}
+
+_ventd_post_common() {
+    _ventd_account
+
+    if [ -d /etc/ventd ]; then
+        chown -R ventd:ventd /etc/ventd
+        chmod 0750 /etc/ventd
+    fi
+
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload >/dev/null 2>&1 || true
+        udevadm trigger --subsystem-match=hwmon >/dev/null 2>&1 || true
+    fi
+
+    # Probe + persist hwmon kernel modules. Runs outside the daemon's
+    # sandbox (ProtectKernelModules=yes would otherwise block modprobe).
+    if [ -x /usr/bin/ventd ]; then
+        /usr/bin/ventd --probe-modules >/dev/null 2>&1 || true
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+}
+
+post_install() {
+    _ventd_post_common
+
+    cat <<'EOF'
+
+ventd is installed but not running yet. Enable and start it with:
+
+    sudo systemctl enable --now ventd.service
+
+Then open http://<your-ip>:9999 and complete the setup wizard. The
+one-time setup token is in /run/ventd/setup-token (root-only).
+
+EOF
+}
+
+post_upgrade() {
+    _ventd_post_common
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl try-restart ventd.service >/dev/null 2>&1 || true
+    fi
+}
+
+pre_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now ventd.service >/dev/null 2>&1 || true
+    fi
+}
+
+post_remove() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload >/dev/null 2>&1 || true
+    fi
+
+    cat <<'EOF'
+
+ventd has been removed. The ventd system user and /etc/ventd (config,
+calibration, TLS keys) are preserved. To remove them:
+
+    sudo rm -rf /etc/ventd
+    sudo userdel ventd
+    sudo groupdel ventd
+
+EOF
+}

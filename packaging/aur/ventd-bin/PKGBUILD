@@ -1,0 +1,68 @@
+# Maintainer: phoenixdnb <101230040+PhoenixDnB@users.noreply.github.com>
+
+pkgname=ventd-bin
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Automatic Linux fan control daemon — auto-detects hardware, auto-calibrates, auto-recovers"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ventd/ventd"
+license=('GPL-3.0-or-later')
+depends=('glibc')
+optdepends=(
+  'lm_sensors: improved hwmon chip detection'
+  'nvidia-utils: NVIDIA GPU fan and temperature readings'
+  'apparmor: enforce the shipped AppArmor profile'
+)
+provides=('ventd')
+conflicts=('ventd')
+install=ventd.install
+source_x86_64=("ventd-${pkgver}-x86_64.tar.gz::https://github.com/ventd/ventd/releases/download/v${pkgver}/ventd_${pkgver}_linux_amd64.tar.gz")
+source_aarch64=("ventd-${pkgver}-aarch64.tar.gz::https://github.com/ventd/ventd/releases/download/v${pkgver}/ventd_${pkgver}_linux_arm64.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+prepare() {
+  # The shipped systemd units hardcode /usr/local paths (used by the
+  # .deb/.rpm/tarball installs). Arch convention is /usr/bin and a
+  # package-private helper path, so rewrite the ExecStart* lines in
+  # place before install.
+  sed -i \
+    -e 's|/usr/local/bin/ventd|/usr/bin/ventd|g' \
+    -e 's|/usr/local/sbin/ventd-wait-hwmon|/usr/lib/ventd/ventd-wait-hwmon|g' \
+    deploy/ventd.service deploy/ventd-recover.service
+}
+
+package() {
+  # Binary.
+  install -Dm0755 ventd "${pkgdir}/usr/bin/ventd"
+
+  # ExecStartPre helper (cold-boot hwmon wait). Not in $PATH — internal
+  # to the package, referenced by the patched unit file above.
+  install -Dm0755 scripts/ventd-wait-hwmon "${pkgdir}/usr/lib/ventd/ventd-wait-hwmon"
+
+  # Account-creation helper — sourced by the .install hook so the
+  # package can ship a single copy of the logic instead of duplicating
+  # the shell in ventd.install.
+  install -Dm0644 scripts/_ventd_account.sh "${pkgdir}/usr/share/ventd/_ventd_account.sh"
+
+  # systemd units and udev rule go under /usr/lib per Arch convention.
+  install -Dm0644 deploy/ventd.service         "${pkgdir}/usr/lib/systemd/system/ventd.service"
+  install -Dm0644 deploy/ventd-recover.service "${pkgdir}/usr/lib/systemd/system/ventd-recover.service"
+  install -Dm0644 deploy/90-ventd-hwmon.rules  "${pkgdir}/usr/lib/udev/rules.d/90-ventd-hwmon.rules"
+
+  # AppArmor profile. Ships with its upstream filename (the attach-path
+  # inside still references /usr/local/bin/ventd; enforcement on Arch
+  # requires editing the profile's attach path — see packaging/aur/README.md).
+  install -Dm0644 deploy/apparmor.d/usr.local.bin.ventd \
+    "${pkgdir}/etc/apparmor.d/usr.local.bin.ventd"
+
+  # SELinux policy sources (users build with `make` in /usr/share/selinux/ventd).
+  install -Dm0644 deploy/selinux/ventd.te "${pkgdir}/usr/share/selinux/ventd/ventd.te"
+  install -Dm0644 deploy/selinux/ventd.fc "${pkgdir}/usr/share/selinux/ventd/ventd.fc"
+  install -Dm0644 deploy/selinux/Makefile "${pkgdir}/usr/share/selinux/ventd/Makefile"
+
+  # Docs + example config + license.
+  install -Dm0644 config.example.yaml "${pkgdir}/usr/share/doc/${pkgname}/config.example.yaml"
+  install -Dm0644 README.md           "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm0644 LICENSE             "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
