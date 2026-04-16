@@ -22,10 +22,15 @@ type Reading struct {
 	Label      string  `json:"label"`
 	Value      float64 `json:"value"`
 	Unit       string  `json:"unit"`
-	SensorType string  `json:"sensor_type"`           // "hwmon" or "nvidia"
-	SensorPath string  `json:"sensor_path"`           // full sysfs path or GPU index
-	Metric     string  `json:"metric,omitempty"`      // nvidia metric name (empty = default "temp")
+	SensorType string  `json:"sensor_type"`      // "hwmon" or "nvidia"
+	SensorPath string  `json:"sensor_path"`      // full sysfs path or GPU index
+	Metric     string  `json:"metric,omitempty"` // nvidia metric name (empty = default "temp")
 }
+
+// scanRoot is the hwmon class directory scanHwmon reads from. Overridable
+// from tests via a fake sysfs tree in t.TempDir(); the production default
+// is the real kernel sysfs mount.
+var scanRoot = "/sys/class/hwmon"
 
 func Scan() []Device {
 	var devices []Device
@@ -35,13 +40,13 @@ func Scan() []Device {
 }
 
 func scanHwmon() []Device {
-	entries, err := os.ReadDir("/sys/class/hwmon")
+	entries, err := os.ReadDir(scanRoot)
 	if err != nil {
 		return nil
 	}
 	var devices []Device
 	for _, e := range entries {
-		dir := filepath.Join("/sys/class/hwmon", e.Name())
+		dir := filepath.Join(scanRoot, e.Name())
 		chip := readStr(filepath.Join(dir, "name"))
 		if chip == "" {
 			chip = e.Name()
