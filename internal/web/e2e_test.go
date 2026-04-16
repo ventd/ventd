@@ -2710,3 +2710,111 @@ func rodSerializeArgs(args []*proto.RuntimeRemoteObject) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// TestE2E_Scheduler_AppliesWinningProfileAndTracksOverride is the
+// Session D 3e sign-off: configure a profile whose schedule matches
+// the current wall-clock time, crank the scheduler's tick interval
+// down so the apply happens in well under a second, then verify via
+// /api/schedule/status that
+//   - the scheduler has applied the scheduled profile, source=schedule
+//   - a manual switch via /api/profile/active flips source=manual
+//
+// This exercises the full loop: config load → parsedSchedules →
+// computeWinner → applyProfile → status endpoint, end-to-end in a
+// live browser session.
+func TestE2E_Scheduler_AppliesWinningProfileAndTracksOverride(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Short tick so the scheduler claims ownership within the test's
+	// patience window. 50ms is already three orders of magnitude
+	// faster than the 60s production cadence.
+	h.srv.SetSchedulerInterval(50 * time.Millisecond)
+
+	// Seed two profiles: "always-on" has a 24h/7d schedule, so it is
+	// the winner at every instant. "manual-only" has no schedule and
+	// exists so we can manually pick it and watch the source flip.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Profiles = map[string]config.Profile{
+		"always-on":   {Bindings: map[string]string{}, Schedule: "00:00-23:59 *"},
+		"manual-only": {Bindings: map[string]string{}},
+	}
+	seeded.ActiveProfile = "manual-only"
+	seeded.Controls = []config.Control{{Fan: "test-fan", Curve: ""}}
+	h.cfgPtr.Store(&seeded)
+
+	// The scheduler goroutine started during New() ticks every
+	// schedInterval; it picks up the seeded profiles on the next tick
+	// (the config pointer is atomic, so visibility is immediate). The
+	// test is a poll against its observable side effect.
+	waitUntil(t, 3*time.Second, func() bool {
+		return h.cfgPtr.Load().ActiveProfile == "always-on"
+	}, "scheduler applied always-on profile")
+
+	// Drive /api/schedule/status through a real browser + session
+	// cookie so the auth middleware and security headers are part of
+	// the e2e coverage.
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const body = new URLSearchParams();
+		body.append('password', pw);
+		const r = await fetch('/login', { method: 'POST', body });
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login fetch: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login POST status=%d want 200", st)
+	}
+
+	statusJSON := func() string {
+		r, err := page.Eval(`async () => {
+			const r = await fetch('/api/schedule/status');
+			return JSON.stringify(await r.json());
+		}`)
+		if err != nil || r == nil {
+			return ""
+		}
+		return r.Value.Str()
+	}
+
+	waitUntil(t, 3*time.Second, func() bool {
+		s := statusJSON()
+		return strings.Contains(s, `"active_profile":"always-on"`) &&
+			strings.Contains(s, `"source":"schedule"`)
+	}, `/api/schedule/status reports active=always-on source=schedule`)
+
+	// Manually override to manual-only via POST /api/profile/active.
+	r, err := page.Eval(`async () => {
+		const r = await fetch('/api/profile/active', {method:'POST',
+			headers:{'Content-Type':'application/json'},
+			body: JSON.stringify({name:'manual-only'})});
+		return r.status;
+	}`)
+	if err != nil {
+		t.Fatalf("profile/active fetch: %v", err)
+	}
+	if st := r.Value.Int(); st != 200 {
+		t.Fatalf("profile/active status=%d want 200", st)
+	}
+
+	// The scheduler will see manualOverride=true on its next tick and
+	// refuse to switch back; the source field flips immediately
+	// because the handler updates state before responding.
+	waitUntil(t, 3*time.Second, func() bool {
+		s := statusJSON()
+		return strings.Contains(s, `"active_profile":"manual-only"`) &&
+			strings.Contains(s, `"source":"manual"`)
+	}, `/api/schedule/status reports active=manual-only source=manual after override`)
+
+	// And the manual choice sticks across ticks — give the scheduler
+	// a few cycles at 50ms and verify no regression.
+	time.Sleep(300 * time.Millisecond)
+	if got := h.cfgPtr.Load().ActiveProfile; got != "manual-only" {
+		t.Errorf("override leaked: active = %q want manual-only (scheduler should defer)", got)
+	}
+}

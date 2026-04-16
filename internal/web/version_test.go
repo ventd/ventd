@@ -119,7 +119,7 @@ func TestReadyzStateTransitions(t *testing.T) {
 			name: "watchdog never pinged",
 			configure: func(s *Server) {
 				s.SetReadyState(NewReadyState())
-				s.nowFn = func() time.Time { return fixedNow }
+				s.SetNowFn(func() time.Time { return fixedNow })
 			},
 			wantCode: http.StatusServiceUnavailable,
 			wantBody: "not ready: watchdog has not pinged\n",
@@ -130,7 +130,7 @@ func TestReadyzStateTransitions(t *testing.T) {
 				rs := NewReadyState()
 				rs.SetWatchdogPinged()
 				s.SetReadyState(rs)
-				s.nowFn = func() time.Time { return fixedNow }
+				s.SetNowFn(func() time.Time { return fixedNow })
 			},
 			wantCode: http.StatusServiceUnavailable,
 			wantBody: "not ready: no sensor read recorded\n",
@@ -142,7 +142,7 @@ func TestReadyzStateTransitions(t *testing.T) {
 				rs.SetWatchdogPinged()
 				rs.MarkSensorRead(fixedNow.Add(-10 * time.Second))
 				s.SetReadyState(rs)
-				s.nowFn = func() time.Time { return fixedNow }
+				s.SetNowFn(func() time.Time { return fixedNow })
 			},
 			wantCode: http.StatusServiceUnavailable,
 			wantBody: "not ready: last sensor read too old\n",
@@ -154,7 +154,7 @@ func TestReadyzStateTransitions(t *testing.T) {
 				rs.SetWatchdogPinged()
 				rs.MarkSensorRead(fixedNow.Add(-2 * time.Second))
 				s.SetReadyState(rs)
-				s.nowFn = func() time.Time { return fixedNow }
+				s.SetNowFn(func() time.Time { return fixedNow })
 			},
 			wantCode: http.StatusOK,
 			wantBody: "ok\n",
@@ -166,7 +166,7 @@ func TestReadyzStateTransitions(t *testing.T) {
 				rs.SetWatchdogPinged()
 				rs.MarkSensorRead(fixedNow.Add(-5 * time.Second))
 				s.SetReadyState(rs)
-				s.nowFn = func() time.Time { return fixedNow }
+				s.SetNowFn(func() time.Time { return fixedNow })
 			},
 			wantCode: http.StatusOK,
 			wantBody: "ok\n",

@@ -118,6 +118,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   round-trip without emitting `profiles:` / `active_profile:`
   keys. Header profile dropdown renders only when profiles are
   configured. (#212)
+- Profile scheduling: `config.Profile.Schedule` takes a grammar of
+  `HH:MM-HH:MM DAYSPEC` (where DAYSPEC is `*`, `mon-fri`,
+  `mon,wed,fri`, or a single day) and the daemon's scheduler
+  goroutine switches the active profile on transitions in local
+  time. Midnight-wrapping ranges (`22:00-07:00`) attribute the
+  whole window to the starting day. Overlap tiebreak: fewer days
+  beats more, shorter duration beats longer, lexical profile name
+  as final tiebreak — documented so overlaps are predictable.
+  When no schedule matches, the alphabetically-first profile with
+  no schedule is the default fallback. Manual
+  `POST /api/profile/active` flips into a manual-override state
+  that sticks until the next schedule transition (to or from the
+  fallback) clears it. `GET /api/schedule/status` reports
+  `active_profile`, `source` (schedule/manual), and the next
+  upcoming transition. `PUT /api/profile/schedule` saves a
+  schedule edit to disk. Panic suppresses scheduled switches.
+  Refs #180.
 
 ### Added — hwmon topology resilience (v0.3 stream)
 

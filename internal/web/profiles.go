@@ -80,28 +80,16 @@ func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	live := s.cfg.Load()
-	profile, ok := live.Profiles[req.Name]
-	if !ok {
-		http.Error(w, "unknown profile: "+req.Name, http.StatusBadRequest)
+	next, err := s.applyProfile(req.Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// Copy the live config so we don't mutate the snapshot other
-	// goroutines may be reading. Shallow copy is safe for every field
-	// except the slices we're about to rewrite; we deep-copy Controls
-	// so the atomic swap hands out the new binding set without anyone
-	// observing a half-updated Control{}.
-	next := *live
-	next.ActiveProfile = req.Name
-	next.Controls = make([]config.Control, len(live.Controls))
-	copy(next.Controls, live.Controls)
-	for i := range next.Controls {
-		if curve, hit := profile.Bindings[next.Controls[i].Fan]; hit {
-			next.Controls[i].Curve = curve
-		}
-	}
-	s.cfg.Store(&next)
+	// Mark the switch as a manual override so the scheduler goroutine
+	// leaves it alone until the next scheduled transition clears the
+	// flag. Without this a schedule active "right now" would immediately
+	// undo the operator's pick on the next tick.
+	s.schedState.markManualOverride()
 
 	s.writeJSON(r, w, profileResponse{
 		Active:   next.ActiveProfile,
