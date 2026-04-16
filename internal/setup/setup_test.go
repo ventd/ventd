@@ -52,18 +52,12 @@ func TestDetect_EmptyHwmonReturnsFriendlyError(t *testing.T) {
 func TestDetect_PopulatedHwmonReturnsFriendlyNames(t *testing.T) {
 	// Invariant: usability.md — user-facing fan names must be friendly
 	// ("CPU Fan", "System Fan 1"), never raw sysfs paths or PWM numbers.
-	//
-	// This test requires exercising discoverHwmonControls + hwmonFanName
-	// against a fake hwmon tree. discoverHwmonControls hard-codes
-	// hwmonpkg.DefaultHwmonRoot ("/sys/class/hwmon") and run() calls it
-	// without a root override. Testing the full flow requires extracting
-	// the hwmon root into a Manager field — a setup.go change.
-	//
-	// hwmonFanName itself is unit-tested in fixtures_test.go with fake
-	// layouts (TestHwmonFanName_WithLabel, _FallbackToChipPrefix, etc.)
-	// and already asserts friendly-name output. This test documents the
-	// gap at the orchestration level.
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable fan discovery")
+	// Covered end-to-end in TestDiscoverHwmonControls_FriendlyNames
+	// (manager_roots_test.go), which runs discoverHwmonControls against a
+	// fixture hwmonRoot and asserts every discovered path translates to a
+	// leak-free friendly name. This entry stays as a living pointer so the
+	// usability invariant keeps its orchestration-level anchor.
+	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
 }
 
 // ---------- calibrate/* ----------
@@ -418,22 +412,27 @@ func TestValidateGeneratedConfig_RejectsDanglingCurveReference(t *testing.T) {
 // ---------- discoverCPUTempSensor / discoverAMDGPUTemp ----------
 
 func TestDiscoverCPUTempSensor_NotTestableWithoutRootOverride(t *testing.T) {
-	// discoverCPUTempSensor hard-codes /sys/class/hwmon. Testing its
-	// 3-pass logic (known chips → label fallback → acpitz) requires
-	// extracting the root path into a parameter or Manager field.
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable sensor discovery")
+	// Covered by TestDiscoverCPUTempSensor_Fixtures in
+	// manager_roots_test.go, which pins all three passes of the discovery
+	// logic (known CPU chips, labeled fallback, acpitz last resort)
+	// against fixture trees under t.TempDir().
+	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
 }
 
 func TestDiscoverAMDGPUTemp_NotTestableWithoutRootOverride(t *testing.T) {
-	t.Skip("tracked by #131: extract hwmon root into Manager for testable sensor discovery")
+	// Covered by TestDiscoverAMDGPUTemp_Fixtures in manager_roots_test.go,
+	// which pins the junction-over-edge preference and the empty-label
+	// fallback.
+	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
 }
 
 // ---------- gatherProfile ----------
 
 func TestGatherProfile_NotTestableWithoutDependencyInjection(t *testing.T) {
-	// gatherProfile calls readCPUModel (/proc/cpuinfo), readRAPLTDPW
-	// (/sys/class/powercap), nvidia.* functions, and readHwmonCritC.
-	// The last is already unit-tested; the others hard-code procfs/sysfs
-	// paths.
-	t.Skip("tracked by #131: extract procfs/sysfs roots for testable hardware profile gathering")
+	// Covered by TestGatherProfile_Fixtures (Intel + CPU crit) and
+	// TestGatherProfile_AMDGPUBranch (AMD GPU fallback) in
+	// manager_roots_test.go. Individual readers are also pinned in
+	// TestReadCPUModel_Fixtures, TestReadCPUVendor_Fixtures, and
+	// TestReadRAPLTDPW_Fixtures.
+	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
 }
