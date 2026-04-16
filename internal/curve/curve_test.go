@@ -28,7 +28,7 @@ func TestLinearEvaluate(t *testing.T) {
 		{"at max returns MaxPWM", map[string]float64{"cpu": 80}, 200},
 		{"above max clamps to MaxPWM", map[string]float64{"cpu": 100}, 200},
 		{"midpoint interpolates", map[string]float64{"cpu": 60}, 125},
-		{"quarter interpolates rounded", map[string]float64{"cpu": 50}, 88},  // 50 + 0.25*150 = 87.5 → 88
+		{"quarter interpolates rounded", map[string]float64{"cpu": 50}, 88},         // 50 + 0.25*150 = 87.5 → 88
 		{"three-quarters interpolates rounded", map[string]float64{"cpu": 70}, 163}, // 50 + 0.75*150 = 162.5 → 163 (round half away from zero)
 		{"missing sensor returns MaxPWM", map[string]float64{"gpu": 75}, 200},
 		{"empty sensors returns MaxPWM", map[string]float64{}, 200},
@@ -84,8 +84,8 @@ func TestParseMixFunc(t *testing.T) {
 		{"max", MixMax, false},
 		{"min", MixMin, false},
 		{"average", MixAverage, false},
-		{"MAX", 0, true},        // case-sensitive
-		{"mean", 0, true},       // not an alias
+		{"MAX", 0, true},  // case-sensitive
+		{"mean", 0, true}, // not an alias
 		{"", 0, true},
 		{"something else", 0, true},
 	}
@@ -109,17 +109,17 @@ func TestMixEvaluate(t *testing.T) {
 	hi := &Fixed{Value: 200}
 
 	cases := []struct {
-		name     string
-		fn       MixFunc
-		sources  []Curve
-		want     uint8
+		name    string
+		fn      MixFunc
+		sources []Curve
+		want    uint8
 	}{
 		{"max of three", MixMax, []Curve{lo, mid, hi}, 200},
 		{"max single source", MixMax, []Curve{mid}, 120},
 		{"min of three", MixMin, []Curve{lo, mid, hi}, 40},
 		{"min finds later-smaller value", MixMin, []Curve{hi, mid, lo}, 40},
 		{"min single source", MixMin, []Curve{hi}, 200},
-		{"average of three", MixAverage, []Curve{lo, mid, hi}, 120},         // (40+120+200)/3
+		{"average of three", MixAverage, []Curve{lo, mid, hi}, 120},                          // (40+120+200)/3
 		{"average rounds up", MixAverage, []Curve{&Fixed{Value: 10}, &Fixed{Value: 11}}, 11}, // (10+11)/2 = 10.5 → 11
 		{"average rounds down", MixAverage, []Curve{&Fixed{Value: 10}, &Fixed{Value: 12}}, 11},
 		{"unknown func falls back to first source", MixFunc(999), []Curve{hi, lo}, 200},

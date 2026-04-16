@@ -28,15 +28,15 @@ func Init(logger *slog.Logger) error {
 	return ErrLibraryUnavailable
 }
 
-func Shutdown()                                                       {}
-func Available() bool                                                 { return false }
-func CountGPUs() int                                                  { return 0 }
-func HasFans(index uint) bool                                         { return false }
-func GPUName(index uint) string                                       { return "" }
-func SlowdownThreshold(index uint) float64                            { return 0 }
-func PowerLimitW(index uint) int                                      { return 0 }
-func ReadTemp(index uint) (float64, error)                            { return 0, ErrNotAvailable }
-func ReadMetric(index uint, metric string) (float64, error)           { return 0, ErrNotAvailable }
-func ReadFanSpeed(index uint) (uint8, error)                          { return 0, ErrNotAvailable }
-func WriteFanSpeed(index uint, pwm uint8) error                       { return ErrNotAvailable }
-func ResetFanSpeed(index uint) error                                  { return ErrNotAvailable }
+func Shutdown()                                             {}
+func Available() bool                                       { return false }
+func CountGPUs() int                                        { return 0 }
+func HasFans(index uint) bool                               { return false }
+func GPUName(index uint) string                             { return "" }
+func SlowdownThreshold(index uint) float64                  { return 0 }
+func PowerLimitW(index uint) int                            { return 0 }
+func ReadTemp(index uint) (float64, error)                  { return 0, ErrNotAvailable }
+func ReadMetric(index uint, metric string) (float64, error) { return 0, ErrNotAvailable }
+func ReadFanSpeed(index uint) (uint8, error)                { return 0, ErrNotAvailable }
+func WriteFanSpeed(index uint, pwm uint8) error             { return ErrNotAvailable }
+func ResetFanSpeed(index uint) error                        { return ErrNotAvailable }

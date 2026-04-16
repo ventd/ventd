@@ -15,9 +15,9 @@ type flakyHandler struct {
 	panicOn int32
 }
 
-func (h *flakyHandler) Enabled(context.Context, slog.Level) bool  { return true }
-func (h *flakyHandler) WithAttrs([]slog.Attr) slog.Handler        { return h }
-func (h *flakyHandler) WithGroup(string) slog.Handler             { return h }
+func (h *flakyHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *flakyHandler) WithAttrs([]slog.Attr) slog.Handler       { return h }
+func (h *flakyHandler) WithGroup(string) slog.Handler            { return h }
 func (h *flakyHandler) Handle(context.Context, slog.Record) error {
 	n := h.calls.Add(1)
 	if n == h.panicOn {

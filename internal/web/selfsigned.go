@@ -54,15 +54,15 @@ func EnsureSelfSignedCert(certPath, keyPath string, logger *slog.Logger) (finger
 
 	now := time.Now()
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: "ventd"},
-		NotBefore:    now.Add(-time.Minute),
-		NotAfter:     now.AddDate(10, 0, 0),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: "ventd"},
+		NotBefore:             now.Add(-time.Minute),
+		NotAfter:              now.AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:    dnsSANs(),
-		IPAddresses: ipSANs(),
+		DNSNames:              dnsSANs(),
+		IPAddresses:           ipSANs(),
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	if err != nil {

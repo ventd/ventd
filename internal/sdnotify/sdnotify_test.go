@@ -122,10 +122,10 @@ func TestWatchdogInterval_HalvesUSecValue(t *testing.T) {
 		env  string
 		want time.Duration
 	}{
-		{"2000000", time.Second},                 // 2s → 1s
-		{"500000", 250 * time.Millisecond},       // 500ms → 250ms
-		{"60000000", 30 * time.Second},           // 60s → 30s
-		{"1", 0},                                 // 1us / 2 = 0us → 0 duration
+		{"2000000", time.Second},           // 2s → 1s
+		{"500000", 250 * time.Millisecond}, // 500ms → 250ms
+		{"60000000", 30 * time.Second},     // 60s → 30s
+		{"1", 0},                           // 1us / 2 = 0us → 0 duration
 	}
 	for _, tc := range cases {
 		t.Run(tc.env, func(t *testing.T) {

@@ -30,34 +30,34 @@ import (
 // FanState describes a single fan during/after the setup process.
 type FanState struct {
 	Name        string `json:"name"`
-	Type        string `json:"type"`                     // "hwmon" or "nvidia"
+	Type        string `json:"type"` // "hwmon" or "nvidia"
 	PWMPath     string `json:"pwm_path"`
 	RPMPath     string `json:"rpm_path,omitempty"`
-	ControlKind string `json:"control_kind,omitempty"`   // "rpm_target" for fan*_target channels
-	DetectPhase string `json:"detect_phase"`             // "pending","detecting","found","none","n/a"
-	CalPhase    string `json:"cal_phase"`                // "pending","calibrating","done","skipped","error"
+	ControlKind string `json:"control_kind,omitempty"` // "rpm_target" for fan*_target channels
+	DetectPhase string `json:"detect_phase"`           // "pending","detecting","found","none","n/a"
+	CalPhase    string `json:"cal_phase"`              // "pending","calibrating","done","skipped","error"
 	StartPWM    uint8  `json:"start_pwm,omitempty"`
 	StopPWM     uint8  `json:"stop_pwm,omitempty"`
 	MaxRPM      int    `json:"max_rpm,omitempty"`
 	IsPump      bool   `json:"is_pump,omitempty"`
-	CalProgress int    `json:"cal_progress"`             // 0–100, live during calibrate phase
+	CalProgress int    `json:"cal_progress"` // 0–100, live during calibrate phase
 	Error       string `json:"error,omitempty"`
 }
 
 // Progress is the JSON payload returned by GET /api/setup/status.
 type Progress struct {
-	Needed        bool           `json:"needed"`                    // true until applied
-	Running       bool           `json:"running"`                   // goroutine active
-	Done          bool           `json:"done"`                      // goroutine finished
-	Applied       bool           `json:"applied"`                   // config written to disk
-	Error         string         `json:"error,omitempty"`           // plain-English fatal error
-	RebootNeeded  bool           `json:"reboot_needed,omitempty"`   // boot config was patched; user must reboot
-	RebootMessage string         `json:"reboot_message,omitempty"`  // explanation shown in the reboot panel
-	Phase         string         `json:"phase,omitempty"`           // detecting | installing_driver | scanning_fans | detecting_rpm | calibrating
-	PhaseMsg      string         `json:"phase_msg,omitempty"`       // human-readable description of current phase
-	Board         string         `json:"board,omitempty"`           // "Gigabyte B550M AORUS PRO"
-	ChipName      string         `json:"chip_name,omitempty"`       // "IT8688E" — set when installing driver
-	InstallLog    []string       `json:"install_log,omitempty"`     // streamed during installing_driver phase
+	Needed        bool           `json:"needed"`                   // true until applied
+	Running       bool           `json:"running"`                  // goroutine active
+	Done          bool           `json:"done"`                     // goroutine finished
+	Applied       bool           `json:"applied"`                  // config written to disk
+	Error         string         `json:"error,omitempty"`          // plain-English fatal error
+	RebootNeeded  bool           `json:"reboot_needed,omitempty"`  // boot config was patched; user must reboot
+	RebootMessage string         `json:"reboot_message,omitempty"` // explanation shown in the reboot panel
+	Phase         string         `json:"phase,omitempty"`          // detecting | installing_driver | scanning_fans | detecting_rpm | calibrating
+	PhaseMsg      string         `json:"phase_msg,omitempty"`      // human-readable description of current phase
+	Board         string         `json:"board,omitempty"`          // "Gigabyte B550M AORUS PRO"
+	ChipName      string         `json:"chip_name,omitempty"`      // "IT8688E" — set when installing driver
+	InstallLog    []string       `json:"install_log,omitempty"`    // streamed during installing_driver phase
 	Fans          []FanState     `json:"fans"`
 	Config        *config.Config `json:"config,omitempty"`
 	Profile       *HWProfile     `json:"profile,omitempty"`
@@ -86,25 +86,25 @@ type HWProfile struct {
 
 // Manager owns all setup wizard state.
 type Manager struct {
-	mu             sync.Mutex
-	fans           []FanState
-	running        bool
-	done           bool
-	applied        bool
-	errMsg         string
-	rebootNeeded   bool
-	rebootMessage  string
-	phase          string
-	phaseMsg       string
-	board          string
-	chipName       string
-	installLog     []string
-	result         *config.Config
-	profile *HWProfile
-	cal       *calibrate.Manager
-	logger    *slog.Logger
-	cancel    context.CancelFunc // fired by Abort; nil until Start wires it
-	diagStore *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
+	mu            sync.Mutex
+	fans          []FanState
+	running       bool
+	done          bool
+	applied       bool
+	errMsg        string
+	rebootNeeded  bool
+	rebootMessage string
+	phase         string
+	phaseMsg      string
+	board         string
+	chipName      string
+	installLog    []string
+	result        *config.Config
+	profile       *HWProfile
+	cal           *calibrate.Manager
+	logger        *slog.Logger
+	cancel        context.CancelFunc // fired by Abort; nil until Start wires it
+	diagStore     *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
 }
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. When set, the
@@ -452,7 +452,10 @@ func (m *Manager) run(ctx context.Context) {
 			// Freeze all fans on this chip at their current PWM before detecting.
 			// This prevents other BIOS-controlled fans from fluctuating and causing
 			// false correlations when we ramp the target channel.
-			type savedFan struct{ path string; pwm uint8 }
+			type savedFan struct {
+				path string
+				pwm  uint8
+			}
 			var frozen []savedFan
 			for _, i := range idxs {
 				if orig, err := hwmonpkg.ReadPWM(fans[i].PWMPath); err == nil {

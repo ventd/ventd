@@ -288,7 +288,7 @@ func TestBuildConfig_NeverProducesMinPWMZero(t *testing.T) {
 			name: "zero_start_and_stop",
 			fans: []fanDiscovery{{
 				name: "f1", fanType: "hwmon", chipName: "nct6687",
-				pwmPath: "/sys/class/hwmon/hwmon3/pwm1",
+				pwmPath:  "/sys/class/hwmon/hwmon3/pwm1",
 				startPWM: 0, stopPWM: 0,
 			}},
 		},
@@ -296,7 +296,7 @@ func TestBuildConfig_NeverProducesMinPWMZero(t *testing.T) {
 			name: "pump_with_low_calibration",
 			fans: []fanDiscovery{{
 				name: "Pump", fanType: "hwmon", chipName: "nct6687",
-				pwmPath: "/sys/class/hwmon/hwmon3/pwm4",
+				pwmPath:  "/sys/class/hwmon/hwmon3/pwm4",
 				startPWM: 5, stopPWM: 3, isPump: true,
 			}},
 		},
@@ -405,7 +405,7 @@ func TestValidateGeneratedConfig_RejectsDanglingCurveReference(t *testing.T) {
 		Fans: []config.Fan{{
 			Name: "cpu_fan", Type: "hwmon",
 			PWMPath: "/sys/class/hwmon/hwmon3/pwm1",
-			MinPWM: 40, MaxPWM: 255,
+			MinPWM:  40, MaxPWM: 255,
 		}},
 		Controls: []config.Control{{Fan: "cpu_fan", Curve: "nonexistent_curve"}},
 	}

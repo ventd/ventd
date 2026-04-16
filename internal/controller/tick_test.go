@@ -230,7 +230,7 @@ func TestTick_ManualOverrideClampedToFanLimits(t *testing.T) {
 			Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
 			MinPWM: 40, MaxPWM: 200,
 		}},
-		Curves: []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 100}},
+		Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 100}},
 		Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve", ManualPWM: &manual}},
 	}
 	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")

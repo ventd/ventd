@@ -1,8 +1,8 @@
 package setup
 
 import (
-	"log/slog"
 	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/ventd/ventd/internal/hwdiag"

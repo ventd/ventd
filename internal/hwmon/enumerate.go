@@ -52,8 +52,8 @@ const (
 // (pre-RDNA AMD GPUs). Kept separate from PWM channels because the write
 // semantics differ (RPM integer, not 0–255 duty cycle).
 type RPMTarget struct {
-	Path     string // full path to fanN_target
-	Index    string // channel number as a string ("1", "2", …)
+	Path      string // full path to fanN_target
+	Index     string // channel number as a string ("1", "2", …)
 	InputPath string // companion fanN_input
 }
 
@@ -61,10 +61,10 @@ type RPMTarget struct {
 // reflects file presence only; the file may still reject writes (some drivers
 // lock pwm_enable to automatic mode).
 type PWMChannel struct {
-	Path        string // full path to pwmN
-	EnablePath  string // full path to pwmN_enable (empty string if missing)
-	Index       string // channel number as a string ("1", "2", …)
-	FanInput    string // companion fanN_input (empty if no RPM readback)
+	Path       string // full path to pwmN
+	EnablePath string // full path to pwmN_enable (empty string if missing)
+	Index      string // channel number as a string ("1", "2", …)
+	FanInput   string // companion fanN_input (empty if no RPM readback)
 }
 
 // HwmonDevice is one /sys/class/hwmon/hwmonN entry with its classified

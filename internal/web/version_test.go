@@ -43,10 +43,10 @@ func newVersionTestServer(t *testing.T) *Server {
 // without calling SetReadyState must still get a sensible probe response.
 func TestHealthzStateTransitions(t *testing.T) {
 	cases := []struct {
-		name       string
-		install    func(*Server)
-		wantCode   int
-		wantBody   string
+		name     string
+		install  func(*Server)
+		wantCode int
+		wantBody string
 	}{
 		{
 			name:     "nil ready state returns 503",

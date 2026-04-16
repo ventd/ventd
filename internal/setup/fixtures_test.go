@@ -31,11 +31,11 @@ func fakeHwmon(t *testing.T, dir string, layout map[string]string) {
 func TestHwmonFanName_WithLabel(t *testing.T) {
 	dir := t.TempDir()
 	fakeHwmon(t, dir, map[string]string{
-		"hwmon3/name":        "nct6687\n",
-		"hwmon3/pwm1":        "128\n",
-		"hwmon3/fan1_label":  "CPU FAN\n",
-		"hwmon3/pwm2":        "100\n",
-		"hwmon3/fan2_label":  "sys fan1\n",
+		"hwmon3/name":       "nct6687\n",
+		"hwmon3/pwm1":       "128\n",
+		"hwmon3/fan1_label": "CPU FAN\n",
+		"hwmon3/pwm2":       "100\n",
+		"hwmon3/fan2_label": "sys fan1\n",
 	})
 
 	if got, want := hwmonFanName(filepath.Join(dir, "hwmon3", "pwm1")), "Cpu Fan"; got != want {
@@ -66,9 +66,9 @@ func TestHwmonFanName_FallbackToChipPrefix(t *testing.T) {
 func TestHwmonFanName_RPMTargetChannel(t *testing.T) {
 	dir := t.TempDir()
 	fakeHwmon(t, dir, map[string]string{
-		"hwmon9/name":         "amdgpu\n",
-		"hwmon9/fan1_target":  "1500\n",
-		"hwmon9/fan1_label":   "gpu fan\n",
+		"hwmon9/name":        "amdgpu\n",
+		"hwmon9/fan1_target": "1500\n",
+		"hwmon9/fan1_label":  "gpu fan\n",
 	})
 
 	if got, want := hwmonFanName(filepath.Join(dir, "hwmon9", "fan1_target")), "Gpu Fan"; got != want {

@@ -100,9 +100,9 @@ func TestRecoverAllPWM_SkipsNonNumericPwmFiles(t *testing.T) {
 	// pwm<digits>_enable counts as a real channel.
 	root := t.TempDir()
 	makeRecoverFixture(t, root, map[string]string{
-		"hwmon3/pwm1_enable":            "5",
-		"hwmon3/pwm_extra_freq_enable":  "5", // not pwm<digits>_enable
-		"hwmon3/pwmfan_enable":          "5", // not pwm<digits>_enable
+		"hwmon3/pwm1_enable":           "5",
+		"hwmon3/pwm_extra_freq_enable": "5", // not pwm<digits>_enable
+		"hwmon3/pwmfan_enable":         "5", // not pwm<digits>_enable
 	})
 
 	h := &recCapture{}

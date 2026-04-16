@@ -208,7 +208,7 @@ type Sensor struct {
 	Name        string `yaml:"name" json:"name"`
 	Type        string `yaml:"type" json:"type"`
 	Path        string `yaml:"path" json:"path"`
-	Metric      string `yaml:"metric,omitempty" json:"metric,omitempty"` // nvidia: temp(default), util, mem_util, power, clock_gpu, clock_mem, fan_pct
+	Metric      string `yaml:"metric,omitempty" json:"metric,omitempty"`             // nvidia: temp(default), util, mem_util, power, clock_gpu, clock_mem, fan_pct
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
 	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor Path across renumbering
 }
@@ -217,7 +217,7 @@ type Fan struct {
 	Name        string `yaml:"name" json:"name"`
 	Type        string `yaml:"type" json:"type"`
 	PWMPath     string `yaml:"pwm_path" json:"pwm_path"`
-	RPMPath     string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"` // override auto-derived fan*_input path
+	RPMPath     string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"`         // override auto-derived fan*_input path
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
 	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor PWMPath/RPMPath across renumbering
 	// ControlKind distinguishes how the PWMPath is written. Empty or "pwm"

@@ -651,10 +651,10 @@ func TestE2E_Responsive_CardGridReflow(t *testing.T) {
 	}
 
 	cases := []struct {
-		label                    string
-		w, h                     int
-		wantCols                 int // exact; -1 means "≥2"
-		wantCardPadding          string
+		label           string
+		w, h            int
+		wantCols        int // exact; -1 means "≥2"
+		wantCardPadding string
 	}{
 		{"375-mobile", 375, 812, 1, "12px 14px"},
 		{"768-tablet", 768, 1024, 2, "14px 16px"},
@@ -1396,9 +1396,9 @@ func TestE2E_DashboardGrouping(t *testing.T) {
 		//   b. name keywords for each category
 		//   c. a fall-through entry that lands in 'other'
 		cases := []struct {
-			name     string
-			entryJS  string
-			wantCat  string
+			name      string
+			entryJS   string
+			wantCat   string
 			rationale string
 		}{
 			{"CPU Fan", "null", "cpu", "name keyword CPU"},

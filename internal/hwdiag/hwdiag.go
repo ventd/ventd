@@ -21,17 +21,17 @@ type Component string
 const (
 	ComponentCalibration Component = "calibration"
 	ComponentHwmon       Component = "hwmon"
-	ComponentOOT         Component = "oot"         // out-of-tree modules (NCT6687D, it87 forks, …)
-	ComponentDMI         Component = "dmi"         // DMI-triggered candidate modules
-	ComponentGPU         Component = "gpu"         // NVIDIA / AMD GPU probes
-	ComponentBoot        Component = "boot"        // bootloader detection (GRUB, systemd-boot, UKI, rEFInd, syslinux/extlinux)
-	ComponentSecureBoot  Component = "secureboot"  // Secure Boot + MOK enrollment
-	ComponentNixOS       Component = "nixos"       // NixOS configuration snippet panel
-	ComponentARM         Component = "arm"         // ARM SBC device-tree overlay
-	ComponentIPMI        Component = "ipmi"        // IPMI / BMC override cycle
-	ComponentBIOS        Component = "bios"        // BIOS-managed fan headers
-	ComponentNvidia      Component = "nvidia"      // NVML-specific (Wayland WriteFanSpeed self-test etc.)
-	ComponentHardware    Component = "hardware"    // generic hardware-change detection (Tier 0.3)
+	ComponentOOT         Component = "oot"        // out-of-tree modules (NCT6687D, it87 forks, …)
+	ComponentDMI         Component = "dmi"        // DMI-triggered candidate modules
+	ComponentGPU         Component = "gpu"        // NVIDIA / AMD GPU probes
+	ComponentBoot        Component = "boot"       // bootloader detection (GRUB, systemd-boot, UKI, rEFInd, syslinux/extlinux)
+	ComponentSecureBoot  Component = "secureboot" // Secure Boot + MOK enrollment
+	ComponentNixOS       Component = "nixos"      // NixOS configuration snippet panel
+	ComponentARM         Component = "arm"        // ARM SBC device-tree overlay
+	ComponentIPMI        Component = "ipmi"       // IPMI / BMC override cycle
+	ComponentBIOS        Component = "bios"       // BIOS-managed fan headers
+	ComponentNvidia      Component = "nvidia"     // NVML-specific (Wayland WriteFanSpeed self-test etc.)
+	ComponentHardware    Component = "hardware"   // generic hardware-change detection (Tier 0.3)
 )
 
 // Severity labels the urgency. "info" is a badge; "warn" draws attention;
