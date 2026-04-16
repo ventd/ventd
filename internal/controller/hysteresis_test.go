@@ -324,6 +324,40 @@ func TestTick_Smoothing_EMAConvergence(t *testing.T) {
 	}
 }
 
+// TestTick_PointsCurveEndToEnd pins the full points-curve path through
+// the controller: buildCurve resolves "points" to a *curve.Points, the
+// tick evaluates against the configured anchors, and the clamp lands
+// within the fan's PWM range. Companion to TestPointsEvaluate which
+// covers the curve in isolation.
+func TestTick_PointsCurveEndToEnd(t *testing.T) {
+	ff := newFakeFan(t)
+	// 70°C should land between anchors (60, 150) and (80, 250) at the
+	// midpoint → 200. Fan clamp is [50, 255] so 200 passes through.
+	writeTempC(t, ff, 70)
+	cfg := &config.Config{
+		PollInterval: config.Duration{Duration: time.Second},
+		Sensors:      []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
+		Fans: []config.Fan{{
+			Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
+			MinPWM: 50, MaxPWM: 255,
+		}},
+		Curves: []config.CurveConfig{{
+			Name: "cpu_points", Type: "points", Sensor: "cpu",
+			Points: []config.CurvePoint{
+				{Temp: 40, PWM: 50},
+				{Temp: 60, PWM: 150},
+				{Temp: 80, PWM: 250},
+			},
+		}},
+		Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_points"}},
+	}
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_points")
+	c.tick()
+	if got := readPWMByte(t, ff.pwmPath); got != 200 {
+		t.Errorf("points curve @ 70°C = %d, want 200", got)
+	}
+}
+
 // TestTick_Hysteresis_IgnoredForFixedAndMix pins behaviour: non-scalar
 // curves (fixed, mix) must not enter the hysteresis gate. Ramp-down on
 // those curves is treated like ramp-up — pwm change applies immediately.

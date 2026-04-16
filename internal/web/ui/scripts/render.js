@@ -369,6 +369,14 @@ function renderCurveCards(){
         else { const r=(sd.value-c.min_temp)/(c.max_temp-c.min_temp); v=Math.round(c.min_pwm+r*(c.max_pwm-c.min_pwm)); }
         out=fmtSensorVal(sd.value,sd.unit)+' \u2192 '+p2pct(v)+'%';
       }
+    } else if(c.type==='points' && sts){
+      const sd=sts.sensors.find(s=>s.name===c.sensor);
+      if(sd){
+        const v = evalPointsCurve(c.points, sd.value);
+        if(v != null){
+          out=fmtSensorVal(sd.value,sd.unit)+' \u2192 '+p2pct(v)+'%';
+        }
+      }
     } else if(c.type==='fixed'){
       out=p2pct(c.value)+'%';
     } else if(c.type==='mix'){
@@ -390,7 +398,7 @@ function renderCurveCards(){
     // hover-binding helper in collectBindings() can walk the dependency
     // graph without re-grepping cfg on every mouseenter.
     let bindAttrs = 'data-curve="'+esc(c.name)+'"';
-    if(c.type==='linear' && c.sensor) bindAttrs += ' data-reads-sensor="'+esc(c.sensor)+'"';
+    if((c.type==='linear' || c.type==='points') && c.sensor) bindAttrs += ' data-reads-sensor="'+esc(c.sensor)+'"';
     if(c.type==='mix' && c.sources && c.sources.length) bindAttrs += ' data-reads-curves="'+esc(c.sources.join(','))+'"';
     return '<div class="card curve-card'+(i===selIdx?' active':'')+'" '+bindAttrs+' data-action="select-curve" data-idx="'+i+'">'+
       '<div class="card-header"><span class="card-name">'+esc(c.name)+'</span>'+
@@ -408,12 +416,51 @@ function miniSVG(c){
       '<polyline points="0,'+y1+' '+c.min_temp+','+y1+' '+c.max_temp+','+y2+' 100,'+y2+
       '" class="svg-stroke-teal" fill="none" stroke-width="2" stroke-linecap="round"/></svg>';
   }
+  if(c.type==='points' && c.points && c.points.length >= 2){
+    // Mini-graph polyline walks every anchor. Clamp segments before
+    // the first and after the last to flat "rails" (dashed) matching
+    // the linear card so both curve types read visually similar.
+    const pts = (c.points||[]).slice().sort((a,b)=>a.temp-b.temp);
+    const first = pts[0], last = pts[pts.length-1];
+    const y0 = 38-(first.pwm/255)*33;
+    const yN = 38-(last.pwm/255)*33;
+    let path = '0,'+y0+' ';
+    pts.forEach(p => {
+      const x = Math.max(0, Math.min(100, p.temp));
+      const y = 38-(p.pwm/255)*33;
+      path += x+','+y+' ';
+    });
+    path += '100,'+yN;
+    return '<svg viewBox="0 0 100 42" class="mini-graph">'+
+      '<polyline points="'+path+
+      '" class="svg-stroke-teal" fill="none" stroke-width="2" stroke-linecap="round"/></svg>';
+  }
   if(c.type==='fixed'){
     const y=38-(c.value/255)*33;
     return '<svg viewBox="0 0 100 42" class="mini-graph">'+
       '<line x1="0" y1="'+y+'" x2="100" y2="'+y+'" class="svg-stroke-blue" stroke-width="2"/></svg>';
   }
   return '';
+}
+
+// evalPointsCurve mirrors the Go Points.Evaluate contract in JS so the
+// card output and editor preview don't round-trip through the daemon
+// on every sensor update. Returns a uint8-equivalent number or null if
+// the curve has fewer than 2 anchors.
+function evalPointsCurve(points, tempC){
+  if(!points || points.length === 0) return null;
+  const pts = points.slice().sort((a,b)=>a.temp-b.temp);
+  if(pts.length === 1) return pts[0].pwm;
+  const first = pts[0], last = pts[pts.length-1];
+  if(tempC <= first.temp) return first.pwm;
+  if(tempC >= last.temp) return last.pwm;
+  for(let i=0; i<pts.length-1; i++){
+    const lo = pts[i], hi = pts[i+1];
+    if(tempC < lo.temp || tempC > hi.temp) continue;
+    const r = (tempC - lo.temp) / (hi.temp - lo.temp);
+    return Math.round(lo.pwm + r*(hi.pwm - lo.pwm));
+  }
+  return last.pwm;
 }
 
 // ── Sensor rename / delete ──
@@ -755,6 +802,9 @@ document.addEventListener('change', (e) => {
       break;
     case 'upd-duration-sec':
       updDurationSec(el.dataset.field, +el.value);
+      break;
+    case 'change-type':
+      changeType(el.value);
       break;
     case 'fixed-pct':
       updFixedPct(+el.value);

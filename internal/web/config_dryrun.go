@@ -311,6 +311,9 @@ func diffCurveFields(a, b config.CurveConfig) []DiffField {
 			From: "[" + strings.Join(a.Sources, ", ") + "]",
 			To:   "[" + strings.Join(b.Sources, ", ") + "]"})
 	}
+	if !equalCurvePoints(a.Points, b.Points) {
+		f = append(f, DiffField{Name: "points", From: curvePointsString(a.Points), To: curvePointsString(b.Points)})
+	}
 	if a.Hysteresis != b.Hysteresis {
 		f = append(f, DiffField{Name: "hysteresis", From: fmt.Sprint(a.Hysteresis), To: fmt.Sprint(b.Hysteresis)})
 	}
@@ -371,6 +374,29 @@ func equalStringSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func equalCurvePoints(a, b []config.CurvePoint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Temp != b[i].Temp || a[i].PWM != b[i].PWM {
+			return false
+		}
+	}
+	return true
+}
+
+func curvePointsString(pts []config.CurvePoint) string {
+	if len(pts) == 0 {
+		return "[]"
+	}
+	parts := make([]string, len(pts))
+	for i, p := range pts {
+		parts[i] = fmt.Sprintf("(%.1f°,%d)", p.Temp, p.PWM)
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 func boolStr(v bool) string {

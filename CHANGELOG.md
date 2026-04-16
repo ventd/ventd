@@ -8,6 +8,19 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
+- Multi-point curves. New curve type `points` interpolates PWM between
+  an ascending list of `{temp, pwm}` anchors; `CurveConfig.Points` is
+  the YAML surface and `internal/curve/points.go` holds the runtime.
+  `validate()` requires ≥ 2 anchors, sorts them by temp, and rejects
+  duplicate temps so the interpolation denominator can never collapse
+  to zero. Curve editor gains a `Type` selector inside the editor pane
+  that converts between Linear / Multi-point / Fixed / Mix with
+  sensible field carryover (linear ↔ points round-trips through the
+  first/last anchors). Multi-point SVG renders one draggable handle
+  per anchor — double-click the graph to add, right-click a handle to
+  remove (two-anchor minimum enforced client-side). Hysteresis +
+  smoothing from 3a apply transparently because the controller layer
+  owns both and needs no curve-type-specific knowledge. (Refs #180)
 - Per-curve hysteresis and smoothing. `CurveConfig` grows two optional
   fields: `hysteresis` (°C deadband applied to ramp-DOWN transitions
   only, never delays ramp-up) and `smoothing` (EMA time-constant

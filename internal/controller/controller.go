@@ -450,6 +450,13 @@ func buildCurve(cfg config.CurveConfig, allCurves []config.CurveConfig) (curve.C
 			MaxPWM:     cfg.MaxPWM,
 		}, nil
 
+	case "points":
+		anchors := make([]curve.PointAnchor, len(cfg.Points))
+		for i, p := range cfg.Points {
+			anchors[i] = curve.PointAnchor{Temp: p.Temp, PWM: p.PWM}
+		}
+		return &curve.Points{SensorName: cfg.Sensor, Anchors: anchors}, nil
+
 	case "fixed":
 		return &curve.Fixed{Value: cfg.Value}, nil
 
