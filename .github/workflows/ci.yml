@@ -56,6 +56,16 @@ jobs:
 
       - uses: actions/checkout@v6
 
+      # GitHub-hosted runners stage the workspace as a non-root user,
+      # but our matrix containers run as root. `go build` reads VCS
+      # metadata via `git`, which then refuses with "dubious ownership"
+      # and fails with `error obtaining VCS status: exit status 128`.
+      # Allowlist the workspace so VCS stamping still works in
+      # containers.
+      - name: Trust workspace dir (containers only)
+        if: matrix.container != ''
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Set up Go (setup-go)
         if: matrix.use-setup-go
         uses: actions/setup-go@v6
