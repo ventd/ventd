@@ -1,6 +1,8 @@
 #include <tunables/global>
 
-# AppArmor profile for /usr/local/bin/ventd.
+# AppArmor profile for ventd.
+# Attaches to both /usr/local/bin/ventd (install.sh default)
+# and /usr/bin/ventd (distro packages: .deb, .rpm, AUR).
 #
 # Confines the daemon to the operations the README promises:
 # read /etc/ventd, walk /sys/class/hwmon, write pwm<N> and
@@ -20,7 +22,7 @@
 #   sudo aa-logprof
 # and stack the suggested rules below this profile.
 
-profile ventd /usr/local/bin/ventd flags=(attach_disconnected) {
+profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   #include <abstractions/base>
   #include <abstractions/nameservice>
 
