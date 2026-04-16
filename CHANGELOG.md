@@ -6,6 +6,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — hwmon topology resilience (v0.3 stream)
+
+- `hwmon.dynamic_rebind` config flag (default `false`). When `true`,
+  the daemon re-execs on an `action=added` topology change whose
+  stable-device path matches a configured `hwmon_device`, so
+  `ResolveHwmonPaths` binds the now-present chip on the next start.
+  The rebind path itself landed in #112; this flag gates it so
+  v0.2.x semantics are preserved until an operator opts in. Closes
+  #95 and #98. (#125)
+
+### Changed — systemd unit
+
+- `deploy/ventd.service` drops `After=systemd-udev-settle.service`.
+  `udev-settle` is deprecated on current distros and was a no-op on
+  hosts whose kernel ships the hwmon drivers built in. The cold-boot
+  hwmon enumeration race (#86, #103) is closed by
+  `ExecStartPre=-/usr/local/sbin/ventd-wait-hwmon` (PR #105) plus the
+  in-binary retry inside `config.LoadForStartup`. `scripts/check-unit-ordering.sh`
+  is flipped to the new invariant: `udev-settle` MUST NOT appear
+  under `[Unit].After=` and `ventd-wait-hwmon` MUST live under
+  `[Service].ExecStartPre=`. (#125)
+
 ### Infrastructure
 
 - CI `build-and-test` expanded to a four-distro matrix (Ubuntu 24.04,
