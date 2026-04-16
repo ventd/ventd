@@ -144,6 +144,8 @@ pve_curl_mock() {
             echo '{"data":"UPID:pve:0000DEAD:0000BEEF:5F000000:qmclone:9501:root@pam:"}' ;;
         POST:/nodes/*/qemu/*/status/start)
             echo '{"data":"UPID:pve:0000DEAD:0000BEEF:5F000001:qmstart:9501:root@pam:"}' ;;
+        POST:/nodes/*/qemu/*/status/stop)
+            echo '{"data":"UPID:pve:0000DEAD:0000BEEF:5F000003:qmstop:9501:root@pam:"}' ;;
         GET:/nodes/*/qemu/*/agent/network-get-interfaces)
             cat <<'JSON'
 {
@@ -270,8 +272,25 @@ start_vm() {
     wait_task "$upid"
 }
 
+# Proxmox refuses to DELETE a running VM. Always stop first; tolerate
+# the VM already being stopped. `overrule-shutdown=1` tells PVE to
+# immediate-stop even if a guest shutdown is in progress — appropriate
+# for throwaway smoke VMs.
+stop_vm() {
+    local vmid="$1" upid body
+    body="$(pve_curl -X POST \
+        --data-urlencode "overrule-shutdown=1" \
+        "$API_BASE/nodes/$PROXMOX_NODE/qemu/$vmid/status/stop")" \
+        || return 1
+    upid="$(pve_data "$body")"
+    [[ -n "$upid" && "$upid" != "null" ]] || return 0
+    wait_task "$upid" || true
+    return 0
+}
+
 destroy_vm() {
     local vmid="$1" upid body
+    stop_vm "$vmid" || true
     body="$(pve_curl -X DELETE \
         "$API_BASE/nodes/$PROXMOX_NODE/qemu/$vmid?purge=1&destroy-unreferenced-disks=1")" \
         || return 1
@@ -373,30 +392,50 @@ ssh_vm() {
 
 # ── Smoke test in-guest ────────────────────────────────────────────────────
 #
-# Installs the pinned ventd release, waits for the service to come up, then
-# hits /api/ping. On failure, captures the last 100 lines of the journal
-# into $3 (a file on the dev host). Returns:
-#   0  pass
-#   1  install.sh failed
-#   2  service never became active
-#   3  /api/ping non-200
+# Installs the pinned ventd release. On VM targets (no /sys/class/hwmon),
+# install.sh's preflight is expected to refuse with a specific message —
+# that counts as a PASS for cross-distro *installability* (the script
+# downloaded + verified + extracted the binary on this distro and the
+# gate fired cleanly). On hardware targets, install.sh runs to completion
+# and we then poll systemctl is-active and /api/ping.
+#
+# On failure, captures the last 100 lines of journal + the install output
+# into $2 (a file on the dev host). Returns:
+#   0   full install succeeded — service active + /api/ping 200
+#   4   preflight hwmon gate fired cleanly (expected on VMs)
+#   1   install.sh failed other than the hwmon gate
+#   2   service never became active (hardware target)
+#   3   /api/ping non-200 (hardware target)
 
 smoke_vm() {
     local vmip="$1" journal_out="$2"
-    local install_cmd systemd_check ping_check
+    local install_cmd install_out install_rc active ping_check
 
     install_cmd="curl -fsSL https://raw.githubusercontent.com/ventd/ventd/${VENTD_VERSION}/scripts/install.sh"
     install_cmd+=" | VENTD_VERSION=${VENTD_VERSION} sudo -E bash"
 
-    if ! ssh_vm "$vmip" "$install_cmd"; then
-        ssh_vm "$vmip" "journalctl -u ventd --no-pager -n 100 || true" \
-            > "$journal_out" 2>&1 || true
+    install_out="$(ssh_vm "$vmip" "$install_cmd" 2>&1)"
+    install_rc=$?
+
+    if (( install_rc != 0 )); then
+        # Distinguish the expected VM-target gate from a real failure.
+        if echo "$install_out" | grep -q '/sys/class/hwmon does not exist'; then
+            echo "preflight hwmon gate fired (expected on VM targets)"
+            printf '%s\n' "$install_out" > "$journal_out"
+            return 4
+        fi
+        {
+            echo "=== install.sh output (rc=$install_rc) ==="
+            printf '%s\n' "$install_out"
+            echo "=== journalctl tail ==="
+            ssh_vm "$vmip" "journalctl -u ventd --no-pager -n 100 2>&1 || true"
+        } > "$journal_out" 2>&1 || true
         return 1
     fi
 
     # Poll systemctl is-active up to VENTD_START_TIMEOUT.
     local deadline=$(( $(date +%s) + VENTD_START_TIMEOUT ))
-    local active=""
+    active=""
     while (( $(date +%s) < deadline )); do
         active="$(ssh_vm "$vmip" "systemctl is-active ventd 2>/dev/null || true")"
         [[ "$active" == "active" ]] && break
@@ -408,16 +447,23 @@ smoke_vm() {
         return 2
     fi
 
-    # /api/ping from the dev host (the LAN-reachable path — matches the
-    # zero-terminal promise in .claude/rules/usability.md).
+    # /api/ping from the dev host. ventd generates a self-signed TLS cert
+    # on first boot and listens on HTTPS — probe with --insecure (-k) to
+    # skip cert validation. Fall back to plain HTTP if HTTPS fails, to
+    # stay forward-compatible with older releases.
     if (( PROXMOX_DRY_RUN == 1 )); then
-        ping_check="HTTP/1.1 200 OK"
+        ping_check="200"
     else
-        ping_check="$(curl -fsSL -o /dev/null -w '%{http_code}\n' \
+        ping_check="$(curl -fsSLk -o /dev/null -w '%{http_code}' \
             --max-time 10 \
-            "http://${vmip}:9999/api/ping" 2>/dev/null || true)"
+            "https://${vmip}:9999/api/ping" 2>/dev/null || true)"
+        if [[ "$ping_check" != "200" ]]; then
+            ping_check="$(curl -fsSL -o /dev/null -w '%{http_code}' \
+                --max-time 10 \
+                "http://${vmip}:9999/api/ping" 2>/dev/null || true)"
+        fi
     fi
-    if [[ "$ping_check" != *"200"* ]]; then
+    if [[ "$ping_check" != "200" ]]; then
         ssh_vm "$vmip" "journalctl -u ventd --no-pager -n 100 || true" \
             > "$journal_out" 2>&1 || true
         return 3
@@ -541,8 +587,11 @@ run_distro() {
         0)
             record_result "$distro" "PASS" "$new_vmid" "$vmip" "install.sh + is-active + /api/ping"
             ;;
+        4)
+            record_result "$distro" "PASS (VM)" "$new_vmid" "$vmip" "install.sh reached hwmon preflight and refused cleanly"
+            ;;
         1)
-            record_result "$distro" "FAIL" "$new_vmid" "$vmip" "install.sh non-zero (journal tail inline below)"
+            record_result "$distro" "FAIL" "$new_vmid" "$vmip" "install.sh non-zero (output inline below)"
             append_journal_tail "$distro" "$journal_file"
             ;;
         2)
@@ -556,7 +605,12 @@ run_distro() {
     esac
 
     rm -f "$journal_file"
-    return "$smoke_rc"
+    # Main-loop classifier wants 0=pass / 1=fail / 2=skip. smoke_rc=4 (VM
+    # hwmon gate) is also a pass at the harness level.
+    case "$smoke_rc" in
+        0|4) return 0 ;;
+        *)   return 1 ;;
+    esac
 }
 
 append_journal_tail() {
