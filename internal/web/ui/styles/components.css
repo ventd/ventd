@@ -506,6 +506,42 @@ button.danger:hover { background: var(--red); color: #fff; }
 .mini-graph { display: block; width: 100%; height: 36px; margin: 2px 0; }
 .card-output { font-size: 0.75rem; color: var(--fg2); }
 
+/* Mix-curve source links — each source name inside a mix curve's
+ * output row is an anchor that selects that curve in the editor
+ * below. Underline on hover so the affordance is obvious; the dashed
+ * .curve-link-missing variant marks a reference to a renamed or
+ * deleted curve the user should fix. */
+.curve-link {
+  color: var(--teal); cursor: pointer;
+  text-decoration: none; border-bottom: 1px dotted transparent;
+}
+.curve-link:hover { border-bottom-color: var(--teal); }
+.curve-link-missing {
+  color: var(--fg3); cursor: help;
+  border-bottom: 1px dashed var(--red); font-style: italic;
+}
+
+/* ── Visual binding highlight ──
+ *
+ * When the cursor hovers a fan/curve/sensor card, the dependency
+ * helper (collectBindings) tags every related card with
+ * .binding-highlight and the <body> with .binding-dim. The dim rule
+ * pulls the non-highlighted cards down to 0.55 opacity so the
+ * relationship pops visually; highlighted cards get a teal outline
+ * plus a faint glow. transition covers both the enter and leave so
+ * a fast cursor move across cards reads as a smooth fade rather
+ * than a strobe. Respects prefers-reduced-motion. */
+.card.binding-highlight {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 1px var(--teal), 0 2px 10px var(--teal-bg);
+}
+body.binding-dim .card { transition: opacity 0.15s, filter 0.15s; }
+body.binding-dim .card:not(.binding-highlight) { opacity: 0.55; filter: saturate(0.65); }
+body.binding-dim .card.binding-highlight { opacity: 1; filter: none; }
+@media (prefers-reduced-motion: reduce) {
+  body.binding-dim .card { transition: none; }
+}
+
 /* ── Curve editor ── */
 .editor { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 10px; }
 .editor-svg { max-width: 520px; margin-bottom: 10px; }
