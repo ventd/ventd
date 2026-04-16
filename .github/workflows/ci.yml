@@ -10,8 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  # v0.3.0 acceptance gate: every PR runs this matrix on all four
-  # distros. A single-distro green is no longer sufficient for merge.
+  # v0.3.0 acceptance gate: every PR runs this matrix on four amd64
+  # distros (ubuntu, fedora, arch, alpine) plus an ubuntu arm64 lane
+  # (#174). A single-distro green is no longer sufficient for merge.
   # See release-notes/v0.3.0-plan.md.
   #
   # CHECK-NAME DISCIPLINE (issue #121):
@@ -28,7 +29,7 @@ jobs:
   # `.github/rulesets/README.md`).
   build:
     name: ${{ matrix.name }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runs-on }}
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false
@@ -36,18 +37,36 @@ jobs:
         include:
           - name: build-and-test-ubuntu
             distro: ubuntu-24.04
+            runs-on: ubuntu-24.04
+            container: ""
+            prereqs: ""
+            use-setup-go: true
+            race: true
+          # arm64 native lane (#174). The existing `cross-compile` job
+          # only validates that the binary links for GOARCH=arm64 — it
+          # never runs the tests and never exercises the race detector
+          # (which requires native execution). `ubuntu-24.04-arm` is a
+          # GitHub-hosted arm64 runner, free for public repos since
+          # Aug 2025 GA. Running the full race-enabled test suite on
+          # native arm64 catches alignment and NVML dlopen issues that
+          # the amd64 lanes cannot.
+          - name: build-and-test-ubuntu-arm64
+            distro: ubuntu-24.04-arm
+            runs-on: ubuntu-24.04-arm
             container: ""
             prereqs: ""
             use-setup-go: true
             race: true
           - name: build-and-test-fedora
             distro: fedora-41
+            runs-on: ubuntu-24.04
             container: "fedora:41"
             prereqs: "dnf install -y git gcc tar which"
             use-setup-go: true
             race: true
           - name: build-and-test-arch
             distro: arch
+            runs-on: ubuntu-24.04
             container: "archlinux:latest"
             prereqs: "pacman -Sy --noconfirm git gcc tar which"
             use-setup-go: true
@@ -62,6 +81,7 @@ jobs:
           # passes tests under musl.
           - name: build-and-test-alpine
             distro: alpine-3.20
+            runs-on: ubuntu-24.04
             container: "alpine:3.20"
             prereqs: "apk add --no-cache bash ca-certificates curl git tar"
             use-setup-go: false
@@ -82,6 +102,29 @@ jobs:
       - name: Trust workspace dir (containers only)
         if: matrix.container != ''
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # AppArmor profile smoke (#210). `apparmor_parser -QK` is
+      # parse-only (`-Q` skips the kernel load, `-K` skips the cache),
+      # so it runs fine in containers and on hosts that don't have
+      # AppArmor enabled. Catches grammar regressions like #202 — the
+      # `network inet6 stream,` form that parser 4.1.0 rejected — before
+      # they ship. Runs on the Ubuntu amd64 and arm64 host lanes and the
+      # Alpine container lane (musl userspace + a different apparmor
+      # build). Fedora and Arch are SELinux-native and skip the step.
+      # Debian 13 trixie (parser 4.1.0, the specific regression env from
+      # #202) has its own dedicated job below.
+      - name: Parse AppArmor profile (Ubuntu host)
+        if: matrix.container == ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor-utils
+          sudo apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
+
+      - name: Parse AppArmor profile (Alpine container)
+        if: contains(matrix.container, 'alpine')
+        run: |
+          apk add --no-cache apparmor apparmor-utils
+          apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
 
       - name: Set up Go (setup-go)
         if: matrix.use-setup-go
@@ -235,3 +278,33 @@ jobs:
       - uses: actions/checkout@v6
       - name: Assert nix module tracks deploy/ without drift
         run: bash packaging/nix/check-drift.sh
+
+  # Debian 13 trixie (parser 4.1.0) is the specific grammar that
+  # rejected `network inet6 stream,` in #202, silently downgrading
+  # ventd's AppArmor confinement on every install. The fix landed in
+  # #204, but the main build matrix doesn't include Debian, so a future
+  # grammar-asymmetry regression would still slip through. This
+  # standalone parse-only lane closes that gap (#210). Parse-only
+  # (`-QK`) means the container doesn't need an AppArmor-capable kernel
+  # — the job just runs `apparmor_parser` against the shipped profile
+  # and fails the PR if the grammar drifts.
+  #
+  # Note: this job depends on the `debian:trixie` Docker Hub tag. If
+  # Debian drops or renames the tag post-release, update to the
+  # concrete version tag (e.g. `debian:13`) in the same PR that
+  # refreshes the ruleset.
+  apparmor-parse-debian13:
+    name: apparmor-parse-debian13
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Install apparmor-utils and git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            apparmor-utils git ca-certificates
+      - uses: actions/checkout@v6
+      - name: Trust workspace dir
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Parse AppArmor profile
+        run: apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
