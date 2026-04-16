@@ -62,6 +62,30 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the other three rows. Satisfies the CI matrix acceptance gate in
   the v0.3.0 plan. (#114)
 
+### Added
+
+- `/healthz` and `/readyz` unauthenticated probes for orchestrators (#155).
+- `/api/version` and `/api/v1/version` return version / commit / buildDate / go runtime (#155).
+- Every `/api/*` route is now also served under `/api/v1/*` — v1 is the stable contract (#155).
+- `--version` and `--version --json` flags on the binary (#155).
+- GitHub issue templates (bug / feature / regression / security) and PR template (#150, #154).
+- Top-level `Makefile` with `build`, `test`, `cover`, `lint`, `e2e`,
+  `safety-run`, `issue-review`, `test-issue-logger` targets (#154).
+- `scripts/cc-issue-logger.test.sh` self-test harness for the filing library (#152).
+
+### Fixed
+
+- `config.Empty()` and `config.Default()` now initialise slice-typed fields
+  with empty slices rather than nil — previous nil marshalled to JSON `null`
+  and crashed the web UI (#151).
+- `scripts/cc-issue-logger.sh` `race_count` subshell no longer emits `"0\n0"`
+  when grep finds zero matches (#152).
+- Default issue-filing labels no longer reference the non-existent `v0.3.0`
+  label — unlabelled by default, caller passes labels explicitly (#152).
+- `moduleFromPath` recognises `nct6683` and `nct6687*` chip names (#153).
+- `sdDriverRe` now matches the `Driver \`x' (should be inserted):` variant
+  emitted by sensors-detect when a driver is available but not loaded (#153).
+
 ## [v0.2.0] — 2026-04-16
 
 This release closes the daemon-hardening stream begun in v0.1.x: every
