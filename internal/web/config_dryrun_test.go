@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ventd/ventd/internal/config"
@@ -24,9 +25,13 @@ func TestDiffConfigs_NoChange(t *testing.T) {
 }
 
 // TestDiffConfigs_CurveFieldChange exercises the audit's reference
-// case from the PR-2d spec: edit cpu_linear.max_temp from 80 to 75
-// and max_pwm from 100 to 90. Shape of the Fields slice must match
-// the order curve fields are walked so the UI renders a stable list.
+// case from the PR-2d spec, updated in PR-3f so the PWM change is
+// reported under the percent field name the YAML now writes. Temp
+// still reports as the °C value it always did.
+//
+// MinPWM=80/MaxPWM=100 and 90 convert to 31%/39%/35% respectively via
+// rawToPctForDiff; the assertion uses those rounded percents because
+// a MinPWM change is reported as a MinPWMPct change in the modal.
 func TestDiffConfigs_CurveFieldChange(t *testing.T) {
 	live := config.Empty()
 	live.Curves = []config.CurveConfig{
@@ -53,8 +58,11 @@ func TestDiffConfigs_CurveFieldChange(t *testing.T) {
 	if got.Fields[0].Name != "max_temp" || got.Fields[0].From != "80" || got.Fields[0].To != "75" {
 		t.Errorf("max_temp diff wrong: %+v", got.Fields[0])
 	}
-	if got.Fields[1].Name != "max_pwm" || got.Fields[1].From != "100" || got.Fields[1].To != "90" {
-		t.Errorf("max_pwm diff wrong: %+v", got.Fields[1])
+	// PR-3f: PWM changes now report as max_pwm_pct with the percent value.
+	wantFromPct := fmt.Sprint(rawToPctForDiff(100))
+	wantToPct := fmt.Sprint(rawToPctForDiff(90))
+	if got.Fields[1].Name != "max_pwm_pct" || got.Fields[1].From != wantFromPct || got.Fields[1].To != wantToPct {
+		t.Errorf("max_pwm_pct diff wrong: %+v (want from=%s to=%s)", got.Fields[1], wantFromPct, wantToPct)
 	}
 }
 

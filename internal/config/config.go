@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -263,9 +265,20 @@ type CurveConfig struct {
 	MaxTemp float64 `yaml:"max_temp,omitempty" json:"max_temp,omitempty"`
 	MinPWM  uint8   `yaml:"min_pwm,omitempty" json:"min_pwm,omitempty"`
 	MaxPWM  uint8   `yaml:"max_pwm,omitempty" json:"max_pwm,omitempty"`
+	// MinPWMPct / MaxPWMPct are the canonical persistence shape in
+	// percent (0–100). Pointer-typed to distinguish "not set in YAML"
+	// from "explicit zero". MigrateCurvePWMFields populates these from
+	// legacy MinPWM / MaxPWM on Load and back-fills the raw fields for
+	// the runtime. On Save the raw fields are suppressed via a local
+	// copy so YAML carries only the `_pct` form. Tests that construct
+	// CurveConfig directly with raw fields continue to work because
+	// buildCurve reads MinPWM / MaxPWM.
+	MinPWMPct *uint8 `yaml:"min_pwm_pct,omitempty" json:"min_pwm_pct,omitempty"`
+	MaxPWMPct *uint8 `yaml:"max_pwm_pct,omitempty" json:"max_pwm_pct,omitempty"`
 
 	// fixed fields
-	Value uint8 `yaml:"value,omitempty" json:"value,omitempty"`
+	Value    uint8  `yaml:"value,omitempty" json:"value,omitempty"`
+	ValuePct *uint8 `yaml:"value_pct,omitempty" json:"value_pct,omitempty"`
 
 	// mix fields
 	Function string   `yaml:"function,omitempty" json:"function,omitempty"`
@@ -296,14 +309,18 @@ type CurveConfig struct {
 }
 
 // CurvePoint is one anchor in a multi-point curve. Temp is in the
-// curve's sensor unit (°C for hwmon temps); PWM is the raw 0–255 duty
-// cycle the anchor pins. validate() enforces Temp ordering but does
-// not check PWM monotonicity — curves with a non-monotonic slope are
-// unusual but legal (an operator who wants a fan to slow down above a
-// threshold to avoid resonance, for example).
+// curve's sensor unit (°C for hwmon temps); PWMPct is the canonical
+// duty cycle in percent (0-100). PWM is the raw 0-255 mirror the
+// runtime reads; MigrateCurvePWMFields keeps the two in sync.
+//
+// `pwm` carries `omitempty` so Save can suppress the legacy field
+// from YAML output after migration (zero-PWM anchors round-trip via
+// `pwm_pct: 0` — the *uint8 pointer is non-nil even when the value
+// is zero, so omitempty skips only the truly-absent case).
 type CurvePoint struct {
-	Temp float64 `yaml:"temp" json:"temp"`
-	PWM  uint8   `yaml:"pwm" json:"pwm"`
+	Temp   float64 `yaml:"temp" json:"temp"`
+	PWM    uint8   `yaml:"pwm,omitempty" json:"pwm,omitempty"`
+	PWMPct *uint8  `yaml:"pwm_pct,omitempty" json:"pwm_pct,omitempty"`
 }
 
 type Control struct {
@@ -421,10 +438,110 @@ func Parse(data []byte) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	// Migrate legacy raw-PWM curve fields to / from their `_pct` siblings
+	// BEFORE validate so the MinPWM<=MaxPWM and points-ordering checks
+	// see the populated raw values regardless of which form the YAML
+	// used. Warnings ride slog.Default() so CLI and tests still see them
+	// without having to plumb a logger through every Parse call site.
+	MigrateCurvePWMFields(cfg)
 	if err := validate(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// MigrateCurvePWMFields reconciles the raw (0-255) and percent (0-100)
+// duty-cycle fields on every curve and curve-point. The `_pct` form is
+// the authoritative persistence shape; raw fields stay populated for
+// runtime consumers (buildCurve, validate) that have always read them.
+//
+// Precedence: if both sides are set and disagree, `_pct` wins and a
+// warning fires; otherwise the missing side is computed from the one
+// that was set. A fresh config (both zero / nil on every field)
+// round-trips through here without emitting any warning — the `_pct`
+// sides end up as non-nil pointers to zero, which is distinguishable
+// from nil via the YAML `omitempty` rule but prints the same to an
+// operator.
+//
+// The conversion rounds: rawToPct(rawToPct⁻¹(x)) can differ from x
+// by 1. That's fine for fan behaviour (±1 PWM is indistinguishable
+// from motor noise) but tests that migrate a legacy value must
+// compare against the round-tripped number, not the original.
+func MigrateCurvePWMFields(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	for i := range cfg.Curves {
+		c := &cfg.Curves[i]
+		reconcile("curve "+c.Name+" min_pwm", &c.MinPWM, &c.MinPWMPct)
+		reconcile("curve "+c.Name+" max_pwm", &c.MaxPWM, &c.MaxPWMPct)
+		// Value is fixed-curve specific; still reconcile so other
+		// curve types (which leave both at zero) emit a benign
+		// `value_pct: 0` that round-trips.
+		reconcile("curve "+c.Name+" value", &c.Value, &c.ValuePct)
+		for j := range c.Points {
+			p := &c.Points[j]
+			reconcile(fmt.Sprintf("curve %s points[%d]", c.Name, j), &p.PWM, &p.PWMPct)
+		}
+	}
+}
+
+// reconcile is the per-field body of MigrateCurvePWMFields. label is
+// an operator-facing identifier used in the "both set and disagree"
+// warning.
+//
+// When both fields are populated, reconcile tolerates a ±1 round-trip
+// drift (pctToRaw(rawToPct(x)) can differ from x by 1 due to the
+// 255/100 scaling). A drift inside that tolerance is treated as "in
+// sync": the raw side wins so successive calls to MigrateCurvePWMFields
+// are idempotent. Only larger disagreements fire a warning.
+func reconcile(label string, raw *uint8, pct **uint8) {
+	if raw == nil || pct == nil {
+		return
+	}
+	if *pct != nil {
+		expected := pctToRaw(**pct)
+		drift := int(*raw) - int(expected)
+		if drift < 0 {
+			drift = -drift
+		}
+		if *raw != 0 && drift > 1 {
+			slog.Default().Warn("config: legacy and _pct fields disagree, preferring _pct",
+				"field", label,
+				"raw", *raw,
+				"pct", **pct,
+				"raw_from_pct", expected,
+			)
+			*raw = expected
+			return
+		}
+		// Inside the ±1 rounding tolerance (or raw is the fresh zero we
+		// haven't migrated yet): keep raw as it is if non-zero, else
+		// populate it from pct.
+		if *raw == 0 {
+			*raw = expected
+		}
+		return
+	}
+	// _pct is nil; derive it from raw. rawToPct on zero is zero — the
+	// fresh-config case produces ptr(0), which marshals as
+	// `field_pct: 0` and reloads as the same.
+	v := rawToPct(*raw)
+	*pct = &v
+}
+
+// pctToRaw converts a 0-100 percent duty cycle to a 0-255 PWM byte.
+// Clamps above 100; preserves the canonical zero.
+func pctToRaw(pct uint8) uint8 {
+	if pct > 100 {
+		pct = 100
+	}
+	return uint8(math.Round(float64(pct) * 255 / 100))
+}
+
+// rawToPct converts a 0-255 PWM byte to a 0-100 percent duty cycle.
+func rawToPct(raw uint8) uint8 {
+	return uint8(math.Round(float64(raw) * 100 / 255))
 }
 
 // Save validates cfg, marshals it to YAML, and writes it atomically to path.
@@ -438,7 +555,37 @@ func Parse(data []byte) (*Config, error) {
 // the chip_name YAML field.
 func Save(cfg *Config, path string) (*Config, error) {
 	EnrichChipName(cfg)
-	data, err := yaml.Marshal(cfg)
+	// Ensure every curve has its `_pct` fields populated before we
+	// marshal. Callers that mutate cfg directly (the web UI's /api/config
+	// write path, tests constructing CurveConfig{MinPWM: 30, ...}) won't
+	// have set `_pct` themselves — without this call the Save would
+	// emit a YAML that's missing the percent keys entirely.
+	MigrateCurvePWMFields(cfg)
+	// Build a shadow Config that carries only the `_pct` curve fields
+	// in its Curves slice. The runtime cfg keeps legacy MinPWM /
+	// MaxPWM / Value / PWM for every reader that has always used them
+	// (buildCurve, validate); the YAML round-trip writes the percent
+	// form and drops the legacy keys on every Save, so a Load→Save
+	// cycle strips legacy lines from any pre-3f config in one pass.
+	out := *cfg
+	if len(cfg.Curves) > 0 {
+		out.Curves = make([]CurveConfig, len(cfg.Curves))
+		for i, c := range cfg.Curves {
+			out.Curves[i] = c
+			out.Curves[i].MinPWM = 0
+			out.Curves[i].MaxPWM = 0
+			out.Curves[i].Value = 0
+			if len(c.Points) > 0 {
+				pts := make([]CurvePoint, len(c.Points))
+				copy(pts, c.Points)
+				for j := range pts {
+					pts[j].PWM = 0
+				}
+				out.Curves[i].Points = pts
+			}
+		}
+	}
+	data, err := yaml.Marshal(&out)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}

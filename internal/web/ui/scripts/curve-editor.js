@@ -71,8 +71,8 @@ function renderLinearEditor(el,c){
       '<div class="fg"><label>Min '+ax+'</label><input type="number" id="f-mint" value="'+c.min_temp+'" min="0" max="10000" step="1" data-action="upd-field-num" data-field="min_temp"></div>'+
       '<div class="fg"><label>Max '+ax+'</label><input type="number" id="f-maxt" value="'+c.max_temp+'" min="0" max="10000" step="1" data-action="upd-field-num" data-field="max_temp"></div>'+
       '<div class="fg"></div>'+
-      '<div class="fg"><label>Min %</label><input type="number" id="f-minp" value="'+p2pct(c.min_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="min_pwm"></div>'+
-      '<div class="fg"><label>Max %</label><input type="number" id="f-maxp" value="'+p2pct(c.max_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="max_pwm"></div>'+
+      '<div class="fg"><label title="Fan duty cycle as a percentage (raw PWM: '+c.min_pwm+'/255)">Min %</label><input type="number" id="f-minp" value="'+p2pct(c.min_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="min_pwm"></div>'+
+      '<div class="fg"><label title="Fan duty cycle as a percentage (raw PWM: '+c.max_pwm+'/255)">Max %</label><input type="number" id="f-maxp" value="'+p2pct(c.max_pwm)+'" min="0" max="100" step="1" data-action="upd-pct-field" data-field="max_pwm"></div>'+
       '<div class="fg"></div>'+
       '<div class="fg"><label title="Prevents fan oscillation. Sensor must drop this far below threshold before fan ramps down.">Hysteresis (°C)</label>'+
         '<input type="number" id="f-hys" value="'+hys+'" min="0" max="10" step="0.5" data-action="upd-field-num" data-field="hysteresis"></div>'+
@@ -155,7 +155,7 @@ function renderFixedEditor(el,c){
     '<div class="editor-form">'+
       '<div class="fg"><label>Name</label><input type="text" value="'+esc(c.name)+'" data-action="rename-curve"></div>'+
       renderTypeSelect(c)+
-      '<div class="fg wide"><label>Speed %</label>'+
+      '<div class="fg wide"><label title="Fixed fan duty as a percentage (raw PWM: '+(c.value||0)+'/255)">Speed %</label>'+
         '<div class="fixed-slider">'+
           '<input type="range" min="0" max="100" step="1" value="'+pct+'" data-action="fixed-pct">'+
           '<input type="number" min="0" max="100" step="1" value="'+pct+'" class="num" data-action="fixed-pct">'+
