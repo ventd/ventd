@@ -2032,6 +2032,78 @@ func TestE2E_ThemeToggle_ColorSchemePinsAgainstBrowserForcedDark(t *testing.T) {
 	}
 }
 
+// TestE2E_Rescan_ButtonIssuesRescanAndSurfaceToast exercises the
+// Rescan Hardware button end-to-end: click, wait for the POST to
+// return, assert a toast surfaced with the expected text. The test
+// harness has no controllable hwmon in CI, so the daemon sees an
+// empty topology on both scans and the toast lands on the "no
+// changes" branch. Regression guard against the button silently
+// doing nothing (data-action typo, missing handler registration).
+func TestE2E_Rescan_ButtonIssuesRescanAndSurfaceToast(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+
+	action := getAttr(t, page, "#btn-rescan", "data-action")
+	if action != "rescan-hardware" {
+		t.Fatalf(`#btn-rescan data-action = %q, want "rescan-hardware"`, action)
+	}
+
+	if _, err := page.Eval(`() => document.getElementById('btn-rescan').click()`); err != nil {
+		t.Fatalf("click rescan: %v", err)
+	}
+
+	// Toast content varies by environment: CI runners with no hwmon land
+	// on "No hardware changes detected"; dev workstations with live hwmon
+	// see "Detected new fan: …" on the first-ever rescan (the before-set
+	// was empty). Either is a valid indication the round-trip worked; a
+	// Rescan failure would land on "Rescan failed".
+	deadline := time.Now().Add(5 * time.Second)
+	var toastText string
+	toastShown := func(s string) bool {
+		return strings.Contains(s, "No hardware changes detected") ||
+			strings.Contains(s, "Detected new fan:") ||
+			strings.Contains(s, "Removed:")
+	}
+	for time.Now().Before(deadline) {
+		res, err := page.Eval(`() => {
+			const el = document.getElementById('notification');
+			if(!el) return '';
+			return el.hidden ? '' : (el.textContent || '');
+		}`)
+		if err == nil {
+			toastText = res.Value.Str()
+			if toastShown(toastText) {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !toastShown(toastText) {
+		t.Fatalf("rescan toast never surfaced; final text=%q", toastText)
+	}
+	if strings.Contains(toastText, "Rescan failed") {
+		t.Errorf("rescan toast reports failure: %q", toastText)
+	}
+
+	// Spinner state should have returned to idle once the POST completed.
+	if getAttr(t, page, "#btn-rescan", "disabled") != "" {
+		t.Errorf("rescan button remained disabled after POST returned")
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

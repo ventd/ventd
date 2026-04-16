@@ -166,7 +166,12 @@
 
 <div class="layout">
   <div class="sidebar" id="sidebar">
-    <div class="sidebar-hdr">Hardware Monitor</div>
+    <div class="sidebar-hdr">
+      <span>Hardware Monitor</span>
+      <button id="btn-rescan" class="sidebar-hdr-btn" data-action="rescan-hardware" title="Rescan hardware">
+        <svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#rotate-ccw"/></svg>
+      </button>
+    </div>
     <div id="hw-devices" class="hw-empty">Loading...</div>
   </div>
   <!-- Backdrop for the mobile off-canvas drawer. Sibling-of-sidebar

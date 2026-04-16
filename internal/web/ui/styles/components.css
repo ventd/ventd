@@ -79,7 +79,15 @@ button.danger:hover { background: var(--red); color: #fff; }
 .sidebar-hdr {
   color: var(--fg2); font-size: 0.65rem; text-transform: uppercase;
   letter-spacing: 0.1em; padding: 8px 12px 4px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
+.sidebar-hdr-btn {
+  background: transparent; border: none; color: var(--fg3);
+  cursor: pointer; padding: 2px 4px; border-radius: 3px;
+  line-height: 1; display: inline-flex; align-items: center;
+}
+.sidebar-hdr-btn:hover { color: var(--fg1); background: var(--bg3); }
+.sidebar-hdr-btn:disabled { opacity: 0.6; cursor: default; }
 .hw-empty { color: var(--fg3); font-size: 0.75rem; padding: 8px 12px; }
 .hw-device { border-bottom: 1px solid var(--border2); padding-bottom: 2px; margin-bottom: 2px; }
 .hw-device-name {

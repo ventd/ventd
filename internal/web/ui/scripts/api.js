@@ -105,6 +105,38 @@ async function loadHardware(){
   } catch(e){}
 }
 
+// rescanHardware POSTs /api/hardware/rescan, shows a per-outcome toast,
+// and re-fetches the sidebar view. Separate from the periodic poll
+// because the operator is explicitly asking "did anything change?" and
+// a silent re-render would look like a no-op.
+async function rescanHardware(){
+  const btn = document.getElementById('btn-rescan');
+  if(btn){ btn.disabled = true; btn.querySelector('.icon').classList.add('icon-spin'); }
+  try {
+    const r = await fetch('/api/hardware/rescan', {method:'POST'});
+    if(!r.ok) throw new Error('rescan failed: HTTP '+r.status);
+    const j = await r.json();
+    const added = (j.new_devices || []);
+    const removed = (j.removed_devices || []);
+    if(added.length === 0 && removed.length === 0){
+      notify('No hardware changes detected', 'ok');
+    } else {
+      const parts = [];
+      if(added.length)   parts.push('Detected new fan: '+added.join(', '));
+      if(removed.length) parts.push('Removed: '+removed.join(', ')+' (no longer present)');
+      notify(parts.join(' — '), 'ok');
+    }
+    // Refresh the sidebar from the authoritative /api/hardware endpoint
+    // so values and friendly names stay consistent with the rest of the
+    // dashboard's polling loop.
+    await loadHardware();
+  } catch(e){
+    notify('Rescan failed: '+e.message, 'error');
+  } finally {
+    if(btn){ btn.disabled = false; btn.querySelector('.icon').classList.remove('icon-spin'); }
+  }
+}
+
 async function loadCalibration(){
   try {
     const [sr, rr] = await Promise.all([
