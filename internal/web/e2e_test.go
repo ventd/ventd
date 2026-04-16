@@ -1865,6 +1865,82 @@ func TestE2E_ApplyFlow_NoChangeSkipsModal(t *testing.T) {
 	}
 }
 
+// TestE2E_SettingsModal_PopulatedSections opens the Settings modal
+// and asserts each new section is rendered: Display controls, System
+// Status rows, About info, and Advanced. /api/system/* endpoints run
+// against the real daemon harness which reports "unsupported" for
+// LSMs and "not active" for the watchdog — exactly what an operator
+// without systemd or SELinux would see.
+func TestE2E_SettingsModal_PopulatedSections(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/sys/class/hwmon/test/pwm1", MinPWM: 50, MaxPWM: 255}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement("#btn-settings")
+
+	if _, err := page.Eval(`() => document.getElementById('btn-settings').click()`); err != nil {
+		t.Fatalf("click settings: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		res, err := page.Eval(`() => document.querySelector('#system-status-body .sys-row') !== null`)
+		if err != nil {
+			return false
+		}
+		return res.Value.Bool()
+	}, "system-status-body never populated")
+
+	for _, hdr := range []string{"Display", "System Status", "About", "Advanced"} {
+		res, _ := page.Eval(`(h) => [...document.querySelectorAll('.modal-section-hdr')].some(e => e.textContent === h)`, hdr)
+		if !res.Value.Bool() {
+			t.Errorf("Settings modal missing section header %q", hdr)
+		}
+	}
+
+	body, _ := page.Eval(`() => document.getElementById('system-status-body').textContent`)
+	text := body.Value.Str()
+	if !strings.Contains(text, "Watchdog") {
+		t.Errorf("system-status body missing Watchdog row: %s", text)
+	}
+	if !strings.Contains(text, "Crash recovery") {
+		t.Errorf("system-status body missing Crash recovery row: %s", text)
+	}
+	if !strings.Contains(text, "Diagnostics") {
+		t.Errorf("system-status body missing Diagnostics row: %s", text)
+	}
+
+	about, _ := page.Eval(`() => document.getElementById('about-body').textContent`)
+	if !strings.Contains(about.Value.Str(), "License") {
+		t.Errorf("About body missing License row: %s", about.Value.Str())
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		outDir, err := os.MkdirTemp("", "ventd-settings-")
+		if err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		t.Logf("settings modal screenshot dir: %s", outDir)
+		data := page.MustScreenshot()
+		_ = os.WriteFile(fmt.Sprintf("%s/settings-modal.png", outDir), data, 0o644)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

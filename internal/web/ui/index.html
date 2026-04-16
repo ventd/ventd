@@ -90,12 +90,49 @@
 
 <!-- Settings modal -->
 <div id="settings-overlay" class="modal-backdrop">
-  <div class="modal-card">
+  <div class="modal-card modal-card-wide">
     <div class="modal-header">
       <h2>Settings</h2>
       <button class="modal-close" data-action="close-settings" title="Close"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#x"/></svg></button>
     </div>
+
     <div class="modal-section">
+      <div class="modal-section-hdr">Display</div>
+      <div class="modal-row">
+        <div>
+          <div class="row-title">Theme</div>
+          <div class="row-subtitle">Auto follows your OS preference</div>
+        </div>
+        <select id="setting-theme" data-action="setting-theme">
+          <option value="auto">Auto</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="modal-row">
+        <div>
+          <div class="row-title">Temperature unit</div>
+          <div class="row-subtitle">Applies to Sensors and HW readings</div>
+        </div>
+        <select id="setting-temp-unit" data-action="setting-temp-unit">
+          <option value="c">°C</option>
+          <option value="f">°F</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-hdr">System Status</div>
+      <div id="system-status-body"></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-hdr">About</div>
+      <div id="about-body" class="about-body">Loading…</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-hdr">Advanced</div>
       <div class="modal-row">
         <div>
           <div class="row-title">Reset to Initial Setup</div>
@@ -104,6 +141,7 @@
         <button class="danger" data-action="confirm-reset">Reset</button>
       </div>
     </div>
+
     <div id="settings-status"></div>
   </div>
 </div>
@@ -136,6 +174,11 @@
        `close-sidebar` data-action dispatch in render.js. -->
   <div id="sidebar-backdrop" class="sidebar-backdrop" data-action="close-sidebar" aria-hidden="true"></div>
   <main>
+    <div id="diag-banner" class="diag-banner hidden" role="status" aria-live="polite">
+      <span id="diag-banner-text"></span>
+      <button id="diag-banner-view" class="banner-link" data-action="open-diagnostics">View details</button>
+      <button class="banner-close" data-action="dismiss-diag-banner" title="Dismiss"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#x"/></svg></button>
+    </div>
     <div class="section hwdiag-section hidden" id="hwdiag-section">
       <div class="section-hdr"><h2>Diagnostics</h2></div>
       <div id="hwdiag-panel"></div>

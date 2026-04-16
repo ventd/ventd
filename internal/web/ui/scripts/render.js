@@ -667,6 +667,16 @@ document.addEventListener('click', (e) => {
     case 'open-settings':
       openSettings();
       break;
+    case 'open-diagnostics':
+      openSettings();
+      setTimeout(() => {
+        const body = document.getElementById('system-status-body');
+        if(body) body.scrollIntoView({behavior: 'smooth', block: 'start'});
+      }, 100);
+      break;
+    case 'dismiss-diag-banner':
+      dismissDiagBanner();
+      break;
     case 'close-settings':
       closeSettings();
       break;
@@ -736,6 +746,31 @@ document.addEventListener('change', (e) => {
       break;
     case 'mix-sources':
       updMixSources();
+      break;
+    // ── Settings modal: display preferences ──
+    // Theme select covers the same three states the header toggle
+    // cycles through, but exposed as an explicit select so the user
+    // can land on "auto" (prefers-color-scheme) without clicking
+    // through two steps. The unit select is a stub until the unit
+    // preference plumbs into render paths (Session D work).
+    case 'setting-theme':
+      try { localStorage.setItem('ventd-theme', el.value); } catch(_){}
+      if(el.value === 'auto'){
+        // Clear the pin so applyTheme falls back to prefers-color-scheme
+        // on next reload. Immediate effect: pick a theme matching the
+        // OS to avoid a flash of wrong mode.
+        const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+        applyTheme(prefersLight ? 'light' : 'dark');
+      } else {
+        applyTheme(el.value);
+      }
+      break;
+    case 'setting-temp-unit':
+      try { localStorage.setItem('ventd-temp-unit', el.value); } catch(_){}
+      // Re-render sensor cards + HW sidebar so the unit swap picks up
+      // immediately. The actual °C→°F conversion lives in state.js's
+      // fmtSensorVal helper (Session D work).
+      if (typeof renderSensorBar === 'function') renderSensorBar();
       break;
   }
 });

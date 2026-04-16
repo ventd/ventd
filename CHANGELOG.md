@@ -6,6 +6,30 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Settings modal + system status surfacing
+
+- The Settings modal, previously a single Reset button, now carries
+  four sections: Display (theme / temperature unit), System Status
+  (watchdog, crash recovery, MAC policies, diagnostics roll-up),
+  About (version, commit, build date, license, releases link), and
+  Advanced (Reset moved here). Each row reads at a glance — a
+  semantic colour on the value (teal ok, amber warn, red err, muted
+  muted) does the work an icon sprite would have done.
+- Four new read-only endpoints: `GET /api/system/watchdog`,
+  `GET /api/system/recovery`, `GET /api/system/security`,
+  `GET /api/system/diagnostics`. All registered via the `apiRoute`
+  slice so `/api/v1/*` aliases resolve. systemctl and aa-status /
+  semodule shell-outs are cached behind short TTLs (5s / 30s) so a
+  5-second dashboard poll doesn't spawn a process per tick. Missing
+  binaries report `installed: false` / `unsupported` rather than
+  500 — OpenRC, runit, and container hosts stay working.
+- Dashboard diagnostics banner surfaces WARN/ERROR entries at the
+  top of the page with a "View details" link that opens the modal
+  scrolled to System Status. Dismiss × suppresses the banner for
+  the tab's lifetime (sessionStorage); a refresh re-shows it so an
+  operator who closes it then comes back later doesn't miss a
+  newly-risen warning.
+
 ### Added — Apply confirmation modal + `/api/config/dryrun`
 
 - The dashboard Apply button now opens a diff preview before committing
