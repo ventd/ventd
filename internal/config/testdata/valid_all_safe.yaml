@@ -1,0 +1,42 @@
+version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+fans:
+  - name: case_fan
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon3/pwm1
+    min_pwm: 20
+    max_pwm: 255
+  - name: allow_stop_fan
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon3/pwm2
+    min_pwm: 0
+    max_pwm: 255
+    allow_stop: true
+  - name: pump
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon3/pwm3
+    min_pwm: 50
+    max_pwm: 255
+    is_pump: true
+    pump_minimum: 50
+curves:
+  - name: case_curve
+    type: linear
+    sensor: cpu
+    min_temp: 30
+    max_temp: 70
+    min_pwm: 20
+    max_pwm: 255
+controls:
+  - fan: case_fan
+    curve: case_curve
+  - fan: allow_stop_fan
+    curve: case_curve
+  - fan: pump
+    curve: case_curve

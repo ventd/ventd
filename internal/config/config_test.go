@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -224,5 +226,163 @@ controls: []
 	}
 	if !cfg2.Hwmon.DynamicRebind {
 		t.Fatalf("re-parse lost Hwmon.DynamicRebind; got %+v", cfg2.Hwmon)
+	}
+}
+
+// TestValidateAllowStopGate pins the hwmon-safety rule 1 load-time gate:
+// a fan with min_pwm: 0 and no allow_stop must be rejected, because the
+// controller would otherwise silently skip every PWM=0 write at runtime.
+// The table drives the pump-minimum rule as well — pumps must never stop,
+// so pump_minimum: 0 is rejected regardless of allow_stop, and a pump
+// with min_pwm: 0 is rejected by the pump floor before ever reaching the
+// allow_stop gate.
+func TestValidateAllowStopGate(t *testing.T) {
+	cases := []struct {
+		name    string
+		fan     Fan
+		wantErr string // substring; "" means accept
+	}{
+		{
+			name: "minpwm_zero_allowstop_false_rejects",
+			fan: Fan{
+				Name: "case_fan", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  0, MaxPWM: 255,
+				AllowStop: false,
+			},
+			wantErr: "min_pwm is 0 but allow_stop is false",
+		},
+		{
+			name: "minpwm_zero_allowstop_true_accepts",
+			fan: Fan{
+				Name: "case_fan", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  0, MaxPWM: 255,
+				AllowStop: true,
+			},
+		},
+		{
+			name: "minpwm_ten_allowstop_false_accepts",
+			fan: Fan{
+				Name: "case_fan", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  10, MaxPWM: 255,
+				AllowStop: false,
+			},
+		},
+		{
+			name: "minpwm_ten_allowstop_true_accepts",
+			fan: Fan{
+				Name: "case_fan", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  10, MaxPWM: 255,
+				AllowStop: true,
+			},
+		},
+		{
+			name: "pump_pumpminimum_zero_rejects_even_with_allowstop",
+			fan: Fan{
+				Name: "pump", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  50, MaxPWM: 255,
+				IsPump: true, PumpMinimum: 0,
+				AllowStop: true,
+			},
+			wantErr: "pump_minimum is 0",
+		},
+		{
+			name: "pump_pumpminimum_zero_rejects_without_allowstop",
+			fan: Fan{
+				Name: "pump", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  50, MaxPWM: 255,
+				IsPump: true, PumpMinimum: 0,
+			},
+			wantErr: "pump_minimum is 0",
+		},
+		{
+			// Pumps must never stop: min_pwm=0 on a pump is rejected
+			// by the pump floor check (floor >= MinPumpPWM=20), not by
+			// the allow_stop gate. Pinning the behaviour so the pump
+			// floor stays the binding constraint for pumps.
+			name: "pump_minpwm_zero_rejects_at_pump_floor",
+			fan: Fan{
+				Name: "pump", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  0, MaxPWM: 255,
+				IsPump: true, PumpMinimum: 10,
+				AllowStop: true,
+			},
+			wantErr: "below pump floor",
+		},
+		{
+			name: "pump_valid_with_explicit_minimum",
+			fan: Fan{
+				Name: "pump", Type: "hwmon",
+				PWMPath: "/sys/class/hwmon/hwmon0/pwm1",
+				MinPWM:  50, MaxPWM: 255,
+				IsPump: true, PumpMinimum: 50,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Version: CurrentVersion,
+				Fans:    []Fan{tc.fan},
+			}
+			err := validate(cfg)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q missing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateAllowStopGateFixtures exercises the full Parse path against
+// on-disk YAML fixtures, mirroring how the daemon loads an operator's
+// hand-edited config. Keeping the fixtures under testdata/ makes the
+// unsafe YAML shapes visible to a reader who runs `ls internal/config/
+// testdata` without having to parse Go struct literals.
+func TestValidateAllowStopGateFixtures(t *testing.T) {
+	cases := []struct {
+		file    string
+		wantErr string // substring; "" means accept
+	}{
+		{file: "valid_all_safe.yaml", wantErr: ""},
+		{file: "reject_minpwm_zero_no_allowstop.yaml", wantErr: "allow_stop is false"},
+		{file: "reject_pump_minimum_zero.yaml", wantErr: "pump_minimum is 0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("testdata", tc.file))
+			if err != nil {
+				t.Fatalf("read fixture: %v", err)
+			}
+			_, err = Parse(data)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("fixture %s: unexpected error: %v", tc.file, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("fixture %s: expected error containing %q, got nil", tc.file, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("fixture %s: error %q missing %q", tc.file, err, tc.wantErr)
+			}
+		})
 	}
 }
