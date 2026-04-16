@@ -42,24 +42,18 @@ func TestSafety_Invariants(t *testing.T) {
 	// ---------- Rule: clamp every PWM write to [MinPWM, MaxPWM] ----------
 
 	t.Run("clamp/below_min_pwm", func(t *testing.T) {
-		// Curve returning 10 with MinPWM=40 must be clipped to 40.
-		// A curve bug must never stall a fan below its configured floor.
+		// Curve returns 10 with MinPWM=40 → clamp must push the write to
+		// 40. A curve bug must never stall a fan below its configured
+		// floor. Fixed curves keep the input→output mapping explicit —
+		// no mental math about what temperature produces what PWM.
 		ff := newFakeFan(t)
-		// Force curve output ~10 by pinning temp just above MinTemp with a
-		// linear 40-200C / 0-255 curve: at 41C the ratio is 1/160 ≈ 1.6.
-		if err := os.WriteFile(ff.tempPath, []byte("41000\n"), 0o600); err != nil {
-			t.Fatalf("seed temp: %v", err)
-		}
 		cfg := &config.Config{
 			Sensors: []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
 			Fans: []config.Fan{{
 				Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
 				MinPWM: 40, MaxPWM: 200,
 			}},
-			Curves: []config.CurveConfig{{
-				Name: "cpu_curve", Type: "linear", Sensor: "cpu",
-				MinTemp: 40, MaxTemp: 200, MinPWM: 0, MaxPWM: 255,
-			}},
+			Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 10}},
 			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
 		}
 		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
@@ -71,13 +65,19 @@ func TestSafety_Invariants(t *testing.T) {
 	})
 
 	t.Run("clamp/above_max_pwm", func(t *testing.T) {
-		// Curve returning 250 with MaxPWM=200 must be clipped to 200.
-		// An overrunning curve must never push a fan past its noise ceiling.
+		// Curve returns 250 with MaxPWM=200 → clamp must cap the write at
+		// 200. An overrunning curve must never push a fan past its noise
+		// ceiling.
 		ff := newFakeFan(t)
-		if err := os.WriteFile(ff.tempPath, []byte("120000\n"), 0o600); err != nil {
-			t.Fatalf("seed temp: %v", err)
+		cfg := &config.Config{
+			Sensors: []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
+			Fans: []config.Fan{{
+				Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
+				MinPWM: 40, MaxPWM: 200,
+			}},
+			Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 250}},
+			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
 		}
-		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
 		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
 		c.tick()
 
