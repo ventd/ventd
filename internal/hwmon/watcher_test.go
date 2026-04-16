@@ -370,6 +370,13 @@ func TestWatcher_RebindTrigger_RateLimited(t *testing.T) {
 // TestWatcher_RebindTrigger_NilHookNoCrash confirms the watcher tolerates a
 // nil rebindTrigger — production runs with one installed, but tests and
 // older callers should still work without one.
+//
+// This is also the disabled-flag regression guard for v0.3: when
+// cfg.Hwmon.DynamicRebind is false, main.go never passes
+// WithRebindTrigger, so the watcher's rebindTrigger field stays nil and
+// an action=added promotion must NOT signal anything. If a future
+// refactor wires the trigger up unconditionally it will light this test
+// and the config gate will still hold.
 func TestWatcher_RebindTrigger_NilHookNoCrash(t *testing.T) {
 	t0 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1")}
 	t1 := []HwmonDevice{
@@ -377,6 +384,11 @@ func TestWatcher_RebindTrigger_NilHookNoCrash(t *testing.T) {
 		dev("nct6687.b", "nct6687d", ClassPrimary, "pwm1"),
 	}
 	w, _, _ := newTestWatcher(t, t0, t1, t1)
+	if w.rebindTrigger != nil {
+		t.Fatalf("newTestWatcher unexpectedly installed a rebindTrigger; "+
+			"disabled-path test is no longer exercising the disabled path (got %T)",
+			w.rebindTrigger)
+	}
 	now := time.Now()
 	w.check(now)
 	w.check(now.Add(defaultDebounce))
