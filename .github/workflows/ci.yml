@@ -10,22 +10,72 @@ permissions:
   contents: read
 
 jobs:
+  # v0.3.0 acceptance gate: every PR runs this matrix on all four
+  # distros. A single-distro green is no longer sufficient for merge.
+  # See release-notes/v0.3.0-plan.md.
   build:
-    name: build-and-test
-    runs-on: ubuntu-latest
+    name: build-and-test (${{ matrix.distro }})
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.container }}
     strategy:
+      fail-fast: false
       matrix:
-        go-version: ["1.25.x"]
+        include:
+          - distro: ubuntu-24.04
+            container: ""
+            prereqs: ""
+            use-setup-go: true
+            race: true
+          - distro: fedora-41
+            container: "fedora:41"
+            prereqs: "dnf install -y git gcc tar which"
+            use-setup-go: true
+            race: true
+          - distro: arch
+            container: "archlinux:latest"
+            prereqs: "pacman -Sy --noconfirm git gcc tar which"
+            use-setup-go: true
+            race: true
+          # Alpine uses the upstream Go 1.25 tarball rather than apk's
+          # `go` package (which lags behind and refuses to build a
+          # go.mod with `go 1.25.0`). The race detector needs cgo, and
+          # .claude/rules/usability.md requires the binary stay
+          # libc-only — so we build with CGO_ENABLED=0 and skip -race
+          # on this row. Race coverage comes from the other three
+          # distros; Alpine's job is to prove the code compiles and
+          # passes tests under musl.
+          - distro: alpine-3.20
+            container: "alpine:3.20"
+            prereqs: "apk add --no-cache bash ca-certificates curl git tar"
+            use-setup-go: false
+            race: false
     steps:
+      - name: Install prerequisites
+        if: matrix.prereqs != ''
+        run: ${{ matrix.prereqs }}
+
       - uses: actions/checkout@v6
 
-      - name: Set up Go
+      - name: Set up Go (setup-go)
+        if: matrix.use-setup-go
         uses: actions/setup-go@v6
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: "1.25.x"
           cache: true
 
+      - name: Set up Go (upstream tarball, Alpine)
+        if: ${{ !matrix.use-setup-go }}
+        run: |
+          GO_VERSION=1.25.0
+          curl -fsSL -o /tmp/go.tgz \
+            "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          tar -C /usr/local -xzf /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+
+      # Tidy-drift is distro-independent; run only on Ubuntu to avoid
+      # false positives from minor toolchain-version differences.
       - name: Verify module tidy
+        if: matrix.distro == 'ubuntu-24.04'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
@@ -39,7 +89,15 @@ jobs:
         run: go build -trimpath -ldflags="-s -w" ./cmd/ventd/
 
       - name: Test with race detector
+        if: matrix.race
         run: go test -race -count=1 ./...
+
+      # Alpine row: CGO_ENABLED=0, no -race. See matrix comment above.
+      - name: Test (no race, musl)
+        if: ${{ !matrix.race }}
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./...
 
   lint:
     name: golangci-lint
