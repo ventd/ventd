@@ -64,12 +64,18 @@ LABEL org.opencontainers.image.documentation="https://github.com/ventd/ventd/blo
 # tzdata: timestamps in the web UI / journal.
 # wget: used by HEALTHCHECK below (busybox wget is in base).
 #
-# The ventd group GID is fixed at 472 so host-side installs can align
+# The ventd group GID defaults to 472 so host-side installs can align
 # the udev-rule group (deploy/90-ventd-hwmon.rules) with the in-
-# container user. See packaging/docker/README.md § "Host prerequisites"
-# for the mapping runbook.
+# container user. Hosts whose ventd group landed on a different GID
+# (useradd --system picks the first free sub-500 slot) can override
+# with --build-arg VENTD_GID=$(getent group ventd | cut -d: -f3). UID
+# stays fixed — only the group participates in the sysfs DAC check
+# that deploy/90-ventd-hwmon.rules sets up (g+w on pwm<N>, pwm<N>_enable).
+# See packaging/docker/README.md § "Host prerequisites" for the mapping
+# runbook.
+ARG VENTD_GID=472
 RUN apk add --no-cache ca-certificates tzdata \
- && addgroup -S -g 472 ventd \
+ && addgroup -S -g "${VENTD_GID}" ventd \
  && adduser -S -D -H -u 472 -G ventd -s /sbin/nologin ventd \
  && mkdir -p /etc/ventd \
  && chown ventd:ventd /etc/ventd
