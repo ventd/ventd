@@ -23,7 +23,7 @@ statement coverage from the same run.
 | `cmd/ventd`                   |   15.1 % | Daemon entrypoint plus the folded-in `--list-fans-probe` and `--preflight-check` subcommands. Most logic delegated to `internal/*`. |
 | `internal/calibrate`          |   65.5 % | Curve fitting + RPM detection tested. Now includes `ZeroPWMSentinel` 8-case suite (PWM=0 escalation). |
 | `internal/config`             |   61.8 % | `Load`+`ResolveHwmonPaths` integration covered. `EnrichChipName` 9-case suite landed alongside the writer-side ChipName population. |
-| `internal/controller`         |   88.0 % | Control-loop orchestration. Every rule in `.claude/rules/hwmon-safety.md` is now bound 1:1 to a named subtest in `safety_test.go` (`TestSafety_Invariants`); two subtests are skipped pending #115 (allow_stop gate) and #116 (Restore on ctx cancel). |
+| `internal/controller`         |   88.0 % | Control-loop orchestration. Every rule in `.claude/rules/hwmon-safety.md` is now bound 1:1 to a named subtest in `safety_test.go` (`TestSafety_Invariants`); all 12 subtests are live — the two previously-skipped cases for #115 (allow_stop gate) and #116 (Restore on ctx cancel) flipped green in #124. |
 | `internal/curve`              |  100.0 % | Linear / Fixed / Mix all table-driven. `MixFunc` parser exhausted. |
 | `internal/hwdiag`             |   87.2 % | Small, mostly pure helpers. |
 | `internal/hwmon`              |   31.4 % | Now includes `DiagnoseHwmon` (7 cases), `RecoverAllPWM` (5 cases), and the udev-rule behaviour suite (8 cases). Largest remaining untested surface is `autoload.go` (sensors-detect parsing + module probing). |

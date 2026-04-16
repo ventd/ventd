@@ -28,6 +28,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   under `[Unit].After=` and `ventd-wait-hwmon` MUST live under
   `[Service].ExecStartPre=`. (#125)
 
+### Safety
+
+- New `config.Fan.AllowStop` opt-in gate. The controller now refuses
+  to write `PWM=0` unless the fan has both `min_pwm: 0` *and*
+  `allow_stop: true`. Fixes a latent gap where `min_pwm: 0` (valid
+  for Intel stock coolers and some case fans) silently permitted
+  zero writes through the clamp, violating hwmon-safety rule 1.
+  Existing configs without `allow_stop` keep the current behaviour
+  when `min_pwm > 0`; a config with `min_pwm: 0` and no
+  `allow_stop` now logs a warning and skips the write rather than
+  stopping the fan. (#115, #124)
+- `Controller.Run` now restores the watchdog on every exit path
+  (`ctx.Done`, early error, panic), not only the panic-recover
+  branch. The daemon-level `defer wd.Restore()` in
+  `cmd/ventd/main.go` becomes defence-in-depth; the controller
+  layer owns the hwmon-safety rule 4 invariant on its own. (#116,
+  #124)
+
+### Tests
+
+- `internal/controller/safety_test.go` binds every rule in
+  `.claude/rules/hwmon-safety.md` to a named subtest. Controller
+  statement coverage: 12.0 % → 88.0 %. All 12 safety subtests pass
+  under `-race`. (#118, #124)
+
 ### Infrastructure
 
 - CI `build-and-test` expanded to a four-distro matrix (Ubuntu 24.04,

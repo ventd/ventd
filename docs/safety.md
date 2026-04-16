@@ -32,6 +32,12 @@ Calibration sweeps that probe the stop-PWM of a fan deliberately drive PWM to `0
 
 Every calibration step and every runtime control write is clamped to the fan's configured `[min_pwm, max_pwm]` range. Pump fans have a hard minimum floor enforced before every write; ventd refuses to write below it regardless of curve or manual override.
 
+### Fan-stop gate
+
+`PWM=0` is a special case. Some fans (stock Intel coolers, many case fans) interpret it as "stop"; others treat it as "slowest non-zero duty cycle". To make stop intentional rather than accidental, ventd refuses to write `PWM=0` unless the fan's config has both `min_pwm: 0` *and* `allow_stop: true`. A `min_pwm: 0` without `allow_stop` logs a warning and skips the tick; the fan stays at whatever PWM was last written.
+
+The setup wizard never generates `min_pwm: 0` (the safe default is `min_pwm: 20` or the measured stop-PWM, whichever is higher), so the gate only bites hand-edited YAML. If you want to permit fan stop for a quiet idle, add `allow_stop: true` next to `min_pwm: 0` — the daemon will not stop the fan without it.
+
 ## Hardware change detection
 
 A new fan or GPU plugged in mid-run does not bypass safety. `ventd` notices the uevent within a second (or within ten seconds via periodic rescan when `AF_NETLINK` is unavailable), enumerates the new controls read-only, and waits for the operator to accept them in the UI before any write.
