@@ -160,32 +160,6 @@ func TestDetectRPM_EIOSkipNotCrash(t *testing.T) {
 	t.Skip("tracked by #132: extract calibrate.Manager interface for testable RPM detection errors")
 }
 
-// ---------- reboot/* ----------
-
-func TestReboot_DoesNotFireWhenVentdIsPid1ish(t *testing.T) {
-	// Invariant: in container-like environments where PID 1 is ventd,
-	// handleSystemReboot must refuse with a diagnostic.
-	//
-	// handleSystemReboot lives in internal/web/server.go:919, not
-	// internal/setup. This test documents the gap; the invariant belongs
-	// in a web handler test suite.
-	t.Skip("tracked by #133: handleSystemReboot lives in internal/web, not internal/setup")
-}
-
-// ---------- wizard/* ----------
-
-func TestWizard_StateMachineRejectsOutOfOrderSteps(t *testing.T) {
-	// Invariant: submitting "apply" before "detect" must return a
-	// user-facing error.
-	//
-	// The state machine enforcement (if any) lives in the HTTP handlers
-	// handleSetupApply / handleSetupStart in internal/web/server.go.
-	// The setup.Manager itself is state-tracked (running/done/applied)
-	// and Start() refuses if already running or done, but "step order"
-	// is an HTTP-layer concern.
-	t.Skip("tracked by #133: wizard state machine enforcement lives in internal/web")
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Additional invariant tests targeting actual uncovered code paths in
 // internal/setup that DON'T require setup.go changes.
