@@ -6,6 +6,26 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — visual binding between dashboard cards
+
+- Hovering any fan / curve / sensor card on the dashboard now
+  highlights every card in the binding chain — the fan's bound curve,
+  the curve's source sensor, and (for mix curves) every upstream curve
+  and sensor the mix reads. Non-highlighted cards dim so the
+  relationship pops. `collectBindings()` walks the dependency graph
+  with a depth guard against self-referential mixes; the cycle
+  protection is intentional because a badly-authored config can
+  legally reference itself until `config.Save` rejects it. Touch
+  devices get a brief 1.2s highlight on tap without selecting the
+  curve, so mobile users can still see the relationship.
+- Source-curve names inside a mix curve's card are now clickable.
+  Clicking a source opens that curve in the editor below the card
+  grid and smooth-scrolls the editor into view. Dangling references
+  (a source whose upstream was renamed or deleted) render with a
+  dashed red underline and a "Source curve not found" tooltip instead
+  of a live link. Closes the audit finding that `max(cpu_linear, chipset_linear)`
+  read as mystery text with no affordance.
+
 ### Added — web UI empty-state copy
 
 - Every empty dashboard section now renders explanatory copy instead of

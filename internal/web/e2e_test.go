@@ -1556,6 +1556,184 @@ func TestE2E_EmptyStates_RenderCopyAtEveryBreakpoint(t *testing.T) {
 	}
 }
 
+// TestE2E_VisualBinding_HoverHighlightsRelatedCards seeds a 1-sensor +
+// 2-curve + 1-fan topology (linear curve reads sensor; mix curve
+// references the linear; fan binds to the mix) and asserts that
+// hovering any card in the chain lights up every related card and
+// none of the unrelated ones. The mix-source click path is covered by
+// the sibling TestE2E_VisualBinding_MixLinkSelectsSource test.
+func TestE2E_VisualBinding_HoverHighlightsRelatedCards(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cooling_mix"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{
+		{Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp", MinTemp: 30, MaxTemp: 70, MinPWM: 80, MaxPWM: 255},
+		{Name: "cooling_mix", Type: "mix", Function: "max", Sources: []string{"cpu_linear"}},
+	}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1920, 1080)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".fan-card")
+
+	hoverAndRead := func(t *testing.T, kind, name string) map[string]bool {
+		t.Helper()
+		if _, err := page.Eval(`(k, n) => { clearBindingHighlights(); applyBindingHighlights(k, n); }`, kind, name); err != nil {
+			t.Fatalf("apply binding: %v", err)
+		}
+		res, err := page.Eval(`() => {
+			const out = {};
+			document.querySelectorAll('.binding-highlight').forEach(el => {
+				const k = el.classList.contains('fan-card') ? 'fan:'
+					: el.classList.contains('curve-card') ? 'curve:'
+					: el.classList.contains('sensor-card') ? 'sensor:' : '?:';
+				const n = el.dataset.fan || el.dataset.curve || el.dataset.sensor || '?';
+				out[k+n] = true;
+			});
+			return out;
+		}`)
+		if err != nil {
+			t.Fatalf("read highlights: %v", err)
+		}
+		got := map[string]bool{}
+		for k := range res.Value.Map() {
+			got[k] = true
+		}
+		return got
+	}
+
+	cases := []struct {
+		label     string
+		kind      string
+		name      string
+		wantKeys  []string
+		wantCount int
+	}{
+		{"hover fan → mix + linear + sensor", "fan", "cpu-fan",
+			[]string{"fan:cpu-fan", "curve:cooling_mix", "curve:cpu_linear", "sensor:cpu_temp"}, 4},
+		{"hover mix → linear + sensor + fan", "curve", "cooling_mix",
+			[]string{"curve:cooling_mix", "curve:cpu_linear", "sensor:cpu_temp", "fan:cpu-fan"}, 4},
+		{"hover linear → sensor + fan + mix (mix reads linear transitively)", "curve", "cpu_linear",
+			[]string{"curve:cpu_linear", "sensor:cpu_temp"}, 2},
+		{"hover sensor → every curve that reads it + every fan bound", "sensor", "cpu_temp",
+			[]string{"sensor:cpu_temp", "curve:cpu_linear", "curve:cooling_mix", "fan:cpu-fan"}, 4},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			got := hoverAndRead(t, c.kind, c.name)
+			for _, k := range c.wantKeys {
+				if !got[k] {
+					t.Errorf("hover %s=%q missing %q; got %v", c.kind, c.name, k, got)
+				}
+			}
+			if len(got) != c.wantCount {
+				t.Errorf("hover %s=%q: got %d highlights (%v), want %d", c.kind, c.name, len(got), got, c.wantCount)
+			}
+		})
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		outDir, err := os.MkdirTemp("", "ventd-binding-")
+		if err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		t.Logf("binding screenshots dir: %s", outDir)
+		if _, err := page.Eval(`() => { clearBindingHighlights(); }`); err != nil {
+			t.Fatalf("clear binding: %v", err)
+		}
+		data := page.MustScreenshot()
+		_ = os.WriteFile(fmt.Sprintf("%s/binding-before.png", outDir), data, 0o644)
+
+		if _, err := page.Eval(`() => { applyBindingHighlights('fan', 'cpu-fan'); }`); err != nil {
+			t.Fatalf("apply fan binding: %v", err)
+		}
+		time.Sleep(150 * time.Millisecond)
+		data = page.MustScreenshot()
+		_ = os.WriteFile(fmt.Sprintf("%s/binding-after.png", outDir), data, 0o644)
+	}
+}
+
+// TestE2E_VisualBinding_MixLinkSelectsSource verifies PR-2c: clicking
+// a source-curve name inside a mix curve's card selects that source
+// in the curve editor below.
+func TestE2E_VisualBinding_MixLinkSelectsSource(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{
+		{Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp", MinTemp: 30, MaxTemp: 70, MinPWM: 80, MaxPWM: 255},
+		{Name: "chipset_linear", Type: "linear", Sensor: "cpu_temp", MinTemp: 35, MaxTemp: 75, MinPWM: 60, MaxPWM: 200},
+		{Name: "cooling_mix", Type: "mix", Function: "max", Sources: []string{"cpu_linear", "chipset_linear"}},
+	}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1920, 1080)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	if _, err := page.Eval(`() => {
+		const link = document.querySelector('.curve-card[data-curve="cooling_mix"] .curve-link[data-name="chipset_linear"]');
+		if (!link) throw new Error('missing chipset_linear link');
+		link.click();
+	}`); err != nil {
+		t.Fatalf("click source link: %v", err)
+	}
+
+	res, err := page.Eval(`() => {
+		const active = document.querySelector('.curve-card.active');
+		return active ? (active.dataset.curve || '') : '';
+	}`)
+	if err != nil {
+		t.Fatalf("read active curve: %v", err)
+	}
+	if got := res.Value.Str(); got != "chipset_linear" {
+		t.Errorf("active curve after click = %q, want %q", got, "chipset_linear")
+	}
+
+	title, err := page.Eval(`() => {
+		const inp = document.querySelector('#curve-editor input[data-action="rename-curve"]');
+		return inp ? inp.value : '';
+	}`)
+	if err != nil {
+		t.Fatalf("read editor: %v", err)
+	}
+	if got := title.Value.Str(); got != "chipset_linear" {
+		t.Errorf("editor shows curve name %q, want %q", got, "chipset_linear")
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

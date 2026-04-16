@@ -160,7 +160,7 @@ function renderSensorCardHTML(s, i){
   const pathDisplay = s.type==='nvidia'
     ? 'GPU '+(s.path||'0')+(s.metric?' \u00b7 '+s.metric:'')
     : (s.path||'').replace('/sys/class/hwmon/','');
-  return '<div class="card">'+
+  return '<div class="card sensor-card" data-sensor="'+esc(s.name)+'">'+
     '<div class="card-name-edit sensor-name-edit">'+
       '<input type="text" value="'+esc(s.name)+'" '+
         'data-orig="'+esc(s.name)+'" '+
@@ -289,7 +289,9 @@ function renderFanCardHTML(ctrl, i){
       'title="Auto-detect RPM sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#search"/></svg></button>';
 
     const dCls = dutyClass(duty);
-    return '<div class="card">'+
+    const fanBindCurve = (!isManual && ctrl.curve) ? ctrl.curve : '';
+    return '<div class="card fan-card" data-fan="'+esc(ctrl.fan)+'"'+
+      (fanBindCurve ? ' data-binds-curve="'+esc(fanBindCurve)+'"' : '')+'>'+
       '<div class="card-name-edit">'+
         '<input type="text" value="'+esc(ctrl.fan)+'" '+
           'data-orig="'+esc(ctrl.fan)+'" '+
@@ -370,9 +372,27 @@ function renderCurveCards(){
     } else if(c.type==='fixed'){
       out=p2pct(c.value)+'%';
     } else if(c.type==='mix'){
-      out=c.function+'('+(c.sources||[]).join(', ')+')';
+      // Each source name renders as an anchor so a click selects that
+      // curve in the editor below. An unresolvable source (renamed or
+      // deleted upstream) stays text-only with a muted class so the
+      // user can spot the dangling reference without the click hinting
+      // at a target that no longer exists.
+      const sources = (c.sources||[]).map(srcName => {
+        const ok = cfg.curves.some(x => x.name === srcName);
+        if(!ok) return '<span class="curve-link curve-link-missing" title="Source curve not found">'+esc(srcName)+'</span>';
+        return '<a class="curve-link" data-action="select-curve-by-name" '+
+          'data-name="'+esc(srcName)+'">'+esc(srcName)+'</a>';
+      }).join(', ');
+      out=esc(c.function)+'('+sources+')';
     }
-    return '<div class="card curve-card'+(i===selIdx?' active':'')+'" data-action="select-curve" data-idx="'+i+'">'+
+    // Curve card carries its binding data — data-curve is the name, and
+    // data-reads-sensor / data-reads-curves expose the inputs so the
+    // hover-binding helper in collectBindings() can walk the dependency
+    // graph without re-grepping cfg on every mouseenter.
+    let bindAttrs = 'data-curve="'+esc(c.name)+'"';
+    if(c.type==='linear' && c.sensor) bindAttrs += ' data-reads-sensor="'+esc(c.sensor)+'"';
+    if(c.type==='mix' && c.sources && c.sources.length) bindAttrs += ' data-reads-curves="'+esc(c.sources.join(','))+'"';
+    return '<div class="card curve-card'+(i===selIdx?' active':'')+'" '+bindAttrs+' data-action="select-curve" data-idx="'+i+'">'+
       '<div class="card-header"><span class="card-name">'+esc(c.name)+'</span>'+
         '<span class="type-badge type-'+c.type+'">'+c.type.toUpperCase()+'</span></div>'+
       miniSVG(c)+
@@ -617,6 +637,9 @@ document.addEventListener('click', (e) => {
     case 'select-curve':
       selectCurve(+el.dataset.idx);
       break;
+    case 'select-curve-by-name':
+      selectCurveByName(el.dataset.name);
+      break;
     // ── curve editor group ──
     case 'delete-curve':
       deleteCurve();
@@ -739,6 +762,131 @@ document.addEventListener('keydown', (e) => {
   if (!el.dataset || !el.dataset.action) return;
   el.blur();
 });
+
+// ── Visual binding (fan ↔ curve ↔ sensor) ──
+//
+// On hover, compute the transitive dependency set for the hovered card
+// and mark every related card with `.binding-highlight`. A fan card
+// lights up the curve it binds to, that curve's sensor, and — if the
+// curve is a mix — every upstream curve and their sensors. A curve
+// card lights up every fan using it and every sensor it (transitively)
+// reads. A sensor card lights up every curve that reaches it and every
+// fan bound to those curves.
+//
+// A mouseenter/mouseleave pair per card would work but re-registering
+// after each renderFanCards re-render would leak listeners. Delegate
+// to the document with a cheap closest() walk instead; on mouseleave
+// every highlight is cleared, so a fast cursor move across two cards
+// never paints two overlapping sets.
+function collectBindings(kind, name){
+  const out = { curves: new Set(), sensors: new Set(), fans: new Set() };
+  if(!cfg || !name) return out;
+  const curves = cfg.curves || [];
+  const controls = cfg.controls || [];
+
+  const visitCurve = (cname, depth) => {
+    if(depth > 16 || out.curves.has(cname)) return;
+    out.curves.add(cname);
+    const c = curves.find(x => x.name === cname);
+    if(!c) return;
+    if(c.type === 'linear' && c.sensor) out.sensors.add(c.sensor);
+    if(c.type === 'mix' && c.sources) c.sources.forEach(s => visitCurve(s, depth+1));
+  };
+  const visitFan = (fname) => {
+    if(out.fans.has(fname)) return;
+    out.fans.add(fname);
+    const ctrl = controls.find(c => c.fan === fname);
+    if(ctrl && ctrl.curve) visitCurve(ctrl.curve, 0);
+  };
+  const readsSensor = (cname, target, chain, depth) => {
+    if(depth > 16 || chain.has(cname)) return false;
+    chain.add(cname);
+    const c = curves.find(x => x.name === cname);
+    if(!c) return false;
+    if(c.type === 'linear' && c.sensor === target) return true;
+    if(c.type === 'mix' && c.sources) return c.sources.some(s => readsSensor(s, target, chain, depth+1));
+    return false;
+  };
+
+  if(kind === 'fan') visitFan(name);
+  else if(kind === 'curve'){
+    visitCurve(name, 0);
+    controls.forEach(c => { if(c.curve === name) visitFan(c.fan); });
+  } else if(kind === 'sensor'){
+    out.sensors.add(name);
+    curves.forEach(c => {
+      if(readsSensor(c.name, name, new Set(), 0)) visitCurve(c.name, 0);
+    });
+    controls.forEach(ctrl => { if(out.curves.has(ctrl.curve)) out.fans.add(ctrl.fan); });
+  }
+  return out;
+}
+
+function clearBindingHighlights(){
+  document.querySelectorAll('.binding-highlight').forEach(el => el.classList.remove('binding-highlight'));
+  document.body.classList.remove('binding-dim');
+}
+function applyBindingHighlights(kind, name){
+  const b = collectBindings(kind, name);
+  if(!b.curves.size && !b.sensors.size && !b.fans.size) return;
+  document.body.classList.add('binding-dim');
+  const mark = (sel) => { const el = document.querySelector(sel); if(el) el.classList.add('binding-highlight'); };
+  b.curves.forEach(n => mark('.curve-card[data-curve="'+CSS.escape(n)+'"]'));
+  b.sensors.forEach(n => mark('.sensor-card[data-sensor="'+CSS.escape(n)+'"]'));
+  b.fans.forEach(n => mark('.fan-card[data-fan="'+CSS.escape(n)+'"]'));
+}
+
+document.addEventListener('mouseover', (e) => {
+  if(!(e.target instanceof Element)) return;
+  const card = e.target.closest('.fan-card, .curve-card, .sensor-card');
+  if(!card){ clearBindingHighlights(); return; }
+  // Skip if we're still inside the same card — avoid churn during a
+  // cursor wiggle inside the card's padding.
+  if(card.classList.contains('binding-highlight')) return;
+  clearBindingHighlights();
+  let kind = '', name = '';
+  if(card.classList.contains('fan-card')){ kind = 'fan'; name = card.dataset.fan; }
+  else if(card.classList.contains('curve-card')){ kind = 'curve'; name = card.dataset.curve; }
+  else if(card.classList.contains('sensor-card')){ kind = 'sensor'; name = card.dataset.sensor; }
+  if(name) applyBindingHighlights(kind, name);
+});
+document.addEventListener('mouseleave', (e) => {
+  // Main element leave — only clear when the cursor exits the whole
+  // dashboard body so a mouseleave inside a card's subtree doesn't
+  // strip the highlight mid-render.
+  if(e.target === document.documentElement) clearBindingHighlights();
+});
+// Mirror the hover behaviour for touch: tapping a card briefly
+// highlights the bindings without selecting the curve. Touchend
+// removes the highlight after a short settle so a user who taps then
+// scrolls sees the relationship before it fades.
+let touchHighlightTimer = null;
+document.addEventListener('touchstart', (e) => {
+  if(!(e.target instanceof Element)) return;
+  const card = e.target.closest('.fan-card, .curve-card, .sensor-card');
+  if(!card) return;
+  clearBindingHighlights();
+  if(card.classList.contains('fan-card') && card.dataset.fan) applyBindingHighlights('fan', card.dataset.fan);
+  else if(card.classList.contains('curve-card') && card.dataset.curve) applyBindingHighlights('curve', card.dataset.curve);
+  else if(card.classList.contains('sensor-card') && card.dataset.sensor) applyBindingHighlights('sensor', card.dataset.sensor);
+  clearTimeout(touchHighlightTimer);
+  touchHighlightTimer = setTimeout(clearBindingHighlights, 1200);
+}, { passive: true });
+
+// selectCurveByName is called from the mix-source anchor click path.
+// Scrolls the editor into view after selecting so the user sees the
+// target curve rather than just having to hunt for it below the fold.
+function selectCurveByName(name){
+  if(!cfg || !name) return;
+  const idx = (cfg.curves || []).findIndex(c => c.name === name);
+  if(idx < 0){
+    if(typeof notify === 'function') notify('Curve "'+name+'" not found', 'error');
+    return;
+  }
+  selectCurve(idx);
+  const editor = document.getElementById('curve-editor');
+  if(editor) editor.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
 
 // toggle: <details> open/close inside the grouped dashboard sections.
 // The event does not bubble, so capture-phase listening at the
