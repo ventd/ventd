@@ -294,14 +294,25 @@ func diffCurveFields(a, b config.CurveConfig) []DiffField {
 	if a.MaxTemp != b.MaxTemp {
 		f = append(f, DiffField{Name: "max_temp", From: fmt.Sprint(a.MaxTemp), To: fmt.Sprint(b.MaxTemp)})
 	}
+	// Since PR-3f, the canonical persistence shape is the `_pct` field.
+	// The dry-run diff reads the live struct (which MigrateCurvePWMFields
+	// keeps in sync with the raw bytes), so a raw-field change IS a
+	// percent-field change; we report it under the new name so the
+	// Apply modal matches the YAML the daemon will actually write.
 	if a.MinPWM != b.MinPWM {
-		f = append(f, DiffField{Name: "min_pwm", From: fmt.Sprint(a.MinPWM), To: fmt.Sprint(b.MinPWM)})
+		f = append(f, DiffField{Name: "min_pwm_pct",
+			From: fmt.Sprint(rawToPctForDiff(a.MinPWM)),
+			To:   fmt.Sprint(rawToPctForDiff(b.MinPWM))})
 	}
 	if a.MaxPWM != b.MaxPWM {
-		f = append(f, DiffField{Name: "max_pwm", From: fmt.Sprint(a.MaxPWM), To: fmt.Sprint(b.MaxPWM)})
+		f = append(f, DiffField{Name: "max_pwm_pct",
+			From: fmt.Sprint(rawToPctForDiff(a.MaxPWM)),
+			To:   fmt.Sprint(rawToPctForDiff(b.MaxPWM))})
 	}
 	if a.Value != b.Value {
-		f = append(f, DiffField{Name: "value", From: fmt.Sprint(a.Value), To: fmt.Sprint(b.Value)})
+		f = append(f, DiffField{Name: "value_pct",
+			From: fmt.Sprint(rawToPctForDiff(a.Value)),
+			To:   fmt.Sprint(rawToPctForDiff(b.Value))})
 	}
 	if a.Function != b.Function {
 		f = append(f, DiffField{Name: "function", From: a.Function, To: b.Function})
@@ -394,9 +405,19 @@ func curvePointsString(pts []config.CurvePoint) string {
 	}
 	parts := make([]string, len(pts))
 	for i, p := range pts {
-		parts[i] = fmt.Sprintf("(%.1f°,%d)", p.Temp, p.PWM)
+		// Display percent since 3f — raw PWM shown in a tooltip would
+		// clutter the Apply modal and the YAML the operator is about to
+		// commit carries the percent form.
+		parts[i] = fmt.Sprintf("(%.1f°,%d%%)", p.Temp, rawToPctForDiff(p.PWM))
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// rawToPctForDiff is a narrow, no-import alias for the diff formatter;
+// rounds 0-255 to 0-100 for display. Mirrors config.rawToPct but lives
+// here so the web package doesn't need to expose an internal helper.
+func rawToPctForDiff(raw uint8) uint8 {
+	return uint8((float64(raw)*100 + 127) / 255)
 }
 
 func boolStr(v bool) string {

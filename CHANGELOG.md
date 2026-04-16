@@ -8,6 +8,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
+- PWM 0-255 → percent 0-100 migration across the config surface.
+  `CurveConfig` now carries `MinPWMPct`, `MaxPWMPct`, and `ValuePct`
+  (`*uint8`); `CurvePoint` carries `PWMPct`. On load, `Parse()` calls
+  `MigrateCurvePWMFields` to reconcile the two forms — legacy YAML
+  with `min_pwm: 30` migrates to `min_pwm_pct: 12`, and any config
+  carrying both fields prefers `_pct` with a `slog.Warn`. On save,
+  `yaml.Marshal` emits only the percent form — a Load → Save cycle
+  strips `min_pwm`, `max_pwm`, `value`, and `pwm` keys from any
+  pre-3f config in one pass. Round-trip rounding tolerance of ±1
+  keeps successive migrations idempotent. The runtime keeps reading
+  the raw fields (`MinPWM`, `MaxPWM`, `Value`, `PWM`) so
+  `buildCurve` and existing tests see no behaviour change.
+  `/api/config` JSON emits both forms so post-3f UI code can read
+  the authoritative `_pct` value while legacy clients still see
+  the raw fields. Apply-modal diff renders the percent field names
+  (`min_pwm_pct: 30 → 50`) so the operator reviews exactly what the
+  YAML will write. (Refs #180)
 - Curve simulation preview in the editor pane. Three live rows below
   the number inputs: the PWM the curve outputs at the current sensor
   reading, the PWM at the curve's configured upper threshold

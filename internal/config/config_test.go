@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -697,6 +698,190 @@ controls: []
 	}
 	if _, err := Parse(out); err != nil {
 		t.Fatalf("re-parse: %v", err)
+	}
+}
+
+// TestMigrateCurvePWM_LegacyConfigUpgrades covers the v0.2.x →
+// 3f migration: a YAML carrying only raw `min_pwm` parses, migrates
+// into a populated `MinPWMPct`, and a Save → Load cycle re-emits only
+// the percent form. Tolerates the ±1 rounding that survives a
+// raw → pct → raw trip (e.g. 30/255 → 12% → 31/255).
+func TestMigrateCurvePWM_LegacyConfigUpgrades(t *testing.T) {
+	legacyYAML := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu
+    min_temp: 30
+    max_temp: 80
+    min_pwm: 30
+    max_pwm: 255
+controls: []
+`)
+	cfg, err := Parse(legacyYAML)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Curves[0].MinPWMPct == nil || *cfg.Curves[0].MinPWMPct != 12 {
+		t.Errorf("MinPWMPct = %v, want ptr(12)", cfg.Curves[0].MinPWMPct)
+	}
+	if cfg.Curves[0].MaxPWMPct == nil || *cfg.Curves[0].MaxPWMPct != 100 {
+		t.Errorf("MaxPWMPct = %v, want ptr(100)", cfg.Curves[0].MaxPWMPct)
+	}
+	// After migration, raw and _pct both populated; validate saw the
+	// raw form so the MinPWM<=MaxPWM gate held up.
+	if cfg.Curves[0].MinPWM == 0 || cfg.Curves[0].MaxPWM == 0 {
+		t.Errorf("raw fields should be mirrored from _pct, got min=%d max=%d", cfg.Curves[0].MinPWM, cfg.Curves[0].MaxPWM)
+	}
+}
+
+// TestMigrateCurvePWM_SaveDropsLegacyFields confirms that after a
+// Save → reload, the on-disk YAML carries only the `_pct` form.
+// No regression of the round-trip drift other than the ±1 rounding
+// inherent to 255<->100 scaling.
+func TestMigrateCurvePWM_SaveDropsLegacyFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	cfg := Empty()
+	cfg.Sensors = []Sensor{{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"}}
+	cfg.Curves = []CurveConfig{{
+		Name: "cpu_linear", Type: "linear", Sensor: "cpu",
+		MinTemp: 30, MaxTemp: 80, MinPWM: 30, MaxPWM: 255,
+	}}
+	saved, err := Save(cfg, path)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	// Re-read the on-disk bytes; legacy keys must be absent.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(raw), "min_pwm:") {
+		t.Errorf("YAML retained min_pwm: key after save;\n---\n%s\n---", raw)
+	}
+	if strings.Contains(string(raw), "max_pwm:") {
+		t.Errorf("YAML retained max_pwm: key after save;\n---\n%s\n---", raw)
+	}
+	if !strings.Contains(string(raw), "min_pwm_pct") {
+		t.Errorf("YAML missing min_pwm_pct key;\n---\n%s\n---", raw)
+	}
+	// saved reflects the migrated, re-parsed config.
+	if saved.Curves[0].MinPWMPct == nil {
+		t.Errorf("saved config missing MinPWMPct")
+	}
+}
+
+// TestMigrateCurvePWM_BothSetPrefersPct covers the "YAML carries both
+// `min_pwm` and `min_pwm_pct` and they disagree" edge case. The _pct
+// side wins; the warning is observable to a `slog` handler we inject.
+func TestMigrateCurvePWM_BothSetPrefersPct(t *testing.T) {
+	bothYAML := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors:
+  - name: cpu
+    type: hwmon
+    path: /sys/class/hwmon/hwmon0/temp1_input
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu
+    min_temp: 30
+    max_temp: 80
+    min_pwm: 128
+    min_pwm_pct: 30
+    max_pwm_pct: 100
+controls: []
+`)
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cfg, err := Parse(bothYAML)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	// _pct wins. MinPWMPct stays 30; MinPWM is derived from it, not
+	// from the disagreeing legacy 128. pctToRaw(30) = round(30*255/100) = 77.
+	if cfg.Curves[0].MinPWMPct == nil || *cfg.Curves[0].MinPWMPct != 30 {
+		t.Errorf("MinPWMPct = %v, want ptr(30)", cfg.Curves[0].MinPWMPct)
+	}
+	if cfg.Curves[0].MinPWM != 77 {
+		t.Errorf("MinPWM = %d, want 77 (derived from min_pwm_pct=30)", cfg.Curves[0].MinPWM)
+	}
+	if !strings.Contains(buf.String(), "disagree") {
+		t.Errorf("expected warning about disagreeing fields, got:\n%s", buf.String())
+	}
+}
+
+// TestMigrateCurvePWM_PointsPct covers the per-anchor migration. An
+// operator who hand-writes `pwm: 128` on a points curve gets a
+// `pwm_pct: 50` back after Save.
+func TestMigrateCurvePWM_PointsPct(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "points.yaml")
+	cfg := Empty()
+	cfg.Sensors = []Sensor{{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"}}
+	cfg.Curves = []CurveConfig{{
+		Name: "pts", Type: "points", Sensor: "cpu",
+		Points: []CurvePoint{{Temp: 40, PWM: 0}, {Temp: 80, PWM: 255}},
+	}}
+	saved, err := Save(cfg, path)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if saved.Curves[0].Points[0].PWMPct == nil || *saved.Curves[0].Points[0].PWMPct != 0 {
+		t.Errorf("anchor 0 PWMPct = %v, want ptr(0)", saved.Curves[0].Points[0].PWMPct)
+	}
+	if saved.Curves[0].Points[1].PWMPct == nil || *saved.Curves[0].Points[1].PWMPct != 100 {
+		t.Errorf("anchor 1 PWMPct = %v, want ptr(100)", saved.Curves[0].Points[1].PWMPct)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(raw), "pwm_pct") {
+		t.Errorf("YAML missing pwm_pct key;\n---\n%s\n---", raw)
+	}
+	// `pwm: 0` for anchor 0 is legal YAML with omitempty but the
+	// round-trip must not carry the legacy key on any anchor.
+	if strings.Contains(string(raw), "\n      pwm: 255") {
+		t.Errorf("YAML retained legacy pwm: 255 after save;\n---\n%s\n---", raw)
+	}
+}
+
+// TestMigrateCurvePWM_Idempotent — running migration twice leaves the
+// config untouched after the first pass. Guards against a regression
+// where the second pass re-computes percent from raw and drifts a
+// value by the rounding error.
+func TestMigrateCurvePWM_Idempotent(t *testing.T) {
+	cfg := &Config{
+		Curves: []CurveConfig{{
+			Name: "cpu_linear", Type: "linear", Sensor: "cpu",
+			MinTemp: 30, MaxTemp: 80, MinPWM: 30, MaxPWM: 255,
+		}},
+	}
+	MigrateCurvePWMFields(cfg)
+	firstMinPWM := cfg.Curves[0].MinPWM
+	firstMinPct := *cfg.Curves[0].MinPWMPct
+	MigrateCurvePWMFields(cfg)
+	if cfg.Curves[0].MinPWM != firstMinPWM {
+		t.Errorf("MinPWM drifted across two migrations: %d vs %d", firstMinPWM, cfg.Curves[0].MinPWM)
+	}
+	if *cfg.Curves[0].MinPWMPct != firstMinPct {
+		t.Errorf("MinPWMPct drifted across two migrations: %d vs %d", firstMinPct, *cfg.Curves[0].MinPWMPct)
 	}
 }
 

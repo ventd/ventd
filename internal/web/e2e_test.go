@@ -1791,7 +1791,9 @@ func TestE2E_ApplyFlow_OpensDiffModalAndCommits(t *testing.T) {
 		t.Fatalf("read diff: %v", err)
 	}
 	body := text.Value.Str()
-	for _, want := range []string{"cpu_linear", "max_temp", "80", "75", "max_pwm", "230"} {
+	// PR-3f: PWM changes render as `max_pwm_pct` with percent values.
+	// max_pwm 255 → 100%; max_pwm 230 → round(230*100/255)=90%.
+	for _, want := range []string{"cpu_linear", "max_temp", "80", "75", "max_pwm_pct", "100", "90"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("modal diff missing %q; got:\n%s", want, body)
 		}
@@ -2108,6 +2110,59 @@ func TestE2E_Rescan_ButtonIssuesRescanAndSurfaceToast(t *testing.T) {
 	// Spinner state should have returned to idle once the POST completed.
 	if getAttr(t, page, "#btn-rescan", "disabled") != "" {
 		t.Errorf("rescan button remained disabled after POST returned")
+	}
+}
+
+// TestE2E_CurveEditor_PercentFieldsInJSON verifies PR-3f: the
+// /api/config response includes the new `_pct` fields alongside the
+// legacy raw PWM fields so the UI can render either and the daemon's
+// YAML-only-_pct rule is observable from outside.
+func TestE2E_CurveEditor_PercentFieldsInJSON(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu_linear"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1", MinPWM: 80, MaxPWM: 255}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{{
+		Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp",
+		MinTemp: 30, MaxTemp: 80, MinPWM: 80, MaxPWM: 255,
+	}}
+	// Populate _pct fields so buildStatus doesn't need to re-migrate.
+	config.MigrateCurvePWMFields(&seeded)
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	// Read /api/config directly via fetch — the response body must
+	// carry min_pwm_pct / max_pwm_pct so post-3f clients can read the
+	// authoritative form.
+	res, err := page.Eval(`async () => {
+		const r = await fetch('/api/config');
+		return await r.text();
+	}`)
+	if err != nil {
+		t.Fatalf("fetch config: %v", err)
+	}
+	body := res.Value.Str()
+	for _, want := range []string{"min_pwm_pct", "max_pwm_pct"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/api/config missing %q; body=%q", want, body)
+		}
 	}
 }
 
