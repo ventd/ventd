@@ -82,6 +82,21 @@
     <span id="dirty" class="badge" hidden>Unsaved</span>
   </div>
   <div class="header-actions">
+    <select id="profile-select" class="profile-select hidden" data-action="switch-profile" title="Active profile"></select>
+    <div class="panic-wrap">
+      <button id="btn-panic" class="danger panic-btn" data-action="toggle-panic-popover" title="Pin all fans to max PWM">Panic</button>
+      <div id="panic-popover" class="panic-popover hidden" role="menu">
+        <div class="panic-popover-hdr">Duration</div>
+        <button class="panic-opt" data-action="start-panic" data-duration="30">30 s</button>
+        <button class="panic-opt" data-action="start-panic" data-duration="60">1 min</button>
+        <button class="panic-opt" data-action="start-panic" data-duration="300">5 min</button>
+        <button class="panic-opt" data-action="start-panic" data-duration="0">Until I cancel</button>
+      </div>
+      <div id="panic-active" class="panic-active hidden">
+        <span id="panic-countdown" class="panic-countdown"></span>
+        <button class="panic-cancel" data-action="cancel-panic">Cancel</button>
+      </div>
+    </div>
     <button id="btn-apply" class="primary" disabled>Apply</button>
     <button id="btn-sidebar"  class="icon-btn" data-action="toggle-sidebar" title="Toggle hardware panel"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#menu"/></svg></button>
     <button id="btn-theme"    class="icon-btn" data-action="toggle-theme"   title="Toggle light/dark mode"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#moon"/></svg></button>

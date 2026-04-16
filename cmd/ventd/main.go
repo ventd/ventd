@@ -419,6 +419,7 @@ func runDaemon(
 				controller.WithSensorReadHook(func() {
 					readyState.MarkSensorRead(time.Now())
 				}),
+				controller.WithPanicChecker(webSrv),
 			)
 			wg.Add(1)
 			go func(c *controller.Controller) {

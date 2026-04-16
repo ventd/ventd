@@ -42,14 +42,33 @@ const (
 )
 
 type Config struct {
-	Version      int           `yaml:"version" json:"version"`
-	PollInterval Duration      `yaml:"poll_interval" json:"poll_interval"`
-	Web          Web           `yaml:"web" json:"web"`
-	Hwmon        Hwmon         `yaml:"hwmon,omitempty" json:"hwmon,omitempty"`
-	Sensors      []Sensor      `yaml:"sensors" json:"sensors"`
-	Fans         []Fan         `yaml:"fans" json:"fans"`
-	Curves       []CurveConfig `yaml:"curves" json:"curves"`
-	Controls     []Control     `yaml:"controls" json:"controls"`
+	Version       int                `yaml:"version" json:"version"`
+	PollInterval  Duration           `yaml:"poll_interval" json:"poll_interval"`
+	Web           Web                `yaml:"web" json:"web"`
+	Hwmon         Hwmon              `yaml:"hwmon,omitempty" json:"hwmon,omitempty"`
+	Sensors       []Sensor           `yaml:"sensors" json:"sensors"`
+	Fans          []Fan              `yaml:"fans" json:"fans"`
+	Curves        []CurveConfig      `yaml:"curves" json:"curves"`
+	Controls      []Control          `yaml:"controls" json:"controls"`
+	Profiles      map[string]Profile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
+	ActiveProfile string             `yaml:"active_profile,omitempty" json:"active_profile,omitempty"`
+}
+
+// Profile groups a named set of fan→curve bindings so an operator can
+// switch the whole dashboard between Silent / Balanced / Performance
+// (or custom sets) without editing each Control row. The bindings map
+// keys by Fan.Name and values by CurveConfig.Name; missing keys leave
+// that fan's existing Control untouched when the profile is applied.
+//
+// Profile shape is intentionally a strict subset of Control — the
+// `manual_pwm` override lives on the Control itself, not on the
+// profile, because "force a fixed duty" is a per-fan ad-hoc
+// intervention, not a preset the operator wants to switch back to.
+//
+// Zero value (empty map) is safe: v0.2.x configs omit the profiles
+// block entirely and the omitempty tag keeps round-trip clean.
+type Profile struct {
+	Bindings map[string]string `yaml:"bindings" json:"bindings"`
 }
 
 // Hwmon groups runtime-tunable knobs for the hwmon watcher. All fields are
