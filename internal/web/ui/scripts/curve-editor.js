@@ -79,10 +79,12 @@ function renderLinearEditor(el,c){
       '<div class="fg"><label title="Exponential smoothing window applied to sensor reads. Higher values dampen noise but slow response.">Smoothing (s)</label>'+
         '<input type="number" id="f-sm" value="'+sm+'" min="0" max="60" step="1" data-action="upd-duration-sec" data-field="smoothing"></div>'+
       '<div class="fg"></div>'+
+      renderProjections()+
     '</div>'+
     '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
   drawSVG(c);
+  refreshProjections(c);
 }
 
 // durationToSec parses a Go time.Duration string ("5s", "1m30s", "") into
@@ -139,10 +141,12 @@ function renderPointsEditor(el,c){
       '<div class="fg"><label title="Exponential smoothing window applied to sensor reads. Higher values dampen noise but slow response.">Smoothing (s)</label>'+
         '<input type="number" id="f-sm" value="'+sm+'" min="0" max="60" step="1" data-action="upd-duration-sec" data-field="smoothing"></div>'+
       '<div class="fg"></div>'+
+      renderProjections()+
     '</div>'+
     '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
   '</div>';
   drawSVG(c);
+  refreshProjections(c);
 }
 
 function renderFixedEditor(el,c){
@@ -244,6 +248,9 @@ function drawSVG(c){
     h+='<circle class="ctrl-point max" data-point="max" cx="'+x3+'" cy="'+y3+'" r="6"/>';
   }
   svg.innerHTML=h;
+  // Keep the three preview rows in sync whenever the SVG redraws —
+  // drag, sensor update, or any curve mutation that touches drawSVG.
+  refreshProjections(c);
 }
 
 // drawPointsCurve emits the polyline between anchors plus the dashed
@@ -729,4 +736,147 @@ async function confirmReset(){
       if(r.ok){ clearInterval(poll); window.location.reload(); }
     } catch(_){}
   }, 800);
+}
+
+// ── Curve simulation preview ──
+//
+// Three live projections rendered below the number inputs:
+//   1. "Right now": curve output at the current sensor value
+//   2. "At <max_temp>°C": curve output at the curve's configured
+//      upper threshold (max_temp for linear, last anchor for points)
+//   3. "1h max: <temp>°C → <pct>%": curve output at the 60-minute peak
+//      from /api/history, if that endpoint exists (3c lands it later;
+//      until then the row shows "—")
+//
+// All three update on drag, on number-input change, and on each SSE
+// status tick. Computation is client-side — the curve helpers in
+// render.js (evalPointsCurve) and curveOutputAtTemp here mirror the
+// Go Evaluate() contract so no daemon round-trip fires on every
+// handle move.
+
+// historyMaxCache[sensorName] = { value: number|null, ts: ms }
+// Holds the result of the latest /api/history probe per sensor. A
+// 30-second TTL keeps the projection fresh without hammering the
+// endpoint on every editor re-render. null value = endpoint not
+// available (404) or no data — both render as "—".
+const historyMaxCache = {};
+const HISTORY_MAX_TTL_MS = 30000;
+
+function renderProjections(){
+  return '<div class="fg wide curve-projections">'+
+    '<div class="projection-title">Preview</div>'+
+    '<div class="projection-row" id="proj-now"><span class="projection-label">Right now:</span> <span class="projection-value">—</span></div>'+
+    '<div class="projection-row" id="proj-max"><span class="projection-label">At threshold:</span> <span class="projection-value">—</span></div>'+
+    '<div class="projection-row" id="proj-history"><span class="projection-label">1h max:</span> <span class="projection-value">—</span></div>'+
+  '</div>';
+}
+
+// refreshProjections updates the three projection rows for the active
+// curve. Nil-safe on partial state (no sts, sensor missing, curve type
+// without scalar sensor) — each row falls back to "—" so the operator
+// sees the absence of data rather than a stale number.
+function refreshProjections(c){
+  if(!c) return;
+  const elNow = document.getElementById('proj-now');
+  const elMax = document.getElementById('proj-max');
+  const elHist = document.getElementById('proj-history');
+  if(!elNow || !elMax || !elHist) return;
+
+  // Row 1 — current sensor reading.
+  const nowValEl = elNow.querySelector('.projection-value');
+  if(c.sensor && sts){
+    const sd = sts.sensors && sts.sensors.find(s => s.name === c.sensor);
+    if(sd){
+      const op = curveOutputAtTemp(c, sd.value);
+      if(op != null){
+        nowValEl.textContent = fmtSensorVal(sd.value, sd.unit) + ' → ' + p2pct(Math.round(op)) + '%';
+      } else {
+        nowValEl.textContent = '—';
+      }
+    } else {
+      nowValEl.textContent = '—';
+    }
+  } else {
+    nowValEl.textContent = '—';
+  }
+
+  // Row 2 — configured upper threshold. For linear that's max_temp;
+  // for points that's the last anchor. Fixed/mix don't have a scalar
+  // threshold so hide the row (set "—").
+  const maxLabelEl = elMax.querySelector('.projection-label');
+  const maxValEl = elMax.querySelector('.projection-value');
+  let maxTemp = null;
+  if(c.type === 'linear'){
+    maxTemp = (c.max_temp != null) ? c.max_temp : 80;
+  } else if(c.type === 'points' && c.points && c.points.length > 0){
+    const sorted = c.points.slice().sort((a,b)=>a.temp-b.temp);
+    maxTemp = sorted[sorted.length-1].temp;
+  }
+  if(maxTemp != null){
+    const op = curveOutputAtTemp(c, maxTemp);
+    maxLabelEl.textContent = 'At ' + maxTemp + '°:';
+    maxValEl.textContent = op != null ? p2pct(Math.round(op)) + '%' : '—';
+  } else {
+    maxLabelEl.textContent = 'At threshold:';
+    maxValEl.textContent = '—';
+  }
+
+  // Row 3 — historical peak from /api/history. Fetch async; update
+  // lazily when the promise resolves.
+  const histValEl = elHist.querySelector('.projection-value');
+  if(c.sensor){
+    const cached = historyMaxCache[c.sensor];
+    const fresh = cached && (Date.now() - cached.ts) < HISTORY_MAX_TTL_MS;
+    if(fresh){
+      renderHistoryRow(histValEl, c, cached.value);
+    } else {
+      histValEl.textContent = '…';
+      fetchHistoryMax(c.sensor).then(value => {
+        historyMaxCache[c.sensor] = {value: value, ts: Date.now()};
+        // Only apply if the same curve is still selected; otherwise the
+        // operator moved on and our row doesn't exist anymore.
+        if(cfg && selIdx >= 0 && cfg.curves[selIdx] && cfg.curves[selIdx].sensor === c.sensor){
+          renderHistoryRow(histValEl, cfg.curves[selIdx], value);
+        }
+      });
+    }
+  } else {
+    histValEl.textContent = '—';
+  }
+}
+
+function renderHistoryRow(el, c, histTemp){
+  if(histTemp == null){
+    el.textContent = '—';
+    return;
+  }
+  const op = curveOutputAtTemp(c, histTemp);
+  if(op == null){
+    el.textContent = histTemp.toFixed(1) + '° → —';
+    return;
+  }
+  el.textContent = histTemp.toFixed(1) + '° → ' + p2pct(Math.round(op)) + '%';
+}
+
+// fetchHistoryMax probes /api/history for the sensor's 60-minute peak.
+// Returns a number on success, null on 404 / error / empty-series.
+// 3c (time-series sparklines) is the terminal that lands this endpoint;
+// until that PR merges, the 404 path keeps the Preview row showing "—"
+// without blocking the other two projections.
+async function fetchHistoryMax(sensorName){
+  try {
+    const r = await fetch('/api/history?metric=' + encodeURIComponent(sensorName) + '&window_s=3600');
+    if(!r.ok) return null;
+    const body = await r.json();
+    if(!body || !body.samples || !body.samples.length) return null;
+    let m = null;
+    for(const s of body.samples){
+      const v = typeof s.value === 'number' ? s.value : (s.max != null ? s.max : null);
+      if(v == null) continue;
+      if(m == null || v > m) m = v;
+    }
+    return m;
+  } catch(_){
+    return null;
+  }
 }

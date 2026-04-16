@@ -677,6 +677,42 @@ button.danger:hover { background: var(--red); color: #fff; }
   color: var(--fg3); font-size: 0.75rem; font-style: italic;
   line-height: 1.4; padding: 4px 0;
 }
+
+/* Curve editor live-projection panel — three short rows under the
+ * number inputs that preview the curve's output at three reference
+ * temperatures. Styling keeps the panel visually subordinate to the
+ * SVG (the main editing surface) — small typography, monospaced
+ * values for alignment, mild panel chroma. */
+.curve-projections {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-top: 4px;
+}
+.projection-title {
+  font-size: 0.7rem;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg3);
+  margin-bottom: 4px;
+}
+.projection-row {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.projection-label {
+  color: var(--fg2);
+}
+.projection-value {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono, monospace);
+}
 .card-output { font-size: 0.75rem; color: var(--fg2); }
 
 /* Mix-curve source links — each source name inside a mix curve's
