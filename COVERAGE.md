@@ -1,8 +1,11 @@
 # Coverage Snapshot
 
-Last measured: 2026-04-15 (Go 1.25.0, CGO_ENABLED=1) — refreshed after
-the chip-agnostic udev / Load+ChipName / install-time module probe / 2s
-watchdog promise overhauls.
+Last measured: 2026-04-16 (Go 1.25.0, CGO_ENABLED=1). The
+`internal/controller` row was re-measured after the
+`TestSafety_Invariants` suite landed; other packages carry over from
+the 2026-04-15 snapshot taken after the chip-agnostic udev /
+Load+ChipName / install-time module probe / 2s watchdog promise
+overhauls.
 
 Command:
 
@@ -20,7 +23,7 @@ statement coverage from the same run.
 | `cmd/ventd`                   |   15.1 % | Daemon entrypoint plus the folded-in `--list-fans-probe` and `--preflight-check` subcommands. Most logic delegated to `internal/*`. |
 | `internal/calibrate`          |   65.5 % | Curve fitting + RPM detection tested. Now includes `ZeroPWMSentinel` 8-case suite (PWM=0 escalation). |
 | `internal/config`             |   61.8 % | `Load`+`ResolveHwmonPaths` integration covered. `EnrichChipName` 9-case suite landed alongside the writer-side ChipName population. |
-| `internal/controller`         |   12.0 % | Control-loop orchestration. Smoke paths only — biggest untested code path on the safety-critical fan-write side. |
+| `internal/controller`         |   88.0 % | Control-loop orchestration. Every rule in `.claude/rules/hwmon-safety.md` is now bound 1:1 to a named subtest in `safety_test.go` (`TestSafety_Invariants`); two subtests are skipped pending #115 (allow_stop gate) and #116 (Restore on ctx cancel). |
 | `internal/curve`              |  100.0 % | Linear / Fixed / Mix all table-driven. `MixFunc` parser exhausted. |
 | `internal/hwdiag`             |   87.2 % | Small, mostly pure helpers. |
 | `internal/hwmon`              |   31.4 % | Now includes `DiagnoseHwmon` (7 cases), `RecoverAllPWM` (5 cases), and the udev-rule behaviour suite (8 cases). Largest remaining untested surface is `autoload.go` (sensors-detect parsing + module probing). |
@@ -45,10 +48,11 @@ Ranked by `(100 − coverage) × estimated package size`:
    `ventd --probe-modules`.
 3. `internal/web` — 48.9 % is solid for production use; remaining
    handlers are mostly UI glue.
-4. `internal/controller` — small package (~142 statements) but
-   safety-critical. A control-loop tick driven against a fake
-   sensor/fan pair would land quickly and lock in invariants.
-5. `internal/monitor` — still no tests. Lowest urgency (read-only).
+4. `internal/monitor` — still no tests. Lowest urgency (read-only).
+
+(`internal/controller` was on this list in the previous snapshot; the
+`TestSafety_Invariants` suite now binds every hwmon-safety rule to a
+named subtest and takes the package from 12.0 % → 88.0 %.)
 
 ## Packages with no test files
 
@@ -66,6 +70,7 @@ exercised through the same code paths the validation matrix uses.)
 | `cmd/ventd`          | 23.9 %  | 15.1 %  | Folded in two helper-binary code paths; their existing zero-coverage statements are now counted here. |
 | `internal/calibrate` | 61.3 %  | 65.5 %  | `ZeroPWMSentinel` 8-case suite added.           |
 | `internal/config`    | 34.5 %  | 61.8 %  | `EnrichChipName` (9 cases) + `Load`+`Resolve` integration (6 cases). |
+| `internal/controller`| 12.0 %  | 88.0 %  | `TestSafety_Invariants` binds every hwmon-safety rule 1:1 to a named subtest (12 cases); supporting tick/run suites landed alongside. |
 | `internal/curve`     |     —   | 100.0 % | New 7-case suite for Linear/Fixed/Mix.          |
 | `internal/hwmon`     | 26.1 %  | 31.4 %  | `DiagnoseHwmon` (7), `RecoverAllPWM` (5), udev rule behaviour (8). |
 | `internal/sdnotify`  |     —   | 95.2 %  | New package; 8-case suite.                       |
