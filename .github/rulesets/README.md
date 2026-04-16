@@ -1,14 +1,16 @@
 # Repo rulesets
 
 `main.json` is the source-of-truth export of the `main` branch
-ruleset (`id 15036827`). It pins the four required status checks
-produced by the `build` matrix in
-[`.github/workflows/ci.yml`](../workflows/ci.yml):
+ruleset (`id 15036827`). It pins the required status checks
+produced by the `build` matrix and the standalone AppArmor parse
+lane in [`.github/workflows/ci.yml`](../workflows/ci.yml):
 
 - `build-and-test-ubuntu`
+- `build-and-test-ubuntu-arm64`
 - `build-and-test-fedora`
 - `build-and-test-arch`
 - `build-and-test-alpine`
+- `apparmor-parse-debian13`
 
 ## Why this file exists
 
@@ -63,7 +65,9 @@ gh api repos/ventd/ventd/rulesets/15036827 \
   | jq -r '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'
 ```
 
-Output must match the four `build-and-test-*` names listed above.
+Output must match the six check names listed above (four amd64
+`build-and-test-*` lanes, the `build-and-test-ubuntu-arm64` native
+arm64 lane, and the `apparmor-parse-debian13` parser smoke).
 
 ## Scope note
 
