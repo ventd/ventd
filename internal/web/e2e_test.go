@@ -671,7 +671,13 @@ func TestE2E_Responsive_CardGridReflow(t *testing.T) {
 		// is populated (not just present) before measuring.
 		time.Sleep(200 * time.Millisecond)
 
-		grid := getComputedStyle(t, page, "#sensor-cards", "grid-template-columns")
+		// After the grouped-dashboard refactor, #sensor-cards is a
+		// container of <details> groups rather than a grid itself;
+		// the per-group .card-grid inside each <details> carries
+		// the column rules this test was written against. Measure
+		// the inner grid directly so the assertion still exercises
+		// the same layout contract an operator experiences.
+		grid := getComputedStyle(t, page, "#sensor-cards .card-grid", "grid-template-columns")
 		got := countTracks(grid)
 		switch {
 		case c.wantCols > 0 && got != c.wantCols:
@@ -682,10 +688,10 @@ func TestE2E_Responsive_CardGridReflow(t *testing.T) {
 				c.label, got, grid)
 		}
 
-		// Fan cards and curve-cards share the same .card-grid
-		// class; spot-check the fan grid too so a regression that
+		// Fan cards share the same .card-grid class inside their
+		// own groups; spot-check them too so a regression that
 		// only affects #fan-cards surfaces here.
-		fanGrid := getComputedStyle(t, page, "#fan-cards", "grid-template-columns")
+		fanGrid := getComputedStyle(t, page, "#fan-cards .card-grid", "grid-template-columns")
 		fanTracks := countTracks(fanGrid)
 		switch {
 		case c.wantCols > 0 && fanTracks != c.wantCols:
@@ -898,19 +904,22 @@ func TestE2E_Responsive_TouchTargetsAndModalReflow(t *testing.T) {
 
 	live := h.cfgPtr.Load()
 	seeded := *live
-	// Pin the cpu-fan control in manual mode so the manual-slider
-	// range input renders (it is gated on control.manual_pwm != nil
-	// in render.js). Other seeding covers: a mix curve with two
-	// sources so .source-list label checkboxes render, and two
-	// linear curves so the mix has something to reference.
+	// Pin cpu-fan-manual in manual mode so the manual-slider range
+	// input renders (it is gated on control.manual_pwm != nil in
+	// render.js). The manual fan is named with a "cpu" prefix so
+	// the dashboard's group classifier places it in the CPU group
+	// which is open by default on the narrow/touch viewport this
+	// test uses. Other seeding covers: a mix curve with two sources
+	// so .source-list label checkboxes render, and two linear curves
+	// so the mix has something to reference.
 	manualPWM := uint8(128)
 	seeded.Controls = []config.Control{
 		{Fan: "cpu-fan", Curve: "cpu-linear"},
-		{Fan: "sys-fan-1", Curve: "", ManualPWM: &manualPWM},
+		{Fan: "cpu-fan-manual", Curve: "", ManualPWM: &manualPWM},
 	}
 	seeded.Fans = []config.Fan{
 		{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
-		{Name: "sys-fan-1", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm2"},
+		{Name: "cpu-fan-manual", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm2"},
 	}
 	seeded.Sensors = []config.Sensor{
 		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
@@ -1116,6 +1125,326 @@ func TestE2E_Responsive_TouchTargetsAndModalReflow(t *testing.T) {
 		t.Errorf(".card-name-edit .edit-icon box=%.1fx%.1f want ≥44×44",
 			iconW, iconH)
 	}
+}
+
+// TestE2E_DashboardGrouping exercises the narrow-viewport density
+// pass — the Sensors and Controls sections group by category
+// (CPU / GPU / System / Storage / Other) as native <details>
+// accordions, and that per-group open/closed state is remembered
+// in sessionStorage. Subtests cover the classification ladder,
+// the viewport-dependent default state, the session-storage round
+// trip across an SSE re-render, and the empty-group suppression.
+//
+// The subtests share a single e2eHarness — login + seeded config
+// are expensive enough that re-running them per subtest would
+// triple the job's wall time without adding coverage. Each subtest
+// navigates to / or resets sessionStorage explicitly when the
+// preceding subtest might have dirtied state.
+func TestE2E_DashboardGrouping(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Seed one entry per category so the classification ladder
+	// has something to fire on. Sensors and fans share the same
+	// classifyCategory so a minimal per-kind set suffices — one
+	// CPU sensor, one GPU fan (via type=nvidia), one System fan
+	// (via is_pump), one chassis fan (via name keyword), one
+	// generic/other.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{
+		{Fan: "CPU Fan", Curve: ""},
+		{Fan: "GPU Fan", Curve: ""},
+		{Fan: "Pump", Curve: ""},
+		{Fan: "Chassis Fan 1", Curve: ""},
+		{Fan: "aux_fan", Curve: ""},
+	}
+	seeded.Fans = []config.Fan{
+		{Name: "CPU Fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"},
+		{Name: "GPU Fan", Type: "nvidia", PWMPath: "0"},
+		{Name: "Pump", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm3", IsPump: true, PumpMinimum: 60},
+		{Name: "Chassis Fan 1", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm4"},
+		{Name: "aux_fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm5"},
+	}
+	seeded.Sensors = []config.Sensor{
+		{Name: "CPU Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"},
+		{Name: "GPU Temperature", Type: "nvidia", Path: "0", Metric: "temp"},
+		{Name: "Motherboard Temperature", Type: "hwmon", Path: "/tmp/nonexistent/temp3_input"},
+	}
+	// Non-nil Curves so the fan-card render's `cfg.curves.map(...)`
+	// select-option branch has something to iterate. config.Empty()
+	// leaves this nil; the JSON marshal would then emit `null`,
+	// which the JS branch would dereference and crash on.
+	seeded.Curves = []config.CurveConfig{}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// Helper: query the effective open state of a dashboard group.
+	// Returns empty string when the group is absent (hidden because
+	// its bucket is empty, or rendering hasn't reached that section
+	// yet). t.Helper() so failures point at the caller.
+	groupOpen := func(t *testing.T, section, group string) (present bool, open bool) {
+		t.Helper()
+		res, err := page.Eval(`(sec, grp) => {
+			const el = document.querySelector(
+				'#' + sec + '-cards details.dashboard-group[data-group="' + grp + '"]'
+			);
+			if (!el) return { present: false, open: false };
+			return { present: true, open: el.hasAttribute('open') };
+		}`, section, group)
+		if err != nil {
+			t.Fatalf("query group %s/%s: %v", section, group, err)
+		}
+		return res.Value.Get("present").Bool(), res.Value.Get("open").Bool()
+	}
+
+	// clearGroupStorage wipes any ventd.dashboard.* keys so a
+	// subtest's default-state assertions aren't polluted by prior
+	// toggles. Session storage persists across navigations within
+	// the same page context, so explicit cleanup is required.
+	clearGroupStorage := func(t *testing.T) {
+		t.Helper()
+		if _, err := page.Eval(`() => {
+			const keys = [];
+			for (let i = 0; i < sessionStorage.length; i++) {
+				const k = sessionStorage.key(i);
+				if (k && k.startsWith('ventd.dashboard.')) keys.push(k);
+			}
+			keys.forEach(k => sessionStorage.removeItem(k));
+		}`); err != nil {
+			t.Fatalf("clear session storage: %v", err)
+		}
+	}
+
+	t.Run("narrow_viewport", func(t *testing.T) {
+		setViewport(t, page, 390, 844)
+		page.MustNavigate(h.server.URL + "/").MustWaitStable()
+		page.Timeout(3 * time.Second).MustElement("#sensor-cards details.dashboard-group")
+		clearGroupStorage(t)
+		// Force a re-render after clearing storage so the
+		// subsequent assertions see the defaults rather than the
+		// state the initial render baked in.
+		if _, err := page.Eval(`() => { renderSensorCards(); renderFanCards(); }`); err != nil {
+			t.Fatalf("force re-render: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		// CPU opens by default on narrow viewports; the rest stay
+		// collapsed so the dashboard fits a phone's vertical
+		// budget on first paint.
+		for _, tc := range []struct {
+			section, group string
+			wantOpen       bool
+		}{
+			{"sensor", "cpu", true},
+			{"sensor", "gpu", false},
+			{"sensor", "system", false},
+			{"fan", "cpu", true},
+			{"fan", "gpu", false},
+			{"fan", "system", false},
+			{"fan", "other", false},
+		} {
+			present, open := groupOpen(t, tc.section, tc.group)
+			if !present {
+				t.Errorf("%s/%s: group not rendered", tc.section, tc.group)
+				continue
+			}
+			if open != tc.wantOpen {
+				t.Errorf("%s/%s: open=%v want %v (narrow default)",
+					tc.section, tc.group, open, tc.wantOpen)
+			}
+		}
+	})
+
+	t.Run("wide_viewport", func(t *testing.T) {
+		setViewport(t, page, 1440, 900)
+		page.MustNavigate(h.server.URL + "/").MustWaitStable()
+		page.Timeout(3 * time.Second).MustElement("#sensor-cards details.dashboard-group")
+		clearGroupStorage(t)
+		if _, err := page.Eval(`() => { renderSensorCards(); renderFanCards(); }`); err != nil {
+			t.Fatalf("force re-render: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		for _, tc := range []struct {
+			section, group string
+		}{
+			{"sensor", "cpu"}, {"sensor", "gpu"}, {"sensor", "system"},
+			{"fan", "cpu"}, {"fan", "gpu"}, {"fan", "system"}, {"fan", "other"},
+		} {
+			present, open := groupOpen(t, tc.section, tc.group)
+			if !present {
+				t.Errorf("%s/%s: group not rendered", tc.section, tc.group)
+				continue
+			}
+			if !open {
+				t.Errorf("%s/%s: open=false at wide viewport, expected open by default",
+					tc.section, tc.group)
+			}
+		}
+	})
+
+	t.Run("session_storage_persists_toggle", func(t *testing.T) {
+		setViewport(t, page, 390, 844)
+		page.MustNavigate(h.server.URL + "/").MustWaitStable()
+		page.Timeout(3 * time.Second).MustElement("#sensor-cards details.dashboard-group")
+		clearGroupStorage(t)
+		if _, err := page.Eval(`() => { renderSensorCards(); renderFanCards(); }`); err != nil {
+			t.Fatalf("force re-render: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		// Narrow default: fan/cpu open, fan/gpu closed. Close CPU,
+		// open GPU, force an SSE-equivalent re-render, then confirm
+		// the toggled state survived.
+		if _, err := page.Eval(`() => {
+			const cpu = document.querySelector('#fan-cards details[data-group="cpu"]');
+			const gpu = document.querySelector('#fan-cards details[data-group="gpu"]');
+			cpu.open = false; gpu.open = true;
+		}`); err != nil {
+			t.Fatalf("toggle groups: %v", err)
+		}
+		// Native toggle event fires asynchronously; give it a tick.
+		time.Sleep(50 * time.Millisecond)
+
+		// sessionStorage must reflect the toggles.
+		cpuStored, err := page.Eval(`() => sessionStorage.getItem('ventd.dashboard.fans.cpu')`)
+		if err != nil {
+			t.Fatalf("read cpu storage: %v", err)
+		}
+		if cpuStored.Value.Str() != "0" {
+			t.Errorf("sessionStorage[fans.cpu]=%q want \"0\"", cpuStored.Value.Str())
+		}
+		gpuStored, err := page.Eval(`() => sessionStorage.getItem('ventd.dashboard.fans.gpu')`)
+		if err != nil {
+			t.Fatalf("read gpu storage: %v", err)
+		}
+		if gpuStored.Value.Str() != "1" {
+			t.Errorf("sessionStorage[fans.gpu]=%q want \"1\"", gpuStored.Value.Str())
+		}
+
+		// Re-render (the SSE path drives render(); here we invoke
+		// the card-grid builders directly to avoid waiting on a
+		// real stream tick). State must survive.
+		if _, err := page.Eval(`() => renderFanCards()`); err != nil {
+			t.Fatalf("re-render fans: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+
+		_, cpuOpen := groupOpen(t, "fan", "cpu")
+		if cpuOpen {
+			t.Errorf("fan/cpu: open=true after re-render, toggled-closed state was lost")
+		}
+		_, gpuOpen := groupOpen(t, "fan", "gpu")
+		if !gpuOpen {
+			t.Errorf("fan/gpu: open=false after re-render, toggled-open state was lost")
+		}
+
+		// Clear sessionStorage and re-render — defaults must come
+		// back (CPU open, GPU closed).
+		clearGroupStorage(t)
+		if _, err := page.Eval(`() => renderFanCards()`); err != nil {
+			t.Fatalf("re-render fans (2): %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+		_, cpuOpen = groupOpen(t, "fan", "cpu")
+		if !cpuOpen {
+			t.Errorf("fan/cpu: open=false after storage clear, narrow default was not restored")
+		}
+		_, gpuOpen = groupOpen(t, "fan", "gpu")
+		if gpuOpen {
+			t.Errorf("fan/gpu: open=true after storage clear, narrow default was not restored")
+		}
+	})
+
+	t.Run("empty_group_hidden", func(t *testing.T) {
+		setViewport(t, page, 1440, 900)
+		page.MustNavigate(h.server.URL + "/").MustWaitStable()
+		page.Timeout(3 * time.Second).MustElement("#sensor-cards details.dashboard-group")
+		time.Sleep(100 * time.Millisecond)
+
+		// The seeded config has no Storage entries. Storage must
+		// not render at all — not a collapsed empty group, not a
+		// header with a zero count.
+		present, _ := groupOpen(t, "sensor", "storage")
+		if present {
+			t.Errorf("sensor/storage: group rendered despite empty bucket")
+		}
+		present, _ = groupOpen(t, "fan", "storage")
+		if present {
+			t.Errorf("fan/storage: group rendered despite empty bucket")
+		}
+	})
+
+	t.Run("category_heuristic_table", func(t *testing.T) {
+		// Table-drive classifyCategory across each rung of the
+		// classification ladder. Evaluated inside the page so the
+		// function under test is the real shipped implementation,
+		// not a duplicate. Inputs cover:
+		//   a. config-level hints: type=nvidia, is_pump=true
+		//   b. name keywords for each category
+		//   c. a fall-through entry that lands in 'other'
+		cases := []struct {
+			name     string
+			entryJS  string
+			wantCat  string
+			rationale string
+		}{
+			{"CPU Fan", "null", "cpu", "name keyword CPU"},
+			{"cpu_fan_1", "null", "cpu", "name keyword CPU lowercase"},
+			{"Core Fan", "null", "cpu", "keyword 'core'"},
+			{"Package Fan", "null", "cpu", "keyword 'package'"},
+			{"GPU Fan", "null", "gpu", "name keyword GPU"},
+			{"NVIDIA 3070 Fan", "null", "gpu", "keyword nvidia"},
+			{"Radeon Fan", "null", "gpu", "keyword radeon"},
+			{"", "({type:'nvidia'})", "gpu", "config type=nvidia"},
+			{"Pump", "null", "system", "keyword pump"},
+			{"Primary Loop", "({is_pump:true})", "system", "config is_pump=true"},
+			{"System Fan 1", "null", "system", "keyword system"},
+			{"SYS_FAN1", "null", "system", "keyword sys_fan"},
+			{"Chassis Fan 2", "null", "system", "keyword chassis"},
+			{"Motherboard", "null", "system", "keyword motherboard"},
+			{"NVMe Temp", "null", "storage", "keyword nvme"},
+			{"SSD Temperature", "null", "storage", "keyword ssd"},
+			{"Drive Bay Fan", "null", "storage", "keyword drive"},
+			{"aux_fan", "null", "other", "no match falls through to other"},
+			{"", "({category:'cpu',type:'hwmon'})", "cpu", "explicit category overrides everything"},
+		}
+
+		for _, c := range cases {
+			// Evaluate the literal entry expression inside the
+			// page so a test case can exercise either a bare null
+			// or a populated object literal without having to
+			// shuttle a JSON-marshalled value through rod. eval()
+			// parses the string in the page's global scope, which
+			// is fine for a fixed test table — the inputs are
+			// compile-time string literals, not user data.
+			got, err := page.Eval(
+				`(n, ejs) => {
+					const entry = eval('(' + ejs + ')');
+					return classifyCategory(n, entry);
+				}`, c.name, c.entryJS,
+			)
+			if err != nil {
+				t.Fatalf("eval classifyCategory(%q, %s): %v", c.name, c.entryJS, err)
+			}
+			if g := got.Value.Str(); g != c.wantCat {
+				t.Errorf("classifyCategory(%q, %s) = %q want %q (%s)",
+					c.name, c.entryJS, g, c.wantCat, c.rationale)
+			}
+		}
+	})
 }
 
 // setViewport drives Chrome's emulation protocol so the page's media
