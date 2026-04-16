@@ -1,0 +1,35 @@
+# sensors-detect version 3.6.0
+# System: Intel(R) Core(TM) i7-12700K [DG41 Gaming Pro] (laptop)
+# Board: Gigabyte Technology Co., Ltd. B550 AORUS ELITE V2
+# Kernel: 6.8.0-generic x86_64
+# Processor: AMD Ryzen 7 5800X (25/33/0)
+
+This program will help you determine which kernel modules you need
+to load to use lm_sensors most effectively. It is generally safe
+and recommended to accept the default answers to all questions,
+unless you know what you're doing.
+
+Now follows a summary of the probes I have just done.
+Just press ENTER to continue:
+
+Driver `coretemp':
+  * Chip `Intel digital thermal sensor' (confidence: 9)
+
+Driver `nct6775':
+  * ISA bus, address 0x290
+    Chip `Nuvoton NCT6779D Super IO Sensors' (confidence: 9)
+
+Do you want to overwrite /etc/modules-load.d/lm-sensors.conf? (yes/NO): y
+
+To load everything that is needed, add this to /etc/modules-load.d/lm-sensors.conf:
+
+#----cut here----
+# Chip drivers
+coretemp
+nct6775
+#----cut here----
+
+If you have some drivers built into your kernel, the list above will
+contain too many modules. Skip the appropriate ones!
+
+Successful!

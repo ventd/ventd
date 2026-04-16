@@ -1,8 +1,9 @@
 # Coverage Snapshot
 
 Last measured: 2026-04-16 (Go 1.25.0, CGO_ENABLED=1) — full re-measure
-after the controller safety suite (#118), allow_stop fix (#124), and
-setup orchestration invariant suite.
+after the controller safety suite (#118), allow_stop fix (#124), the
+setup orchestration invariant suite, and the `autoload.go` parser +
+driver-need heuristic coverage added alongside this snapshot.
 
 Command:
 
@@ -23,7 +24,7 @@ statement coverage from the same run.
 | `internal/controller`         |   88.0 % | Control-loop orchestration. Every rule in `.claude/rules/hwmon-safety.md` is now bound 1:1 to a named subtest in `safety_test.go` (`TestSafety_Invariants`); all 12 subtests are live — the two previously-skipped cases for #115 (allow_stop gate) and #116 (Restore on ctx cancel) flipped green in #124. |
 | `internal/curve`              |  100.0 % | Linear / Fixed / Mix all table-driven. `MixFunc` parser exhausted. |
 | `internal/hwdiag`             |   87.2 % | Small, mostly pure helpers. |
-| `internal/hwmon`              |   31.4 % | `DiagnoseHwmon` (7 cases), `RecoverAllPWM` (5 cases), udev-rule behaviour (8 cases). Largest remaining untested surface is `autoload.go` (sensors-detect parsing + module probing). |
+| `internal/hwmon`              |   41.1 % | `DiagnoseHwmon` (7 cases), `RecoverAllPWM` (5 cases), udev-rule behaviour (8 cases), and `autoload.go` parser/enumerator surface (8 functions, 7 at 100 %, `moduleFromPath` at 94.1 %). Install-time exec paths (`AutoloadModules`, `tryModuleCandidates`, `runSensorsDetect`, `enumerateHwmonCandidates`, `installLmSensors`) remain untested — they shell out to `modprobe`/`sensors-detect` and require root plus real hardware. |
 | `internal/nvidia`             |   30.7 % | NVML bindings via purego; init + fan-query paths covered. |
 | `internal/sdnotify`           |   95.3 % | systemd notify protocol implementation; full suite covering env-absent, env-present, ping cadence, stop semantics. |
 | `internal/setup`              |   67.3 % | Manager lifecycle, buildConfig (20 cases), validateGeneratedConfig, diag emitters, fixture helpers, and orchestration invariant suite. Remaining 32.7 % locked behind hard-coded sysfs paths (#131) and concrete calibrate.Manager (#132). |
@@ -35,10 +36,11 @@ statement coverage from the same run.
 
 Ranked by `(100 − coverage) × estimated package size`:
 
-1. `internal/hwmon` autoload.go — sensors-detect parsing branches and
-   module-probe loop are still untested. Lower priority now that the
-   probing has moved to install time and is fired explicitly via
-   `ventd --probe-modules`.
+1. `internal/hwmon` — autoload.go parsers and driver-need heuristics
+   are now covered (41.1 % package total). The remaining gap is the
+   install-time module-probe loop that shells out to `modprobe` and
+   `sensors-detect`; those require root plus real hardware and are
+   exercised only via `ventd --probe-modules`.
 2. `internal/web` — 53.9 % is solid for production use; remaining
    wizard HTTP handlers tracked by #133.
 3. `internal/setup` — 67.3 % covered. Remaining 32.7 % is locked
@@ -74,3 +76,4 @@ exercised through the same code paths the validation matrix uses.)
 | `internal/nvidia`    |  5.0 %  | 30.7 %  | Fan-query and init paths expanded. |
 | `internal/web`       | 48.9 %  | 53.9 %  | Additional handler coverage. |
 | `internal/monitor`   |   — %   | 97.2 %  | First test suite: `scanRoot` override + fake sysfs in `t.TempDir()`. Hwmon path 100 %; scanNVML covered incidentally on dev-box (RTX 4090), v0.4 gets a GPU mock. |
+| `internal/hwmon`     | 31.4 %  | 41.1 %  | Table-driven tests for `autoload.go` parsers + driver-need heuristics (8 functions). Install-time `modprobe`/`sensors-detect` exec paths remain untested (require root + real hardware). |
