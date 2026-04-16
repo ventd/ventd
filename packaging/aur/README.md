@@ -164,20 +164,22 @@ the following are true — do not paper over them:
 
 ## Known limitations
 
-- **AppArmor profile attach path.** The shipped profile at
-  `deploy/apparmor.d/usr.local.bin.ventd` declares its attach path as
-  `/usr/local/bin/ventd`, matching the `.deb`/`.rpm`/tarball install
-  location. The AUR package installs the binary at `/usr/bin/ventd`
-  (Arch convention), so AppArmor does not confine the daemon
-  automatically. Users who want enforcement should edit
+- **AppArmor profile attach path** — tracked upstream in
+  [#122](https://github.com/ventd/ventd/issues/122). The shipped
+  profile at `deploy/apparmor.d/usr.local.bin.ventd` declares its
+  attach path as `/usr/local/bin/ventd`, matching the
+  `.deb`/`.rpm`/tarball install location. The AUR package installs
+  the binary at `/usr/bin/ventd` (Arch convention), so AppArmor
+  does not confine the daemon automatically. Users who want
+  enforcement before #122 lands should edit
   `/etc/apparmor.d/usr.local.bin.ventd` locally:
 
   ```aa
   profile ventd /usr/bin/ventd flags=(attach_disconnected) {
   ```
 
-  A follow-up upstream change can make the profile cover both
-  paths; until then this is a documented gap, not a bug.
+  Then `sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd`
+  and `sudo systemctl restart ventd`.
 
 - **`sha256sums=('SKIP')` is intentional in this repo.** The real
   hashes are inserted by `updpkgsums` at publish time (step 2 above).
