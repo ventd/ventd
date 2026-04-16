@@ -166,6 +166,87 @@ button.danger:hover { background: var(--red); color: #fff; }
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
 }
+
+/* ── Dashboard groups (accordion) ──
+ *
+ * .card-groups is the Sensors / Controls section container — it
+ * replaces the old direct .card-grid on #sensor-cards / #fan-cards
+ * so the inner-per-group grids can keep their auto-fill layout
+ * without the outer container trying to grid-pack the <details>
+ * wrappers as columns. Each <details.dashboard-group> holds its
+ * own .card-grid child so the existing column-count rules apply
+ * inside every expanded group.
+ *
+ * Styling goals:
+ *   - Summary reads as a category subhead, not a control. The
+ *     chevron is the only visible affordance.
+ *   - 44×44 touch target on the summary at coarse-pointer (see
+ *     the pointer:coarse media block lower in this file — the
+ *     min-height bumps apply via the `summary.dashboard-group-hdr`
+ *     selector).
+ *   - Count pill on the right uses the same fg3 + monospace
+ *     treatment as hw-reading values so the eye reads "(3)" as
+ *     metadata, not as an action target. */
+.card-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dashboard-group { border: 0; padding: 0; margin: 0; }
+.dashboard-group + .dashboard-group { margin-top: 2px; }
+.dashboard-group-hdr {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 4px;
+  color: var(--fg2);
+  font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  border-bottom: 1px solid var(--border2);
+}
+/* Firefox pre-2023 still ships the default marker via ::-moz-list-bullet;
+ * Chromium/Safari use ::-webkit-details-marker. Both removed so the
+ * chevron rendered via ::before is the only open/close affordance. */
+.dashboard-group-hdr::-webkit-details-marker { display: none; }
+.dashboard-group-hdr::marker { content: ''; }
+.dashboard-group-hdr::before {
+  content: '';
+  display: inline-block;
+  width: 0; height: 0;
+  border-left: 4px solid var(--fg3);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.dashboard-group[open] > .dashboard-group-hdr::before {
+  transform: rotate(90deg);
+}
+.dashboard-group-hdr:hover { color: var(--fg1); }
+.dashboard-group-hdr:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.dashboard-group-label { flex: 1; color: var(--fg1); }
+.dashboard-group-count {
+  color: var(--fg3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.dashboard-group[open] > .card-grid {
+  margin-top: 10px;
+}
+/* Explicit hide so the accordion's visual contract doesn't depend
+ * on browser-specific <details>-content slot behaviour. Without
+ * this, the `.card-grid` child carries `display: grid` which can
+ * win the cascade against the UA's internal hiding mechanism on
+ * some Chromium / Blink versions — the chevron would animate but
+ * the cards would stay visible inside the "closed" group. */
+.dashboard-group:not([open]) > .card-grid { display: none; }
 .card {
   background: var(--bg2); border: 1px solid var(--border);
   border-radius: 8px; padding: 14px 16px;
@@ -462,6 +543,12 @@ button.danger:hover { background: var(--red); color: #fff; }
    * itself wraps via layout.css; this handles the cluster's own
    * overflow. */
   .add-btns { flex-wrap: wrap; }
+  /* Tighter inter-group spacing on portrait phones — the summary
+   * rows already carry an 8px vertical bounding rect from their
+   * coarse-pointer padding bump, so the outer gap can drop without
+   * the headers colliding. */
+  .card-groups { gap: 6px; }
+  .dashboard-group[open] > .card-grid { margin-top: 8px; }
 }
 
 /* Touch devices of any size: reveal .sensor-path unconditionally.
@@ -513,6 +600,13 @@ button.danger:hover { background: var(--red); color: #fff; }
    * secondary affordance. hw-device-name is the tap target; its
    * chevron expands/collapses the reading list. */
   .hw-device-name { min-height: 44px; }
+
+  /* Dashboard accordion summaries are the primary navigation for
+   * the grouped Sensors / Controls sections on phones — the one
+   * place a user taps to reveal fans or sensors they came to the
+   * dashboard to check. WCAG 2.5.5 touch-target rule applies with
+   * the same vertical padding bump that card-name-edit uses. */
+  .dashboard-group-hdr { min-height: 44px; padding: 10px 4px; }
 
   /* Range-slider thumbs — CSS min-height on the input box sizes
    * the track's bounding rect, not the native thumb. Chrome/

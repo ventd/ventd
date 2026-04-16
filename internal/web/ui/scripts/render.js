@@ -143,36 +143,70 @@ function addSensorFromReading(btn){
   notify('Added sensor "'+nm+'" — rename it in the Sensors section','ok');
 }
 
-function renderSensorCards(){
-  if(!cfg) return;
-  document.getElementById('sensor-cards').innerHTML = cfg.sensors.map((s,i) => {
-    const st = sts ? sts.sensors.find(x=>x.name===s.name) : null;
-    const unit = st ? st.unit : sensorUnit(s);
-    const val = st ? fmtSensorVal(st.value, st.unit) : '—';
-    const valCls = (st && st.unit==='°C') ? 'sensor-val '+tempClass(st.value) : 'sensor-val';
-    const pathDisplay = s.type==='nvidia'
-      ? 'GPU '+(s.path||'0')+(s.metric?' · '+s.metric:'')
-      : (s.path||'').replace('/sys/class/hwmon/','');
-    return '<div class="card">'+
-      '<div class="card-name-edit sensor-name-edit">'+
-        '<input type="text" value="'+esc(s.name)+'" '+
-          'data-orig="'+esc(s.name)+'" '+
-          'data-action="rename-sensor" data-idx="'+i+'" '+
-          'title="Click to rename">'+
-        '<span class="edit-icon"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#pencil"/></svg></span>'+
-      '</div>'+
-      '<div class="sensor-path">'+esc(pathDisplay)+'</div>'+
-      '<div class="'+valCls+'">'+val+'</div>'+
-      '<div class="sensor-actions">'+
-        '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#trash-2"/></svg></button>'+
-      '</div>'+
-    '</div>';
+// renderSensorCardHTML renders the inner HTML for a single sensor
+// card. Extracted so renderSensorCards can group cards by category
+// without duplicating the card template.
+function renderSensorCardHTML(s, i){
+  const st = sts ? sts.sensors.find(x=>x.name===s.name) : null;
+  const val = st ? fmtSensorVal(st.value, st.unit) : '\u2014';
+  const valCls = (st && st.unit==='\u00b0C') ? 'sensor-val '+tempClass(st.value) : 'sensor-val';
+  const pathDisplay = s.type==='nvidia'
+    ? 'GPU '+(s.path||'0')+(s.metric?' \u00b7 '+s.metric:'')
+    : (s.path||'').replace('/sys/class/hwmon/','');
+  return '<div class="card">'+
+    '<div class="card-name-edit sensor-name-edit">'+
+      '<input type="text" value="'+esc(s.name)+'" '+
+        'data-orig="'+esc(s.name)+'" '+
+        'data-action="rename-sensor" data-idx="'+i+'" '+
+        'title="Click to rename">'+
+      '<span class="edit-icon"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#pencil"/></svg></span>'+
+    '</div>'+
+    '<div class="sensor-path">'+esc(pathDisplay)+'</div>'+
+    '<div class="'+valCls+'">'+val+'</div>'+
+    '<div class="sensor-actions">'+
+      '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#trash-2"/></svg></button>'+
+    '</div>'+
+  '</div>';
+}
+
+// renderGroupedCards emits the <details>/<summary> accordion wrapper
+// around per-category card grids. `section` is a namespaced key
+// ("sensors" / "fans") used by the sessionStorage helpers; `buckets`
+// maps group id → array of pre-rendered card HTML strings.
+//
+// Empty buckets are skipped so a machine without NVMe temps doesn't
+// render a bare "Storage" header. The open attribute comes from
+// groupIsOpen (session storage if set, else viewport default) so a
+// full re-render on every SSE tick doesn't clobber a user toggle.
+function renderGroupedCards(section, buckets){
+  return DASHBOARD_GROUPS.map(g => {
+    const items = buckets[g.id];
+    if(!items || !items.length) return '';
+    const open = groupIsOpen(section, g.id) ? ' open' : '';
+    return '<details class="dashboard-group" data-group="'+g.id+'" data-section="'+section+'"'+open+'>'+
+      '<summary class="dashboard-group-hdr">'+
+        '<span class="dashboard-group-label">'+esc(g.label)+'</span>'+
+        '<span class="dashboard-group-count">'+items.length+'</span>'+
+      '</summary>'+
+      '<div class="card-grid">'+items.join('')+'</div>'+
+    '</details>';
   }).join('');
 }
 
-function renderFanCards(){
+function renderSensorCards(){
   if(!cfg) return;
-  document.getElementById('fan-cards').innerHTML = cfg.controls.map((ctrl,i) => {
+  const buckets = {};
+  cfg.sensors.forEach((s, i) => {
+    const cat = classifyCategory(s.name, s);
+    (buckets[cat] = buckets[cat] || []).push(renderSensorCardHTML(s, i));
+  });
+  document.getElementById('sensor-cards').innerHTML = renderGroupedCards('sensors', buckets);
+}
+
+// renderFanCardHTML renders the inner HTML for a single fan/control
+// card. Extracted so renderFanCards can group cards by category
+// without duplicating the card template.
+function renderFanCardHTML(ctrl, i){
     const st = sts ? sts.fans.find(f=>f.name===ctrl.fan) : null;
     const rpm = st && st.rpm!=null ? st.rpm+' RPM' : '\u2014';
     const duty = st ? Math.round(st.duty_pct) : 0;
@@ -196,7 +230,13 @@ function renderFanCards(){
         '<span class="manual-pct">'+manualPct+'%</span>'+
       '</div>';
     } else {
-      const opts = cfg.curves.map(c =>
+      // Config from /api/config can legitimately have Curves=null
+      // (JSON marshal of a Go nil slice, fresh install before any
+      // curve exists, manual-mode control with no curves defined
+      // yet). The `|| []` is a boundary guard against that wire
+      // shape — without it a curve-less config trips the whole
+      // fan-card render.
+      const opts = (cfg.curves || []).map(c =>
         '<option value="'+esc(c.name)+'"'+(c.name===ctrl.curve?' selected':'')+'>'+esc(c.name)+'</option>'
       ).join('');
       controlRow = '<select data-action="ctrl-curve" data-idx="'+i+'">'+opts+'</select>';
@@ -255,7 +295,17 @@ function renderFanCards(){
       calSection+
       calResultRow+
     '</div>';
-  }).join('');
+}
+
+function renderFanCards(){
+  if(!cfg) return;
+  const buckets = {};
+  cfg.controls.forEach((ctrl, i) => {
+    const fanCfg = cfg.fans ? cfg.fans.find(f => f.name === ctrl.fan) : null;
+    const cat = classifyCategory(ctrl.fan, fanCfg);
+    (buckets[cat] = buckets[cat] || []).push(renderFanCardHTML(ctrl, i));
+  });
+  document.getElementById('fan-cards').innerHTML = renderGroupedCards('fans', buckets);
 
   // Apply dynamic widths — anything that varies per render goes via
   // element.style assignment rather than an inline style= attribute,
@@ -650,6 +700,35 @@ document.addEventListener('keydown', (e) => {
   if (!(el instanceof HTMLElement) || el.tagName !== 'INPUT') return;
   if (!el.dataset || !el.dataset.action) return;
   el.blur();
+});
+
+// toggle: <details> open/close inside the grouped dashboard sections.
+// The event does not bubble, so capture-phase listening at the
+// document level is required to catch it without per-element wiring
+// (which would reset every time renderSensorCards / renderFanCards
+// regenerates innerHTML). Writing to sessionStorage on each toggle
+// is what survives the SSE-driven re-renders: the next render reads
+// the stored value back through groupIsOpen.
+document.addEventListener('toggle', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLElement) || el.tagName !== 'DETAILS') return;
+  if (!el.classList.contains('dashboard-group')) return;
+  const section = el.dataset.section;
+  const group = el.dataset.group;
+  if (!section || !group) return;
+  setGroupState(section, group, el.open);
+}, true);
+
+// narrowViewportMQ is declared in state.js. Re-render the grouped
+// sections when the viewport crosses the tablet boundary so a
+// rotation or window-resize picks up the new viewport-default state
+// for any group that hasn't been explicitly toggled this session.
+// Session-storage values still win over the new default — this only
+// changes the unset-group baseline.
+narrowViewportMQ.addEventListener('change', () => {
+  if (typeof cfg === 'undefined' || !cfg) return;
+  renderSensorCards();
+  renderFanCards();
 });
 
 // ── Sidebar toggle ──
