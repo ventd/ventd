@@ -34,12 +34,17 @@ adapted to Ubuntu 24.04's UFW 0.36:
 
 1. **Base policies** — `deny incoming` (default), `allow outgoing`
    (default), **`allow routed`** (changed; FORWARD chain).
-2. **Bridge opens** — `allow in on incusbr0`, `route allow in on
+2. **Host services** — `allow 22/tcp` (SSH) and `allow 9999/tcp` (ventd
+   web UI). Not scoped to `incusbr0`; they have to stay LAN-reachable
+   on the host's primary interface or `ufw enable` locks remote access
+   and breaks the post-install URL contract in
+   `.claude/rules/usability.md`.
+3. **Bridge opens** — `allow in on incusbr0`, `route allow in on
    incusbr0`, `route allow out on incusbr0`.
-3. **DHCP v4 + v6** on UDP/67 and UDP/547. The upstream doc calls these
+4. **DHCP v4 + v6** on UDP/67 and UDP/547. The upstream doc calls these
    out separately because `allow in on <br>` alone is not sufficient
    for broadcast DHCP on some UFW builds.
-4. **DNS** on port 53 (tcp + udp). Guests use the host's dnsmasq.
+5. **DNS** on port 53 (tcp + udp). Guests use the host's dnsmasq.
 
 See `ufw-incus.rules` for the exact `ufw` commands.
 
@@ -61,6 +66,8 @@ New profiles: skip
 
 To                         Action      From
 --                         ------      ----
+22/tcp                     ALLOW IN    Anywhere                   # ssh
+9999/tcp                   ALLOW IN    Anywhere                   # ventd web UI (see usability.md)
 Anywhere on incusbr0       ALLOW IN    Anywhere
 67/udp on incusbr0         ALLOW IN    Anywhere
 547/udp on incusbr0        ALLOW IN    Anywhere
@@ -145,8 +152,10 @@ had already staged them in `/etc/ufw/user.rules`.
 
 ## Caveat
 
-Phoenix-MS-7D25 is the dev + Proxmox-controller host. Enabling UFW
-here also affects SSH (port 22 is already staged in `ufw show added`,
-but confirm before `ufw enable`) and Ollama (11434) / the dev HTTP
-server (8080). Double-check your allow-list matches every service you
-still want LAN-reachable before flipping the switch.
+Phoenix-MS-7D25 is the dev + Proxmox-controller host. The rule set
+staged by `ufw-incus.rules` explicitly allows SSH (22/tcp) and the
+ventd web UI (9999/tcp), so remote access and the post-install LAN
+URL survive `ufw enable`. Other host-specific services — Ollama
+(11434), the dev HTTP server (8080) — are **not** staged by the
+script; if you want them LAN-reachable after enable, add them
+yourself before flipping the switch.
