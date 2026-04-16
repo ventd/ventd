@@ -62,9 +62,32 @@ sudo dpkg -i ventd_amd64.deb
 sudo rpm -i https://github.com/ventd/ventd/releases/latest/download/ventd_amd64.rpm
 ```
 
-## Arch (AUR)
+## Arch Linux (AUR)
 
-An AUR package is planned. Until then, use the tarball install.
+Two AUR packages are published under the `phoenixdnb` account:
+
+- [`ventd-bin`](https://aur.archlinux.org/packages/ventd-bin) — installs the official pre-built release binary for amd64 / arm64. Recommended for most users.
+- [`ventd`](https://aur.archlinux.org/packages/ventd) — builds from the release source tarball with the Go toolchain. Use this if you prefer an audited source build.
+
+With an AUR helper:
+
+```
+yay -S ventd-bin      # or: ventd
+```
+
+Or manually:
+
+```
+git clone https://aur.archlinux.org/ventd-bin.git
+cd ventd-bin
+makepkg -si
+```
+
+The package does not enable or start the service automatically (Arch convention). Enable it yourself once install finishes:
+
+```
+sudo systemctl enable --now ventd.service
+```
 
 ## Alpine
 

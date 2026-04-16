@@ -1,0 +1,71 @@
+# Maintainer: phoenixdnb <101230040+PhoenixDnB@users.noreply.github.com>
+
+pkgname=ventd
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Automatic Linux fan control daemon — auto-detects hardware, auto-calibrates, auto-recovers"
+arch=('x86_64' 'aarch64')
+url="https://github.com/ventd/ventd"
+license=('GPL-3.0-or-later')
+makedepends=('go>=1.25')
+depends=('glibc')
+optdepends=(
+  'lm_sensors: improved hwmon chip detection'
+  'nvidia-utils: NVIDIA GPU fan and temperature readings'
+  'apparmor: enforce the shipped AppArmor profile'
+)
+provides=('ventd')
+conflicts=('ventd-bin')
+install=ventd.install
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/ventd/ventd/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+
+  # Rewrite the /usr/local paths the upstream units ship with (those
+  # target the .deb/.rpm/tarball layout) to Arch's /usr/bin plus a
+  # package-private helper directory.
+  sed -i \
+    -e 's|/usr/local/bin/ventd|/usr/bin/ventd|g' \
+    -e 's|/usr/local/sbin/ventd-wait-hwmon|/usr/lib/ventd/ventd-wait-hwmon|g' \
+    deploy/ventd.service deploy/ventd-recover.service
+}
+
+build() {
+  cd "${pkgname}-${pkgver}"
+
+  # Mirror the release build (.goreleaser.yml): CGO off, -trimpath, and
+  # the same ldflags so the source package and the -bin package produce
+  # functionally identical binaries.
+  export CGO_ENABLED=0
+  export GOFLAGS="-trimpath -mod=readonly -modcacherw"
+  go build \
+    -ldflags="-s -w -X main.version=${pkgver} -X main.commit=release -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -o ventd \
+    ./cmd/ventd
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+
+  install -Dm0755 ventd "${pkgdir}/usr/bin/ventd"
+
+  install -Dm0755 scripts/ventd-wait-hwmon "${pkgdir}/usr/lib/ventd/ventd-wait-hwmon"
+  install -Dm0644 scripts/_ventd_account.sh "${pkgdir}/usr/share/ventd/_ventd_account.sh"
+
+  install -Dm0644 deploy/ventd.service         "${pkgdir}/usr/lib/systemd/system/ventd.service"
+  install -Dm0644 deploy/ventd-recover.service "${pkgdir}/usr/lib/systemd/system/ventd-recover.service"
+  install -Dm0644 deploy/90-ventd-hwmon.rules  "${pkgdir}/usr/lib/udev/rules.d/90-ventd-hwmon.rules"
+
+  install -Dm0644 deploy/apparmor.d/usr.local.bin.ventd \
+    "${pkgdir}/etc/apparmor.d/usr.local.bin.ventd"
+
+  install -Dm0644 deploy/selinux/ventd.te "${pkgdir}/usr/share/selinux/ventd/ventd.te"
+  install -Dm0644 deploy/selinux/ventd.fc "${pkgdir}/usr/share/selinux/ventd/ventd.fc"
+  install -Dm0644 deploy/selinux/Makefile "${pkgdir}/usr/share/selinux/ventd/Makefile"
+
+  install -Dm0644 config.example.yaml "${pkgdir}/usr/share/doc/${pkgname}/config.example.yaml"
+  install -Dm0644 README.md           "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm0644 LICENSE             "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
