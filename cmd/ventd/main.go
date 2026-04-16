@@ -331,13 +331,21 @@ func runDaemon(
 	// the correct hwmonN for the (now-present) configured chip. During the
 	// 1-2 s restart gap, pwm_enable is restored to 2 (kernel-automatic) by
 	// the wd.Restore() defer — the documented Option A tradeoff (#98).
-	rebindTrigger := newRebindTrigger(&liveCfg, restartCh, logger)
-
+	//
+	// Gated on cfg.Hwmon.DynamicRebind (default false) so the v0.2.x
+	// "diagnostic-only" behaviour is preserved until an operator opts in.
+	// When the flag is unset the watcher still emits hardware-change
+	// diagnostics; only the re-exec path is disabled.
 	var watcherOpts []hwmon.Option
 	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
 		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
 	}
-	watcherOpts = append(watcherOpts, hwmon.WithRebindTrigger(rebindTrigger))
+	if cfg.Hwmon.DynamicRebind {
+		rebindTrigger := newRebindTrigger(&liveCfg, restartCh, logger)
+		watcherOpts = append(watcherOpts, hwmon.WithRebindTrigger(rebindTrigger))
+	} else {
+		logger.Info("hwmon: dynamic rebind disabled (hwmon.dynamic_rebind=false)")
+	}
 	watcher := hwmon.NewWatcher(diagStore, logger, watcherOpts...)
 	wg.Add(1)
 	go func() {

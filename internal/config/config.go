@@ -45,10 +45,24 @@ type Config struct {
 	Version      int           `yaml:"version" json:"version"`
 	PollInterval Duration      `yaml:"poll_interval" json:"poll_interval"`
 	Web          Web           `yaml:"web" json:"web"`
+	Hwmon        Hwmon         `yaml:"hwmon,omitempty" json:"hwmon,omitempty"`
 	Sensors      []Sensor      `yaml:"sensors" json:"sensors"`
 	Fans         []Fan         `yaml:"fans" json:"fans"`
 	Curves       []CurveConfig `yaml:"curves" json:"curves"`
 	Controls     []Control     `yaml:"controls" json:"controls"`
+}
+
+// Hwmon groups runtime-tunable knobs for the hwmon watcher. All fields are
+// optional; zero values preserve pre-v0.3 behaviour so existing on-disk
+// configs load unchanged and round-trip without gaining a new hwmon: key.
+type Hwmon struct {
+	// DynamicRebind opts in to the action=added rebind path (#95/#98
+	// Option A). When true, the daemon re-execs on a topology change
+	// that adds a configured hwmon chip so ResolveHwmonPaths can bind
+	// the now-present device. Default false: a gap-free rollout
+	// preserves v0.2.x semantics and gives operators an escape hatch
+	// if the rebind destabilises their host.
+	DynamicRebind bool `yaml:"dynamic_rebind,omitempty" json:"dynamic_rebind,omitempty"`
 }
 
 type Web struct {
