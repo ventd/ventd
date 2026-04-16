@@ -1,7 +1,7 @@
 name: Feature request
 description: Something ventd should do that it doesn't.
 title: "[feat] "
-labels: ["feature"]
+labels: ["enhancement"]
 body:
   - type: textarea
     id: problem
