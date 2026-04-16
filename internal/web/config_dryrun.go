@@ -315,7 +315,7 @@ func diffCurveFields(a, b config.CurveConfig) []DiffField {
 		f = append(f, DiffField{Name: "hysteresis", From: fmt.Sprint(a.Hysteresis), To: fmt.Sprint(b.Hysteresis)})
 	}
 	if a.Smoothing.Duration != b.Smoothing.Duration {
-		f = append(f, DiffField{Name: "smoothing", From: a.Smoothing.Duration.String(), To: b.Smoothing.Duration.String()})
+		f = append(f, DiffField{Name: "smoothing", From: a.Smoothing.String(), To: b.Smoothing.String()})
 	}
 	return f
 }

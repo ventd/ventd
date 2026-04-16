@@ -564,7 +564,7 @@ controls: []
 	if cfg.Curves[0].Hysteresis != 3.5 {
 		t.Fatalf("Hysteresis = %v; want 3.5", cfg.Curves[0].Hysteresis)
 	}
-	if cfg.Curves[0].Smoothing.Duration.String() != "4s" {
+	if cfg.Curves[0].Smoothing.String() != "4s" {
 		t.Fatalf("Smoothing = %s; want 4s", cfg.Curves[0].Smoothing.Duration)
 	}
 	out, err := yaml.Marshal(cfg)
@@ -584,8 +584,8 @@ controls: []
 	if cfg2.Curves[0].Hysteresis != 3.5 {
 		t.Fatalf("re-parse Hysteresis = %v; want 3.5", cfg2.Curves[0].Hysteresis)
 	}
-	if cfg2.Curves[0].Smoothing.Duration.String() != "4s" {
-		t.Fatalf("re-parse Smoothing = %s; want 4s", cfg2.Curves[0].Smoothing.Duration)
+	if cfg2.Curves[0].Smoothing.String() != "4s" {
+		t.Fatalf("re-parse Smoothing = %s; want 4s", cfg2.Curves[0].Smoothing)
 	}
 }
 
