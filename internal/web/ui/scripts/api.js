@@ -450,3 +450,125 @@ function dismissDiagBanner(){
   if(banner) banner.classList.add('hidden');
   try { sessionStorage.setItem('ventd.diag-banner.dismissed', '1'); } catch(_){}
 }
+
+// ── Panic button (Session C 2e) ──
+//
+// startPanic POSTs /api/panic and switches the header UI into active
+// mode. The countdown is driven by polling /api/panic/state every
+// second — cheap, and lets the UI stay in sync even if a second tab
+// started or cancelled the panic. Server owns the timer so the UI
+// never decides on its own when to stop.
+
+let panicPollTimer = null;
+
+async function startPanic(durationS){
+  closePanicPopover();
+  try {
+    const r = await fetch('/api/panic', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({duration_s: durationS})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    setPanicUI(j);
+    startPanicPoll();
+  } catch(e){
+    notify('Panic failed: '+e.message, 'error');
+  }
+}
+
+async function cancelPanic(){
+  try {
+    const r = await fetch('/api/panic/cancel', {method:'POST'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    setPanicUI(j);
+    stopPanicPoll();
+  } catch(e){
+    notify('Cancel panic failed: '+e.message, 'error');
+  }
+}
+
+async function pollPanicState(){
+  try {
+    const r = await fetch('/api/panic/state');
+    if(!r.ok) return;
+    const j = await r.json();
+    setPanicUI(j);
+    if(!j.active) stopPanicPoll();
+  } catch(_){}
+}
+
+function startPanicPoll(){
+  stopPanicPoll();
+  panicPollTimer = setInterval(pollPanicState, 1000);
+}
+function stopPanicPoll(){
+  if(panicPollTimer){ clearInterval(panicPollTimer); panicPollTimer = null; }
+}
+
+function setPanicUI(state){
+  const btn = document.getElementById('btn-panic');
+  const active = document.getElementById('panic-active');
+  const cd = document.getElementById('panic-countdown');
+  if(!btn || !active || !cd) return;
+  if(state && state.active){
+    btn.classList.add('hidden');
+    active.classList.remove('hidden');
+    cd.textContent = state.end_at ? (state.remaining_s + 's') : 'until cancelled';
+  } else {
+    btn.classList.remove('hidden');
+    active.classList.add('hidden');
+  }
+}
+
+function togglePanicPopover(){
+  const pop = document.getElementById('panic-popover');
+  if(pop) pop.classList.toggle('hidden');
+}
+function closePanicPopover(){
+  const pop = document.getElementById('panic-popover');
+  if(pop) pop.classList.add('hidden');
+}
+
+// ── Profiles (Session C 2e) ──
+
+async function loadProfiles(){
+  try {
+    const r = await fetch('/api/profile');
+    if(!r.ok) return;
+    const j = await r.json();
+    renderProfileSelect(j);
+  } catch(_){}
+}
+
+function renderProfileSelect(state){
+  const sel = document.getElementById('profile-select');
+  if(!sel) return;
+  const names = Object.keys(state.profiles || {});
+  if(names.length === 0){
+    sel.classList.add('hidden');
+    sel.innerHTML = '';
+    return;
+  }
+  names.sort();
+  sel.innerHTML = names.map(n =>
+    '<option value="'+esc(n)+'"'+(n===state.active?' selected':'')+'>'+esc(n)+'</option>').join('');
+  sel.classList.remove('hidden');
+}
+
+async function switchProfile(name){
+  try {
+    const r = await fetch('/api/profile/active', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: name})});
+    if(!r.ok){
+      const txt = await r.text();
+      throw new Error(txt || ('HTTP '+r.status));
+    }
+    notify('Switched to '+name, 'ok');
+    // Re-fetch config so the dashboard reflects the new bindings.
+    if(typeof loadConfig === 'function') loadConfig();
+  } catch(e){
+    notify('Switch profile failed: '+e.message, 'error');
+  }
+}

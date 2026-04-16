@@ -660,6 +660,18 @@ document.addEventListener('click', (e) => {
     case 'rescan-hardware':
       rescanHardware();
       break;
+    case 'toggle-panic-popover':
+      togglePanicPopover();
+      break;
+    case 'start-panic':
+      startPanic(parseInt(el.dataset.duration || '30', 10));
+      break;
+    case 'cancel-panic':
+      cancelPanic();
+      break;
+    case 'switch-profile':
+      switchProfile(el.value);
+      break;
     case 'add-curve':
       addCurve(el.dataset.type);
       break;

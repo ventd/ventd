@@ -318,6 +318,10 @@ checkSetup().then(()=>{
     // Normal mode: load dashboard immediately.
     loadConfig(); loadStatus(); loadHardware(); loadCalibration(); loadHwdiag();
     if (typeof loadDiagnosticsForBanner === 'function') loadDiagnosticsForBanner();
+    if (typeof loadProfiles === 'function') loadProfiles();
+    // Sync panic UI on boot — a freshly-loaded tab must reflect
+    // an already-active panic started by another client.
+    if (typeof pollPanicState === 'function') pollPanicState();
 
     // Status updates: prefer SSE (/api/events) for live frames. Start
     // the 2s poll as a fallback, and let the SSE handlers swap between

@@ -25,6 +25,16 @@ type CalibrationChecker interface {
 	IsCalibrating(pwmPath string) bool
 }
 
+// PanicChecker reports whether the daemon is currently in the Session
+// C 2e panic state. The controller tick yields when true so the
+// MaxPWM values the panic handler wrote at panic start stay put until
+// restore clears the flag. pwmPath is passed for symmetry with
+// CalibrationChecker (and to keep the door open for per-fan panic
+// scoping later), but today every checker ignores it.
+type PanicChecker interface {
+	IsPanicked(pwmPath string) bool
+}
+
 // Controller manages one fan channel.
 type Controller struct {
 	fanName   string
@@ -34,6 +44,7 @@ type Controller struct {
 	cfg       *atomic.Pointer[config.Config]
 	wd        *watchdog.Watchdog
 	cal       CalibrationChecker
+	panic     PanicChecker // nil-safe; nil → panic check skipped
 	logger    *slog.Logger
 	// onSensorRead is called after each completed tick that attempted a
 	// sensor read. Nil in tests; main.go wires it to web.ReadyState so the
@@ -50,6 +61,15 @@ type Option func(*Controller)
 // without coupling the controller package to internal/web.
 func WithSensorReadHook(hook func()) Option {
 	return func(c *Controller) { c.onSensorRead = hook }
+}
+
+// WithPanicChecker installs the panic-mode gate. When the checker
+// returns true the tick yields — no sensor reads, no curve eval, no
+// PWM writes. The MaxPWM values the panic handler wrote at panic
+// start are left in place until the flag is cleared. Nil-safe: when
+// no checker is installed the tick behaves exactly as before.
+func WithPanicChecker(p PanicChecker) Option {
+	return func(c *Controller) { c.panic = p }
 }
 
 func New(
@@ -156,6 +176,13 @@ func (c *Controller) tick() {
 	// Yield the tick to the calibration goroutine — it owns the PWM channel.
 	if c.fanType != "nvidia" && c.cal.IsCalibrating(c.pwmPath) {
 		c.logger.Debug("controller: calibration in progress, skipping tick")
+		return
+	}
+	// Yield to an active panic — the panic handler has already written
+	// MaxPWM to this fan and we must not overwrite it with a curve-
+	// derived value until the flag clears.
+	if c.panic != nil && c.panic.IsPanicked(c.pwmPath) {
+		c.logger.Debug("controller: panic active, skipping tick")
 		return
 	}
 

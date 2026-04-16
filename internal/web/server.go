@@ -95,6 +95,11 @@ type Server struct {
 	// recent /api/hardware/rescan call. Lazily initialised by the
 	// handlers themselves — zero value is a ready-to-use mutex.
 	rescan rescanState
+
+	// panic holds the in-memory state for the Session C 2e panic
+	// button. Zero value is a ready-to-use mutex; active=false means
+	// the controllers run their normal tick loop.
+	panic panicState
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -187,6 +192,11 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "hardware", handler: s.handleHardware, auth: true},
 		{name: "hardware/rescan", handler: s.handleHardwareRescan, auth: true},
 		{name: "debug/hwmon", handler: s.handleHwmonDebug, auth: true},
+		{name: "panic", handler: s.handlePanic, auth: true},
+		{name: "panic/state", handler: s.handlePanicState, auth: true},
+		{name: "panic/cancel", handler: s.handlePanicCancel, auth: true},
+		{name: "profile", handler: s.handleProfile, auth: true},
+		{name: "profile/active", handler: s.handleProfileActive, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},

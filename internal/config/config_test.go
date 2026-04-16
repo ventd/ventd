@@ -229,6 +229,102 @@ controls: []
 	}
 }
 
+// TestProfilesRoundTripPreservesNothingForZeroValue mirrors the
+// Hwmon.DynamicRebind omitempty guard (#125) for the Session C 2e
+// Profiles addition. A v0.2.x YAML must round-trip without gaining
+// either `profiles:` or `active_profile:` keys so upgraders see a
+// zero-diff first Save.
+func TestProfilesRoundTripPreservesNothingForZeroValue(t *testing.T) {
+	v02Config := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors: []
+curves: []
+controls: []
+`)
+	cfg, err := Parse(v02Config)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Profiles != nil {
+		t.Fatalf("Profiles = %v after parse of v0.2.x YAML; want nil", cfg.Profiles)
+	}
+	if cfg.ActiveProfile != "" {
+		t.Fatalf("ActiveProfile = %q after parse of v0.2.x YAML; want empty", cfg.ActiveProfile)
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(out), "profiles:") {
+		t.Fatalf("round-trip emitted profiles: key on zero-value;\n---\n%s\n---", out)
+	}
+	if strings.Contains(string(out), "active_profile:") {
+		t.Fatalf("round-trip emitted active_profile: key on zero value;\n---\n%s\n---", out)
+	}
+}
+
+// TestProfilesRoundTripEnabled covers the opt-in path: a v0.3 YAML
+// carrying a profiles block parses into a populated map and the
+// re-marshalled YAML preserves the structure so an operator who has
+// defined profiles does not lose them on the next Save.
+func TestProfilesRoundTripEnabled(t *testing.T) {
+	enabled := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+fans: []
+sensors: []
+curves: []
+controls: []
+profiles:
+  silent:
+    bindings:
+      cpu_fan: cpu_linear_silent
+      sys_fan1: case_linear_silent
+  balanced:
+    bindings:
+      cpu_fan: cpu_linear_balanced
+      sys_fan1: case_linear_balanced
+active_profile: balanced
+`)
+	cfg, err := Parse(enabled)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(cfg.Profiles) != 2 {
+		t.Fatalf("len(Profiles) = %d after parse; want 2", len(cfg.Profiles))
+	}
+	if cfg.ActiveProfile != "balanced" {
+		t.Fatalf("ActiveProfile = %q; want balanced", cfg.ActiveProfile)
+	}
+	if got := cfg.Profiles["silent"].Bindings["cpu_fan"]; got != "cpu_linear_silent" {
+		t.Fatalf("silent.bindings.cpu_fan = %q; want cpu_linear_silent", got)
+	}
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), "profiles:") {
+		t.Fatalf("round-trip dropped profiles: key;\n---\n%s\n---", out)
+	}
+	if !strings.Contains(string(out), "active_profile: balanced") {
+		t.Fatalf("round-trip dropped active_profile: balanced;\n---\n%s\n---", out)
+	}
+	cfg2, err := Parse(out)
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(cfg2.Profiles) != 2 {
+		t.Fatalf("re-parse lost profiles; got len=%d", len(cfg2.Profiles))
+	}
+	if cfg2.ActiveProfile != "balanced" {
+		t.Fatalf("re-parse lost ActiveProfile; got %q", cfg2.ActiveProfile)
+	}
+}
+
 // TestValidateAllowStopGate pins the hwmon-safety rule 1 load-time gate:
 // a fan with min_pwm: 0 and no allow_stop must be rejected, because the
 // controller would otherwise silently skip every PWM=0 write at runtime.
