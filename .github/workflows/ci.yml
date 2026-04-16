@@ -107,10 +107,14 @@ jobs:
           shellcheck --severity=warning --exclude=SC1091 \
                      --shell=bash validation/run-rig-checks.sh \
                                   validation/test-rig-checks.sh \
-                                  validation/postreboot-verify.sh
+                                  validation/postreboot-verify.sh \
+                                  validation/install-pwm-holders.test.sh
           # Run the fixture-based self-test for 0a.i / 0a.iii (issue #61)
           # AND the 4h chip-binding assertion (issue #86 verifier gap).
           bash validation/test-rig-checks.sh
+          # Issue #107 carve-out: install.sh's PWM-holder preflight must
+          # pass on the upgrade path when the only holders are ventd itself.
+          bash validation/install-pwm-holders.test.sh
           # POSIX hooks + init scripts. preremove.sh, postinstall.sh
           # and _ventd_account.sh all run under dash on Debian.
           shellcheck --severity=warning --exclude=SC1091,SC2034 \
