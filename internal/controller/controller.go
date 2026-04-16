@@ -60,17 +60,22 @@ func New(
 // Run starts the control loop. It takes manual control of the PWM channel
 // (pwm_enable=1), ticks at interval until ctx is cancelled, then returns.
 //
-// If a panic occurs it is recovered, the watchdog is triggered, and an error
-// is returned so main can perform an orderly shutdown.
+// The watchdog is restored on every exit path — normal ctx.Done(), early
+// error return, and panic — per hwmon-safety rule 4. The daemon-level
+// defer in cmd/ventd/main.go is defence-in-depth; the controller owns
+// the invariant on its own.
+//
+// If a panic occurs it is recovered and wrapped so main can perform an
+// orderly shutdown.
 //
 // Individual tick errors (sensor read failure, PWM write failure) are logged
 // and skipped — the loop continues so a transient sysfs hiccup does not kill
 // the daemon.
 func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error) {
 	defer func() {
+		c.wd.Restore()
 		if r := recover(); r != nil {
-			c.logger.Error("controller: panic recovered, triggering watchdog", "panic", r)
-			c.wd.Restore()
+			c.logger.Error("controller: panic recovered, watchdog restored", "panic", r)
 			err = fmt.Errorf("controller %s: panic: %v", c.fanName, r)
 		}
 	}()
@@ -148,6 +153,14 @@ func (c *Controller) tick() {
 	// Manual mode: write the fixed PWM directly, skip sensor reads and curve.
 	if manualPWM != nil {
 		pwm := clamp(*manualPWM, fan.MinPWM, fan.MaxPWM)
+		// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
+		// AllowStop=true. clamp already enforces the MinPWM floor, so
+		// pwm==0 here implies MinPWM==0; refuse when AllowStop is false.
+		if pwm == 0 && !fan.AllowStop {
+			c.logger.Warn("controller: refusing manual PWM=0 on fan without allow_stop",
+				"pwm_path", c.pwmPath, "fan_type", fan.Type)
+			return
+		}
 		var writeErr error
 		if c.fanType == "nvidia" {
 			idx, err := parseNvidiaIndex(c.pwmPath)
@@ -193,6 +206,15 @@ func (c *Controller) tick() {
 	// Clamp to the fan's configured PWM range. This is the hard safety layer:
 	// the fan config is authoritative — the curve cannot drive PWM outside it.
 	pwm := clamp(raw, fan.MinPWM, fan.MaxPWM)
+
+	// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
+	// AllowStop=true. clamp already enforces the MinPWM floor, so pwm==0
+	// here implies MinPWM==0; refuse when AllowStop is false.
+	if pwm == 0 && !fan.AllowStop {
+		c.logger.Warn("controller: refusing PWM=0 on fan without allow_stop",
+			"pwm_path", c.pwmPath, "fan_type", fan.Type)
+		return
+	}
 
 	var writeErr error
 	if c.fanType == "nvidia" {

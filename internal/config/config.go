@@ -214,6 +214,10 @@ type Fan struct {
 	MaxPWM      uint8  `yaml:"max_pwm" json:"max_pwm"`
 	IsPump      bool   `yaml:"is_pump,omitempty" json:"is_pump,omitempty"`
 	PumpMinimum uint8  `yaml:"pump_minimum,omitempty" json:"pump_minimum,omitempty"`
+	// AllowStop is the explicit opt-in required to permit a PWM=0 write.
+	// Rule: NEVER write PWM=0 unless MinPWM=0 AND AllowStop=true. Absent
+	// (zero value) means the controller will refuse PWM=0 even if MinPWM=0.
+	AllowStop bool `yaml:"allow_stop,omitempty" json:"allow_stop,omitempty"`
 }
 
 type CurveConfig struct {

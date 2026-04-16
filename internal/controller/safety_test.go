@@ -120,12 +120,10 @@ func TestSafety_Invariants(t *testing.T) {
 	// ---------- Rule: never write PWM=0 unless allow_stop is explicitly on ----------
 
 	t.Run("allow_stop/disabled_refuses_zero", func(t *testing.T) {
-		// SAFETY GAP: config.Fan has no AllowStop field; controller's only
-		// gate is the [MinPWM, MaxPWM] clamp. When MinPWM=0 (misconfig or
-		// stale config), the curve can drive the fan to 0 even though the
-		// rule requires allow_stop=true to permit that. Tracked by #115.
-		t.Skip("tracked by #115 — controller permits PWM=0 when MinPWM=0 without an allow_stop gate")
-
+		// With MinPWM=0 and AllowStop=false, the controller must refuse a
+		// PWM=0 write. clamp's MinPWM floor is 0 here so the old gate was
+		// inert; the allow_stop gate now blocks the write. The seeded
+		// pwm file value must be unchanged when the tick refuses.
 		ff := newFakeFan(t)
 		if err := os.WriteFile(ff.pwmPath, []byte("100\n"), 0o600); err != nil {
 			t.Fatalf("seed pwm: %v", err)
@@ -135,7 +133,7 @@ func TestSafety_Invariants(t *testing.T) {
 			Fans: []config.Fan{{
 				Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
 				MinPWM: 0, MaxPWM: 255,
-				// AllowStop: false (field doesn't exist yet — see #115)
+				AllowStop: false,
 			}},
 			Curves: []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
 			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
@@ -149,10 +147,9 @@ func TestSafety_Invariants(t *testing.T) {
 	})
 
 	t.Run("allow_stop/enabled_permits_zero", func(t *testing.T) {
-		// With MinPWM=0 the clamp lets PWM=0 through. Today this passes
-		// because the allow_stop gate is missing entirely (#115); once
-		// that gate lands, this test must continue to pass by setting
-		// AllowStop=true alongside MinPWM=0.
+		// With MinPWM=0 and AllowStop=true, the clamp lets PWM=0 through
+		// and the allow_stop gate permits the write. This is the only
+		// configuration where a PWM=0 write is allowed.
 		ff := newFakeFan(t)
 		if err := os.WriteFile(ff.pwmPath, []byte("100\n"), 0o600); err != nil {
 			t.Fatalf("seed pwm: %v", err)
@@ -162,7 +159,7 @@ func TestSafety_Invariants(t *testing.T) {
 			Fans: []config.Fan{{
 				Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
 				MinPWM: 0, MaxPWM: 255,
-				// AllowStop: true (field doesn't exist yet — see #115)
+				AllowStop: true,
 			}},
 			Curves: []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
 			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
@@ -302,13 +299,10 @@ func TestSafety_Invariants(t *testing.T) {
 	// ---------- Rule: Watchdog.Restore() must fire on every exit path ----------
 
 	t.Run("watchdog/restore_on_context_cancel", func(t *testing.T) {
-		// SAFETY GAP: Controller.Run() only calls wd.Restore() from its
-		// panic-recover branch. On ctx.Done() it logs and returns nil —
-		// Restore is not invoked. The daemon safety envelope is saved by
-		// cmd/ventd/main.go's defer wd.Restore(), but the controller
-		// layer does not fulfil the invariant on its own. Tracked by #116.
-		t.Skip("tracked by #116 — Controller.Run does not call wd.Restore on context cancel")
-
+		// Run must call wd.Restore() on ctx cancel (the common daemon
+		// shutdown path), not just on panic. The daemon-level defer in
+		// cmd/ventd/main.go is defence-in-depth; the controller owns
+		// the invariant on its own.
 		ff := newFakeFan(t) // pwm_enable="2"
 		cfgStruct := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
 		logger := silentLogger()
