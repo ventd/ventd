@@ -669,9 +669,6 @@ document.addEventListener('click', (e) => {
     case 'cancel-panic':
       cancelPanic();
       break;
-    case 'switch-profile':
-      switchProfile(el.value);
-      break;
     case 'add-curve':
       addCurve(el.dataset.type);
       break;
@@ -779,6 +776,12 @@ document.addEventListener('change', (e) => {
       } else {
         applyTheme(el.value);
       }
+      break;
+    case 'switch-profile':
+      // <select> elements fire `change`, not `click`. Before #212
+      // landed this case was misplaced under the click listener and
+      // the dropdown was inert.
+      switchProfile(el.value);
       break;
     case 'setting-temp-unit':
       try { localStorage.setItem('ventd-temp-unit', el.value); } catch(_){}
