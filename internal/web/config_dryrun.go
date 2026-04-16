@@ -91,7 +91,7 @@ func diffConfigs(live, next *config.Config) ConfigDiff {
 	}
 	if live.PollInterval.Duration != next.PollInterval.Duration {
 		out.Sections = append(out.Sections, scalarDiff("poll_interval", "", "poll_interval",
-			live.PollInterval.Duration.String(), next.PollInterval.Duration.String()))
+			live.PollInterval.String(), next.PollInterval.String()))
 	}
 	if live.Hwmon.DynamicRebind != next.Hwmon.DynamicRebind {
 		out.Sections = append(out.Sections, scalarDiff("hwmon", "", "dynamic_rebind",
