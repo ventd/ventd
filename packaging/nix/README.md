@@ -12,9 +12,9 @@ flake references the repo source via `../..`.
   (mirrors the `.goreleaser.yml` musl variant). Pick this if the host
   has no NVIDIA driver or you need a smaller surface.
 - `nixosModules.default` / `nixosModules.ventd` — declarative service
-  module that mirrors `deploy/ventd.service` and
-  `deploy/ventd-recover.service` exactly, plus the udev rule from
-  `deploy/90-ventd-hwmon.rules`.
+  module that installs `deploy/ventd.service`,
+  `deploy/ventd-recover.service`, and `deploy/90-ventd-hwmon.rules`
+  directly (see *Single source of truth* below).
 
 Supported systems: `x86_64-linux`, `aarch64-linux`.
 
@@ -166,6 +166,55 @@ Enabling `services.ventd.enable = true;` wires up:
 - **Automatic nixpkgs inclusion** — this flake is not in nixpkgs.
   Upstream the package if you want `nixpkgs#ventd`; until then, pin
   the flake in your system inputs.
+
+## Single source of truth
+
+The module does not duplicate the systemd unit text or the udev rule.
+Everything comes from `deploy/`:
+
+- `deploy/ventd.service` and `deploy/ventd-recover.service` are each
+  handed to `systemd.packages` verbatim via `runCommand` +
+  `substituteInPlace`. Two separate `runCommand` derivations, because
+  the main unit references `ventd-wait-hwmon` and the recover unit
+  doesn't — `--replace-fail` would abort the build on a missed match
+  if both units shared one substitution recipe. The only rewrites
+  applied are these FHS-path fixes:
+
+  |     deploy/ ships             |   Nix store path                              |   applied to                     |
+  |-------------------------------|-----------------------------------------------|----------------------------------|
+  | `/usr/local/bin/ventd`        | `${cfg.package}/bin/ventd`                    | both units                       |
+  | `/usr/local/sbin/ventd-wait-hwmon` | `${cfg.package}/libexec/ventd-wait-hwmon` | `ventd.service` only             |
+
+  Every other directive (sandbox fields, `WatchdogSec=`, `OnFailure=`,
+  `After=`, etc.) flows through unchanged. Tightening the sandbox in
+  `deploy/ventd.service` automatically tightens the NixOS unit too.
+
+- `deploy/90-ventd-hwmon.rules` is loaded with `builtins.readFile` into
+  `services.udev.extraRules`. No inline copy.
+
+The `nix-drift` CI job runs `packaging/nix/check-drift.sh`, which
+asserts:
+
+1. The module references `deploy/ventd.service`,
+   `deploy/ventd-recover.service`, and `deploy/90-ventd-hwmon.rules`
+   through the mechanisms above.
+2. The only path rewrites applied by the module's `--replace*`
+   invocations are the two FHS-path fixes in the table above; any
+   other token is flagged as suspicious (e.g. a silent rewrite of
+   `WatchdogSec=2s` to `WatchdogSec=0`).
+
+Content-level drift between `deploy/` and the module cannot exist
+under this architecture: the Nix build literally copies
+`deploy/ventd.service` into the store and applies the two path
+rewrites. `--replace-fail` aborts the build if a path rewrite stops
+matching, which is itself a deploy-side drift signal.
+
+If a future nixpkgs change ever breaks the `systemd.packages`
+merging we rely on and the module has to fall back to inlined
+attributes, update `check-drift.sh` to re-parse the attrset and keep
+the CI gate. Never land a version of this module that silently
+duplicates `deploy/ventd.service` content without `nix-drift`
+catching it.
 
 ## Development
 
