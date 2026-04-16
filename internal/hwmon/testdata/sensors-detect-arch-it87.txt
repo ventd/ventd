@@ -1,0 +1,34 @@
+# sensors-detect version 3.6.0
+# System: Intel(R) Core(TM) i9-12900K [Z690 AORUS ELITE AX]
+# Board: Gigabyte Technology Co., Ltd. Z690 AORUS ELITE AX
+# Kernel: 6.9.1-arch1-1 x86_64
+
+This program will help you determine which kernel modules you need
+to load to use lm_sensors most effectively.
+
+Now follows a summary of the probes I have just done.
+Just press ENTER to continue:
+
+Driver `coretemp':
+  * Chip `Intel digital thermal sensor' (confidence: 9)
+
+Driver `it87':
+  * ISA bus, address 0xa40
+    Chip `ITE IT8625E Super IO Sensors' (confidence: 9)
+
+Do you want to overwrite /etc/modules-load.d/lm-sensors.conf? (yes/NO): y
+
+To load everything that is needed, add this to /etc/modules-load.d/lm-sensors.conf:
+
+#----cut here----
+# Chip drivers
+coretemp
+it87
+# Chip driver options
+options it87 force_id=0x8625
+#----cut here----
+
+If you have some drivers built into your kernel, the list above will
+contain too many modules. Skip the appropriate ones!
+
+Successful!
