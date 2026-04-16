@@ -49,17 +49,6 @@ func TestDetect_EmptyHwmonReturnsFriendlyError(t *testing.T) {
 	}
 }
 
-func TestDetect_PopulatedHwmonReturnsFriendlyNames(t *testing.T) {
-	// Invariant: usability.md — user-facing fan names must be friendly
-	// ("CPU Fan", "System Fan 1"), never raw sysfs paths or PWM numbers.
-	// Covered end-to-end in TestDiscoverHwmonControls_FriendlyNames
-	// (manager_roots_test.go), which runs discoverHwmonControls against a
-	// fixture hwmonRoot and asserts every discovered path translates to a
-	// leak-free friendly name. This entry stays as a living pointer so the
-	// usability invariant keeps its orchestration-level anchor.
-	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
-}
-
 // ---------- calibrate/* ----------
 
 func TestCalibrate_AbortRestoresPWMWithin2s(t *testing.T) {
@@ -407,32 +396,4 @@ func TestValidateGeneratedConfig_RejectsDanglingCurveReference(t *testing.T) {
 	if err == nil {
 		t.Fatal("validateGeneratedConfig accepted a control referencing an undefined curve")
 	}
-}
-
-// ---------- discoverCPUTempSensor / discoverAMDGPUTemp ----------
-
-func TestDiscoverCPUTempSensor_NotTestableWithoutRootOverride(t *testing.T) {
-	// Covered by TestDiscoverCPUTempSensor_Fixtures in
-	// manager_roots_test.go, which pins all three passes of the discovery
-	// logic (known CPU chips, labeled fallback, acpitz last resort)
-	// against fixture trees under t.TempDir().
-	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
-}
-
-func TestDiscoverAMDGPUTemp_NotTestableWithoutRootOverride(t *testing.T) {
-	// Covered by TestDiscoverAMDGPUTemp_Fixtures in manager_roots_test.go,
-	// which pins the junction-over-edge preference and the empty-label
-	// fallback.
-	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
-}
-
-// ---------- gatherProfile ----------
-
-func TestGatherProfile_NotTestableWithoutDependencyInjection(t *testing.T) {
-	// Covered by TestGatherProfile_Fixtures (Intel + CPU crit) and
-	// TestGatherProfile_AMDGPUBranch (AMD GPU fallback) in
-	// manager_roots_test.go. Individual readers are also pinned in
-	// TestReadCPUModel_Fixtures, TestReadCPUVendor_Fixtures, and
-	// TestReadRAPLTDPW_Fixtures.
-	t.Run("covered_in_manager_roots_test", func(t *testing.T) {})
 }
