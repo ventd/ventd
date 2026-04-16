@@ -1042,8 +1042,18 @@ function toggleTheme(){
   try { localStorage.setItem('ventd-theme', next); } catch(_){}
 }
 // Apply saved theme immediately (scripts are deferred, so DOM is ready).
+// A stored value of "auto" means the user explicitly picked "follow OS"
+// in the Settings > Display select; on reload we must resolve that to a
+// concrete light/dark so the data-theme attribute actually matches a
+// CSS rule. Passing "auto" through to applyTheme would set
+// `data-theme="auto"` which no tokens.css rule catches, so the page
+// would paint dark regardless of the OS preference. Issue #199.
 (function(){
   let saved = 'dark';
   try { saved = localStorage.getItem('ventd-theme') || 'dark'; } catch(_){}
+  if(saved === 'auto'){
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    saved = prefersLight ? 'light' : 'dark';
+  }
   applyTheme(saved);
 })();

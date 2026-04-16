@@ -1,4 +1,9 @@
 :root {
+  /* Mirror the color-scheme declaration from tokens.css so the pre-
+   * auth login page gets the same Brave-Night-Mode / Chrome-Force-Dark
+   * protection as the dashboard. Issue #199. */
+  color-scheme: light dark;
+
   /* Font stacks mirror tokens.css so the login page (served pre-auth
    * and outside the embedded ui/ tree loaded by index.html) inherits
    * the same typography without depending on the dashboard bundle. */
@@ -13,6 +18,10 @@
   --amber:    #e6a23c;
   --btn-fg:   #0d1117;
 }
+/* Theme-pin rules — see tokens.css comment for why `only` matters. */
+:root[data-theme="dark"] { color-scheme: only dark; }
+:root[data-theme="light"] { color-scheme: only light; }
+
 [data-theme="light"] {
   --bg:       #f6f8fa; --bg2: #ffffff; --bg3: #f3f4f6;
   --border:   #d0d7de;
