@@ -326,6 +326,73 @@ function openSettings(){
 function closeSettings(){
   document.getElementById('settings-overlay').classList.remove('open');
 }
+
+// openApplyModal renders the dryrun diff and shows the confirmation
+// overlay. Sections render with added/removed/modified pills so a
+// reviewer scanning the modal can tell at a glance whether the
+// change set is additive (safe) or destructive (rename, delete).
+function openApplyModal(diff){
+  const el = document.getElementById('apply-overlay');
+  if(!el) return;
+  const body = document.getElementById('apply-diff');
+  const status = document.getElementById('apply-status');
+  const confirm = document.getElementById('btn-apply-confirm');
+  if(status){ status.textContent=''; status.className='apply-status'; }
+  if(confirm) confirm.disabled = false;
+  body.innerHTML = renderApplyDiff(diff);
+  el.classList.add('open');
+}
+function closeApplyModal(){
+  const el = document.getElementById('apply-overlay');
+  if(el) el.classList.remove('open');
+}
+function renderApplyDiff(diff){
+  if(!diff || !diff.sections || !diff.sections.length){
+    return '<p class="apply-diff-empty">No changes detected.</p>';
+  }
+  // Group by section for readability. The server already emits
+  // sections in a stable order (scalars → sensors → fans → curves →
+  // controls); we preserve that order here and just add headers.
+  const groups = {};
+  const order = [];
+  diff.sections.forEach(sec => {
+    const key = sec.section || 'other';
+    if(!groups[key]){ groups[key] = []; order.push(key); }
+    groups[key].push(sec);
+  });
+  const sectionLabels = {
+    sensors: 'Sensors', fans: 'Fans', curves: 'Curves',
+    controls: 'Controls', hwmon: 'Hardware monitor',
+    web: 'Web', version: 'Version', poll_interval: 'Poll interval'
+  };
+  return order.map(key => {
+    const label = sectionLabels[key] || key;
+    const items = groups[key].map(sec => {
+      const pillCls = 'apply-pill apply-pill-'+sec.kind;
+      const name = sec.name ? '<span class="apply-diff-name">'+esc(sec.name)+'</span>' : '';
+      let fields = '';
+      if(sec.fields && sec.fields.length){
+        fields = '<ul class="apply-diff-fields">' +
+          sec.fields.map(f =>
+            '<li><span class="apply-diff-field">'+esc(f.name)+':</span> '+
+              '<span class="apply-diff-from">'+esc(f.from||'\u2014')+'</span>'+
+              ' <span class="apply-diff-arrow">\u2192</span> '+
+              '<span class="apply-diff-to">'+esc(f.to||'\u2014')+'</span></li>'
+          ).join('') +
+          '</ul>';
+      }
+      return '<li class="apply-diff-item">'+
+        '<span class="'+pillCls+'">'+sec.kind+'</span>'+
+        name + fields +
+      '</li>';
+    }).join('');
+    return '<div class="apply-diff-group">'+
+      '<h3>'+esc(label)+'</h3>'+
+      '<ul class="apply-diff-list">'+items+'</ul>'+
+    '</div>';
+  }).join('');
+}
+
 // Close on backdrop click. The modal-card is a child of the
 // modal-backdrop, so a click that reaches the backdrop itself means
 // the user clicked outside the card.
@@ -334,6 +401,12 @@ function closeSettings(){
   if(el){
     el.addEventListener('click', e => {
       if(e.target === el) closeSettings();
+    });
+  }
+  const apply = document.getElementById('apply-overlay');
+  if(apply){
+    apply.addEventListener('click', e => {
+      if(e.target === apply) closeApplyModal();
     });
   }
 })();

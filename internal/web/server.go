@@ -178,6 +178,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "status", handler: s.handleStatus, auth: true},
 		{name: "events", handler: s.handleEvents, auth: true},
 		{name: "config", handler: s.handleConfig, auth: true},
+		{name: "config/dryrun", handler: s.handleConfigDryrun, auth: true},
 		{name: "hardware", handler: s.handleHardware, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},

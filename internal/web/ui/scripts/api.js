@@ -118,9 +118,47 @@ async function loadCalibration(){
   } catch(e){}
 }
 
+// applyConfig is the Apply-button entry point. It calls the daemon's
+// dryrun endpoint to fetch a semantic diff of the in-memory config
+// against what the daemon is currently running, then shows the diff
+// in a modal so the user can confirm before committing. On empty
+// diff the modal is skipped and a toast explains there were no
+// changes to apply.
 async function applyConfig(){
   try {
-    const r = await fetch('/api/config',{
+    const r = await fetch('/api/config/dryrun', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(cfg)
+    });
+    if(!r.ok){
+      notify('Dryrun failed: '+await r.text(), 'error');
+      return;
+    }
+    const diff = await r.json();
+    if(!diff.changed){
+      notify('No changes to apply', 'ok');
+      dirty=false;
+      document.getElementById('dirty').hidden=true;
+      document.getElementById('btn-apply').disabled=true;
+      return;
+    }
+    openApplyModal(diff);
+  } catch(e){ notify('Dryrun failed: '+e.message, 'error'); }
+}
+
+// commitConfigApply is the second half of the Apply flow — called
+// from the modal's Confirm button after the user has reviewed the
+// diff. Same PUT semantics as the previous one-step applyConfig:
+// on 200 the dirty flag clears, on non-200 the error surface goes
+// through the modal's status line so the user can retry without
+// dismissing.
+async function commitConfigApply(){
+  const statusEl = document.getElementById('apply-status');
+  const confirmBtn = document.getElementById('btn-apply-confirm');
+  if(confirmBtn) confirmBtn.disabled = true;
+  if(statusEl){ statusEl.textContent = 'Applying\u2026'; statusEl.className = 'apply-status'; }
+  try {
+    const r = await fetch('/api/config', {
       method:'PUT', headers:{'Content-Type':'application/json'},
       body:JSON.stringify(cfg)
     });
@@ -128,10 +166,18 @@ async function applyConfig(){
       dirty=false;
       document.getElementById('dirty').hidden=true;
       document.getElementById('btn-apply').disabled=true;
-      notify('Configuration applied','ok');
+      notify('Configuration applied', 'ok');
+      closeApplyModal();
       loadConfig();
-    } else { notify(await r.text(),'error'); }
-  } catch(e){ notify('Apply failed: '+e.message,'error'); }
+    } else {
+      const msg = await r.text();
+      if(statusEl){ statusEl.textContent = msg; statusEl.className = 'apply-status apply-status-err'; }
+    }
+  } catch(e){
+    if(statusEl){ statusEl.textContent = 'Apply failed: '+e.message; statusEl.className = 'apply-status apply-status-err'; }
+  } finally {
+    if(confirmBtn) confirmBtn.disabled = false;
+  }
 }
 
 // ── Hardware diagnostics (hwdiag) ──

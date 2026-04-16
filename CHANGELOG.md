@@ -6,6 +6,24 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Apply confirmation modal + `/api/config/dryrun`
+
+- The dashboard Apply button now opens a diff preview before committing
+  a change. Click Apply → server-side dryrun compares the candidate
+  config against what the daemon is currently running → modal renders
+  a semantic diff (added / removed / modified items with per-field
+  before→after). Cancel leaves the dirty state untouched; Confirm does
+  the actual `PUT /api/config`. If the diff is empty (a spurious Apply
+  click), the modal is skipped and a toast explains.
+- New `POST /api/config/dryrun` endpoint returns a `ConfigDiff` shape
+  keyed by section (sensors / fans / curves / controls / hwmon / web).
+  The pairing is identity-bound (by Name / Fan) so a curve rename is
+  reported as one removed + one added, not a string-level drift across
+  every field. Registered via the `apiRoute` slice so `/api/v1/config/dryrun`
+  resolves to the same handler. ventd controls physical hardware and
+  this modal is the ergonomic belt-and-braces against an accidental
+  drag-and-Apply.
+
 ### Added — visual binding between dashboard cards
 
 - Hovering any fan / curve / sensor card on the dashboard now

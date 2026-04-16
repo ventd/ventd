@@ -670,6 +670,12 @@ document.addEventListener('click', (e) => {
     case 'close-settings':
       closeSettings();
       break;
+    case 'close-apply':
+      closeApplyModal();
+      break;
+    case 'confirm-apply':
+      commitConfigApply();
+      break;
     case 'confirm-reset':
       confirmReset();
       break;

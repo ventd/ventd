@@ -1734,6 +1734,137 @@ func TestE2E_VisualBinding_MixLinkSelectsSource(t *testing.T) {
 	}
 }
 
+// TestE2E_ApplyFlow_OpensDiffModalAndCommits drives the PR-2d Apply
+// flow end-to-end: edit a curve in-memory via a JS eval that mirrors
+// what the editor would write, click Apply, confirm the modal renders
+// the right diff, click Confirm, and verify the daemon's loaded
+// config now reflects the change.
+func TestE2E_ApplyFlow_OpensDiffModalAndCommits(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu_linear"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/sys/class/hwmon/test/pwm1", MinPWM: 50, MaxPWM: 255}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/sys/class/hwmon/test/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{
+		{Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp", MinTemp: 30, MaxTemp: 80, MinPWM: 80, MaxPWM: 255},
+	}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 720)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	if _, err := page.Eval(`() => {
+		cfg.curves[0].max_temp = 75;
+		cfg.curves[0].max_pwm = 230;
+		markDirty();
+	}`); err != nil {
+		t.Fatalf("mutate cfg: %v", err)
+	}
+
+	if _, err := page.Eval(`() => document.getElementById('btn-apply').click()`); err != nil {
+		t.Fatalf("click apply: %v", err)
+	}
+	waitUntil(t, 3*time.Second, func() bool {
+		res, err := page.Eval(`() => document.getElementById('apply-overlay').classList.contains('open')`)
+		if err != nil {
+			return false
+		}
+		return res.Value.Bool()
+	}, "apply-overlay did not open")
+
+	text, err := page.Eval(`() => document.getElementById('apply-diff').textContent`)
+	if err != nil {
+		t.Fatalf("read diff: %v", err)
+	}
+	body := text.Value.Str()
+	for _, want := range []string{"cpu_linear", "max_temp", "80", "75", "max_pwm", "230"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("modal diff missing %q; got:\n%s", want, body)
+		}
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		outDir, err := os.MkdirTemp("", "ventd-apply-")
+		if err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		t.Logf("apply-modal screenshot dir: %s", outDir)
+		data := page.MustScreenshot()
+		_ = os.WriteFile(fmt.Sprintf("%s/apply-modal-diff.png", outDir), data, 0o644)
+	}
+
+	if _, err := page.Eval(`() => document.getElementById('btn-apply-confirm').click()`); err != nil {
+		t.Fatalf("click confirm: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	statusRes, _ := page.Eval(`() => document.getElementById('apply-status').textContent`)
+	statusText := statusRes.Value.Str()
+	waitUntil(t, 3*time.Second, func() bool {
+		applied := h.cfgPtr.Load()
+		if len(applied.Curves) == 0 {
+			return false
+		}
+		return applied.Curves[0].MaxTemp == 75 && applied.Curves[0].MaxPWM == 230
+	}, "daemon config did not reflect modal-confirmed change; apply-status="+statusText)
+}
+
+// TestE2E_ApplyFlow_NoChangeSkipsModal asserts that clicking Apply
+// with no pending changes short-circuits the modal and surfaces a
+// toast instead — the dryrun endpoint reports changed=false and
+// the client-side flow clears the dirty flag without prompting.
+func TestE2E_ApplyFlow_NoChangeSkipsModal(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".card")
+
+	if _, err := page.Eval(`() => { markDirty(); }`); err != nil {
+		t.Fatalf("markDirty: %v", err)
+	}
+	if _, err := page.Eval(`() => document.getElementById('btn-apply').click()`); err != nil {
+		t.Fatalf("click apply: %v", err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	res, err := page.Eval(`() => document.getElementById('apply-overlay').classList.contains('open')`)
+	if err != nil {
+		t.Fatalf("read overlay: %v", err)
+	}
+	if res.Value.Bool() {
+		t.Errorf("apply modal opened despite no changes")
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the
