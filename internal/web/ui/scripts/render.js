@@ -657,6 +657,9 @@ document.addEventListener('click', (e) => {
     case 'toggle-hw':
       toggleHw(el.dataset.key);
       break;
+    case 'rescan-hardware':
+      rescanHardware();
+      break;
     case 'add-curve':
       addCurve(el.dataset.type);
       break;

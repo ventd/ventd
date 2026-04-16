@@ -90,6 +90,11 @@ type Server struct {
 	// production; tests inject a deterministic clock to exercise the 5s
 	// boundary without racing time.Now().
 	nowFn func() time.Time
+
+	// rescan holds the before/after/current snapshots from the most
+	// recent /api/hardware/rescan call. Lazily initialised by the
+	// handlers themselves — zero value is a ready-to-use mutex.
+	rescan rescanState
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -180,6 +185,8 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "config", handler: s.handleConfig, auth: true},
 		{name: "config/dryrun", handler: s.handleConfigDryrun, auth: true},
 		{name: "hardware", handler: s.handleHardware, auth: true},
+		{name: "hardware/rescan", handler: s.handleHardwareRescan, auth: true},
+		{name: "debug/hwmon", handler: s.handleHwmonDebug, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
