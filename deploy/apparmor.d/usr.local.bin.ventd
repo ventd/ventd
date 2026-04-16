@@ -83,9 +83,13 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   owner /proc/[0-9]*/**           r,
 
   # Network: bind 9999/tcp by default; INET, INET6, UNIX (journald),
-  # NETLINK (uevent watcher).
+  # NETLINK (uevent watcher). The inet6 line is family-only (no stream
+  # qualifier) because apparmor_parser >=4.1 (Debian 13 trixie) rejects
+  # the two-token `network inet6 stream,` form with "syntax error,
+  # unexpected TOK_ID". The IPv6 codepath is the web listener — a TCP
+  # stream — so the lost qualifier is a small, deliberate trade. See #202.
   network inet stream,
-  network inet6 stream,
+  network inet6,
   network unix dgram,
   network netlink raw,
 
