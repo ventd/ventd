@@ -85,6 +85,24 @@ function setupPhaseBadge(phase, label){
   return '<span class="phase-badge '+cls+'">'+(label||phase)+'</span>';
 }
 
+// Create (or return the cached) chip-name explainer element. Lives
+// inside setup-phase-area so it sits with the other phase lines; CSS
+// is applied via element.style (CSP forbids inline style attrs but
+// not JS-driven style assignments — see internal/web/security.go).
+function ensureChipExplainer(){
+  let el = document.getElementById('setup-chip-explainer');
+  if(el) return el;
+  el = document.createElement('p');
+  el.id = 'setup-chip-explainer';
+  el.className = 'chip-name-explainer hidden';
+  el.style.color = 'var(--teal)';
+  el.style.fontSize = '0.82rem';
+  el.style.margin = '0.2rem 0 0.8rem 0';
+  el.style.lineHeight = '1.45';
+  document.getElementById('setup-phase-area').appendChild(el);
+  return el;
+}
+
 function renderSetupProgress(p){
   // ── Phase status line ───────────────────────────────────────────────────
   const phaseArea = document.getElementById('setup-phase-area');
@@ -103,13 +121,29 @@ function renderSetupProgress(p){
       boardEl.classList.remove('hidden');
     }
 
-    // Chip line — shown during driver install
+    // Chip line — shown only during the installing_driver phase.
+    // m.chipName persists in the backend across later phases, so we
+    // gate on the phase here to avoid the stale "Installing driver…"
+    // text lingering once calibration has started.
     const chipEl = document.getElementById('setup-chip-line');
-    if(p.chip_name){
+    if(p.chip_name && p.phase === 'installing_driver'){
       chipEl.textContent = 'Installing driver for ' + p.chip_name + '…';
       chipEl.classList.remove('hidden');
     } else {
       chipEl.classList.add('hidden');
+    }
+
+    // Chip-name binding explainer — shown during calibrate/finalize
+    // to reassure the user their config will survive hwmon renumbering.
+    // When p.chip_name is empty (pre-loaded in-tree driver, no OOT
+    // install fired), the element stays hidden.
+    const explainerEl = ensureChipExplainer();
+    if(p.chip_name && (p.phase === 'calibrating' || p.phase === 'finalizing')){
+      explainerEl.textContent = 'Using chip-name binding ('+p.chip_name+
+        ') — this config will survive hwmon renumbering across reboots and kernel updates.';
+      explainerEl.classList.remove('hidden');
+    } else {
+      explainerEl.classList.add('hidden');
     }
 
     // Install log — shown only during installing_driver phase
@@ -202,6 +236,7 @@ function renderSetupProgress(p){
   if(p.done && !p.error && p.config){
     document.getElementById('setup-phase-status').textContent = 'Setup complete — review and apply your configuration.';
     document.getElementById('setup-chip-line').classList.add('hidden');
+    ensureChipExplainer().classList.add('hidden');
     document.getElementById('setup-done-area').classList.remove('hidden');
     renderSetupSummary(p);
   }
