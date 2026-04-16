@@ -274,10 +274,10 @@ func TestAllowedModule(t *testing.T) {
 
 func TestEmitCPUSensorModuleMissingDiag(t *testing.T) {
 	tests := []struct {
-		name      string
-		vendor    string
-		wantMod   string // "" means no emit
-		wantChip  string
+		name     string
+		vendor   string
+		wantMod  string // "" means no emit
+		wantChip string
 	}{
 		{name: "intel", vendor: "GenuineIntel", wantMod: "coretemp", wantChip: "coretemp"},
 		{name: "amd", vendor: "AuthenticAMD", wantMod: "k10temp", wantChip: "k10temp"},

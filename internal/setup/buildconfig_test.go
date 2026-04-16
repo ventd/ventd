@@ -362,7 +362,7 @@ func TestBuildConfig_CaseCurveNotEmittedWhenGPUSensorButNoGPUFans(t *testing.T) 
 func TestBuildConfig_PumpEmitsPumpCurveAndFloor(t *testing.T) {
 	fans := []fanDiscovery{{
 		name: "Pump", fanType: "hwmon", chipName: "nct6687",
-		pwmPath: "/sys/class/hwmon/hwmon3/pwm4",
+		pwmPath:  "/sys/class/hwmon/hwmon3/pwm4",
 		startPWM: 15, stopPWM: 10, // lower than MinPumpPWM=20
 		isPump: true,
 	}}
@@ -408,8 +408,8 @@ func TestBuildConfig_PumpEmitsPumpCurveAndFloor(t *testing.T) {
 // below config.MinPumpPWM, regardless of what calibration measured.
 func TestBuildConfig_PumpFloorNeverBelowMinPumpPWM(t *testing.T) {
 	cases := []struct {
-		name        string
-		stopPWM     uint8
+		name           string
+		stopPWM        uint8
 		wantMinAtLeast uint8
 	}{
 		{"stop_below_floor", 5, uint8(config.MinPumpPWM)},

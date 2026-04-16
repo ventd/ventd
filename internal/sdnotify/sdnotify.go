@@ -3,9 +3,9 @@
 //
 // We only need three messages:
 //
-//   READY=1                 — daemon is fully started
-//   WATCHDOG=1              — heartbeat for systemd's WatchdogSec
-//   STOPPING=1              — daemon is exiting cleanly
+//	READY=1                 — daemon is fully started
+//	WATCHDOG=1              — heartbeat for systemd's WatchdogSec
+//	STOPPING=1              — daemon is exiting cleanly
 //
 // systemd reads NOTIFY_SOCKET from the unit's environment; the value
 // is the path to an AF_UNIX SOCK_DGRAM socket. When the env var is

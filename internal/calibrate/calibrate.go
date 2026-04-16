@@ -77,9 +77,9 @@ type Result struct {
 	StartPWM       uint8         `json:"start_pwm"` // lowest PWM that produces non-zero RPM from standstill
 	StopPWM        uint8         `json:"stop_pwm"`  // lowest PWM that keeps a spinning fan spinning (0 if not measured)
 	MaxRPM         int           `json:"max_rpm"`
-	MinRPM         int           `json:"min_rpm"`            // RPM at StartPWM
-	Curve          []PWMRPMPoint `json:"curve,omitempty"`    // full PWM→RPM mapping from up-ramp
-	FanType        string        `json:"fan_type,omitempty"` // "pump" when detected; "" otherwise
+	MinRPM         int           `json:"min_rpm"`                   // RPM at StartPWM
+	Curve          []PWMRPMPoint `json:"curve,omitempty"`           // full PWM→RPM mapping from up-ramp
+	FanType        string        `json:"fan_type,omitempty"`        // "pump" when detected; "" otherwise
 	Partial        bool          `json:"partial,omitempty"`         // true while sweep is in progress
 	CompletedSteps int           `json:"completed_steps,omitempty"` // up-ramp steps completed (resume anchor)
 	DownRampPWM    uint8         `json:"down_ramp_pwm,omitempty"`   // last PWM tested in down-ramp; 0 = down-ramp not started
@@ -140,7 +140,7 @@ type Status struct {
 type runState struct {
 	mu       sync.Mutex
 	running  bool
-	state    string             // "" | "running" | "complete" | "error" | "aborted"
+	state    string // "" | "running" | "complete" | "error" | "aborted"
 	progress int
 	current  uint8
 	errMsg   string

@@ -4,9 +4,9 @@ import "math"
 
 // Linear maps a named sensor's temperature to PWM via linear interpolation.
 //
-//   tempC <= MinTemp  →  MinPWM
-//   tempC >= MaxTemp  →  MaxPWM
-//   between           →  linearly interpolated, rounded to nearest integer
+//	tempC <= MinTemp  →  MinPWM
+//	tempC >= MaxTemp  →  MaxPWM
+//	between           →  linearly interpolated, rounded to nearest integer
 //
 // If SensorName is absent from the sensors map, MaxPWM is returned so the fan
 // runs at its highest configured speed rather than stalling silently.

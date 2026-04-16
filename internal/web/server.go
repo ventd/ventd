@@ -54,24 +54,24 @@ func loginCooldownOrDefault(d time.Duration) time.Duration {
 }
 
 type Server struct {
-	cfg        *atomic.Pointer[config.Config]
-	configPath string
-	logger     *slog.Logger
-	mux        *http.ServeMux
-	handler    http.Handler
-	httpSrv    *http.Server
-	cal        *calibrate.Manager
-	setup      *setupmgr.Manager
-	restartCh  chan<- struct{}
-	sessions   *sessionStore
-	setupMu    sync.Mutex
-	setupToken string    // one-time first-boot token; empty once consumed or expired
-	setupExp   time.Time // zero when no token
-	diag       *hwdiag.Store
-	ctx        context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
+	cfg            *atomic.Pointer[config.Config]
+	configPath     string
+	logger         *slog.Logger
+	mux            *http.ServeMux
+	handler        http.Handler
+	httpSrv        *http.Server
+	cal            *calibrate.Manager
+	setup          *setupmgr.Manager
+	restartCh      chan<- struct{}
+	sessions       *sessionStore
+	setupMu        sync.Mutex
+	setupToken     string    // one-time first-boot token; empty once consumed or expired
+	setupExp       time.Time // zero when no token
+	diag           *hwdiag.Store
+	ctx            context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
 	loginLim       *loginLimiter
-	tlsActive      bool          // server serves TLS directly; gates HSTS
-	trustedProxies []*net.IPNet  // set at New-time from live.Web.TrustProxy
+	tlsActive      bool         // server serves TLS directly; gates HSTS
+	trustedProxies []*net.IPNet // set at New-time from live.Web.TrustProxy
 	// sseInterval bounds how often /api/events emits a status frame.
 	// Matches the existing client-side poll cadence (2s) so the server
 	// load profile stays unchanged when one SSE client displaces the
@@ -100,17 +100,17 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		diag = hwdiag.NewStore()
 	}
 	s := &Server{
-		cfg:        cfg,
-		configPath: configPath,
-		logger:     logger,
-		mux:        http.NewServeMux(),
-		cal:        cal,
-		setup:      sm,
-		restartCh:  restartCh,
-		sessions:   newSessionStore(ctx, live.Web.SessionTTL.Duration),
-		setupToken: setupToken,
-		diag:       diag,
-		ctx:        ctx,
+		cfg:            cfg,
+		configPath:     configPath,
+		logger:         logger,
+		mux:            http.NewServeMux(),
+		cal:            cal,
+		setup:          sm,
+		restartCh:      restartCh,
+		sessions:       newSessionStore(ctx, live.Web.SessionTTL.Duration),
+		setupToken:     setupToken,
+		diag:           diag,
+		ctx:            ctx,
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
 		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
 		sseInterval:    defaultSSEInterval,
@@ -922,7 +922,6 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
 	s.triggerRestart()
 }
-
 
 // handleSetupLoadModule POST /api/setup/load-module
 // Loads a kernel module from the fixed ventd allowlist (coretemp, k10temp,

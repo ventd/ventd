@@ -167,7 +167,7 @@ func TestTick_RPMTargetWritesFanTarget(t *testing.T) {
 			Name: "gpu fan", Type: "hwmon", PWMPath: fanTarget,
 			ControlKind: "rpm_target", MinPWM: 40, MaxPWM: 255,
 		}},
-		Curves: []config.CurveConfig{{Name: "gpu_curve", Type: "fixed", Value: 200}},
+		Curves:   []config.CurveConfig{{Name: "gpu_curve", Type: "fixed", Value: 200}},
 		Controls: []config.Control{{Fan: "gpu fan", Curve: "gpu_curve"}},
 	}
 	cfgPtr := &atomic.Pointer[config.Config]{}
@@ -210,7 +210,7 @@ func TestTick_RPMTargetManualWritesFanTarget(t *testing.T) {
 			Name: "gpu fan", Type: "hwmon", PWMPath: fanTarget,
 			ControlKind: "rpm_target", MinPWM: 0, MaxPWM: 255,
 		}},
-		Curves: []config.CurveConfig{{Name: "gpu_curve", Type: "fixed", Value: 200}},
+		Curves:   []config.CurveConfig{{Name: "gpu_curve", Type: "fixed", Value: 200}},
 		Controls: []config.Control{{Fan: "gpu fan", Curve: "gpu_curve", ManualPWM: &manual}},
 	}
 	cfgPtr := &atomic.Pointer[config.Config]{}

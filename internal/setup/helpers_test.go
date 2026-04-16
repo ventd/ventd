@@ -47,9 +47,9 @@ func TestNeeded(t *testing.T) {
 // of negative/high thermal readings.
 func TestClampTemp(t *testing.T) {
 	cases := []struct {
-		name       string
-		v, lo, hi  float64
-		want       float64
+		name      string
+		v, lo, hi float64
+		want      float64
 	}{
 		{"below_lo", 50, 75, 95, 75},
 		{"above_hi", 120, 75, 95, 95},
@@ -131,7 +131,7 @@ func TestTitleCaseWords(t *testing.T) {
 	}{
 		{"CPU FAN", "Cpu Fan"},
 		{"sys fan1", "Sys Fan1"},
-		{"SYS_FAN", "Sys_fan"},     // underscore is not whitespace
+		{"SYS_FAN", "Sys_fan"}, // underscore is not whitespace
 		{"  hello   world  ", "Hello World"},
 		{"", ""},
 		{"a", "A"},

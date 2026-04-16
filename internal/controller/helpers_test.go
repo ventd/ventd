@@ -13,7 +13,7 @@ import (
 // (no airflow under load).
 func TestClamp(t *testing.T) {
 	cases := []struct {
-		name           string
+		name            string
 		v, lo, hi, want uint8
 	}{
 		{"below_lo_clipped_up", 5, 40, 200, 40},

@@ -501,10 +501,10 @@ func addGRUBParam(param string, log func(string)) error {
 		args []string
 	}
 	candidates := []grubCmd{
-		{"update-grub", nil},                                                   // Debian/Ubuntu/Proxmox
-		{"grub2-mkconfig", []string{"-o", "/boot/grub2/grub.cfg"}},            // Fedora/RHEL BIOS
-		{"grub2-mkconfig", []string{"-o", "/boot/efi/EFI/fedora/grub.cfg"}},   // Fedora EFI
-		{"grub-mkconfig", []string{"-o", "/boot/grub/grub.cfg"}},              // Arch
+		{"update-grub", nil}, // Debian/Ubuntu/Proxmox
+		{"grub2-mkconfig", []string{"-o", "/boot/grub2/grub.cfg"}},          // Fedora/RHEL BIOS
+		{"grub2-mkconfig", []string{"-o", "/boot/efi/EFI/fedora/grub.cfg"}}, // Fedora EFI
+		{"grub-mkconfig", []string{"-o", "/boot/grub/grub.cfg"}},            // Arch
 	}
 	for _, c := range candidates {
 		if _, err := exec.LookPath(c.bin); err != nil {

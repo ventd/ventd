@@ -36,8 +36,8 @@ import (
 // "driver present but init failed".
 var (
 	ErrLibraryUnavailable = errors.New("libnvidia-ml.so.1 not loadable")
-	ErrInitFailed        = errors.New("nvmlInit_v2 failed")
-	ErrNotAvailable      = errors.New("nvml not available")
+	ErrInitFailed         = errors.New("nvmlInit_v2 failed")
+	ErrNotAvailable       = errors.New("nvml not available")
 )
 
 // NVML constants (see /usr/include/nvml.h).

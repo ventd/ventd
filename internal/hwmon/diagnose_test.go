@@ -40,9 +40,9 @@ func (h *recordCapture) snapshot() []slog.Record {
 // "pwm2", "pwm1_enable". Files are written as 0644 unless the basename
 // is in groupWritable (then 0664).
 func makeHwmonFixture(t *testing.T, chips map[string]struct {
-	name           string
-	files          []string
-	groupWritable  []string
+	name          string
+	files         []string
+	groupWritable []string
 }) string {
 	t.Helper()
 	root := t.TempDir()

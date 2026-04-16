@@ -135,7 +135,7 @@ func TestSafety_Invariants(t *testing.T) {
 				MinPWM: 0, MaxPWM: 255,
 				AllowStop: false,
 			}},
-			Curves: []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
+			Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
 			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
 		}
 		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
@@ -161,7 +161,7 @@ func TestSafety_Invariants(t *testing.T) {
 				MinPWM: 0, MaxPWM: 255,
 				AllowStop: true,
 			}},
-			Curves: []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
+			Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 0}},
 			Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
 		}
 		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
@@ -481,4 +481,3 @@ func TestSafety_Invariants(t *testing.T) {
 		}
 	})
 }
-
