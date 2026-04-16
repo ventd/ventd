@@ -61,6 +61,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preserve the libc-only binary guarantee; race coverage comes from
   the other three rows. Satisfies the CI matrix acceptance gate in
   the v0.3.0 plan. (#114)
+- New `.github/workflows/docker.yml` builds `packaging/docker/Dockerfile`
+  on every push to `main` and PR touching `packaging/docker/**`,
+  `deploy/**`, or `scripts/**`. Three jobs: `build amd64` (exports
+  the image as an artifact), `build arm64` (QEMU emulation,
+  `continue-on-error: true` until the cross-build flake rate is
+  characterised), `smoke amd64` (loads the artifact, runs the
+  container detached, polls `/api/ping` for up to 30 s, dumps logs
+  on failure). No registry push. (#162, closes #144)
+
+### Changed — Docker packaging
+
+- `packaging/docker/Dockerfile` now accepts `--build-arg VENTD_GID=<n>`
+  (default `472`), threading the override into `addgroup -S -g
+  "${VENTD_GID}" ventd` so hosts whose `ventd` group landed on a
+  different system GID can align without a source edit. UID stays
+  fixed at 472 because only the group participates in the sysfs DAC
+  check that `deploy/90-ventd-hwmon.rules` sets up.
+  `packaging/docker/docker-compose.yml` interpolates `VENTD_GID`
+  into both `build.args` and the runtime `user:` line, so a single
+  `VENTD_GID=...` env var aligns the image group and the process
+  gid. (#162, closes #143)
 
 ### Added
 
