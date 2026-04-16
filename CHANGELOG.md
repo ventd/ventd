@@ -8,6 +8,17 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
+- Curve simulation preview in the editor pane. Three live rows below
+  the number inputs: the PWM the curve outputs at the current sensor
+  reading, the PWM at the curve's configured upper threshold
+  (`max_temp` for linear, last anchor for points), and the PWM at the
+  60-minute peak from `/api/history`. All three update on drag, on
+  number-input change, and on each SSE status tick; client-side
+  evaluation reuses the existing interpolation helpers so no extra
+  daemon round-trip fires. The history row gracefully degrades to "—"
+  when `/api/history` is absent — 3c (time-series sparklines) lands
+  that endpoint in a separate PR and 3d does not block on it. (Refs
+  #180)
 - Multi-point curves. New curve type `points` interpolates PWM between
   an ascending list of `{temp, pwm}` anchors; `CurveConfig.Points` is
   the YAML surface and `internal/curve/points.go` holds the runtime.

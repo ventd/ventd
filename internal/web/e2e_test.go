@@ -2111,6 +2111,108 @@ func TestE2E_Rescan_ButtonIssuesRescanAndSurfaceToast(t *testing.T) {
 	}
 }
 
+// TestE2E_CurveEditor_SimulationPreview verifies PR-3d: the curve
+// editor renders a three-row Preview pane under the number inputs
+// that updates on drag, on change, and on the 1h history probe. The
+// /api/history endpoint may not yet exist (3c landing separately);
+// the history row must gracefully degrade to "—" in that case while
+// the other two rows still render correctly.
+func TestE2E_CurveEditor_SimulationPreview(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu_linear"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1", MinPWM: 80, MaxPWM: 255}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{{
+		Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp",
+		MinTemp: 30, MaxTemp: 80, MinPWM: 80, MaxPWM: 255,
+	}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	// Select the curve so the editor renders the Preview pane.
+	if _, err := page.Eval(`() => selectCurve(0)`); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	page.Timeout(3 * time.Second).MustElement(".curve-projections")
+
+	// Seed a sts snapshot with a known sensor value so the "Right now"
+	// row has a concrete number to render against.
+	if _, err := page.Eval(`() => {
+		sts = {sensors: [{name: 'cpu_temp', value: 55, unit: '°C'}], fans: []};
+		refreshProjections(cfg.curves[0]);
+	}`); err != nil {
+		t.Fatalf("seed sts: %v", err)
+	}
+
+	// Row 1: current temp → interpolated PWM. At 55°C on a 30→80 /
+	// 80→255 curve, (55-30)/50 * (255-80) + 80 = 87.5 + 80 = 167.5 →
+	// 168 → 66%.
+	nowVal, err := page.Eval(`() => document.querySelector('#proj-now .projection-value').textContent`)
+	if err != nil {
+		t.Fatalf("read now: %v", err)
+	}
+	if got := nowVal.Value.Str(); !strings.Contains(got, "55") || !strings.Contains(got, "%") {
+		t.Errorf("proj-now = %q, want substring \"55\" and \"%%\"", got)
+	}
+
+	// Row 2: at max_temp (80°C) → MaxPWM (255 → 100%).
+	maxVal, err := page.Eval(`() => document.querySelector('#proj-max .projection-value').textContent`)
+	if err != nil {
+		t.Fatalf("read max: %v", err)
+	}
+	if got := maxVal.Value.Str(); got != "100%" {
+		t.Errorf("proj-max at 80°C = %q, want 100%%", got)
+	}
+
+	// Row 3: /api/history doesn't exist yet (3c hasn't merged in CI for
+	// this run), so the history row must render "—" after the fetch
+	// resolves. Give the promise a beat to settle.
+	time.Sleep(200 * time.Millisecond)
+	histVal, err := page.Eval(`() => document.querySelector('#proj-history .projection-value').textContent`)
+	if err != nil {
+		t.Fatalf("read history: %v", err)
+	}
+	// Accept both "—" (endpoint missing) and a numeric projection
+	// (endpoint live and returning data) — either is a correct outcome
+	// for this test. A NaN or "undefined" would be the regression.
+	if got := histVal.Value.Str(); got == "" || strings.Contains(got, "NaN") || strings.Contains(got, "undefined") {
+		t.Errorf("proj-history = %q, want \"—\" or a projection string", got)
+	}
+
+	// Mutate the curve's max_pwm and confirm the max-threshold row
+	// updates live. 255 → 128 → projection at 80°C becomes 50%.
+	if _, err := page.Eval(`() => {
+		cfg.curves[0].max_pwm = 128;
+		drawSVG(cfg.curves[0]);
+	}`); err != nil {
+		t.Fatalf("mutate max_pwm: %v", err)
+	}
+	maxVal, err = page.Eval(`() => document.querySelector('#proj-max .projection-value').textContent`)
+	if err != nil {
+		t.Fatalf("read max after edit: %v", err)
+	}
+	if got := maxVal.Value.Str(); got != "50%" {
+		t.Errorf("proj-max after edit = %q, want 50%%", got)
+	}
+}
+
 // TestE2E_CurveEditor_PointsCurveRenderAndEdit verifies PR-3b: the
 // curve editor renders a multi-point curve's anchors as SVG handles
 // and the changeType + double-click + right-click flows mutate
