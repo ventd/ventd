@@ -124,6 +124,19 @@ jobs:
         if: contains(matrix.container, 'alpine')
         run: |
           apk add --no-cache apparmor apparmor-utils
+          # Alpine's apparmor 3.1.7 package ships the parser but not
+          # the Debian/Ubuntu tunables+abstractions tree that the
+          # shipped profile `#include`s. We're running a grammar-only
+          # check (`-QK`), not a runtime-semantics test, so stub the
+          # referenced include files if (and only if) they are not
+          # already present. Real distros get the real includes; this
+          # stub only kicks in when the package manager didn't supply
+          # them.
+          for f in tunables/global abstractions/base abstractions/nameservice; do
+            dest="/etc/apparmor.d/$f"
+            mkdir -p "$(dirname "$dest")"
+            [ -s "$dest" ] || printf '# CI include stub\n' > "$dest"
+          done
           apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
 
       - name: Set up Go (setup-go)
