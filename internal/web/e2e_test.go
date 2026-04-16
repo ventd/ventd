@@ -1941,6 +1941,97 @@ func TestE2E_SettingsModal_PopulatedSections(t *testing.T) {
 	}
 }
 
+// TestE2E_ThemeToggle_ColorSchemePinsAgainstBrowserForcedDark guards
+// against the #199 regression class: browser-level dark-mode overrides
+// (Brave Night Mode, Chrome Force Dark, iOS Smart Invert) paint over a
+// page's chosen theme unless the page declares a concrete color-scheme.
+// The Light/Dark selections in Settings > Display must pin the CSS
+// `color-scheme` computed property to `only light` / `only dark`, and
+// Auto must fall back to the OS-reported `prefers-color-scheme`.
+func TestE2E_ThemeToggle_ColorSchemePinsAgainstBrowserForcedDark(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+
+	metaContent := getAttr(t, page, `meta[name="color-scheme"]`, "content")
+	if metaContent != "light dark" {
+		t.Errorf(`meta[name=color-scheme] content = %q, want "light dark"`, metaContent)
+	}
+
+	setTheme := func(v string) {
+		t.Helper()
+		if _, err := page.Eval(`(v) => {
+			const s = document.getElementById('setting-theme');
+			s.value = v;
+			s.dispatchEvent(new Event('change', {bubbles: true}));
+		}`, v); err != nil {
+			t.Fatalf("setTheme(%s): %v", v, err)
+		}
+	}
+
+	setTheme("light")
+	if got := getAttr(t, page, "html", "data-theme"); got != "light" {
+		t.Errorf(`after pick Light: data-theme = %q, want "light"`, got)
+	}
+	if got := getComputedStyle(t, page, ":root", "color-scheme"); got != "light only" {
+		t.Errorf(`after pick Light: color-scheme = %q, want "light only"`, got)
+	}
+
+	setTheme("dark")
+	if got := getAttr(t, page, "html", "data-theme"); got != "dark" {
+		t.Errorf(`after pick Dark: data-theme = %q, want "dark"`, got)
+	}
+	if got := getComputedStyle(t, page, ":root", "color-scheme"); got != "dark only" {
+		t.Errorf(`after pick Dark: color-scheme = %q, want "dark only"`, got)
+	}
+
+	// Emulate prefers-color-scheme: light so Auto resolves deterministically.
+	if err := (proto.EmulationSetEmulatedMedia{
+		Features: []*proto.EmulationMediaFeature{
+			{Name: "prefers-color-scheme", Value: "light"},
+		},
+	}).Call(page); err != nil {
+		t.Fatalf("emulate prefers-color-scheme: %v", err)
+	}
+	setTheme("auto")
+	if got := getAttr(t, page, "html", "data-theme"); got != "light" {
+		t.Errorf(`after pick Auto (prefers-color-scheme: light): data-theme = %q, want "light"`, got)
+	}
+	if got := getComputedStyle(t, page, ":root", "color-scheme"); got != "light only" {
+		t.Errorf(`after pick Auto (prefers-color-scheme: light): color-scheme = %q, want "light only"`, got)
+	}
+
+	// Reload with localStorage still set to "auto" to guard against the
+	// original reload bug where applyTheme("auto") set a dead data-theme
+	// attribute and the :root dark palette painted regardless of OS.
+	if err := (proto.EmulationSetEmulatedMedia{
+		Features: []*proto.EmulationMediaFeature{
+			{Name: "prefers-color-scheme", Value: "dark"},
+		},
+	}).Call(page); err != nil {
+		t.Fatalf("emulate prefers-color-scheme: %v", err)
+	}
+	page.MustReload().MustWaitStable()
+	if got := getAttr(t, page, "html", "data-theme"); got != "dark" {
+		t.Errorf(`after reload with Auto saved (prefers-color-scheme: dark): data-theme = %q, want "dark"`, got)
+	}
+	if got := getComputedStyle(t, page, ":root", "color-scheme"); got != "dark only" {
+		t.Errorf(`after reload with Auto saved (prefers-color-scheme: dark): color-scheme = %q, want "dark only"`, got)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

@@ -11,6 +11,12 @@
  * names so component rules don't need to branch on theme.
  */
 :root {
+  /* Opt the page in to both colour schemes so browsers honour the
+   * theme we pin below instead of spoofing prefers-color-scheme back
+   * at us (Brave Night Mode, Chrome Force Dark, iOS Smart Invert all
+   * back off when a page declares its own scheme). Issue #199. */
+  color-scheme: light dark;
+
   /* Font stacks are theme-independent — only defined on :root, not on
    * [data-theme="light"]. Both stacks use system fonts only so the
    * browser ships nothing over the network and the CSP (no external
@@ -63,6 +69,16 @@
   --cyan:      #79c0ff;
   --btn-pri-fg:#0d1117;
 }
+/* When the user pins a specific theme via the Settings > Display
+ * select (or the header toggle), `only` locks the browser's forced-
+ * colour modes out of the cascade — Brave Night Mode, Chrome Force
+ * Dark, and iOS Smart Invert all stop re-tinting a page that declares
+ * `color-scheme: only …`. iOS Smart Invert still has a residual
+ * platform-level effect Safari does not expose a CSS lever for; the
+ * Light/Dark selections from the UI are respected everywhere else. */
+:root[data-theme="dark"] { color-scheme: only dark; }
+:root[data-theme="light"] { color-scheme: only light; }
+
 [data-theme="light"] {
   --bg:        #f6f8fa;
   --bg2:       #ffffff;
