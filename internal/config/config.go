@@ -303,6 +303,10 @@ const (
 
 // Empty returns a minimal valid config with no fans, sensors, or controls.
 // Used when starting the daemon before first-boot setup is complete.
+//
+// Collection fields are initialised to non-nil empty slices so /api/config
+// renders them as `[]` rather than `null`. The UI iterates these lists
+// without a null-guard; a JSON null would throw TypeError mid-render.
 func Empty() *Config {
 	return &Config{
 		Version:      CurrentVersion,
@@ -311,6 +315,10 @@ func Empty() *Config {
 			Listen:     "0.0.0.0:9999",
 			SessionTTL: Duration{Duration: DefaultSessionTTL},
 		},
+		Sensors:  []Sensor{},
+		Fans:     []Fan{},
+		Curves:   []CurveConfig{},
+		Controls: []Control{},
 	}
 }
 

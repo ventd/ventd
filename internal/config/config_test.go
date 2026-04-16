@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -134,6 +136,55 @@ controls: []
 	}
 	if strings.Contains(string(out), "hwmon:") {
 		t.Fatalf("round-trip emitted hwmon: key on zero-value Hwmon;\n---\n%s\n---", out)
+	}
+}
+
+// TestConfigEmptyJSONShape pins the JSON contract of config.Empty().
+// Every collection field must marshal as [] not null, because the web UI
+// iterates these lists without null-guard code — a JSON null would abort
+// the render pass with a TypeError. Regression guard for #135.
+func TestConfigEmptyJSONShape(t *testing.T) {
+	data, err := json.Marshal(Empty())
+	if err != nil {
+		t.Fatalf("marshal empty config: %v", err)
+	}
+	for _, field := range []string{"sensors", "fans", "curves", "controls"} {
+		nullForm := []byte(`"` + field + `":null`)
+		if bytes.Contains(data, nullForm) {
+			t.Errorf("Empty() JSON contains %q; collection fields must marshal as []\n---\n%s\n---", nullForm, data)
+		}
+		arrayForm := []byte(`"` + field + `":[]`)
+		if !bytes.Contains(data, arrayForm) {
+			t.Errorf("Empty() JSON missing %q\n---\n%s\n---", arrayForm, data)
+		}
+	}
+}
+
+// TestConfigDefaultJSONShape covers the realistic first-boot path that
+// goes through SavePasswordHash: Empty() is YAML-marshalled to disk, then
+// re-read via Parse on the next boot, then served as JSON by /api/config.
+// The full round-trip must preserve the [] shape so the UI sees arrays,
+// not nulls, on the first dashboard load after setup. No Default() or
+// New() constructor exists today; when one is added it must pass this
+// same check.
+func TestConfigDefaultJSONShape(t *testing.T) {
+	yamlBytes, err := yaml.Marshal(Empty())
+	if err != nil {
+		t.Fatalf("marshal empty config to YAML: %v", err)
+	}
+	cfg, err := Parse(yamlBytes)
+	if err != nil {
+		t.Fatalf("re-parse YAML-marshalled Empty(): %v\n---\n%s\n---", err, yamlBytes)
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal re-parsed config to JSON: %v", err)
+	}
+	for _, field := range []string{"sensors", "fans", "curves", "controls"} {
+		nullForm := []byte(`"` + field + `":null`)
+		if bytes.Contains(data, nullForm) {
+			t.Errorf("round-tripped Empty() JSON contains %q\n---\n%s\n---", nullForm, data)
+		}
 	}
 }
 
