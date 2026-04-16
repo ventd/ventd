@@ -77,6 +77,19 @@ type Server struct {
 	// load profile stays unchanged when one SSE client displaces the
 	// polling loop. Tests override this directly after New().
 	sseInterval time.Duration
+
+	// version is the build metadata served by /api/version. Populated by
+	// main.go via SetVersionInfo before ListenAndServe. Zero value is safe:
+	// tests that don't call the setter see an empty struct over /api/version.
+	version VersionInfo
+	// ready is the /healthz + /readyz snapshot. Populated by main.go via
+	// SetReadyState. Nil-safe: the handlers return 503 with a clear reason
+	// when ready is nil, so tests that skip readiness plumbing still work.
+	ready *ReadyState
+	// nowFn is a test seam for /readyz's staleness check. Never set in
+	// production; tests inject a deterministic clock to exercise the 5s
+	// boundary without racing time.Now().
+	nowFn func() time.Time
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -126,17 +139,17 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		go s.expireSetupToken(ctx)
 	}
 
-	// Unauthenticated endpoints.
+	// Non-/api/ unauthenticated endpoints — these stay outside the
+	// registerAPIRoutes helper because /api/v1 aliasing does not apply.
 	s.mux.HandleFunc("/login", s.handleLogin)
 	s.mux.HandleFunc("/logout", s.handleLogout)
-	s.mux.HandleFunc("/api/ping", s.handlePing)
-	// Lightweight unauthenticated probe so the login page can decide which
-	// form to render (first-boot setup vs. normal password) without POSTing
-	// an empty password and tripping the per-IP login rate limiter.
-	// See audit finding S2: the old probe consumed one failed-login attempt
-	// per page load and could lock an operator out before they ever saw a
-	// password prompt.
-	s.mux.HandleFunc("/api/auth/state", s.handleAuthState)
+	// Liveness and readiness probes. Unauthenticated so container
+	// orchestrators and reverse proxies can scrape them without a session
+	// cookie. /healthz flips 200 once main() has reached post-init;
+	// /readyz requires the watchdog to have pinged and a sensor read
+	// within the last 5s, so it stays 503 during stalls.
+	s.mux.HandleFunc("/healthz", s.handleHealthz)
+	s.mux.HandleFunc("/readyz", s.handleReadyz)
 	// Static UI assets (HTML/CSS/JS) live under the embedded `ui/` tree.
 	// Authentication is intentionally NOT required: these are the same
 	// bytes the unauth'd /login page already depends on, and withholding
@@ -144,30 +157,49 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	// that return real data are auth-gated separately.
 	s.mux.Handle("/ui/", http.StripPrefix("/ui/", uiStaticHandler(uiSubFS())))
 
-	// All other routes require a valid session.
-	auth := s.requireAuth
-	s.mux.HandleFunc("/api/status", auth(s.handleStatus))
-	s.mux.HandleFunc("/api/events", auth(s.handleEvents))
-	s.mux.HandleFunc("/api/config", auth(s.handleConfig))
-	s.mux.HandleFunc("/api/hardware", auth(s.handleHardware))
-	s.mux.HandleFunc("/api/calibrate/start", auth(s.handleCalibrateStart))
-	s.mux.HandleFunc("/api/calibrate/status", auth(s.handleCalibrateStatus))
-	s.mux.HandleFunc("/api/calibrate/results", auth(s.handleCalibrateResults))
-	s.mux.HandleFunc("/api/calibrate/abort", auth(s.handleCalibrateAbort))
-	s.mux.HandleFunc("/api/detect-rpm", auth(s.handleDetectRPM))
-	s.mux.HandleFunc("/api/setup/status", auth(s.handleSetupStatus))
-	s.mux.HandleFunc("/api/setup/start", auth(s.handleSetupStart))
-	s.mux.HandleFunc("/api/setup/apply", auth(s.handleSetupApply))
-	s.mux.HandleFunc("/api/setup/reset", auth(s.handleSetupReset))
-	s.mux.HandleFunc("/api/setup/calibrate/abort", auth(s.handleSetupCalibrateAbort))
-	s.mux.HandleFunc("/api/setup/load-module", auth(s.handleSetupLoadModule))
-	s.mux.HandleFunc("/api/system/reboot", auth(s.handleSystemReboot))
-	s.mux.HandleFunc("/api/set-password", auth(s.handleSetPassword))
-	s.mux.HandleFunc("/api/hwdiag", auth(s.handleHwdiag))
-	s.mux.HandleFunc("/api/hwdiag/install-kernel-headers", auth(s.handleInstallKernelHeaders))
-	s.mux.HandleFunc("/api/hwdiag/install-dkms", auth(s.handleInstallDKMS))
-	s.mux.HandleFunc("/api/hwdiag/mok-enroll", auth(s.handleMOKEnroll))
-	s.mux.HandleFunc("/", auth(s.handleUI))
+	// Every /api/* route is registered twice: once under /api/<name> for
+	// existing clients and once under /api/v1/<name> so future clients can
+	// pin to a version. The helper wraps auth once and shares the wrapped
+	// handler between the two paths, so a single request never triggers
+	// the session check twice.
+	s.registerAPIRoutes([]apiRoute{
+		// Unauthenticated.
+		{name: "ping", handler: s.handlePing, auth: false},
+		// Lightweight unauthenticated probe so the login page can decide
+		// which form to render (first-boot setup vs. normal password)
+		// without POSTing an empty password and tripping the per-IP login
+		// rate limiter. See audit finding S2.
+		{name: "auth/state", handler: s.handleAuthState, auth: false},
+		// Build metadata — same shape as `ventd --version --json`, exposed
+		// so operators can identify a running daemon without shell access.
+		{name: "version", handler: s.handleVersion, auth: false},
+
+		// Authenticated routes.
+		{name: "status", handler: s.handleStatus, auth: true},
+		{name: "events", handler: s.handleEvents, auth: true},
+		{name: "config", handler: s.handleConfig, auth: true},
+		{name: "hardware", handler: s.handleHardware, auth: true},
+		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
+		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
+		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
+		{name: "calibrate/abort", handler: s.handleCalibrateAbort, auth: true},
+		{name: "detect-rpm", handler: s.handleDetectRPM, auth: true},
+		{name: "setup/status", handler: s.handleSetupStatus, auth: true},
+		{name: "setup/start", handler: s.handleSetupStart, auth: true},
+		{name: "setup/apply", handler: s.handleSetupApply, auth: true},
+		{name: "setup/reset", handler: s.handleSetupReset, auth: true},
+		{name: "setup/calibrate/abort", handler: s.handleSetupCalibrateAbort, auth: true},
+		{name: "setup/load-module", handler: s.handleSetupLoadModule, auth: true},
+		{name: "system/reboot", handler: s.handleSystemReboot, auth: true},
+		{name: "set-password", handler: s.handleSetPassword, auth: true},
+		{name: "hwdiag", handler: s.handleHwdiag, auth: true},
+		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
+		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
+		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
+	})
+
+	// Root document is served from the catch-all handler, authenticated.
+	s.mux.HandleFunc("/", s.requireAuth(s.handleUI))
 
 	// Compose middleware around the mux: security headers → origin check → mux.
 	// Origin check runs after headers so rejected responses still carry
@@ -178,6 +210,40 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s.httpSrv.Handler = s.handler
 	return s
 }
+
+// apiRoute describes one /api/<name> endpoint. The registerAPIRoutes helper
+// expands each entry into both "/api/<name>" and "/api/v1/<name>" handlers
+// pointing at the same (optionally auth-wrapped) closure.
+type apiRoute struct {
+	name    string // trailing path after "/api/" — no leading slash
+	handler http.HandlerFunc
+	auth    bool // wrap with requireAuth before dual-registering
+}
+
+// registerAPIRoutes wires each route under both "/api/" and "/api/v1/"
+// prefixes from a single slice. Auth middleware is applied once per route;
+// the v1 alias shares the wrapped handler so a single request never pays
+// the session check twice, and adding a new endpoint requires exactly one
+// new slice entry rather than two HandleFunc calls.
+func (s *Server) registerAPIRoutes(routes []apiRoute) {
+	for _, r := range routes {
+		h := r.handler
+		if r.auth {
+			h = s.requireAuth(h)
+		}
+		s.mux.HandleFunc("/api/"+r.name, h)
+		s.mux.HandleFunc("/api/v1/"+r.name, h)
+	}
+}
+
+// SetVersionInfo populates the build metadata served by /api/version. Must
+// be called before ListenAndServe; safe to skip in tests (handler returns
+// the zero VersionInfo).
+func (s *Server) SetVersionInfo(v VersionInfo) { s.version = v }
+
+// SetReadyState wires the /healthz + /readyz probes to main.go's readiness
+// tracking. Must be called before ListenAndServe; nil-safe in tests.
+func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 
 // expireSetupToken wipes the first-boot token from memory when its TTL
 // lapses or the daemon shuts down. Safe against races with consumption —
