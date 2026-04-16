@@ -1,0 +1,35 @@
+# Line-ending normalization — pin text files to LF so Windows
+# contributors with core.autocrlf=true don't commit CRLF that breaks
+# bash on Linux. See GitHub #188.
+#
+# Conservative allow-list rather than `* text eol=lf`; a wildcard
+# would trigger a repo-wide renormalize diff that's hard to review.
+# Existing tracked files are NOT renormalized by this change — that's
+# a separate follow-up PR.
+
+# Shell + Go + packaging
+*.sh        text eol=lf
+*.go        text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+*.nix       text eol=lf
+
+# Config / docs
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+
+# Embedded web UI assets (CRLF in JS/CSS causes subtle browser bugs)
+*.js        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+
+# System integration
+*.rules     text eol=lf
+*.service   text eol=lf
+*.te        text eol=lf
+*.fc        text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf

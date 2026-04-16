@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# CRLF self-heal — if this script was copied through a Windows path
+# (USB stick, SMB share, WinSCP) the shell chokes on carriage returns
+# and fails with a "bad interpreter" error or a syntax error at the
+# first function definition. Detect + sed + re-exec in a single `&&`
+# chain: bash can't tokenize multi-line `if/fi` keywords when every
+# line is terminated with \r\n (the `fi` becomes `fi\r` and is never
+# recognized as the fi keyword). Single-line chaining sidesteps that.
+# Placed immediately after the shebang — before any blank line that
+# would become a `$'\r': command not found` error on the first pass.
+# The [[ -f "$0" ]] guard makes this a no-op under curl-pipe-bash
+# (where $0 is "bash", not a file). See GitHub #196.
+[[ -f "$0" ]] && grep -lq $'\r' "$0" 2>/dev/null && sed -i 's/\r$//' "$0" && exec bash "$0" "$@"
 # ventd install script
 #
 # Usage:
@@ -912,7 +924,16 @@ MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || MACHINE_IP=""
 if [[ -z "$MACHINE_IP" ]] && command -v ip >/dev/null 2>&1; then
     MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
 fi
-WEB_URL="http://${MACHINE_IP:-<this-machine-ip>}:9999"
+# Pick the scheme: if a prior install enabled TLS via the wizard, the
+# daemon now binds HTTPS and `http://…` would hit "client sent an HTTP
+# request to an HTTPS server". Grep anchors on line-start + indent so
+# a commented `# tls_cert:` doesn't match. See GitHub #201.
+WEB_SCHEME="http"
+if [[ -f "${VENTD_ETC_DIR}/config.yaml" ]] \
+   && grep -Eq '^[[:space:]]*tls_cert:[[:space:]]*[^[:space:]#]' "${VENTD_ETC_DIR}/config.yaml" 2>/dev/null; then
+    WEB_SCHEME="https"
+fi
+WEB_URL="${WEB_SCHEME}://${MACHINE_IP:-<this-machine-ip>}:9999"
 
 echo ""
 echo "ventd installed. Open ${WEB_URL} to set up."
