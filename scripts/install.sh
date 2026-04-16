@@ -327,6 +327,31 @@ check_conflicting_daemon() {
     done
 }
 
+# _pwm_holders_all_ventd — return 0 iff every PID in $1 (whitespace-separated,
+# as fuser emits) belongs to a running ventd process (/proc/<pid>/comm ==
+# "ventd"). Returns 1 if the list is empty or any PID is missing, unreadable,
+# or has a different comm.
+#
+# Test hook: _VENTD_PROC_DIR overrides the procfs root so
+# validation/install-pwm-holders.test.sh can exercise the carve-out without
+# spawning real processes. See issue #107.
+_pwm_holders_all_ventd() {
+    local holders="$1"
+    local proc_dir="${_VENTD_PROC_DIR:-/proc}"
+    local any=0 pid comm
+    for pid in $holders; do
+        pid="${pid//[^0-9]/}"
+        [[ -z "$pid" ]] && continue
+        any=1
+        if [[ ! -r "$proc_dir/$pid/comm" ]]; then
+            return 1
+        fi
+        comm="$(tr -d '\n' <"$proc_dir/$pid/comm" 2>/dev/null || true)"
+        [[ "$comm" == "ventd" ]] || return 1
+    done
+    (( any == 1 ))
+}
+
 check_pwm_holders() {
     # Best-effort: fuser on sysfs is unreliable on some kernels but catches
     # the common case where a fan daemon not in the list above has a pwm
@@ -336,15 +361,23 @@ check_pwm_holders() {
     fi
     local holders
     holders="$(fuser /sys/class/hwmon/*/pwm[0-9]* 2>/dev/null || true)"
-    if [[ -n "$holders" ]]; then
-        echo "error: another process is holding /sys/class/hwmon/*/pwm<N> open:" >&2
-        echo "" >&2
-        fuser -v /sys/class/hwmon/*/pwm[0-9]* 2>&1 | grep -vE '^\s*$' >&2 || true
-        echo "" >&2
-        echo "  This is almost always another fan-control daemon. Identify it" >&2
-        echo "  from the PID list above and stop it before installing ventd." >&2
-        exit 1
+    if [[ -z "$holders" ]]; then
+        return 0
     fi
+    # Upgrade carve-out (issue #107): if ventd is already running and every
+    # PID holding a pwm file is itself a ventd process, the install step
+    # below will try-restart it — don't error out on the upgrade path.
+    # Mirrors the check_port_9999 precedent.
+    if service_is_active "ventd" && _pwm_holders_all_ventd "$holders"; then
+        return 0
+    fi
+    echo "error: another process is holding /sys/class/hwmon/*/pwm<N> open:" >&2
+    echo "" >&2
+    fuser -v /sys/class/hwmon/*/pwm[0-9]* 2>&1 | grep -vE '^\s*$' >&2 || true
+    echo "" >&2
+    echo "  This is almost always another fan-control daemon. Identify it" >&2
+    echo "  from the PID list above and stop it before installing ventd." >&2
+    exit 1
 }
 
 check_port_9999() {
