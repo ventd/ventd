@@ -1,0 +1,22 @@
+name: Security issue (non-sensitive)
+description: For sensitive security issues, see SECURITY.md — do NOT use this form.
+title: "[security] "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Sensitive issues**: do not file here. See `SECURITY.md` for
+        private disclosure.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+    validations:
+      required: true

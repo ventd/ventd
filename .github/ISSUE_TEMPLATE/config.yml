@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Hardware troubleshooting discussion
+    url: https://github.com/ventd/ventd/discussions/categories/hardware
+    about: Ask hardware questions in Discussions before filing a bug.
