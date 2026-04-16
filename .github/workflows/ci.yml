@@ -13,25 +13,41 @@ jobs:
   # v0.3.0 acceptance gate: every PR runs this matrix on all four
   # distros. A single-distro green is no longer sufficient for merge.
   # See release-notes/v0.3.0-plan.md.
+  #
+  # CHECK-NAME DISCIPLINE (issue #121):
+  # The `name:` of each matrix row is the literal status-check name
+  # that GitHub reports on a PR, and the repo ruleset pins those
+  # names verbatim (`.github/rulesets/main.json`). Do NOT derive the
+  # check name from `${{ matrix.distro }}` or any other matrix
+  # variable — bumping `ubuntu-24.04` to `ubuntu-24.10` would then
+  # silently rename the check and the ruleset would block every PR
+  # with a check that never reports. Keep `matrix.name` decoupled
+  # from distro/container values; if a row is renamed, added, or
+  # removed, `.github/rulesets/main.json` must be updated in the
+  # same PR and re-applied to GitHub after merge (see
+  # `.github/rulesets/README.md`).
   build:
-    name: build-and-test (${{ matrix.distro }})
+    name: ${{ matrix.name }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - distro: ubuntu-24.04
+          - name: build-and-test-ubuntu
+            distro: ubuntu-24.04
             container: ""
             prereqs: ""
             use-setup-go: true
             race: true
-          - distro: fedora-41
+          - name: build-and-test-fedora
+            distro: fedora-41
             container: "fedora:41"
             prereqs: "dnf install -y git gcc tar which"
             use-setup-go: true
             race: true
-          - distro: arch
+          - name: build-and-test-arch
+            distro: arch
             container: "archlinux:latest"
             prereqs: "pacman -Sy --noconfirm git gcc tar which"
             use-setup-go: true
@@ -44,7 +60,8 @@ jobs:
           # on this row. Race coverage comes from the other three
           # distros; Alpine's job is to prove the code compiles and
           # passes tests under musl.
-          - distro: alpine-3.20
+          - name: build-and-test-alpine
+            distro: alpine-3.20
             container: "alpine:3.20"
             prereqs: "apk add --no-cache bash ca-certificates curl git tar"
             use-setup-go: false
