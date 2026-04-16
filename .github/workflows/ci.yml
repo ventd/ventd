@@ -167,7 +167,8 @@ jobs:
           shellcheck --severity=warning --exclude=SC1091 \
                      --shell=bash scripts/install.sh \
                                   scripts/check-unit-onfailure.sh \
-                                  scripts/check-unit-ordering.sh
+                                  scripts/check-unit-ordering.sh \
+                                  packaging/nix/check-drift.sh
           # Deploy-unit regression guard: OnFailure= must live in [Unit],
           # not [Service], or systemd silently ignores it and recovery
           # never fires. See scripts/check-unit-onfailure.sh header.
@@ -201,3 +202,19 @@ jobs:
                                 scripts/_ventd_account.sh \
                                 scripts/ventd.openrc \
                                 scripts/ventd.runit
+
+  nix-drift:
+    # #147: packaging/nix/nixos-module.nix used to inline every sandbox
+    # directive from deploy/ventd.service and the full text of
+    # deploy/90-ventd-hwmon.rules. The module now reads those files
+    # directly, but this job is the belt-and-braces guard that asserts
+    # the single-source-of-truth invariant still holds — i.e. that
+    # nobody has quietly reinstated an inline copy in the Nix module
+    # or added a substituteUnit rewrite that silently weakens the
+    # rendered unit.
+    name: nix-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Assert nix module tracks deploy/ without drift
+        run: bash packaging/nix/check-drift.sh
