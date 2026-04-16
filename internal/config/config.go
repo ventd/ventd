@@ -269,6 +269,22 @@ type CurveConfig struct {
 	// mix fields
 	Function string   `yaml:"function,omitempty" json:"function,omitempty"`
 	Sources  []string `yaml:"sources,omitempty" json:"sources,omitempty"`
+
+	// Hysteresis is a per-curve deadband (in sensor units, typically °C)
+	// applied to ramp-DOWN transitions only. The controller suppresses a
+	// new lower PWM write until the current temperature has dropped this
+	// much below the temp at the last PWM write. Ramp-UP is never
+	// delayed — high temperature is a safety-urgent signal. Zero (the
+	// default) disables hysteresis. Applies only to curves with a single
+	// sensor input (linear, points); ignored for mix/fixed.
+	Hysteresis float64 `yaml:"hysteresis,omitempty" json:"hysteresis,omitempty"`
+
+	// Smoothing is the EMA time-constant applied to raw sensor reads
+	// before curve evaluation. The per-tick weight is
+	// α = poll_interval / (smoothing + poll_interval). Zero (the
+	// default) passes raw readings through unchanged. Intended to damp
+	// noisy sensors that cause PWM jitter at steady state.
+	Smoothing Duration `yaml:"smoothing,omitempty" json:"smoothing,omitempty"`
 }
 
 type Control struct {
@@ -679,6 +695,12 @@ func validate(cfg *Config) error {
 	for i, c := range cfg.Curves {
 		if c.Name == "" {
 			return fmt.Errorf("config: curves[%d]: name is required", i)
+		}
+		if c.Hysteresis < 0 {
+			return fmt.Errorf("config: curve %q: hysteresis (%.1f) must be >= 0", c.Name, c.Hysteresis)
+		}
+		if c.Smoothing.Duration < 0 {
+			return fmt.Errorf("config: curve %q: smoothing (%s) must be >= 0", c.Name, c.Smoothing.Duration)
 		}
 		switch c.Type {
 		case "linear":

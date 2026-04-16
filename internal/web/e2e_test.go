@@ -2111,6 +2111,117 @@ func TestE2E_Rescan_ButtonIssuesRescanAndSurfaceToast(t *testing.T) {
 	}
 }
 
+// TestE2E_CurveEditor_HysteresisAndSmoothingFields verifies PR-3a: the
+// curve editor exposes `Hysteresis (°C)` and `Smoothing (s)` inputs for
+// linear curves, seeds them from config, and round-trips edits back
+// into the in-memory cfg in the shapes the daemon expects (float64 for
+// hysteresis, "Ns" duration string for smoothing with "" on zero).
+func TestE2E_CurveEditor_HysteresisAndSmoothingFields(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu_linear"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1", MinPWM: 80, MaxPWM: 255}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{{
+		Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp",
+		MinTemp: 30, MaxTemp: 80, MinPWM: 80, MaxPWM: 255,
+		Hysteresis: 5,
+		Smoothing:  config.Duration{Duration: 4 * time.Second},
+	}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	// Select the linear curve so the linear editor renders; the editor
+	// only materialises #f-hys / #f-sm when a linear curve is active.
+	if _, err := page.Eval(`() => selectCurve(0)`); err != nil {
+		t.Fatalf("select curve: %v", err)
+	}
+	page.Timeout(3 * time.Second).MustElement("#f-hys")
+	page.Timeout(3 * time.Second).MustElement("#f-sm")
+
+	// Seed check: inputs render the config values. The duration "4s"
+	// must deserialize to "4" (seconds) in the UI via durationToSec.
+	hys, err := page.Eval(`() => document.getElementById('f-hys').value`)
+	if err != nil {
+		t.Fatalf("read hys: %v", err)
+	}
+	if got := hys.Value.Str(); got != "5" {
+		t.Errorf("hysteresis seed value = %q, want %q", got, "5")
+	}
+	sm, err := page.Eval(`() => document.getElementById('f-sm').value`)
+	if err != nil {
+		t.Fatalf("read sm: %v", err)
+	}
+	if got := sm.Value.Str(); got != "4" {
+		t.Errorf("smoothing seed value = %q, want %q", got, "4")
+	}
+
+	// Mutate both inputs and dispatch 'change' so the delegated handler
+	// in render.js fires upd-field-num / upd-duration-sec. After the
+	// round-trip, cfg.curves[0].hysteresis should be the number we typed
+	// and cfg.curves[0].smoothing should be "8s" (the Go duration the
+	// daemon expects when JSON-parsing back into config.Duration).
+	if _, err := page.Eval(`() => {
+		const h = document.getElementById('f-hys');
+		h.value = '7';
+		h.dispatchEvent(new Event('change', {bubbles:true}));
+		const s = document.getElementById('f-sm');
+		s.value = '8';
+		s.dispatchEvent(new Event('change', {bubbles:true}));
+	}`); err != nil {
+		t.Fatalf("mutate inputs: %v", err)
+	}
+
+	mutated, err := page.Eval(`() => ({
+		hys: cfg.curves[0].hysteresis,
+		sm:  cfg.curves[0].smoothing,
+	})`)
+	if err != nil {
+		t.Fatalf("read cfg: %v", err)
+	}
+	m := mutated.Value.Map()
+	if m["hys"].Int() != 7 {
+		t.Errorf("cfg.curves[0].hysteresis = %v, want 7", m["hys"])
+	}
+	if m["sm"].Str() != "8s" {
+		t.Errorf("cfg.curves[0].smoothing = %q, want %q", m["sm"].Str(), "8s")
+	}
+
+	// Zero smoothing must serialize to the empty string so the daemon's
+	// omitempty on config.Duration drops the key at marshal time and
+	// old configs stay free of a "smoothing: 0s" drift line on save.
+	if _, err := page.Eval(`() => {
+		const s = document.getElementById('f-sm');
+		s.value = '0';
+		s.dispatchEvent(new Event('change', {bubbles:true}));
+	}`); err != nil {
+		t.Fatalf("mutate sm to zero: %v", err)
+	}
+	cleared, err := page.Eval(`() => cfg.curves[0].smoothing`)
+	if err != nil {
+		t.Fatalf("read cleared sm: %v", err)
+	}
+	if got := cleared.Value.Str(); got != "" {
+		t.Errorf("cfg.curves[0].smoothing after zero = %q, want \"\"", got)
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

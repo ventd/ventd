@@ -50,6 +50,19 @@ type Controller struct {
 	// sensor read. Nil in tests; main.go wires it to web.ReadyState so the
 	// /readyz probe reflects whether the control loop is still ticking.
 	onSensorRead func()
+
+	// Per-curve hysteresis + smoothing state. Reset in initCurveStateIfNeeded
+	// when the bound curve name changes on hot-reload so switching between
+	// curves doesn't leak stale EMA values or ramp-down thresholds.
+	//
+	// smoothed holds the exponentially-weighted sensor values; a missing
+	// entry means "no prior reading", and the first observed value is used
+	// verbatim so EMA can't be biased by a zero-initialised accumulator.
+	smoothed    map[string]float64
+	lastPWM     uint8   // PWM value of the most recent successful write
+	lastTemp    float64 // curve's sensor reading at the moment of lastPWM
+	hasLastPWM  bool    // false until the first successful write
+	activeCurve string  // tracks curveCfg.Name to detect hot-reload swaps
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -244,11 +257,24 @@ func (c *Controller) tick() {
 		return
 	}
 
+	// Reset per-curve state when the bound curve name changes (hot-reload
+	// swapped the fan to a different curve, or a fresh controller hasn't
+	// ticked yet). Without this reset, a switch from a hot curve to a cold
+	// one would retain the old lastPWM and suppress ramp-down via
+	// hysteresis against a temp the new curve has never seen.
+	c.initCurveStateIfNeeded(curveCfg.Name)
+
 	// Read all configured sensors. Individual failures are logged and the sensor
 	// is omitted from the map; the curve implementations handle missing sensors
 	// safely (Linear returns MaxPWM, keeping the fan at full speed on data loss).
 	// This isolates a single flaky sensor from affecting fans on other sensors.
-	sensors := readAllSensors(c.logger, live.Sensors)
+	rawSensors := readAllSensors(c.logger, live.Sensors)
+
+	// Apply EMA smoothing to each sensor before curve evaluation. With
+	// Smoothing=0 (the default), α=1 → passthrough; a zero-smoothing
+	// config produces the same sensor map it would have without this
+	// stage, preserving pre-3a behaviour bit-for-bit.
+	sensors := c.applySmoothing(rawSensors, curveCfg.Smoothing.Duration, live.PollInterval.Duration)
 
 	crv, err := buildCurve(curveCfg, live.Curves)
 	if err != nil {
@@ -271,6 +297,25 @@ func (c *Controller) tick() {
 		return
 	}
 
+	// Hysteresis gate — ramp-DOWN only. Ramp-UP is never suppressed so
+	// a sudden heat spike always gets immediate cooling, per
+	// hwmon-safety.md. Only single-sensor curves (linear, points) can be
+	// gated: mix/fixed have no scalar temp to compare against.
+	if c.hasLastPWM && pwm < c.lastPWM && curveCfg.Hysteresis > 0 && curveCfg.Sensor != "" {
+		currentTemp, ok := sensors[curveCfg.Sensor]
+		if ok && currentTemp > c.lastTemp-curveCfg.Hysteresis {
+			c.logger.Debug("controller: hysteresis suppressing ramp-down",
+				"pwm_path", c.pwmPath,
+				"current_temp", currentTemp,
+				"last_temp", c.lastTemp,
+				"hysteresis", curveCfg.Hysteresis,
+				"proposed_pwm", pwm,
+				"held_pwm", c.lastPWM,
+			)
+			return
+		}
+	}
+
 	var writeErr error
 	if c.fanType == "nvidia" {
 		idx, err := parseNvidiaIndex(c.pwmPath)
@@ -291,11 +336,62 @@ func (c *Controller) tick() {
 		return
 	}
 
+	// Update hysteresis baseline — the temp + PWM we just committed are
+	// what future ramp-down comparisons land against.
+	c.lastPWM = pwm
+	c.hasLastPWM = true
+	if curveCfg.Sensor != "" {
+		if t, ok := sensors[curveCfg.Sensor]; ok {
+			c.lastTemp = t
+		}
+	}
+
 	c.logger.Debug("controller: tick",
 		"sensors", sensors,
 		"curve_pwm", raw,
 		"clamped_pwm", pwm,
 	)
+}
+
+// initCurveStateIfNeeded resets smoothing / hysteresis state when the
+// bound curve name changes on hot-reload. A rename-in-place (same Name,
+// new params) retains the state — EMA converges quickly enough that
+// bridging the parameter change is preferable to a visible step.
+func (c *Controller) initCurveStateIfNeeded(curveName string) {
+	if c.activeCurve == curveName {
+		return
+	}
+	c.activeCurve = curveName
+	c.smoothed = nil
+	c.hasLastPWM = false
+	c.lastPWM = 0
+	c.lastTemp = 0
+}
+
+// applySmoothing applies a per-sensor EMA using α = poll / (smoothing + poll).
+// Passthrough when smoothing == 0 (α collapses to 1). First observation for a
+// sensor is stored verbatim so the EMA is not biased by a zero init.
+func (c *Controller) applySmoothing(raw map[string]float64, smoothing, poll time.Duration) map[string]float64 {
+	if smoothing <= 0 || poll <= 0 {
+		return raw
+	}
+	if c.smoothed == nil {
+		c.smoothed = make(map[string]float64, len(raw))
+	}
+	alpha := float64(poll) / float64(smoothing+poll)
+	out := make(map[string]float64, len(raw))
+	for name, v := range raw {
+		prev, seen := c.smoothed[name]
+		if !seen {
+			c.smoothed[name] = v
+			out[name] = v
+			continue
+		}
+		s := alpha*v + (1-alpha)*prev
+		c.smoothed[name] = s
+		out[name] = s
+	}
+	return out
 }
 
 // readNvidiaMetric is overridable so tests can substitute a fake without

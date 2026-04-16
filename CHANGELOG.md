@@ -6,6 +6,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added — Phase 3 Control Depth (Session D, v0.3 stream)
+
+- Per-curve hysteresis and smoothing. `CurveConfig` grows two optional
+  fields: `hysteresis` (°C deadband applied to ramp-DOWN transitions
+  only, never delays ramp-up) and `smoothing` (EMA time-constant
+  applied to raw sensor reads before curve evaluation). Zero values
+  produce pre-3a behaviour bit-for-bit; both fields are `omitempty`
+  so existing configs round-trip unchanged. Curve editor exposes
+  `Hysteresis (°C)` and `Smoothing (s)` inputs on linear curves. The
+  hysteresis gate only applies to curves with a single-sensor input
+  (linear, future multi-point); mix and fixed curves bypass it. The
+  smoothing EMA is per-controller-per-sensor and resets when the bound
+  curve name changes so a hot-reload swap doesn't leak stale
+  accumulator state. Clamp to `[MinPWM, MaxPWM]` remains the final
+  safety gate — smoothing cannot push the written PWM below the fan's
+  floor. (Refs #180)
+
 ### Added — Phase 2 UI (Session C, v0.3 stream)
 
 - Empty-state copy for every dashboard section (sensors, fans,
