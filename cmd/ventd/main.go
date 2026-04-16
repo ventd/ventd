@@ -308,6 +308,13 @@ func runDaemon(
 	errCh := make(chan error, len(cfg.Controls)+1)
 	var wg sync.WaitGroup
 
+	// restartCh is signalled by the web server after setup applies a new
+	// config, and by the hwmon watcher on `action=added` topology changes
+	// that match a configured HwmonDevice (#86 Proposal 3 / #95 Option A).
+	// Buffered to one so senders can non-blockingly drop duplicate signals
+	// when a restart is already pending.
+	restartCh := make(chan struct{}, 1)
+
 	// Tier 0.3 — hardware change detection. Watches /sys/class/hwmon for
 	// add/remove at runtime via netlink uevents plus a 5-minute periodic
 	// rescan safety net; emits a ComponentHardware diagnostic with a
@@ -315,10 +322,22 @@ func runDaemon(
 	// to sysfs, never modprobes. Set VENTD_DISABLE_UEVENT=1 to fall back
 	// to periodic-only (used for container environments where netlink is
 	// blocked, and by Tier 0.3 validation to exercise the safety net).
+	//
+	// On `action=added`, the watcher calls rebindTrigger below. The trigger
+	// inspects liveCfg to see whether the added device's StableDevice path
+	// matches any configured Fan/Sensor HwmonDevice. If it does, a restart
+	// is requested via restartCh — runDaemon tears down controllers + web,
+	// returns errRestart, and main() re-execs so ResolveHwmonPaths picks
+	// the correct hwmonN for the (now-present) configured chip. During the
+	// 1-2 s restart gap, pwm_enable is restored to 2 (kernel-automatic) by
+	// the wd.Restore() defer — the documented Option A tradeoff (#98).
+	rebindTrigger := newRebindTrigger(&liveCfg, restartCh, logger)
+
 	var watcherOpts []hwmon.Option
 	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
 		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
 	}
+	watcherOpts = append(watcherOpts, hwmon.WithRebindTrigger(rebindTrigger))
 	watcher := hwmon.NewWatcher(diagStore, logger, watcherOpts...)
 	wg.Add(1)
 	go func() {
@@ -327,9 +346,6 @@ func runDaemon(
 			logger.Warn("hwmon watcher exited", "err", err)
 		}
 	}()
-
-	// restartCh is signalled by the web server after setup applies a new config.
-	restartCh := make(chan struct{}, 1)
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.

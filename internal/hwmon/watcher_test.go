@@ -228,3 +228,159 @@ func stringSliceEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// TestWatcher_RebindTrigger_FiresOnAdded covers issue #95 Option A: when a
+// new hwmon device appears (action=added) and a RebindTrigger is installed,
+// the watcher invokes it exactly once with the new device's stable key and
+// fingerprint after the debounce elapses.
+func TestWatcher_RebindTrigger_FiresOnAdded(t *testing.T) {
+	t0 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1", "fan1_input")}
+	t1 := []HwmonDevice{
+		dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1", "fan1_input"),
+		dev("nct6687.b", "nct6687d", ClassPrimary, "pwm1", "fan1_input"),
+	}
+
+	var (
+		calls []string
+		fps   []DeviceFingerprint
+	)
+	store := hwdiag.NewStore()
+	enum := &mockEnumerator{t: t, snapshots: [][]HwmonDevice{t0, t1, t1}}
+	w := NewWatcher(store, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithEnumerator(enum.next),
+		WithoutUevents(),
+		WithDebounce(10*time.Millisecond),
+		WithRescanPeriod(time.Hour),
+		WithRebindMinInterval(time.Millisecond), // fine-grain for the test
+		WithRebindTrigger(func(key string, fp DeviceFingerprint) {
+			calls = append(calls, key)
+			fps = append(fps, fp)
+		}),
+	)
+	w.stable = snapshotFingerprints(enum.next())
+	w.pending = make(map[string]pendingChange)
+
+	now := time.Now()
+	if !w.check(now) {
+		t.Fatalf("expected pending after divergence")
+	}
+	if len(calls) != 0 {
+		t.Fatalf("trigger fired before debounce: %v", calls)
+	}
+
+	w.check(now.Add(defaultDebounce))
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("trigger call count = %d, want %d (calls=%v)", got, want, calls)
+	}
+	if got, want := calls[0], "nct6687.b"; got != want {
+		t.Fatalf("trigger key = %q, want %q", got, want)
+	}
+	if got, want := fps[0].ChipName, "nct6687d"; got != want {
+		t.Fatalf("trigger chip name = %q, want %q", got, want)
+	}
+	if w.rebindCalls != 1 || w.rebindDrops != 0 {
+		t.Fatalf("rebindCalls=%d rebindDrops=%d, want 1/0", w.rebindCalls, w.rebindDrops)
+	}
+}
+
+// TestWatcher_RebindTrigger_IgnoresNonAdded confirms removed/changed events
+// don't trigger a rebind (scoped to added only; removed has its own tracker).
+func TestWatcher_RebindTrigger_IgnoresNonAdded(t *testing.T) {
+	t0 := []HwmonDevice{
+		dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1", "fan1_input"),
+		dev("nct6687.b", "nct6687d", ClassPrimary, "pwm1", "fan1_input"),
+	}
+	// Second device disappears — action=removed.
+	t1 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1", "fan1_input")}
+	// First device reclassifies — action=changed.
+	t2 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassReadOnly, "fan1_input")}
+
+	var calls []string
+	store := hwdiag.NewStore()
+	enum := &mockEnumerator{t: t, snapshots: [][]HwmonDevice{t0, t1, t1, t2, t2}}
+	w := NewWatcher(store, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithEnumerator(enum.next),
+		WithoutUevents(),
+		WithDebounce(10*time.Millisecond),
+		WithRescanPeriod(time.Hour),
+		WithRebindMinInterval(time.Millisecond),
+		WithRebindTrigger(func(key string, _ DeviceFingerprint) {
+			calls = append(calls, key)
+		}),
+	)
+	w.stable = snapshotFingerprints(enum.next())
+	w.pending = make(map[string]pendingChange)
+
+	now := time.Now()
+	w.check(now)
+	w.check(now.Add(defaultDebounce))
+	w.check(now.Add(2 * defaultDebounce))
+	w.check(now.Add(3 * defaultDebounce))
+
+	if len(calls) != 0 {
+		t.Fatalf("expected no trigger calls for removed/changed, got: %v", calls)
+	}
+}
+
+// TestWatcher_RebindTrigger_RateLimited confirms that two action=added
+// promotions crossing the debounce line within WithRebindMinInterval produce
+// only one trigger call — a flapping driver must not ping-pong the daemon.
+func TestWatcher_RebindTrigger_RateLimited(t *testing.T) {
+	// Start with device A only.
+	t0 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1")}
+	// Add device B.
+	t1 := []HwmonDevice{
+		dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1"),
+		dev("nct6687.b", "nct6687d", ClassPrimary, "pwm1"),
+	}
+	// Remove B again.
+	t2 := t0
+	// Re-add B (second add-event within the rate-limit window).
+	t3 := t1
+
+	var calls []string
+	store := hwdiag.NewStore()
+	enum := &mockEnumerator{t: t, snapshots: [][]HwmonDevice{t0, t1, t1, t2, t2, t3, t3}}
+	w := NewWatcher(store, slog.New(slog.NewTextHandler(io.Discard, nil)),
+		WithEnumerator(enum.next),
+		WithoutUevents(),
+		WithDebounce(10*time.Millisecond),
+		WithRescanPeriod(time.Hour),
+		WithRebindMinInterval(time.Hour), // never re-arms inside the test
+		WithRebindTrigger(func(key string, _ DeviceFingerprint) {
+			calls = append(calls, key)
+		}),
+	)
+	w.stable = snapshotFingerprints(enum.next())
+	w.pending = make(map[string]pendingChange)
+
+	now := time.Now()
+	for i := 0; i < 6; i++ {
+		w.check(now.Add(time.Duration(i) * defaultDebounce))
+	}
+
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("trigger call count = %d, want %d (calls=%v)", got, want, calls)
+	}
+	if w.rebindDrops == 0 {
+		t.Fatalf("expected at least one rebindDrop; got %d", w.rebindDrops)
+	}
+}
+
+// TestWatcher_RebindTrigger_NilHookNoCrash confirms the watcher tolerates a
+// nil rebindTrigger — production runs with one installed, but tests and
+// older callers should still work without one.
+func TestWatcher_RebindTrigger_NilHookNoCrash(t *testing.T) {
+	t0 := []HwmonDevice{dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1")}
+	t1 := []HwmonDevice{
+		dev("nct6687.a", "nct6687d", ClassPrimary, "pwm1"),
+		dev("nct6687.b", "nct6687d", ClassPrimary, "pwm1"),
+	}
+	w, _, _ := newTestWatcher(t, t0, t1, t1)
+	now := time.Now()
+	w.check(now)
+	w.check(now.Add(defaultDebounce))
+	if w.rebindCalls != 0 {
+		t.Fatalf("rebindCalls = %d with nil hook; want 0", w.rebindCalls)
+	}
+}
