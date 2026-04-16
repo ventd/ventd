@@ -60,17 +60,22 @@ func New(
 // Run starts the control loop. It takes manual control of the PWM channel
 // (pwm_enable=1), ticks at interval until ctx is cancelled, then returns.
 //
-// If a panic occurs it is recovered, the watchdog is triggered, and an error
-// is returned so main can perform an orderly shutdown.
+// The watchdog is restored on every exit path — normal ctx.Done(), early
+// error return, and panic — per hwmon-safety rule 4. The daemon-level
+// defer in cmd/ventd/main.go is defence-in-depth; the controller owns
+// the invariant on its own.
+//
+// If a panic occurs it is recovered and wrapped so main can perform an
+// orderly shutdown.
 //
 // Individual tick errors (sensor read failure, PWM write failure) are logged
 // and skipped — the loop continues so a transient sysfs hiccup does not kill
 // the daemon.
 func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error) {
 	defer func() {
+		c.wd.Restore()
 		if r := recover(); r != nil {
-			c.logger.Error("controller: panic recovered, triggering watchdog", "panic", r)
-			c.wd.Restore()
+			c.logger.Error("controller: panic recovered, watchdog restored", "panic", r)
 			err = fmt.Errorf("controller %s: panic: %v", c.fanName, r)
 		}
 	}()

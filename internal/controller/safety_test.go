@@ -299,13 +299,10 @@ func TestSafety_Invariants(t *testing.T) {
 	// ---------- Rule: Watchdog.Restore() must fire on every exit path ----------
 
 	t.Run("watchdog/restore_on_context_cancel", func(t *testing.T) {
-		// SAFETY GAP: Controller.Run() only calls wd.Restore() from its
-		// panic-recover branch. On ctx.Done() it logs and returns nil —
-		// Restore is not invoked. The daemon safety envelope is saved by
-		// cmd/ventd/main.go's defer wd.Restore(), but the controller
-		// layer does not fulfil the invariant on its own. Tracked by #116.
-		t.Skip("tracked by #116 — Controller.Run does not call wd.Restore on context cancel")
-
+		// Run must call wd.Restore() on ctx cancel (the common daemon
+		// shutdown path), not just on panic. The daemon-level defer in
+		// cmd/ventd/main.go is defence-in-depth; the controller owns
+		// the invariant on its own.
 		ff := newFakeFan(t) // pwm_enable="2"
 		cfgStruct := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
 		logger := silentLogger()
