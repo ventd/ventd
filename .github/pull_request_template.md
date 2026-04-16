@@ -14,8 +14,8 @@
 
 - [ ] Tests added or updated
 - [ ] `go vet ./...` and `go test -race ./...` pass
-- [ ] `golangci-lint run` passes
-- [ ] Coverage not regressed (see `.github/coverage.yml` floors)
+- [ ] `golangci-lint run` passes (once `.golangci.yml` lands)
+- [ ] Coverage not regressed
 - [ ] Rules followed: `.claude/rules/{attribution,collaboration,hwmon-safety,web-ui,usability,go-conventions}.md`
 - [ ] `CHANGELOG.md` updated (unless `docs:` or `ci:` only)
 - [ ] `release-notes/v0.3.0-plan.md` updated if scope changed
