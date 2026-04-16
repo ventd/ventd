@@ -42,7 +42,7 @@ issue_init() {
 # TYPE:   bug | surprise | skip | cleanup | flake | ci | coverage | wish
 # TITLE:  single-line imperative (will be prefixed with type emoji)
 # BODY:   multi-line markdown body; "Surfaced by:" line auto-appended
-# LABELS: comma-separated, default "v0.3.0"
+# LABELS: comma-separated; empty by default (no --label flag passed)
 #
 # Behaviour:
 #   1. Dedup check via `gh issue list --search` (if gh available)
@@ -53,7 +53,7 @@ issue_file() {
     local type="${1:?usage: issue_file TYPE TITLE BODY [LABELS]}"
     local title="${2:?}"
     local body="${3:?}"
-    local labels="${4:-v0.3.0}"
+    local labels="${4:-}"
     local ts gh_issue="" status="pending"
 
     ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -85,10 +85,12 @@ Branch: ${_ISSUE_BRANCH:-unknown}"
 
         if [ "$status" = "pending" ]; then
             local label_args=""
-            IFS=',' read -ra label_arr <<< "$labels"
-            for l in "${label_arr[@]}"; do
-                label_args="${label_args} --label $(printf '%q' "$(echo "$l" | xargs)")"
-            done
+            if [ -n "$labels" ]; then
+                IFS=',' read -ra label_arr <<< "$labels"
+                for l in "${label_arr[@]}"; do
+                    label_args="${label_args} --label $(printf '%q' "$(echo "$l" | xargs)")"
+                done
+            fi
 
             gh_issue="$(eval gh issue create \
                 --title "\"${title}\"" \
@@ -125,49 +127,49 @@ Branch: ${_ISSUE_BRANCH:-unknown}"
 
 # Bug: actual behaviour mismatch against spec or safety rules.
 issue_bug() {
-    local title="${1:?}" body="${2:?}" labels="${3:-bug,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-bug}"
     issue_file "bug" "$title" "$body" "$labels"
 }
 
 # Surprise: non-obvious behaviour worth remembering.
 issue_surprise() {
-    local title="${1:?}" body="${2:?}" labels="${3:-surprise,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "surprise" "$title" "$body" "$labels"
 }
 
 # Skip: a test was skipped with t.Skip or a subtest was deferred.
 issue_skip() {
-    local title="${1:?}" body="${2:?}" labels="${3:-test-gap,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "skip" "$title" "$body" "$labels"
 }
 
 # Cleanup: deferred refactor, dead code, naming inconsistency.
 issue_cleanup() {
-    local title="${1:?}" body="${2:?}" labels="${3:-cleanup,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "cleanup" "$title" "$body" "$labels"
 }
 
 # Flake: CI flake or non-deterministic test.
 issue_flake() {
-    local title="${1:?}" body="${2:?}" labels="${3:-flake,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "flake" "$title" "$body" "$labels"
 }
 
 # CI: CI infrastructure issue.
 issue_ci() {
-    local title="${1:?}" body="${2:?}" labels="${3:-ci,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "ci" "$title" "$body" "$labels"
 }
 
 # Coverage: test coverage gap identified but not addressed in this PR.
 issue_coverage() {
-    local title="${1:?}" body="${2:?}" labels="${3:-test-gap,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-}"
     issue_file "coverage" "$title" "$body" "$labels"
 }
 
 # Wish: feature idea or improvement surfaced during work.
 issue_wish() {
-    local title="${1:?}" body="${2:?}" labels="${3:-enhancement,v0.3.0}"
+    local title="${1:?}" body="${2:?}" labels="${3:-enhancement}"
     issue_file "wish" "$title" "$body" "$labels"
 }
 
@@ -207,7 +209,7 @@ issue_scan_output() {
                 issue_file "bug" \
                     "Test failure: ${test_name}" \
                     "Test \`${test_name}\` failed during this session.\n\nFull line:\n\`\`\`\n${line}\n\`\`\`\n\nProposed fix: investigate and fix the failing test" \
-                    "bug,v0.3.0"
+                    "bug"
                 scan_count=$((scan_count + 1))
             elif [[ "$line" =~ ^FAIL[[:space:]]+(github\.com/ventd/ventd/[^ ]+) ]]; then
                 pkg="${BASH_REMATCH[1]}"
@@ -220,7 +222,8 @@ issue_scan_output() {
         # ── go test race detector warnings ──────────────────────
         # Lines like: WARNING: DATA RACE
         local race_count
-        race_count="$(grep -c 'WARNING: DATA RACE' "$f" 2>/dev/null || echo 0)"
+        race_count="$(awk '/WARNING: DATA RACE/{c++}END{print c+0}' "$f" 2>/dev/null)"
+        race_count="${race_count:-0}"
         if [ "$race_count" -gt 0 ]; then
             # Extract the first race's goroutine stacks (up to 30 lines after WARNING)
             local race_context
@@ -228,7 +231,7 @@ issue_scan_output() {
             issue_file "bug" \
                 "Data race detected (${race_count} occurrence(s))" \
                 "The race detector found ${race_count} data race(s) during \`go test -race\`.\n\nFirst occurrence:\n\`\`\`\n${race_context}\n\`\`\`\n\nProposed fix: add synchronisation or restructure the concurrent access" \
-                "bug,hwmon-safety,v0.3.0"
+                "bug"
             scan_count=$((scan_count + 1))
         fi
 
@@ -239,7 +242,7 @@ issue_scan_output() {
             issue_file "bug" \
                 "Panic in test: ${line:0:80}" \
                 "A panic occurred during testing.\n\n\`\`\`\n${panic_msg}\n\`\`\`\n\nProposed fix: add nil check or guard against the panic condition" \
-                "bug,v0.3.0"
+                "bug"
             scan_count=$((scan_count + 1))
             break  # one issue per file for panics — they cascade
         done < <(grep '^panic:' "$f" 2>/dev/null || true)
@@ -254,8 +257,7 @@ issue_scan_output() {
                 skip_reason="$(grep -A 1 "--- SKIP: ${skip_name}" "$f" | tail -1 | sed 's/^[[:space:]]*//')"
                 issue_file "skip" \
                     "Skipped test: ${skip_name}" \
-                    "Test \`${skip_name}\` was skipped.\n\nReason: ${skip_reason}\n\nProposed fix: remove skip condition or implement the missing dependency" \
-                    "test-gap,v0.3.0"
+                    "Test \`${skip_name}\` was skipped.\n\nReason: ${skip_reason}\n\nProposed fix: remove skip condition or implement the missing dependency"
                 scan_count=$((scan_count + 1))
             fi
         done < <(grep '^--- SKIP:' "$f" 2>/dev/null || true)
@@ -269,8 +271,7 @@ issue_scan_output() {
                 local vet_msg="${BASH_REMATCH[3]}"
                 issue_file "cleanup" \
                     "go vet: ${vet_file}:${vet_line} — ${vet_msg:0:60}" \
-                    "go vet reported:\n\n\`\`\`\n${line}\n\`\`\`\n\nFile: \`${vet_file}\` line ${vet_line}\n\nProposed fix: address the vet diagnostic" \
-                    "cleanup,v0.3.0"
+                    "go vet reported:\n\n\`\`\`\n${line}\n\`\`\`\n\nFile: \`${vet_file}\` line ${vet_line}\n\nProposed fix: address the vet diagnostic"
                 scan_count=$((scan_count + 1))
             fi
         done < <(grep -E '^\.?/?[^:]+:[0-9]+:[0-9]+:' "$f" 2>/dev/null | grep -v '^#' | head -20 || true)
@@ -281,11 +282,11 @@ issue_scan_output() {
         dirty_files="$(grep -E '\.go$' "$f" 2>/dev/null | head -20 || true)"
         if [ -n "$dirty_files" ] && [[ "$basename" == *gofmt* ]]; then
             local dirty_count
-            dirty_count="$(echo "$dirty_files" | wc -l)"
+            dirty_count="$(printf '%s\n' "$dirty_files" | wc -l | tr -d '[:space:]')"
+            dirty_count="${dirty_count:-0}"
             issue_file "cleanup" \
                 "gofmt: ${dirty_count} file(s) need formatting" \
-                "The following files are not gofmt-clean:\n\n\`\`\`\n${dirty_files}\n\`\`\`\n\nProposed fix: run \`gofmt -w\` on the listed files" \
-                "cleanup,v0.3.0"
+                "The following files are not gofmt-clean:\n\n\`\`\`\n${dirty_files}\n\`\`\`\n\nProposed fix: run \`gofmt -w\` on the listed files"
             scan_count=$((scan_count + 1))
         fi
 
@@ -300,8 +301,7 @@ issue_scan_output() {
                     cov_pkg="$(echo "$line" | awk '{print $2}')"
                     issue_file "coverage" \
                         "Low coverage: ${cov_pkg} at ${cov}%" \
-                        "Package \`${cov_pkg}\` has only ${cov}% statement coverage.\n\nProposed fix: add test cases for the uncovered paths" \
-                        "test-gap,v0.3.0"
+                        "Package \`${cov_pkg}\` has only ${cov}% statement coverage.\n\nProposed fix: add test cases for the uncovered paths"
                     scan_count=$((scan_count + 1))
                 fi
             fi
@@ -316,7 +316,7 @@ issue_scan_output() {
                 issue_file "bug" \
                     "Build failure: ${fail_pkg}" \
                     "Package \`${fail_pkg}\` failed to compile.\n\n\`\`\`\n${build_errors}\n\`\`\`\n\nProposed fix: resolve the compilation error" \
-                    "bug,v0.3.0"
+                    "bug"
                 scan_count=$((scan_count + 1))
                 break  # one issue per build failure — they cascade
             fi
