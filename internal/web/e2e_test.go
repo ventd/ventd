@@ -1447,6 +1447,115 @@ func TestE2E_DashboardGrouping(t *testing.T) {
 	})
 }
 
+// TestE2E_EmptyStates_RenderCopyAtEveryBreakpoint drives the dashboard
+// with a completely empty config (no sensors, no fans, no curves, no
+// hwmon devices) and asserts the user-visible empty-state copy for each
+// section is present in the DOM. The four verification breakpoints live
+// under viewports[] so the explanatory text survives the narrow-mobile
+// reflow. When VENTD_E2E_SCREENSHOTS=1, the test also saves a PNG per
+// breakpoint into a temp dir so a reviewer can eyeball the layout — the
+// absence of VENTD_E2E_SCREENSHOTS keeps CI hermetic by default.
+func TestE2E_EmptyStates_RenderCopyAtEveryBreakpoint(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// config.Empty() leaves cfg.Controls == 0 which triggers the
+	// first-boot wizard overlay and hides the dashboard body. Seed
+	// a single control so setup.Needed returns false and the
+	// dashboard actually renders; the Sensors / Curves empty-state
+	// branches are the ones the audit flagged, and they fire based
+	// on their own bucket being empty regardless of whether a
+	// control exists.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "seed-fan", Curve: ""}}
+	seeded.Fans = []config.Fan{{Name: "seed-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1"}}
+	// Sensors / Curves stay empty to exercise their empty-state paths.
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	viewports := []struct {
+		label string
+		w, h  int
+	}{
+		{"375-mobile", 375, 812},
+		{"768-tablet", 768, 1024},
+		{"1280-desktop", 1280, 720},
+		{"1920-desktop", 1920, 1080},
+	}
+
+	// The Sensors and Curves sections exercise the empty-state branch;
+	// Fans is skipped here because with zero Controls the setup wizard
+	// would hide the whole dashboard, and the audit's goal for Fans
+	// empty-state is unit-tested in empty_states_test.go by asserting
+	// the copy is embedded. The HW sidebar's real /api/hardware call
+	// reads the host's /sys/class/hwmon — which on the rig is not
+	// empty — so we don't assert against it here.
+	wantContains := []struct {
+		selector string
+		copy     string
+	}{
+		{"#sensor-cards .empty-state", "No sensors configured yet."},
+		{"#sensor-cards .empty-state-btn", "Open Hardware Monitor"},
+		{"#curve-cards .empty-state", "No curves yet."},
+	}
+
+	var outDir string
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		var err error
+		outDir, err = os.MkdirTemp("", "ventd-empty-states-")
+		if err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		t.Logf("screenshot output dir: %s", outDir)
+	}
+
+	for _, v := range viewports {
+		t.Run(v.label, func(t *testing.T) {
+			setViewport(t, page, v.w, v.h)
+			page.MustNavigate(h.server.URL + "/").MustWaitStable()
+			page.Timeout(3 * time.Second).MustElement(".section-hdr")
+			// Let SSE + render tick settle before asserting DOM contents.
+			time.Sleep(250 * time.Millisecond)
+
+			for _, w := range wantContains {
+				res, err := page.Eval(`(sel) => {
+					const el = document.querySelector(sel);
+					return el ? el.textContent : '';
+				}`, w.selector)
+				if err != nil {
+					t.Fatalf("eval %s: %v", w.selector, err)
+				}
+				got := res.Value.Str()
+				if !strings.Contains(got, w.copy) {
+					t.Errorf("%s @ %s: got %q, want substring %q",
+						w.selector, v.label, got, w.copy)
+				}
+			}
+
+			if outDir != "" {
+				data := page.MustScreenshot()
+				path := fmt.Sprintf("%s/empty-%s.png", outDir, v.label)
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatalf("write %s: %v", path, err)
+				}
+				t.Logf("saved %s (%d bytes)", path, len(data))
+			}
+		})
+	}
+}
+
 // setViewport drives Chrome's emulation protocol so the page's media
 // queries and viewport-relative sizing react as if running on the
 // given physical dimensions. rod's `SetViewport` doesn't exist; the

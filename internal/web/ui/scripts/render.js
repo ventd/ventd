@@ -35,10 +35,17 @@ function renderSensorBar(){
 
 function renderHardware(){
   if(!hw || !hw.length){
-    // The hw-empty class on the container already provides the
-    // fg3 colour + 0.75rem sizing; replace the child span with a
-    // plain-text message.
-    document.getElementById('hw-devices').innerHTML='No devices found';
+    // Empty-state copy: the old "No devices found" string gave no hint
+    // about remediation. Users hitting this state almost always need to
+    // load a kernel module; the text now says so, and the Rescan button
+    // landing in PR-2h will pick up newly-loaded modules without a restart.
+    document.getElementById('hw-devices').innerHTML =
+      '<div class="empty-state sidebar-empty">'+
+        '<p>No hardware devices detected.</p>'+
+        '<p class="empty-state-hint">This usually means the kernel module isn\u2019t loaded. '+
+        'Click <strong>Rescan hardware</strong> below, or run '+
+        '<code>sudo ventd --probe-modules</code> from a terminal.</p>'+
+      '</div>';
     return;
   }
   // Build set of already-added sensor paths+metrics for dedup
@@ -195,12 +202,23 @@ function renderGroupedCards(section, buckets){
 
 function renderSensorCards(){
   if(!cfg) return;
+  const el = document.getElementById('sensor-cards');
+  if(!cfg.sensors || !cfg.sensors.length){
+    el.innerHTML =
+      '<div class="empty-state">'+
+        '<p>No sensors configured yet.</p>'+
+        '<p class="empty-state-hint">A sensor reads a temperature, voltage, or fan-speed value from the kernel. '+
+        'Add one from the Hardware Monitor panel.</p>'+
+        '<button class="empty-state-btn" data-action="toggle-sidebar">Open Hardware Monitor</button>'+
+      '</div>';
+    return;
+  }
   const buckets = {};
   cfg.sensors.forEach((s, i) => {
     const cat = classifyCategory(s.name, s);
     (buckets[cat] = buckets[cat] || []).push(renderSensorCardHTML(s, i));
   });
-  document.getElementById('sensor-cards').innerHTML = renderGroupedCards('sensors', buckets);
+  el.innerHTML = renderGroupedCards('sensors', buckets);
 }
 
 // renderFanCardHTML renders the inner HTML for a single fan/control
@@ -299,13 +317,22 @@ function renderFanCardHTML(ctrl, i){
 
 function renderFanCards(){
   if(!cfg) return;
+  const el = document.getElementById('fan-cards');
+  if(!cfg.controls || !cfg.controls.length){
+    el.innerHTML =
+      '<div class="empty-state">'+
+        '<p>No fans configured.</p>'+
+        '<p class="empty-state-hint">Run the setup wizard to auto-detect fans, or add them manually after configuring sensors.</p>'+
+      '</div>';
+    return;
+  }
   const buckets = {};
   cfg.controls.forEach((ctrl, i) => {
     const fanCfg = cfg.fans ? cfg.fans.find(f => f.name === ctrl.fan) : null;
     const cat = classifyCategory(ctrl.fan, fanCfg);
     (buckets[cat] = buckets[cat] || []).push(renderFanCardHTML(ctrl, i));
   });
-  document.getElementById('fan-cards').innerHTML = renderGroupedCards('fans', buckets);
+  el.innerHTML = renderGroupedCards('fans', buckets);
 
   // Apply dynamic widths — anything that varies per render goes via
   // element.style assignment rather than an inline style= attribute,
@@ -318,7 +345,18 @@ function renderFanCards(){
 
 function renderCurveCards(){
   if(!cfg) return;
-  document.getElementById('curve-cards').innerHTML = cfg.curves.map((c,i) => {
+  const el = document.getElementById('curve-cards');
+  // cfg.curves can legitimately be null on a fresh config (wire-shape
+  // from JSON-marshalled nil slice); treat missing and empty the same.
+  if(!cfg.curves || !cfg.curves.length){
+    el.innerHTML =
+      '<div class="empty-state">'+
+        '<p>No curves yet.</p>'+
+        '<p class="empty-state-hint">Curves map sensor readings to fan speed. Use the buttons above to create one and bind it to a fan.</p>'+
+      '</div>';
+    return;
+  }
+  el.innerHTML = cfg.curves.map((c,i) => {
     let out = '';
     if(c.type==='linear' && sts){
       const sd=sts.sensors.find(s=>s.name===c.sensor);

@@ -117,6 +117,48 @@ button.danger:hover { background: var(--red); color: #fff; }
 .add-sensor-btn:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-bg); }
 .add-sensor-btn.added { border-color: var(--teal-bg2); color: var(--teal-h); cursor: default; }
 
+/* ── Empty states ──
+ *
+ * Rendered when a section (Sensors / Controls / Curves / HW sidebar) has
+ * no items to show. The first paragraph states the fact in one line; the
+ * .empty-state-hint paragraph explains the concept and suggests the
+ * next action. An optional .empty-state-btn wires up a concrete CTA
+ * (currently: "Open Hardware Monitor" in the Sensors empty state).
+ *
+ * Sidebar-variant (.sidebar-empty) shrinks type and removes the card-
+ * like padding so the copy fits inside the 260px-wide rail at every
+ * breakpoint. */
+.empty-state {
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--fg3);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--bg2);
+}
+.empty-state p { margin: 0 0 8px; }
+.empty-state p:last-child { margin-bottom: 0; }
+.empty-state-hint { color: var(--fg2); font-size: 0.75rem; }
+.empty-state-hint code {
+  font-family: var(--font-mono); font-size: 0.7rem;
+  padding: 1px 5px; border-radius: 3px;
+  background: var(--bg3); color: var(--fg2);
+}
+.empty-state-btn {
+  margin-top: 10px; padding: 6px 14px; font-size: 0.78rem;
+  border: 1px solid var(--teal); color: var(--teal); background: var(--teal-bg);
+  border-radius: 4px; cursor: pointer;
+}
+.empty-state-btn:hover { background: var(--teal); color: var(--btn-pri-fg); }
+.empty-state.sidebar-empty {
+  padding: 10px 12px; font-size: 0.72rem;
+  border: 0; border-radius: 0; background: transparent;
+  text-align: left;
+}
+.empty-state.sidebar-empty .empty-state-hint { font-size: 0.68rem; }
+
 /* ── Hardware diagnostics (hwdiag) section ── */
 .hwdiag-group { margin-bottom: 1rem; }
 .hwdiag-group-hdr { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg2); margin-bottom: 0.4rem; }
