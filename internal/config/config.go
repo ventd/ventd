@@ -622,13 +622,36 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("config: fan %q: max_pwm (%d) must be >= min_pwm (%d)", f.Name, f.MaxPWM, f.MinPWM)
 		}
 		if f.IsPump {
+			// hwmon-safety rule 6: pumps must never stop. Require an
+			// explicit pump_minimum rather than relying on the implicit
+			// MinPumpPWM fallback — a missing or zero pump_minimum is
+			// almost always a config typo, and silently substituting a
+			// default risks running a pump below what the operator
+			// believes is safe for their hardware.
+			if f.PumpMinimum == 0 {
+				return fmt.Errorf("config: fan %q: is_pump=true but pump_minimum is 0 — set pump_minimum to at least %d (the MinPumpPWM default) so the pump has an explicit floor", f.Name, MinPumpPWM)
+			}
 			floor := uint8(MinPumpPWM)
 			if f.PumpMinimum > floor {
 				floor = f.PumpMinimum
 			}
+			// Pumps also cover the min_pwm==0 case below: the floor is
+			// at least MinPumpPWM (>0), so any pump with min_pwm==0 is
+			// rejected here before reaching the allow_stop gate. That
+			// is by design — pumps must never stop, even with
+			// allow_stop: true.
 			if f.MinPWM < floor {
 				return fmt.Errorf("config: fan %q: is_pump=true but min_pwm (%d) is below pump floor (%d)", f.Name, f.MinPWM, floor)
 			}
+		}
+		// hwmon-safety rule 1: never write PWM=0 unless min_pwm=0 AND
+		// allow_stop=true. Reject the unsafe combination at config load
+		// so a hand-edited typo can't silently spin a fan down to zero
+		// at runtime. The controller enforces the same gate (see
+		// internal/controller/controller.go), but catching it here fails
+		// fast before the daemon starts controlling hardware.
+		if f.MinPWM == 0 && !f.AllowStop {
+			return fmt.Errorf("config: fan %q: min_pwm is 0 but allow_stop is false — add allow_stop: true if you really want the fan to stop, or raise min_pwm above 0", f.Name)
 		}
 		fans[f.Name] = f
 	}
