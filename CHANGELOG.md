@@ -6,78 +6,50 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added — Settings modal + system status surfacing
+### Added — Phase 2 UI (Session C, v0.3 stream)
 
-- The Settings modal, previously a single Reset button, now carries
-  four sections: Display (theme / temperature unit), System Status
-  (watchdog, crash recovery, MAC policies, diagnostics roll-up),
-  About (version, commit, build date, license, releases link), and
-  Advanced (Reset moved here). Each row reads at a glance — a
-  semantic colour on the value (teal ok, amber warn, red err, muted
-  muted) does the work an icon sprite would have done.
-- Four new read-only endpoints: `GET /api/system/watchdog`,
-  `GET /api/system/recovery`, `GET /api/system/security`,
-  `GET /api/system/diagnostics`. All registered via the `apiRoute`
-  slice so `/api/v1/*` aliases resolve. systemctl and aa-status /
-  semodule shell-outs are cached behind short TTLs (5s / 30s) so a
-  5-second dashboard poll doesn't spawn a process per tick. Missing
-  binaries report `installed: false` / `unsupported` rather than
-  500 — OpenRC, runit, and container hosts stay working.
-- Dashboard diagnostics banner surfaces WARN/ERROR entries at the
-  top of the page with a "View details" link that opens the modal
-  scrolled to System Status. Dismiss × suppresses the banner for
-  the tab's lifetime (sessionStorage); a refresh re-shows it so an
-  operator who closes it then comes back later doesn't miss a
-  newly-risen warning.
-
-### Added — Apply confirmation modal + `/api/config/dryrun`
-
-- The dashboard Apply button now opens a diff preview before committing
-  a change. Click Apply → server-side dryrun compares the candidate
-  config against what the daemon is currently running → modal renders
-  a semantic diff (added / removed / modified items with per-field
-  before→after). Cancel leaves the dirty state untouched; Confirm does
-  the actual `PUT /api/config`. If the diff is empty (a spurious Apply
-  click), the modal is skipped and a toast explains.
-- New `POST /api/config/dryrun` endpoint returns a `ConfigDiff` shape
-  keyed by section (sensors / fans / curves / controls / hwmon / web).
-  The pairing is identity-bound (by Name / Fan) so a curve rename is
-  reported as one removed + one added, not a string-level drift across
-  every field. Registered via the `apiRoute` slice so `/api/v1/config/dryrun`
-  resolves to the same handler. ventd controls physical hardware and
-  this modal is the ergonomic belt-and-braces against an accidental
-  drag-and-Apply.
-
-### Added — visual binding between dashboard cards
-
-- Hovering any fan / curve / sensor card on the dashboard now
-  highlights every card in the binding chain — the fan's bound curve,
-  the curve's source sensor, and (for mix curves) every upstream curve
-  and sensor the mix reads. Non-highlighted cards dim so the
-  relationship pops. `collectBindings()` walks the dependency graph
-  with a depth guard against self-referential mixes; the cycle
-  protection is intentional because a badly-authored config can
-  legally reference itself until `config.Save` rejects it. Touch
-  devices get a brief 1.2s highlight on tap without selecting the
-  curve, so mobile users can still see the relationship.
-- Source-curve names inside a mix curve's card are now clickable.
-  Clicking a source opens that curve in the editor below the card
-  grid and smooth-scrolls the editor into view. Dangling references
-  (a source whose upstream was renamed or deleted) render with a
-  dashed red underline and a "Source curve not found" tooltip instead
-  of a live link. Closes the audit finding that `max(cpu_linear, chipset_linear)`
-  read as mystery text with no affordance.
-
-### Added — web UI empty-state copy
-
-- Every empty dashboard section now renders explanatory copy instead of
-  blank containers. Sensors shows "No sensors configured yet." with an
-  "Open Hardware Monitor" button, Controls shows the setup-wizard hint,
-  Curves shows the sensor-to-fan binding explainer, and the hardware
-  sidebar now tells the user the kernel module probably isn't loaded
-  (with `sudo ventd --probe-modules` as the terminal fallback). A new
-  `.empty-state` component in `components.css` styles all four variants.
-  First step of v0.3 Session C Phase 2 — IA surfacing.
+- Empty-state copy for every dashboard section (sensors, fans,
+  curves, hwmon sidebar). (#185)
+- Visual binding between fan ↔ curve ↔ sensor cards on hover /
+  selection; source-curve names inside mix cards are clickable and
+  open the source curve in the editor. (#190)
+- Apply flow now opens a diff modal before committing;
+  `POST /api/config/dryrun` returns the server-computed diff. (#195)
+- Populated Settings modal with Display / System Status / About /
+  Advanced sections; four new `GET /api/system/{watchdog, recovery,
+  security, diagnostics}` endpoints drive the System Status rows,
+  and a dashboard diagnostics banner fires when WARN/ERROR counts
+  are non-zero. (#197)
+- `color-scheme` declared on the dashboard and login pages plus
+  `:root[data-theme="dark"|"light"] { color-scheme: only <mode>; }`
+  so Brave Night Mode, Chrome Force Dark, and iOS Smart Invert stop
+  re-tinting the UI when the operator has pinned a theme. Reload
+  with the Auto setting now resolves via `prefers-color-scheme`
+  instead of falling through to dark. Closes #199. (#203)
+- Rescan Hardware button in the Hardware Monitor sidebar.
+  `POST /api/hardware/rescan` re-enumerates the hwmon tree and
+  returns a fan-level diff (`new_devices`, `removed_devices`,
+  `elapsed_ms`); `GET /api/debug/hwmon` exposes the before / after /
+  current snapshot of the most recent rescan for diagnostics. Both
+  endpoints are read-only; the rescan uses the same
+  `EnumerateDevices` path the periodic Watcher tick uses. (#209)
+- Panic button: `POST /api/panic` pins every fan to its configured
+  `MaxPWM` via a one-shot write, sets an in-memory flag, and uses
+  the new `controller.PanicChecker` interface to make controller
+  ticks yield while the flag is set. Server-owned timer restores
+  (no PWM write during restore — the next controller tick pushes
+  curve-derived values within the poll interval). `GET /api/panic/state`
+  and `POST /api/panic/cancel` round out the surface. No config
+  mutation: a stale tab cannot un-panic a rig on restart. (#212)
+- Profiles: `config.Profiles` (`map[string]Profile` with omitempty)
+  and `config.ActiveProfile` carry named fan→curve binding sets.
+  `GET /api/profile` returns the active name and the full map;
+  `POST /api/profile/active` rewrites `Controls[i].Curve` for every
+  fan in the profile's bindings and atomically stores the new cfg
+  pointer. v0.2.x YAML parses unchanged; zero-value profiles
+  round-trip without emitting `profiles:` / `active_profile:`
+  keys. Header profile dropdown renders only when profiles are
+  configured. (#212)
 
 ### Added — hwmon topology resilience (v0.3 stream)
 

@@ -33,12 +33,10 @@ NotifyAccess=main
 # ExecStartPre gate for the cold-boot hwmon race (issue #103). Blocks
 # ventd from starting until every `hwmon_device:` path listed in
 # /etc/ventd/config.yaml has been created by udev, up to 30s. On a
-# healthy boot this is effectively instantaneous even when
-# systemd-udev-settle.service (see After= in [Unit]) returns early
-# under load. Belt-and-braces layer with the in-binary retry inside
-# config.LoadForStartup: either one alone closes the race, both
-# together survive old-binary/new-unit and new-binary/old-unit
-# upgrade matrices.
+# healthy boot this is effectively instantaneous. Belt-and-braces
+# with the in-binary retry inside config.LoadForStartup: either one
+# alone closes the race, both together survive old-binary/new-unit
+# and new-binary/old-unit upgrade matrices.
 #
 # The leading "-" is intentional: if the script is missing (e.g. a
 # partial upgrade that only replaced the binary), systemd treats the
