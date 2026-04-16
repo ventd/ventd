@@ -44,11 +44,12 @@ services:
     #   - "9999:9999"
 
     volumes:
-      # Config directory. Read-only because the web UI's "save
-      # settings" writes config.yaml.tmp via rename(2), which requires
-      # the *parent directory* to be writable — do NOT switch this to
-      # ro or the first settings-save will fail with EROFS. The web
-      # UI's password_hash persists here across restarts.
+      # Config directory. Do NOT add :ro — the web UI's "save
+      # settings" path writes config.yaml.tmp and atomically rename(2)s
+      # it over config.yaml, which requires the *parent directory* to
+      # be writable. A read-only mount fails the first settings-save
+      # with EROFS. The password_hash set on first boot persists here
+      # across container restarts.
       - ./config:/etc/ventd
 
       # Sysfs — required read-write. PWM writes go to
