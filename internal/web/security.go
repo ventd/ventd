@@ -34,10 +34,12 @@ func securityHeaders() func(http.Handler) http.Handler {
 	// `img-src 'self' data:` is required for the inline SVG data: URIs
 	// the UI renders for fan/sensor glyphs.
 	const csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+	const permissionsPolicy = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
 			h.Set("Content-Security-Policy", csp)
+			h.Set("Permissions-Policy", permissionsPolicy)
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("X-Frame-Options", "DENY")
 			h.Set("Referrer-Policy", "same-origin")
