@@ -8,6 +8,31 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `spawn-mcp` now invokes the Claude Code CLI in non-interactive print
+  mode (`claude --dangerously-skip-permissions -p < prompt.md`) rather
+  than piping the prompt as stdin into an interactive `claude`. The
+  previous pattern blocked on the first-run theme picker before the CLI
+  ever consumed stdin, which meant every dispatch under a fresh service
+  user deadlocked at 0% progress. Print mode bypasses the theme picker
+  and permission prompts by design. Belt-and-braces: `IS_DEMO=1` is set
+  at the unit level to skip onboarding on fresh installs, and
+  `CLAUDE_CODE_OAUTH_TOKEN` (generated once with `claude setup-token`)
+  is forwarded from `/etc/spawn-mcp/env` so a fresh service user with
+  no interactive login can still authenticate. Each session's stdout
+  and stderr now land in `/var/log/spawn-mcp/sessions/<session>.log`
+  with an exit-code marker, and `tail_session` prefers this persistent
+  log over tmux capture-pane so failures survive pane scroll-back.
+  `.cowork/LESSONS.md` lesson #9 covers the root cause: the #251
+  user-collapse refactor was merged without running one spawn_cc()
+  round-trip post-deploy.
+- `spawn-mcp.service` drops `ProtectHome=read-only`. The service runs
+  as `cc-runner` and `claude` legitimately needs to read and write
+  `/home/cc-runner/.claude/` for session state, cache, and auth
+  tokens. Since the service IS `cc-runner`, there was no user boundary
+  to enforce; `ProtectHome=read-only` was only blocking the service
+  from writing its own home. This directive was inherited from the
+  pre-collapse hardening set and should have been dropped in #251.
+
 - `spawn-mcp` now runs as the same user as the Claude Code sessions it
   launches (`cc-runner`). The previous two-user split had spawn-mcp
   running as its own system user and handing each prompt file off to
@@ -125,7 +150,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   duty bar already use. Backed by a per-metric ring buffer (1 hour
   of history at the 2 s sampler interval, ~58 KB total for a
   typical 8-metric config). New `GET /api/history` endpoint returns
-  either a single metric's samples (`?metric=<name>`) or all metrics
+  either a single metric's samples (`?metric=<n>`) or all metrics
   in one envelope for fresh-tab seed loads. Client appends to its
   local buffer from the existing SSE stream, so steady-state adds
   zero new network chatter. (Refs #180)

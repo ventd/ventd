@@ -9,6 +9,7 @@ User=cc-runner
 Group=cc-runner
 WorkingDirectory=/opt/spawn-mcp
 Environment=PYTHONUNBUFFERED=1
+Environment=IS_DEMO=1
 EnvironmentFile=/etc/spawn-mcp/env
 ExecStart=/opt/spawn-mcp/venv/bin/python /opt/spawn-mcp/server.py
 Restart=on-failure
@@ -17,7 +18,11 @@ RestartSec=5
 # Hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=read-only
+# ProtectHome deliberately NOT set. The service runs as cc-runner and
+# `claude` needs to read+write /home/cc-runner/.claude/ for session state,
+# cache, and auth tokens. Since the service IS cc-runner, there is no
+# boundary to enforce; ProtectHome=read-only here would only block the
+# service's own user from writing its own home.
 ReadWritePaths=/var/log/spawn-mcp /tmp
 # NOTE: PrivateTmp deliberately NOT set. Operators attach to live sessions
 # with `sudo -u cc-runner tmux attach -t cc-...` from an external shell,
