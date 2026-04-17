@@ -13,7 +13,7 @@
 {"ts":"2026-04-18T00:00:02Z","kind":"accept","task":"P1-FP-01","pr":246,"sha":"91e18b5d","reason":"partial accepted; knownDriverNeeds retirement deferred to P1-FP-01b"}
 {"ts":"2026-04-18T00:00:03Z","kind":"merge","task":"P1-FP-01","pr":246,"sha":"c9b5e76","by":"cowork"}
 {"ts":"2026-04-18T00:00:04Z","kind":"revise","task":"T0-INFRA-03","pr":245,"reason":"golangci-lint errcheck on recover() return"}
-{"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck — same class as T0-INFRA-03"}
+{"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck \u2014 same class as T0-INFRA-03"}
 {"ts":"2026-04-18T00:00:06Z","kind":"note","text":"Event-sourced state: .cowork/state.yaml retired as primary; live PR/CI state = GitHub, decision log = this file."}
 {"ts":"2026-04-17T18:20:01Z","kind":"merge","task":"T0-INFRA-03","pr":245,"sha":"8e4dcfc7","by":"developer","text":"test: implement faketime fixture (retry from #242 tangle)"}
 {"ts":"2026-04-17T18:24:48Z","kind":"merge","task":"T0-META-01","pr":244,"sha":"50fa22ed","by":"developer","text":"ci: rule-to-subtest binding lint"}
@@ -21,3 +21,9 @@
 {"ts":"2026-04-17T21:36:23Z","kind":"dispatch","task":"P1-FP-02","alias":"hwdb-remote","pr":257,"model":"claude-sonnet-4-6"}
 {"ts":"2026-04-17T21:49:26Z","kind":"dispatch","task":"P1-HOT-01","alias":"hot","pr":260,"model":"claude-sonnet-4-6"}
 {"ts":"2026-04-18T-session-resume","kind":"note","text":"Session resume: #257 + #260 CI in-progress on head SHAs; both 'behind' main (needs rebase post-green). No action until CI completes. Events.jsonl catch-up for 3 dev-side merges (#244,#245,#259) recorded above."}
+{"ts":"2026-04-17T21:25:27Z","kind":"merge","task":"claude-settings-allowlist-fix","pr":256,"by":"developer","text":"fix(claude-settings): relative-path Write allowlist for repo dirs (unblocks t-hal-01)"}
+{"ts":"2026-04-17T21:47:33Z","kind":"merge","task":"T-HAL-01","pr":258,"sha":"6884049e","by":"developer","text":"test(hal): backend contract invariants bound to .claude/rules/hal-contract.md (15 rules, 15 bound)"}
+{"ts":"2026-04-18T-session-catchup-2","kind":"note","text":"Further catch-up: #256 (claude-settings) and #258 (T-HAL-01) merged 2026-04-17 evening without events.jsonl entries. T-HAL-01 unblocks a rule-file precedent for T-WD-01 / T-CAL-01 / future safety suites \u2014 no more first-rule-file escalations needed for this class."}
+{"ts":"2026-04-18T-session-resume-2","kind":"dispatch","task":"P1-HAL-02","alias":"hal2","session":"cc-hal2-682f5c","model":"claude-opus-4-7"}
+{"ts":"2026-04-18T-session-resume-2","kind":"note","task":"P1-FP-02","pr":257,"text":"Rebase dispatched via MCP update_pull_request_branch \u2014 no conflict expected (behind, not dirty)."}
+{"ts":"2026-04-18T-session-resume-2","kind":"revise","task":"P1-HOT-01","pr":260,"reason":"mergeable_state=dirty; CHANGELOG.md conflicts with #258 T-HAL-01 line now on main. Dispatch 'hot2' to rebase and drop the duplicate entry."}
