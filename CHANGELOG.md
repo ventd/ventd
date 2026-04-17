@@ -156,6 +156,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `test: faketime fixture for deterministic timer tests (#T0-INFRA-03)`
 - `/healthz` and `/readyz` unauthenticated probes for orchestrators (#155).
 - `/api/version` and `/api/v1/version` return version / commit / buildDate / go runtime (#155).
 - Every `/api/*` route is now also served under `/api/v1/*` — v1 is the stable contract (#155).
