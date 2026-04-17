@@ -33,3 +33,23 @@ Append-only self-optimization log. Most recent at bottom. New Cowork sessions re
 **Handoff reducible to MCP**: CI log retrieval (`get_workflow_run_logs`, `get_job_logs`) is NOT in the current MCP toolset. This blocks Cowork from diagnosing lint failures without a CC round-trip. Either enable the `actions` toolset on github-mcp-server (if GITHUB_TOOLSETS=all didn't include it, it may need a secondary flag or image update), or keep CC as the lint-diagnosis path.
 
 ---
+
+## 2026-04-18T (continuation session, claude-opus-4-7) — fourth lesson
+
+**Inefficiency observed**: wrote the full ~27 KB `CHANGELOG.md` twice through `create_or_update_file` to resolve one 1-line merge conflict on #244. Operator flagged this as the single biggest time consumer of the session. Also pasted the file's full content back into the response, burning context for zero value.
+
+**Fix applied**: (1) Never rewrite `CHANGELOG.md` or any file ≥1 KB via MCP to resolve conflicts — dispatch CC with a targeted `sed` or 3-line patch instead. (2) For any file whose current state I just read via MCP, never echo the content back in the response; the read itself is proof. (3) PR bodies capped at 15 lines of prose; deviations go in one line each, not numbered sections with headings.
+
+**Handoff reducible to MCP**: merge-conflict resolution on tiny drift (single-line CHANGELOG, go.mod version bumps, imports-only changes) via `create_or_update_file` with precise SHA — but ONLY when the resulting file write is itself small; otherwise it's a CC dispatch, not a Cowork-direct task.
+
+---
+
+## 2026-04-18T (continuation session, claude-opus-4-7) — fifth lesson
+
+**Inefficiency observed**: opened #249 runner-smoke PR with a 26-line body including Goal / Files / How-to-verify / Review-deviations / Concerns sections. For a 1-file workflow PR that Cowork itself reviews and merges, this is pure ceremony inherited from human-review norms.
+
+**Fix applied**: PR bodies for Cowork-direct infra PRs (runner-smoke, CI workflow tweaks, event-log migrations) — max 5 lines: one-line purpose, one-line verify, one-line known deviations (or "none"). Full task context lives in `.cowork/prompts/<alias>.md`. CC-authored PRs keep richer bodies because they document for Cowork's review.
+
+**Handoff reducible to MCP**: none this session.
+
+---
