@@ -8,6 +8,18 @@ Transport: streamable-http on 127.0.0.1:8891 (override via
 SPAWN_MCP_HOST / SPAWN_MCP_PORT). cloudflared tunnel terminates TLS
 and exposes a trycloudflare.com hostname that Cowork's claude.ai
 connector is pointed at.
+
+Security:
+
+- The cloudflared tunnel + OAuth gate on claude.ai is the real access
+  control. The MCP SDK's built-in DNS-rebinding protection would
+  reject every request whose Host header is the trycloudflare hostname
+  (not 127.0.0.1), so we explicitly configure allowed_hosts=["*"] and
+  allowed_origins=["*"]. This keeps the protection code path enabled
+  (defense in depth) while accepting the specific reality that a
+  public tunnel rewrites neither header. If you move to a named
+  tunnel with a stable hostname, tighten these to
+  ["your-tunnel-host:*"].
 """
 
 from __future__ import annotations
@@ -26,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 log = logging.getLogger("spawn-mcp")
 logging.basicConfig(
@@ -47,9 +60,23 @@ AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jso
 HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
 
+# Comma-separated list; default "*" allows any Host/Origin header because the
+# trycloudflare quick-tunnel hostname rotates on every cloudflared restart.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("SPAWN_MCP_ALLOWED_HOSTS", "*").split(",") if h.strip()]
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SPAWN_MCP_ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+
 AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-mcp = FastMCP("spawn-mcp", host=HOST, port=PORT)
+mcp = FastMCP(
+    "spawn-mcp",
+    host=HOST,
+    port=PORT,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=ALLOWED_HOSTS,
+        allowed_origins=ALLOWED_ORIGINS,
+    ),
+)
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -276,5 +303,13 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    log.info("spawn-mcp starting on %s:%d; worktree=%s user=%s", HOST, PORT, WORKTREE, AS_USER)
+    log.info(
+        "spawn-mcp starting on %s:%d; allowed_hosts=%s allowed_origins=%s worktree=%s user=%s",
+        HOST,
+        PORT,
+        ALLOWED_HOSTS,
+        ALLOWED_ORIGINS,
+        WORKTREE,
+        AS_USER,
+    )
     mcp.run(transport="streamable-http")
