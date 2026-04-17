@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=spawn-mcp
-Group=spawn-mcp
+User=cc-runner
+Group=cc-runner
 WorkingDirectory=/opt/spawn-mcp
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/etc/spawn-mcp/env
@@ -18,13 +18,14 @@ RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/log/spawn-mcp /tmp/cc-runner
-# NOTE: PrivateTmp deliberately NOT set. spawn-mcp writes prompt files to
-# /tmp/cc-runner/<session>.md and cc-runner's tmux session reads them —
-# this cross-user handoff requires both processes to see the same /tmp.
-# Prompts are chmod 600 immediately after write, owned by cc-runner,
-# and the directory itself is chmod 700 owned by cc-runner. A prompt SHA
-# is returned to Cowork so tampering is detectable.
+ReadWritePaths=/var/log/spawn-mcp /tmp
+# NOTE: PrivateTmp deliberately NOT set. Operators attach to live sessions
+# with `sudo -u cc-runner tmux attach -t cc-...` from an external shell,
+# and tail_session needs to reach the tmux server across spawn-mcp
+# restarts. PrivateTmp would put tmux's socket and our prompt files in a
+# namespace-private tmpfs that unmounts on restart, breaking both paths.
+# Prompt files are written 0600 into /tmp/spawn-mcp/ and include a SHA
+# returned to Cowork so tampering is detectable.
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
@@ -40,7 +41,7 @@ LockPersonality=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native
 
-# spawn-mcp needs to exec `sudo -u cc-runner tmux ...`
+# No cross-user handoff, so no capabilities required.
 CapabilityBoundingSet=
 AmbientCapabilities=
 

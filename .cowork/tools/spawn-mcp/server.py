@@ -60,9 +60,9 @@ STATE_BRANCH = os.environ.get("SPAWN_MCP_STATE_BRANCH", "cowork/state")
 WORKTREE = Path(os.environ.get("SPAWN_MCP_WORKTREE", "/home/cc-runner/ventd"))
 CC_BIN = os.environ.get("SPAWN_MCP_CC_BIN", "claude")
 TMUX_BIN = os.environ.get("SPAWN_MCP_TMUX_BIN", "tmux")
-AS_USER = os.environ.get("SPAWN_MCP_AS_USER", "cc-runner")
 ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
 AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jsonl"))
+PROMPT_DIR = Path(os.environ.get("SPAWN_MCP_PROMPT_DIR", "/tmp/spawn-mcp"))
 HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
 
@@ -144,7 +144,7 @@ def _list_prompt_aliases() -> list[str]:
 
 def _existing_sessions() -> list[str]:
     r = subprocess.run(
-        ["sudo", "-u", AS_USER, TMUX_BIN, "ls", "-F", "#S"],
+        [TMUX_BIN, "ls", "-F", "#S"],
         capture_output=True,
         text=True,
     )
@@ -163,8 +163,8 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     The alias must correspond to an existing file at
     `.cowork/prompts/<alias>.md` on the `cowork/state` branch of the ventd
     repository. The server fetches the prompt over HTTPS at invocation time
-    (no local caching), writes it to a tempfile readable only by cc-runner,
-    and launches a detached tmux session that pipes the prompt into
+    (no local caching), writes it to a 0600 tempfile owned by the service
+    user, and launches a detached tmux session that pipes the prompt into
     `claude`.
 
     Returns a dict with: status, session_name, pid, prompt_sha256.
@@ -191,17 +191,18 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     shortid = secrets.token_hex(3)
     session_name = f"cc-{alias}-{shortid}"
 
-    # Write prompt to a file cc-runner can read. /tmp/cc-runner/ is chmod 700,
-    # owned by cc-runner, created by the systemd unit's StateDirectory setting.
-    prompt_path = Path("/tmp/cc-runner") / f"{session_name}.md"
-    prompt_path.parent.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(prompt)
-    subprocess.run(["chown", f"{AS_USER}:{AS_USER}", str(prompt_path)], check=True)
-    subprocess.run(["chmod", "600", str(prompt_path)], check=True)
+    # Write prompt to a 0600 file owned by the service user.
+    PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    prompt_path = PROMPT_DIR / f"{session_name}.md"
+    fd = os.open(str(prompt_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, prompt.encode("utf-8"))
+    finally:
+        os.close(fd)
 
     # Refresh worktree to latest main before dispatch.
     fetch = subprocess.run(
-        ["sudo", "-u", AS_USER, "git", "-C", str(WORKTREE), "fetch", "origin", "main", "--depth=50"],
+        ["git", "-C", str(WORKTREE), "fetch", "origin", "main", "--depth=50"],
         capture_output=True,
         text=True,
     )
@@ -212,9 +213,6 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     # starts the session. If the CC CLI lacks a file flag in the installed
     # version, fall back to `cat prompt | claude`.
     cmd = [
-        "sudo",
-        "-u",
-        AS_USER,
         TMUX_BIN,
         "new-session",
         "-d",
@@ -249,7 +247,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
         "session_name": session_name,
         "prompt_sha256": prompt_sha,
         "worktree": str(WORKTREE),
-        "hint": f"attach on phoenix-desktop: sudo -u {AS_USER} tmux attach -t {session_name}",
+        "hint": f"attach on phoenix-desktop: sudo -u cc-runner tmux attach -t {session_name}",
     }
 
 
@@ -272,7 +270,7 @@ def kill_session(session_name: str) -> dict[str, Any]:
     if not session_name.startswith("cc-") or not re.match(r"^cc-[a-zA-Z0-9_-]+$", session_name):
         return {"status": "rejected", "reason": "only cc-<alias>-<shortid> sessions may be killed"}
     r = subprocess.run(
-        ["sudo", "-u", AS_USER, TMUX_BIN, "kill-session", "-t", session_name],
+        [TMUX_BIN, "kill-session", "-t", session_name],
         capture_output=True,
         text=True,
     )
@@ -291,9 +289,6 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
     lines = max(1, min(lines, 2000))
     r = subprocess.run(
         [
-            "sudo",
-            "-u",
-            AS_USER,
             TMUX_BIN,
             "capture-pane",
             "-p",
@@ -402,13 +397,12 @@ async def _register(request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     log.info(
-        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s user=%s",
+        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s",
         HOST,
         PORT,
         ENABLE_DNS_REBINDING_PROTECTION,
         ALLOWED_HOSTS,
         ALLOWED_ORIGINS,
         WORKTREE,
-        AS_USER,
     )
     mcp.run(transport="streamable-http")

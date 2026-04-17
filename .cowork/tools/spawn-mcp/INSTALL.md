@@ -4,6 +4,22 @@ One-time setup. Run as a user with sudo on phoenix-desktop
 (phoenix@192.168.7.209). Estimated time: 10 minutes including cloudflared
 tunnel propagation.
 
+## Why one service user
+
+spawn-mcp and the Claude Code sessions it launches run as the same user
+(`cc-runner`). Earlier iterations split them into two system users
+(`spawn-mcp` + `cc-runner`) and relied on `sudo -u cc-runner tmux ...`
+plus a chown/chmod dance on prompt files. That cross-user boundary was
+cosmetic — spawn-mcp had sudo rights to become cc-runner, so any
+compromise of spawn-mcp already implied compromise of cc-runner — and
+it burned capability grants (CAP_CHOWN, CAP_FOWNER, CAP_SETUID,
+CAP_SETGID, CAP_AUDIT_WRITE, CAP_DAC_READ_SEARCH) plus a
+`NoNewPrivileges=no` relaxation every time a new failure mode surfaced.
+See `.cowork/LESSONS.md` lesson #6 (infra-coherence failures) for the
+class. Collapsing the users lets the service run with
+`NoNewPrivileges=yes`, an empty ambient/bounding cap set, and zero
+sudoers fragments.
+
 ## 0. Prerequisites
 
 - `tmux`, `python3.11+`, `git`, `sudo`, `cloudflared`, `systemd` — all present
@@ -15,12 +31,14 @@ tunnel propagation.
   (or whatever the current Anthropic-blessed install path is on your distro.)
 - Node >= 18 if `claude` CLI is still the Node-based distribution.
 
-## 1. Create the two service users
+## 1. Create the cc-runner service user
 
 ```
-sudo useradd --system --home /opt/spawn-mcp --shell /usr/sbin/nologin spawn-mcp
 sudo useradd --system --home /home/cc-runner --shell /bin/bash --create-home cc-runner
 ```
+
+This is the single identity for both the MCP server and every Claude
+Code session it spawns.
 
 ## 2. Clone the ventd worktree into cc-runner's home
 
@@ -48,16 +66,16 @@ sudo -u cc-runner git config --global user.email "cc-runner@localhost"
 ## 4. Install the spawn-mcp service
 
 ```
-sudo install -d -o spawn-mcp -g spawn-mcp -m 755 /opt/spawn-mcp
+sudo install -d -o cc-runner -g cc-runner -m 755 /opt/spawn-mcp
 sudo install -d -o root -g root -m 755 /etc/spawn-mcp
-sudo install -d -o spawn-mcp -g spawn-mcp -m 755 /var/log/spawn-mcp
-sudo install -d -o cc-runner -g cc-runner -m 700 /tmp/cc-runner
+sudo install -d -o cc-runner -g cc-runner -m 755 /var/log/spawn-mcp
 
 sudo cp .cowork/tools/spawn-mcp/server.py /opt/spawn-mcp/server.py
 sudo cp .cowork/tools/spawn-mcp/pyproject.toml /opt/spawn-mcp/pyproject.toml
+sudo chown cc-runner:cc-runner /opt/spawn-mcp/server.py /opt/spawn-mcp/pyproject.toml
 
-sudo -u spawn-mcp python3.11 -m venv /opt/spawn-mcp/venv
-sudo -u spawn-mcp /opt/spawn-mcp/venv/bin/pip install 'mcp>=1.3.0'
+sudo -u cc-runner python3.11 -m venv /opt/spawn-mcp/venv
+sudo -u cc-runner /opt/spawn-mcp/venv/bin/pip install 'mcp>=1.3.0'
 
 cat <<EOF | sudo tee /etc/spawn-mcp/env
 SPAWN_MCP_OWNER=ventd
@@ -66,19 +84,15 @@ SPAWN_MCP_STATE_BRANCH=cowork/state
 SPAWN_MCP_WORKTREE=/home/cc-runner/ventd
 SPAWN_MCP_CC_BIN=/home/cc-runner/.local/bin/claude
 SPAWN_MCP_TMUX_BIN=/usr/bin/tmux
-SPAWN_MCP_AS_USER=cc-runner
 SPAWN_MCP_LOG=INFO
 SPAWN_MCP_AUDIT=/var/log/spawn-mcp/audit.jsonl
 EOF
 
 sudo chmod 640 /etc/spawn-mcp/env
-sudo chown root:spawn-mcp /etc/spawn-mcp/env
+sudo chown root:cc-runner /etc/spawn-mcp/env
 
 sudo cp .cowork/tools/spawn-mcp/spawn-mcp.service /etc/systemd/system/spawn-mcp.service
 sudo cp .cowork/tools/spawn-mcp/spawn-mcp-tunnel.service /etc/systemd/system/spawn-mcp-tunnel.service
-sudo cp .cowork/tools/spawn-mcp/sudoers.d-spawn-mcp /etc/sudoers.d/spawn-mcp
-sudo chmod 440 /etc/sudoers.d/spawn-mcp
-sudo visudo -c
 ```
 
 ## 5. Start and verify
@@ -90,6 +104,16 @@ sudo systemctl enable --now spawn-mcp-tunnel.service
 sudo journalctl -u spawn-mcp.service -n 20 --no-pager
 sudo journalctl -u spawn-mcp-tunnel.service -n 20 --no-pager | grep trycloudflare
 ```
+
+Confirm the service is running as cc-runner with no elevated capabilities:
+
+```
+pid=$(systemctl show -p MainPID --value spawn-mcp.service)
+sudo grep -E '^(Uid|Gid|CapEff|NoNewPrivs):' /proc/$pid/status
+```
+
+Expect `Uid:` and `Gid:` set to cc-runner's numeric id, `CapEff: 0000000000000000`,
+and `NoNewPrivs: 1`.
 
 The tunnel log line will include a hostname like
 `https://foo-bar-baz.trycloudflare.com`. Copy it.
@@ -114,7 +138,9 @@ Then on phoenix-desktop:
 
     sudo -u cc-runner tmux attach -t cc-wd-safety-ab12cd
 
-to watch the CC agent work.
+to watch the CC agent work. (`sudo -u cc-runner` is needed to reach the
+cc-runner tmux server from a different shell user — it's not a
+service-side privilege escalation.)
 
 ## 8. Operational checks
 
@@ -123,14 +149,33 @@ to watch the CC agent work.
 - Kill a runaway: Cowork can call `kill_session(name)`; manually
   `sudo -u cc-runner tmux kill-session -t cc-<name>`.
 
+## Uninstalling the old two-user model
+
+If upgrading from a host that was set up with a separate `spawn-mcp`
+system user and a `/etc/sudoers.d/spawn-mcp` fragment:
+
+```
+sudo systemctl revert spawn-mcp.service   # drop any capability drop-ins
+sudo rm -f /etc/sudoers.d/spawn-mcp
+sudo rm -rf /tmp/cc-runner                # old prompt-handoff dir
+# Only after confirming nothing else uses it:
+sudo userdel spawn-mcp 2>/dev/null || true
+sudo groupdel spawn-mcp 2>/dev/null || true
+```
+
+Then follow steps 4-5 to install the unified unit and restart.
+
 ## Threat model & limits
 
-- cc-runner has full write access to the ventd repo via its PAT.
-  A compromised spawn-mcp = a compromised PAT. Mitigations: OAuth gate
-  on the tunnel, narrow sudoers, systemd hardening directives, audit
-  log. Periodically rotate the PAT.
-- spawn-mcp itself runs as an unprivileged user with no network
-  egress capability beyond the tunnel + GitHub's HTTPS.
+- cc-runner has full write access to the ventd repo via its PAT, and
+  it is now the MCP server user too. A compromised spawn-mcp process
+  already had (via sudo) what a compromised cc-runner has; collapsing
+  the users makes that explicit instead of pretending there was a
+  boundary. Mitigations are unchanged: OAuth gate on the tunnel,
+  systemd hardening directives, audit log. Periodically rotate the PAT.
+- The service runs as an unprivileged user with no network
+  egress capability beyond the tunnel + GitHub's HTTPS, and with
+  `NoNewPrivileges=yes` + empty cap set.
 - Prompt-injection from Cowork is not a threat: Cowork is trusted
   (this is the whole point of Path B). If an attacker gains control
   of Cowork's claude.ai session via OAuth token theft, they can
