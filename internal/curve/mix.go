@@ -3,6 +3,7 @@ package curve
 import (
 	"fmt"
 	"math"
+	"sync"
 )
 
 // MixFunc is the aggregation function applied across a Mix curve's sources.
@@ -36,14 +37,26 @@ type Mix struct {
 	Function MixFunc
 }
 
+// Opt-6: pool []uint8 slices used for per-source results so Mix.Evaluate
+// never allocates on the hot path. The pool holds *[]uint8 pointers so
+// append can grow the backing array and keep the pointer updated.
+var mixValsPool = sync.Pool{
+	New: func() any { v := make([]uint8, 0, 4); return &v },
+}
+
 func (c *Mix) Evaluate(sensors map[string]float64) uint8 {
 	if len(c.Sources) == 0 {
 		return 0
 	}
-	vals := make([]uint8, len(c.Sources))
-	for i, src := range c.Sources {
-		vals[i] = src.Evaluate(sensors)
+	// Opt-6: borrow a slice from the pool; reset, fill, aggregate, then
+	// return it before we return the result.
+	vp := mixValsPool.Get().(*[]uint8)
+	*vp = (*vp)[:0]
+	for _, src := range c.Sources {
+		*vp = append(*vp, src.Evaluate(sensors))
 	}
+	vals := *vp
+	var result uint8
 	switch c.Function {
 	case MixMax:
 		m := vals[0]
@@ -52,7 +65,7 @@ func (c *Mix) Evaluate(sensors map[string]float64) uint8 {
 				m = v
 			}
 		}
-		return m
+		result = m
 	case MixMin:
 		m := vals[0]
 		for _, v := range vals[1:] {
@@ -60,14 +73,17 @@ func (c *Mix) Evaluate(sensors map[string]float64) uint8 {
 				m = v
 			}
 		}
-		return m
+		result = m
 	case MixAverage:
 		sum := 0
 		for _, v := range vals {
 			sum += int(v)
 		}
-		return uint8(math.Round(float64(sum) / float64(len(vals))))
+		result = uint8(math.Round(float64(sum) / float64(len(vals))))
 	default:
-		return vals[0]
+		result = vals[0]
 	}
+	*vp = (*vp)[:0]
+	mixValsPool.Put(vp)
+	return result
 }
