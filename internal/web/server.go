@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -475,23 +476,48 @@ func (s *Server) handleAuthState(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, map[string]bool{"first_boot": live.Web.PasswordHash == ""})
 }
 
-// uiStaticHandler wraps http.FileServer(fs) with two small behaviours:
+// computeUIEtags walks root and returns a map from request-relative path →
+// strong ETag. ETags are computed once at boot (embedded assets are
+// immutable per binary) as the first 16 bytes of SHA-256 in hex, quoted.
+func computeUIEtags(root fs.FS) map[string]string {
+	etags := make(map[string]string)
+	_ = fs.WalkDir(root, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		data, err := fs.ReadFile(root, path)
+		if err != nil {
+			return nil
+		}
+		sum := sha256.Sum256(data)
+		etags[path] = fmt.Sprintf(`"%x"`, sum[:16])
+		return nil
+	})
+	return etags
+}
+
+// uiStaticHandler wraps http.FileServer(fs) with ETag-based conditional GET
+// and a 1-hour cache ceiling. ETags are computed at boot from the embedded
+// asset contents, so they track binary releases without relying on mod-times
+// (which embed.FS always returns as zero).
 //
-//   - Short-cacheable: the embedded assets are versioned with the binary,
-//     so a 5-minute cache ceiling is safe under default upgrade flow
-//     (systemctl restart ventd invalidates caches via connection reset,
-//     and 5 minutes is short enough that a misbuild is easy to recover
-//     from without a forced reload).
-//   - Defense-in-depth: strip any Cache-Control the FileServer set and
-//     replace with our own so policy lives in one place.
-//
-// Content-Type is derived from extension by the stdlib FileServer, which
-// is exactly what we want (.css → text/css, .js → application/javascript,
-// .html → text/html).
+// Content-Type is derived from extension by the stdlib FileServer.
 func uiStaticHandler(root fs.FS) http.Handler {
+	etags := computeUIEtags(root)
 	fileServer := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "public, max-age=300")
+		// r.URL.Path is relative to the FS root (leading slash stripped by
+		// http.StripPrefix before the request reaches this handler).
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		h := w.Header()
+		if etag, ok := etags[path]; ok {
+			h.Set("ETag", etag)
+			if r.Header.Get("If-None-Match") == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+		h.Set("Cache-Control", "public, max-age=3600, must-revalidate")
 		fileServer.ServeHTTP(w, r)
 	})
 }
@@ -500,8 +526,10 @@ func uiStaticHandler(root fs.FS) http.Handler {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
+		h := w.Header()
+		h.Set("Content-Type", "text/html; charset=utf-8")
+		h.Set("Cache-Control", "no-store")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		_, _ = w.Write(readUI("login.html"))
 
 	case http.MethodPost:
@@ -893,8 +921,10 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Cross-Origin-Resource-Policy", "same-origin")
 	_, _ = w.Write(readUI("index.html"))
 }
 
