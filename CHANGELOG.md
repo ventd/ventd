@@ -6,6 +6,27 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `spawn-mcp` now runs as the same user as the Claude Code sessions it
+  launches (`cc-runner`). The previous two-user split had spawn-mcp
+  running as its own system user and handing each prompt file off to
+  `cc-runner` via `chown`/`chmod` plus a `sudo -u cc-runner tmux ...`
+  hop. Each failure in that pipeline ratcheted capability grants on the
+  unit — first `CAP_CHOWN`, then `CAP_FOWNER`, then `NoNewPrivileges=no`,
+  then the full SETUID/SETGID/AUDIT_WRITE/DAC_READ_SEARCH set — to
+  paper over a boundary that was already ornamental, because spawn-mcp
+  held sudo rights to become cc-runner. Collapsing to a single user
+  lets the service run with an empty ambient + bounding cap set,
+  `NoNewPrivileges=yes`, and no sudoers fragment at all. Prompt files
+  land 0600 in `/tmp/spawn-mcp/` natively. The `SPAWN_MCP_AS_USER`
+  environment variable and all `sudo -u` subprocess prefixes are gone.
+  `.cowork/LESSONS.md` lesson #6 (infra-coherence failures) is the
+  class. Operators still attach from their own shell with
+  `sudo -u cc-runner tmux attach -t cc-...`, since reaching another
+  user's tmux server from a different login shell is a shell-side
+  concern, not a service-side privilege escalation.
+
 ### Fixed
 
 - `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
