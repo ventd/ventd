@@ -6,6 +6,117 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- docs: add public roadmap (#P0-02)
+- docs: add hardware-report issue template (#P0-03)
+- test: add fixture library skeleton (#T0-INFRA-01)
+- test: implement fakehwmon fixture + migrate 3 tests (#T0-INFRA-02)
+- test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
+
+### Fixed
+
+- `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
+  body when ventd detects it is running inside a container (PID 1,
+  `/.dockerenv` present, or `systemd-detect-virt --container` reports non-`none`).
+  Previously the wizard would either crash the container or silently no-op.
+  A new test seam on the web server lets the existing handler test exercise
+  the 409 path without faking PID 1 in CI. Closes #177.
+- Silent confinement downgrade is now auditable post-install. Both
+  `scripts/install.sh` and `scripts/postinstall.sh` append one
+  timestamped line per security-module load attempt to
+  `/var/log/ventd/install.log` (mode 0640, owned `root:ventd`). The
+  daemon additionally emits a `WARN` slog line at startup when an
+  AppArmor profile exists on disk but `/proc/self/attr/current` reads
+  `unconfined` — so an operator running `journalctl -u ventd` finds the
+  signal even if the install scrollback is long gone. Closes #211.
+- `scripts/install.sh` now prints a box-drawn completion block at the top
+  of its final output with the dashboard URL, the one-time setup token
+  read from `/run/ventd/setup-token`, and the three steps the user needs
+  to reach a running fan-control daemon. Previously the output buried the
+  URL on one line and omitted the token entirely — first-boot users had
+  to know about `/run/ventd/setup-token` to find it. The scheme default
+  is now `https` unconditionally (the daemon auto-generates a self-signed
+  cert on first boot), matching what the README and the daemon actually
+  do. Partial fix for #182 — the token-file persistence and
+  `systemctl status` status-line surfacing remain open.
+- The TLS listener now sniffs the first byte of every accepted connection
+  and, for plaintext HTTP requests that arrive on the TLS port (a
+  mobile browser auto-completing `host:9999` to `http://`, a human
+  forgetting the `s`), responds with `301 Moved Permanently` to the
+  `https://` equivalent of the same URI instead of the stdlib's
+  user-hostile "client sent an HTTP request to an HTTPS server" error.
+  TLS ClientHello packets (first byte `0x16`) pass through untouched via
+  a peekedConn wrapper. No new port binding; no new capability. Closes #200.
+
+### Added — Phase 3 Control Depth (Session D, v0.3 stream)
+
+- PWM 0-255 → percent 0-100 migration across the config surface.
+  `CurveConfig` now carries `MinPWMPct`, `MaxPWMPct`, and `ValuePct`
+  (`*uint8`); `CurvePoint` carries `PWMPct`. On load, `Parse()` calls
+  `MigrateCurvePWMFields` to reconcile the two forms — legacy YAML
+  with `min_pwm: 30` migrates to `min_pwm_pct: 12`, and any config
+  carrying both fields prefers `_pct` with a `slog.Warn`. On save,
+  `yaml.Marshal` emits only the percent form — a Load → Save cycle
+  strips `min_pwm`, `max_pwm`, `value`, and `pwm` keys from any
+  pre-3f config in one pass. Round-trip rounding tolerance of ±1
+  keeps successive migrations idempotent. The runtime keeps reading
+  the raw fields (`MinPWM`, `MaxPWM`, `Value`, `PWM`) so
+  `buildCurve` and existing tests see no behaviour change.
+  `/api/config` JSON emits both forms so post-3f UI code can read
+  the authoritative `_pct` value while legacy clients still see
+  the raw fields. Apply-modal diff renders the percent field names
+  (`min_pwm_pct: 30 → 50`) so the operator reviews exactly what the
+  YAML will write. (Refs #180)
+- Curve simulation preview in the editor pane. Three live rows below
+  the number inputs: the PWM the curve outputs at the current sensor
+  reading, the PWM at the curve's configured upper threshold
+  (`max_temp` for linear, last anchor for points), and the PWM at the
+  60-minute peak from `/api/history`. All three update on drag, on
+  number-input change, and on each SSE status tick; client-side
+  evaluation reuses the existing interpolation helpers so no extra
+  daemon round-trip fires. The history row gracefully degrades to "—"
+  when `/api/history` is absent — 3c (time-series sparklines) lands
+  that endpoint in a separate PR and 3d does not block on it. (Refs
+  #180)
+- Multi-point curves. New curve type `points` interpolates PWM between
+  an ascending list of `{temp, pwm}` anchors; `CurveConfig.Points` is
+  the YAML surface and `internal/curve/points.go` holds the runtime.
+  `validate()` requires ≥ 2 anchors, sorts them by temp, and rejects
+  duplicate temps so the interpolation denominator can never collapse
+  to zero. Curve editor gains a `Type` selector inside the editor pane
+  that converts between Linear / Multi-point / Fixed / Mix with
+  sensible field carryover (linear ↔ points round-trips through the
+  first/last anchors). Multi-point SVG renders one draggable handle
+  per anchor — double-click the graph to add, right-click a handle to
+  remove (two-anchor minimum enforced client-side). Hysteresis +
+  smoothing from 3a apply transparently because the controller layer
+  owns both and needs no curve-type-specific knowledge. (Refs #180)
+- Per-curve hysteresis and smoothing. `CurveConfig` grows two optional
+  fields: `hysteresis` (°C deadband applied to ramp-DOWN transitions
+  only, never delays ramp-up) and `smoothing` (EMA time-constant
+  applied to raw sensor reads before curve evaluation). Zero values
+  produce pre-3a behaviour bit-for-bit; both fields are `omitempty`
+  so existing configs round-trip unchanged. Curve editor exposes
+  `Hysteresis (°C)` and `Smoothing (s)` inputs on linear curves. The
+  hysteresis gate only applies to curves with a single-sensor input
+  (linear, future multi-point); mix and fixed curves bypass it. The
+  smoothing EMA is per-controller-per-sensor and resets when the bound
+  curve name changes so a hot-reload swap doesn't leak stale
+  accumulator state. Clamp to `[MinPWM, MaxPWM]` remains the final
+  safety gate — smoothing cannot push the written PWM below the fan's
+  floor. (Refs #180)
+- Time-series sparklines on every sensor and fan card. Each tile
+  now carries a tiny SVG trend strip below its current value,
+  coloured with the same teal/amber/red ramp the numeric value and
+  duty bar already use. Backed by a per-metric ring buffer (1 hour
+  of history at the 2 s sampler interval, ~58 KB total for a
+  typical 8-metric config). New `GET /api/history` endpoint returns
+  either a single metric's samples (`?metric=<n>`) or all metrics
+  in one envelope for fresh-tab seed loads. Client appends to its
+  local buffer from the existing SSE stream, so steady-state adds
+  zero new network chatter. (Refs #180)
+
 ### Added — Phase 2 UI (Session C, v0.3 stream)
 
 - Empty-state copy for every dashboard section (sensors, fans,
@@ -50,6 +161,23 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   round-trip without emitting `profiles:` / `active_profile:`
   keys. Header profile dropdown renders only when profiles are
   configured. (#212)
+- Profile scheduling: `config.Profile.Schedule` takes a grammar of
+  `HH:MM-HH:MM DAYSPEC` (where DAYSPEC is `*`, `mon-fri`,
+  `mon,wed,fri`, or a single day) and the daemon's scheduler
+  goroutine switches the active profile on transitions in local
+  time. Midnight-wrapping ranges (`22:00-07:00`) attribute the
+  whole window to the starting day. Overlap tiebreak: fewer days
+  beats more, shorter duration beats longer, lexical profile name
+  as final tiebreak — documented so overlaps are predictable.
+  When no schedule matches, the alphabetically-first profile with
+  no schedule is the default fallback. Manual
+  `POST /api/profile/active` flips into a manual-override state
+  that sticks until the next schedule transition (to or from the
+  fallback) clears it. `GET /api/schedule/status` reports
+  `active_profile`, `source` (schedule/manual), and the next
+  upcoming transition. `PUT /api/profile/schedule` saves a
+  schedule edit to disk. Panic suppresses scheduled switches.
+  Refs #180.
 
 ### Added — hwmon topology resilience (v0.3 stream)
 
@@ -156,7 +284,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `test: faketime fixture for deterministic timer tests (#T0-INFRA-03)`
 - `/healthz` and `/readyz` unauthenticated probes for orchestrators (#155).
 - `/api/version` and `/api/v1/version` return version / commit / buildDate / go runtime (#155).
 - Every `/api/*` route is now also served under `/api/v1/*` — v1 is the stable contract (#155).
