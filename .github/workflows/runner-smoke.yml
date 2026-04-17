@@ -1,0 +1,81 @@
+name: runner-smoke
+
+# Manual smoke test for the self-hosted HIL runner on phoenix-desktop.
+# Trigger via workflow_dispatch from the Actions tab. The job emits
+# kernel/Go/NVML state to the step summary so the runner's toolchain
+# and GPU visibility can be confirmed before any workflow depends on
+# the self-hosted labels.
+#
+# Not wired into any other workflow. Kept on-demand until the runner
+# has demonstrated a green dispatch.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: phoenix-desktop smoke
+    runs-on: [self-hosted, linux, x64, hil, phoenix-desktop]
+    timeout-minutes: 5
+    steps:
+      - name: runner identity
+        run: |
+          {
+            echo "## Runner identity"
+            echo ""
+            echo '```'
+            echo "hostname:    $(hostname)"
+            echo "user:        $(whoami)"
+            echo "pwd:         $(pwd)"
+            echo "kernel:      $(uname -a)"
+            echo "distro:      $(. /etc/os-release && echo "$PRETTY_NAME")"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: toolchain versions
+        run: |
+          {
+            echo "## Toolchain"
+            echo ""
+            echo '```'
+            echo "go:              $(command -v go && go version || echo 'go not on PATH')"
+            echo "golangci-lint:   $(command -v golangci-lint && golangci-lint --version || echo 'not installed')"
+            echo "gofmt:           $(command -v gofmt && gofmt -h 2>&1 | head -n 1 || echo 'not on PATH')"
+            echo "shellcheck:      $(command -v shellcheck && shellcheck --version | head -n 2 | tail -n 1 || echo 'not installed')"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gpu visibility
+        run: |
+          {
+            echo "## GPU"
+            echo ""
+            echo '```'
+            if command -v nvidia-smi >/dev/null 2>&1; then
+              nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv
+            else
+              echo "nvidia-smi not on PATH (ok for non-NVIDIA rigs)"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: hwmon visibility
+        run: |
+          {
+            echo "## hwmon"
+            echo ""
+            echo '```'
+            if [ -d /sys/class/hwmon ]; then
+              for h in /sys/class/hwmon/hwmon*; do
+                [ -e "$h" ] || continue
+                name=$(cat "$h/name" 2>/dev/null || echo '?')
+                echo "$h -> $name"
+              done
+            else
+              echo "/sys/class/hwmon not present"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
