@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -130,6 +131,7 @@ func run() error {
 	}
 
 	logger.Info("ventd starting")
+	warnIfUnconfined(logger)
 
 	// LoadForStartup discriminates three outcomes: first-boot (no config
 	// file), successful load, or a real startup failure. The helper's
@@ -653,4 +655,41 @@ func buildLogger(level string) *slog.Logger {
 	// Write to stdout. systemd captures this and routes it to journald.
 	// View with: journalctl -u ventd -f
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: l}))
+}
+
+// warnIfUnconfined surfaces a one-line slog.Warn when an AppArmor
+// profile is shipped on disk for ventd but the current process is
+// running unconfined. This is the only signal an operator running
+// `journalctl -u ventd` will find that ties a silent confinement
+// downgrade back to its root cause (usually a parser error during
+// install — see #202 + #204 history). Best-effort: if either file is
+// unreadable (kernel without AppArmor support, paranoid confinement
+// that hides /proc/self/attr) the check falls through silently.
+//
+// Detection rule: if /etc/apparmor.d/usr.local.bin.ventd exists AND
+// /proc/self/attr/current reads "unconfined" (or an empty string)
+// we expected confinement but didn't get it. Any non-empty non-
+// "unconfined" value — including profile-not-named-ventd — means a
+// profile is active and we stay quiet; ops with custom profiles
+// should not see WARN spam.
+func warnIfUnconfined(logger *slog.Logger) {
+	const profilePath = "/etc/apparmor.d/usr.local.bin.ventd"
+	if _, err := os.Stat(profilePath); err != nil {
+		return
+	}
+	// /proc/self/attr/current layout:
+	//   "unconfined\n"                          → unconfined
+	//   "ventd (enforce)\x00"                   → confined (note NUL)
+	//   "/usr/local/bin/ventd (enforce)\x00"    → confined alt path
+	raw, err := os.ReadFile("/proc/self/attr/current")
+	if err != nil {
+		return
+	}
+	current := strings.TrimRight(strings.TrimSpace(string(raw)), "\x00")
+	if current == "" || current == "unconfined" {
+		logger.Warn("apparmor: profile is installed on disk but process is unconfined — confinement was likely refused at install time",
+			"profile", profilePath,
+			"current", current,
+			"hint", "check /var/log/ventd/install.log or run: sudo apparmor_parser -r "+profilePath)
+	}
 }
