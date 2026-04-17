@@ -1,0 +1,96 @@
+# scripts/cross-distro-smoke.config.sh.example — template config
+#
+# Copy to scripts/cross-distro-smoke.config.sh (git-ignored) and edit.
+# Never commit the real file; the API token must stay out of the repo.
+#
+# Requires bash 4+ (associative arrays). Check with `bash --version`.
+#
+# shellcheck shell=bash disable=SC2034
+
+# ── Proxmox API endpoint ────────────────────────────────────────────────────
+
+# Host and port for the Proxmox VE API. Use the hostname or IP the dev host
+# can reach directly. TLS is assumed; self-signed certs are accepted by the
+# harness (it passes curl --insecure) since these are throwaway VMs.
+PROXMOX_HOST="pve.example.lan"
+PROXMOX_PORT="8006"
+
+# Cluster node name that owns the templates. Run `pvesh get /nodes` on the
+# Proxmox host to list. For a single-node install this is usually the
+# hostname without domain.
+PROXMOX_NODE="pve"
+
+# Disk storage to clone onto. Must allow the vm-disk content type. `local-lvm`
+# is the default for a single-node Proxmox install.
+PROXMOX_STORAGE="local-lvm"
+
+# ── API token ───────────────────────────────────────────────────────────────
+#
+# Create the token under Datacenter → Permissions → API Tokens. Unset
+# "Privilege Separation" so the token inherits the user's permissions, OR
+# grant the token itself these scopes on / (path "/", Propagate=1):
+#
+#   VM.Allocate, VM.Clone, VM.PowerMgmt, VM.Monitor,
+#   VM.Config.Disk, VM.Config.CPU, VM.Config.Memory, VM.Config.Options,
+#   VM.Config.Network, VM.Audit, Datastore.AllocateSpace, Sys.Audit
+#
+# The token ID below is the full "USER@REALM!TOKENID" string Proxmox prints
+# when the token is created.
+
+PROXMOX_TOKEN_ID="root@pam!ventd-smoke"
+PROXMOX_TOKEN_SECRET="00000000-0000-0000-0000-000000000000"
+
+# ── SSH into each cloned VM ─────────────────────────────────────────────────
+
+# Path to the private key whose public half is baked into every template's
+# authorized_keys file. The harness uses `ssh -i $SSH_KEY_PATH` only; it
+# never reads the private key's contents.
+SSH_KEY_PATH="$HOME/.ssh/id_ed25519_ventd_smoke"
+
+# Non-root user with passwordless sudo (NOPASSWD: ALL) on each template.
+# `root` works too but most cloud images default to a non-root user.
+SSH_USER="ventd"
+
+# ── ventd release under test ────────────────────────────────────────────────
+
+# Tag passed to scripts/install.sh. Use a released tag (e.g. v0.2.0) —
+# anything else means you're testing a moving target.
+VENTD_VERSION="v0.2.0"
+
+# ── Template VMID map ───────────────────────────────────────────────────────
+#
+# Bash 4 associative array. Key = distro slug (must match one of the keys
+# the harness iterates over); value = the VMID of the converted-to-template
+# VM on the Proxmox node. The slugs are fixed — the harness only runs
+# distros it has entries for, and the empty matrix in
+# docs/cross-distro-status.md uses exactly these slugs.
+
+declare -A TEMPLATE_VMIDS=(
+    [ubuntu-24-04]=9001
+    [debian-12]=9002
+    [fedora-40]=9003
+    [arch]=9004
+    [opensuse-tumbleweed]=9005
+    [void-glibc]=9006
+    [alpine-3-19]=9007
+)
+
+# ── Optional tunables ───────────────────────────────────────────────────────
+
+# Full clone (1) copies the template's disk — works across storages, slow.
+# Linked clone (0) is fast but requires the template and clone to live on
+# the same storage and keeps a dependency on the template disk.
+PROXMOX_FULL_CLONE="${PROXMOX_FULL_CLONE:-1}"
+
+# VMID range for the disposable clones. Pick a band that doesn't collide
+# with the templates above or any production VMs on the node.
+CLONE_VMID_MIN="${CLONE_VMID_MIN:-9500}"
+CLONE_VMID_MAX="${CLONE_VMID_MAX:-9599}"
+
+# Timeouts in seconds.
+AGENT_IP_TIMEOUT="${AGENT_IP_TIMEOUT:-120}"        # wait for qemu-guest-agent IP
+VENTD_START_TIMEOUT="${VENTD_START_TIMEOUT:-60}"   # wait for systemctl is-active
+TASK_POLL_TIMEOUT="${TASK_POLL_TIMEOUT:-600}"      # wait for each UPID task
+
+# SSH connection knobs.
+SSH_CONNECT_TIMEOUT="${SSH_CONNECT_TIMEOUT:-30}"

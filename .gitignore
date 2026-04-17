@@ -39,6 +39,9 @@ securitytodo.md
 .claude/rules/*
 !.claude/rules/*.md
 
+# Real cross-distro smoke config — contains Proxmox API token
+/scripts/cross-distro-smoke.config.sh
+
 # fresh-VM smoke harness artifacts
 /validation/.build/
 /validation/fresh-vm-smoke-*.md
