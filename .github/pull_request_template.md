@@ -13,6 +13,7 @@
 ## Checklist
 
 - [ ] Tests added or updated
+- [ ] For each issue referenced above (`Closes` / `Fixes` / `Resolves`), a regression test `TestRegression_Issue<N>_*` is present in the diff or already in the tree — or the issue carries the `no-regression-test` label with an explanation on the issue
 - [ ] `go vet ./...` and `go test -race ./...` pass
 - [ ] `golangci-lint run` passes (once `.golangci.yml` lands)
 - [ ] Coverage not regressed
