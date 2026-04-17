@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -788,6 +789,9 @@ func moduleFromPath(pwmPath string) string {
 }
 
 // persistModule writes the winning module to boot-time configuration.
+// When /etc/modules-load.d/ventd.conf already exists its contents are merged
+// (union + sort) so repeated probe runs on multi-chip boards accumulate all
+// detected modules rather than overwriting on each run.
 func persistModule(module, options string) error {
 	const (
 		loadDir     = "/etc/modules-load.d"
@@ -797,10 +801,8 @@ func persistModule(module, options string) error {
 		etcModules  = "/etc/modules"
 	)
 
-	header := "# Written by ventd — do not edit manually\n"
-
 	if fi, err := os.Stat(loadDir); err == nil && fi.IsDir() {
-		if err := os.WriteFile(loadFile, []byte(header+module+"\n"), 0644); err != nil {
+		if err := mergeModuleLoadFile(loadFile, module); err != nil {
 			return fmt.Errorf("write %s: %w", loadFile, err)
 		}
 	} else {
@@ -811,6 +813,7 @@ func persistModule(module, options string) error {
 
 	if options != "" {
 		if fi, err := os.Stat(modprobeDir); err == nil && fi.IsDir() {
+			const header = "# Written by ventd — do not edit manually\n"
 			content := header + "options " + module + " " + options + "\n"
 			if err := os.WriteFile(optFile, []byte(content), 0644); err != nil {
 				return fmt.Errorf("write %s: %w", optFile, err)
@@ -819,6 +822,84 @@ func persistModule(module, options string) error {
 	}
 
 	return nil
+}
+
+// mergeModuleLoadFile reads path (if present), unions the existing module
+// names with newModule, sorts the result lexically, and rewrites the file
+// atomically via a temp-file rename. A blank newModule is a no-op.
+func mergeModuleLoadFile(path, newModule string) error {
+	if newModule == "" {
+		return nil
+	}
+
+	existing := readModuleNames(path)
+
+	set := make(map[string]struct{}, len(existing)+1)
+	for _, m := range existing {
+		set[m] = struct{}{}
+	}
+	set[newModule] = struct{}{}
+
+	modules := make([]string, 0, len(set))
+	for m := range set {
+		modules = append(modules, m)
+	}
+	sort.Strings(modules)
+
+	const header = "# Written by ventd — do not edit manually\n"
+	var sb strings.Builder
+	sb.WriteString(header)
+	for _, m := range modules {
+		sb.WriteString(m)
+		sb.WriteByte('\n')
+	}
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ventd-modules-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file in %s: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.WriteString(sb.String()); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write %s: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tmpPath, err)
+	}
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		return fmt.Errorf("chmod %s: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", tmpPath, path, err)
+	}
+	ok = true
+	return nil
+}
+
+// readModuleNames parses a modules-load.d-style file and returns the module
+// names it contains (one per line; comment and blank lines excluded).
+func readModuleNames(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var modules []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		modules = append(modules, line)
+	}
+	return modules
 }
 
 // dmiRead reads a DMI sysfs field. Returns "" on any error.
