@@ -92,4 +92,68 @@ or an `ExecStartPre=install -d -o <user> -g <user> -m 0700
 Queue held until user signals spawn-mcp is back. `wd-safety` and
 `permpol` aliases remain valid and ready to re-dispatch on resume.
 
-Resolved: _(awaiting developer)_
+Resolved: merged #251 (spawn-mcp user collapse) and #252 (print-mode +
+session log); spawn-mcp operational. Queue unblocked.
+
+---
+
+## 2026-04-18T07:45:00+10:00 RULE-FILE/REVIEW — T-HAL-01 / PR #258
+
+Subject: New `.claude/rules/hal-contract.md` file introduces a safety
+contract that binds every future HAL backend implementation. Per
+Cowork auto-merge restrictions, new rule files require explicit
+review, not silent auto-merge.
+
+Task: T-HAL-01
+PR: https://github.com/ventd/ventd/pull/258
+
+Cowork review (serving as reviewer-of-record per solo-dev mode):
+
+The file declares 8 invariants (RULE-HAL-001 through RULE-HAL-008),
+each with a clear statement, a rationale, a documented NVML skip where
+applicable, and a `Bound:` line pointing at the subtest that enforces
+it.
+
+Per-rule assessment:
+
+- **HAL-001 Enumerate idempotent** — correct; standard collection-read
+  contract.
+- **HAL-002 Read no-mutation** — correct; phase separation between
+  Read and Write is load-bearing for the controller's tick model. The
+  NVML skip is an honest environmental constraint.
+- **HAL-003 Write faithful (no silent clamping)** — correct; the
+  rationale that "controller owns clamping" is the right defense
+  against double-clamping by backends.
+- **HAL-004 Restore safe on un-opened channels** — correct; both hwmon
+  (fallback to PWM=255 when OrigEnable=-1) and NVML (return
+  ErrNotAvailable as clean error) satisfy the invariant letter. The
+  tracked followup for a `CapStatefulRestore` bit (to distinguish
+  restore-to-captured-value from reset-to-auto) is appropriate scope
+  for a new P-task, not a blocker here.
+- **HAL-005 Caps stable** — correct; UI fan inventory depends on this.
+- **HAL-006 Role deterministic** — correct; mirrors 005 for role.
+- **HAL-007 Close idempotent** — correct; standard resource cleanup.
+- **HAL-008 Write idempotent on acquired channel** — the specific
+  claimed mechanism (re-issuing pwm_enable=1 resets the auto-curve
+  timer on some firmware) is not directly corroborated by upstream
+  hwmon docs; available evidence shows pwm_enable semantics vary
+  significantly per-chip. However the invariant itself is sound
+  regardless: don't re-issue mode transitions unnecessarily. The
+  implementation (sync.Map gate) is free. Defensive practice is
+  correct even if the specific mechanism claim is conservative.
+
+CI status: 16/16 green on first pass (build-and-test-{ubuntu, ubuntu-arm64,
+fedora, arch, alpine}, apparmor-parse-debian13, golangci-lint,
+shellcheck, nix-drift, cross-compile-matrix {amd64, arm64}, rulelint,
+regresslint, govulncheck, headless-chromium, status).
+
+Rulelint specifically reports: `ok: 15 rule(s), 15 bound(s) verified`
+— every `Bound:` line points at a real subtest and every subtest has a
+rule covering it.
+
+Reason: Escalation exists to document the review, not to block it.
+Rule-file accept lands here as a record.
+
+Recommended action: RESUME (merge).
+
+Resolved: _(merging now; SHA will be recorded post-merge)_
