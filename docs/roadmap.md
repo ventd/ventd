@@ -20,7 +20,7 @@ Laptop and framework embedded controllers: Framework Laptop PWM, Chromebook EC, 
 
 A capability-scoped modprobe sidecar handles kernel module loading so the long-running daemon stays zero-capability. Generalised udev rules work across all GPU types and PWM topologies without chip-specific customisation. The installer detects and coexists with fancontrol, thinkfan, and CoolerControl, migrating their config if desired or running alongside them.
 
-A zero-allocation ventd-recover binary, linked into the main binary as an embedded second executable, handles firmware auto-restore if the daemon gets stuck. On emergency or user request, it can reset all fans to BIOS defaults without relying on the main daemon being responsive.
+ventd-recover is a tiny, dependency-free helper that runs on ungraceful daemon exit—SIGKILL, OOM kill, kernel panic—to restore firmware fan control within two seconds. It carries no configuration and no state, handing control back to BIOS auto without sharing memory with the main daemon.
 
 ## Phase 4 — Control algorithm
 
@@ -60,4 +60,4 @@ A signed UEFI DXE stub pre-programs Super I/O fan control at POST, so machines a
 
 CycloneDX and SPDX software bills of materials on every release document dependencies and their licenses. Cosign keyless signing with SLSA L3 provenance attest that binaries came from this repository's CI. Reproducible builds, verified by rebuild-and-diff, let any user independently confirm that the published binary matches the source code.
 
-Permissions-Policy headers and strong ETag validation on the embedded web UI prevent tampering or downgrade attacks. The release artifact becomes a verified, auditable statement of what the software is.
+Permissions-Policy explicitly denies unused browser features—camera, microphone, geolocation—so a compromised same-origin page cannot request them. ETag validation ensures the browser cache correctly validates across releases, preventing stale UI. Together with SBOM, cosign signing, SLSA provenance, and reproducible builds, the release artifact becomes a verified, auditable statement of what the software is.
