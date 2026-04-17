@@ -8,7 +8,7 @@ masterplan §12. The developer resolves each entry with one of:
     REWRITE <task-id> <new-allowlist>
 
 or by taking the recommended action directly (e.g. manual merge, rerun
-failed CI lane).
+failed CI lane, branch edit).
 
 Cowork does not resume the relevant track until the entry is cleared.
 
@@ -17,31 +17,54 @@ Cowork does not resume the relevant track until the entry is cleared.
 ## 2026-04-17T23:00:00Z PHASE-0/FIRST-PR — P0-02 roadmap PR awaiting solo-dev merge
 Task: P0-02
 PR: https://github.com/ventd/ventd/pull/237
-Tip SHA: d1a927ebe06d44cade3cbefdcef62d7de4442047
-
-Reason: P0-02 passed §5 R1–R23 review at tip d1a927e. Per operator
-instructions, Cowork does not auto-merge the first PR of any phase.
-
-Resolved: 2026-04-17T23:10:00Z — developer issued `RESUME P0-02`.
-All 13 CI lanes observed green on d1a927e. PR squash-merged as
-4aa6a37b7aac954f2588f339f408dfbe067f00cd. Branch auto-deleted.
+Resolved: 2026-04-17T23:10:00Z — developer `RESUME P0-02`; squash-merged as 4aa6a37.
 
 ---
 
 ## 2026-04-17T23:30:00Z CI-FLAKE-CHECK — P0-03 build-and-test-ubuntu-arm64 failed on docs-only PR
 Task: P0-03
 PR: https://github.com/ventd/ventd/pull/238
-Tip SHA: dfbbb1631237d8415f8130e64286cd077322ba45
-Failed job: https://github.com/ventd/ventd/actions/runs/24570316266/job/71841330601
+Resolved: 2026-04-17T23:45:00Z — developer re-ran the failed lane; passed on rerun; squash-merged as c08d9b3.
 
-Reason: 12/13 CI lanes green on the rebased tip; build-and-test-ubuntu-arm64
-failed at 14:29:45Z on a docs-only diff that cannot causally affect test
-execution. Same lane passed on both P0-02 runs ~20 minutes earlier.
-Indistinguishable from a one-off infra flake at Cowork's tooling level.
+---
 
-Resolved: 2026-04-17T23:45:00Z — developer re-ran the failed lane
-(option (a) from the escalation). Re-run job id 71842073651, started
-14:32:22Z, completed 14:34:15Z, conclusion success. Flake confirmed.
-All 13 lanes now green on dfbbb16. PR marked ready-for-review,
-squash-merged as c08d9b399d5a8ee076b26889883733ca7743b7c8. Phase 0
-P-tasks complete (P0-01 + P0-02 + P0-03 all merged).
+## 2026-04-18T00:10:00Z PHASE-T0/FIRST-PR — T0-INFRA-01 awaiting solo-dev merge (with one residual doc miss)
+Task: T0-INFRA-01
+PR: https://github.com/ventd/ventd/pull/239
+Tip SHA: f30cc81f8210f578fcf37dced751c3f92c2c9dae
+
+Reason: T0-INFRA-01 is the first T-task landed under Cowork. By analogy
+to the PHASE-0/FIRST-PR gate that ran on P0-02, Cowork does not
+auto-merge the first PR of a new testplan phase without the developer's
+eyeball. CI is 9/13 green on f30cc81 with 4 distro lanes still in
+progress; trending green on the pattern from P0-03. §5 review passed
+R1–R23 with one non-blocking residual: internal/testfixture/fakemic/fakemic.go
+line 18 still reads `// New returns a new Fake microcontroller.` The R1
+revision prompt explicitly named three edit sites (package doc, Fake
+struct doc, method) and did not name the constructor's doc comment.
+CC followed the prompt; the miss is Cowork's prompt gap. Skeleton
+file, will be rewritten in T-ACOUSTIC-01.
+
+Two separate decisions for the developer:
+
+  (A) Whether to apply a PHASE-T0/FIRST-PR gate at all. If the developer
+      prefers that T-tasks auto-merge like any other PR once they pass
+      §5, they can say so; Cowork drops the gate and future T-tasks
+      merge on green CI without escalation.
+
+  (B) What to do with the one residual line.
+
+Combinations:
+  (a) Merge as-is. `RESUME T0-INFRA-01`. The incorrect `microcontroller`
+      comment persists on main until T-ACOUSTIC-01 rewrites fakemic.
+      Net cost: one incorrect doc comment visible for weeks / months.
+  (b) One-line CC revision. Tell Cowork "revise T0-INFRA-01 for the New
+      doc"; Cowork emits a surgical prompt.
+  (c) Fix directly on branch. The developer makes a one-line commit on
+      claude/INFRA-fixture-skeletons-4c9e2, then `RESUME T0-INFRA-01`.
+      Zero additional CC round.
+  (d) Drop the PHASE-T0/FIRST-PR gate for all future T-tasks AND merge
+      this one. Covers both decisions.
+
+Track INFRA is parked at holding/solo-dev. No T-task dispatches until
+the gate clears. P1 advancement remains parked independently.

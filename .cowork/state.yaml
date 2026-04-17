@@ -1,5 +1,5 @@
 version: 1
-updated: 2026-04-17T23:55:00Z
+updated: 2026-04-18T00:10:00Z
 tracks:
   FOUND:
     status: merged
@@ -13,65 +13,59 @@ tracks:
       - P0-02
       - P0-03
   INFRA:
-    status: in_flight
+    status: holding/solo-dev
     current_task: T0-INFRA-01
     branch: claude/INFRA-fixture-skeletons-4c9e2
     pr: https://github.com/ventd/ventd/pull/239
-    last_review: T0-INFRA-01-R1
+    pr_tip: f30cc81f8210f578fcf37dced751c3f92c2c9dae
+    last_review: T0-INFRA-01-R2
     revisions: 1
     completed_tasks: []
-in_flight:
-  - track: INFRA
-    task: T0-INFRA-01
-    cc_session: cowork-2026-04-17T23:55:00Z-t0-infra-01-rev1
-    started: 2026-04-17T23:55:00Z
+in_flight: []
 reviews:
   P0-02-R1:
     task: P0-02
     verdict: revise
-    notes: "R7 content errors in docs/roadmap.md."
     timestamp: 2026-04-17T22:30:00Z
   P0-02-R2:
     task: P0-02
     verdict: revise (phantom push)
-    notes: "No commit reached remote."
     timestamp: 2026-04-17T22:45:00Z
   P0-02-R3:
     task: P0-02
     verdict: accept (merged at 4aa6a37)
-    notes: "All content fixed; CI green; RESUME P0-02; squash-merged."
     timestamp: 2026-04-17T23:00:00Z
   P0-03-R1:
     task: P0-03
     verdict: revise
-    notes: "R6 only: stale base; CHANGELOG conflict; rebase prompt delivered."
     timestamp: 2026-04-17T23:25:00Z
   P0-03-R2:
     task: P0-03
     verdict: accept-pending (CI-FLAKE-CHECK)
-    notes: "Rebase clean; 12/13 CI green; ubuntu-arm64 flake on docs-only diff; escalated."
     timestamp: 2026-04-17T23:30:00Z
   P0-03-R3:
     task: P0-03
     verdict: accept (merged at c08d9b3)
-    notes: "Developer re-ran failed lane; passed. All 13 green. Squash-merged."
     timestamp: 2026-04-17T23:45:00Z
   T0-INFRA-01-R1:
     task: T0-INFRA-01
     verdict: revise
-    notes: "R7 partial fail: 13/14 fixture packages correctly interpret their future role per testplan §3; fakemic misinterpreted (CC read 'mic' as microcontroller instead of microphone). Doc comment and stub method name both wrong for fakemic; package name and paths correct. 8/13 CI lanes green (all static-analysis); 5 in_progress. PHASE-T0/FIRST-PR gate still applies on accept. Full detail in .cowork/reviews/T0-INFRA-01-R1.md. Revision round 1 of 3; fix is a two-line edit."
+    notes: "R7 partial: fakemic package doc/stub method misinterpreted as microcontroller instead of microphone. Two-line fix prompted."
     timestamp: 2026-04-17T23:55:00Z
+  T0-INFRA-01-R2:
+    task: T0-INFRA-01
+    verdict: accept-pending (PHASE-T0/FIRST-PR + residual)
+    notes: "R1 fix applied correctly on the three edit sites I named (package doc, Fake struct doc, method). One residual: New constructor doc still says 'microcontroller' — my R1 prompt omitted that line, CC followed literally. Cowork prompt gap, not CC failure. 9/13 CI green on f30cc81; 4 distro lanes in_progress. PHASE-T0/FIRST-PR gate + residual both surfaced in ESCALATIONS.md with options (merge as-is / one-line revision / branch edit / drop the gate entirely)."
+    timestamp: 2026-04-18T00:10:00Z
 merges:
   P0-02:
     sha: 4aa6a37b7aac954f2588f339f408dfbe067f00cd
     pr: https://github.com/ventd/ventd/pull/237
-    branch: claude/FOUND-roadmap-e4b9f
     method: squash
     timestamp: 2026-04-17T23:10:00Z
   P0-03:
     sha: c08d9b399d5a8ee076b26889883733ca7743b7c8
     pr: https://github.com/ventd/ventd/pull/238
-    branch: claude/FOUND-hwissue-7b2f8
     method: squash
     timestamp: 2026-04-17T23:45:00Z
 merge_queue: []
@@ -79,17 +73,21 @@ escalations:
   - timestamp: 2026-04-17T23:00:00Z
     kind: PHASE-0/FIRST-PR
     task: P0-02
-    pr: https://github.com/ventd/ventd/pull/237
-    path: .cowork/ESCALATIONS.md
     resolved: 2026-04-17T23:10:00Z
     resolution: "developer RESUME P0-02; squash-merged as 4aa6a37"
   - timestamp: 2026-04-17T23:30:00Z
     kind: CI-FLAKE-CHECK
     task: P0-03
-    pr: https://github.com/ventd/ventd/pull/238
-    path: .cowork/ESCALATIONS.md
     resolved: 2026-04-17T23:45:00Z
-    resolution: "developer re-ran failed lane; passed on rerun; squash-merged as c08d9b3"
+    resolution: "developer re-ran failed lane; passed; squash-merged as c08d9b3"
+  - timestamp: 2026-04-18T00:10:00Z
+    kind: PHASE-T0/FIRST-PR
+    task: T0-INFRA-01
+    pr: https://github.com/ventd/ventd/pull/239
+    path: .cowork/ESCALATIONS.md
+    resolved: null
+    resolution: null
+    notes: "Combined with a minor R7 residual doc miss (Cowork prompt gap on the New constructor doc comment); four resolution options enumerated."
 phase_tracking:
   masterplan_phase_0:
     status: complete
@@ -97,12 +95,11 @@ phase_tracking:
     completed_at: 2026-04-17T23:45:00Z
   testplan_phase_t0:
     status: in_progress
-    tasks_in_flight: [T0-INFRA-01]
+    tasks_in_flight: []
+    tasks_pending_gate: [T0-INFRA-01]
     tasks_ready: [T0-INFRA-02, T0-INFRA-03, T0-META-01, T0-META-02, T0-META-03]
-    note: "T0-INFRA-02 and T0-INFRA-03 depend on T0-INFRA-01. T0-META-* independent of T0-INFRA but concurrency-blocked until MAX_PARALLEL raises."
   masterplan_phase_1:
     status: not_started
-    note: "Requires developer ack per masterplan §10 #5 before dispatching P1-HAL-01 / P1-HOT-01 / P1-FP-01."
 notes:
-  - 2026-04-17T23:45:00Z: "Developer 'all tests passed' signal. P0-03 merged as c08d9b3. Phase 0 P-tasks complete. T0-INFRA-01 dispatched."
-  - 2026-04-17T23:55:00Z: "T0-INFRA-01 round-1 review: revise. PR #239 tip d9e2a8a, +615 lines across 31 files matching the expected shape (2 testutil + 28 fixture Go files + CHANGELOG). go build / vet / test all 0 per CC report; golangci-lint lane confirms. 8/13 CI lanes green with 5 distro+browser in_progress on fresh run. Thirteen of fourteen fixture packages correctly interpret their future role per testplan §3. R7 fails on fakemic: package doc reads 'microcontroller interface' and stub method is Send(); correct per testplan §3 is acoustic signal generator (microphone, consumed by internal/acoustic). Two-line fix: doc comment + method name. Revision prompt emitted targeting fakemic.go only. PHASE-T0/FIRST-PR gate still applies on accept. Revisions counter 1 of 3."
+  - 2026-04-17T23:55:00Z: "T0-INFRA-01 R1: revise (fakemic misinterpretation)."
+  - 2026-04-18T00:10:00Z: "T0-INFRA-01 R2: accept-pending. CC's round-1 push (tip f30cc81) fixed the three edit sites I named in R1 exactly. One residual: New constructor's doc still says 'microcontroller' because I didn't list it. CC followed the prompt literally. Cowork prompt gap, not CC execution failure — called out as such in the review artifact and escalation. Surfacing via PHASE-T0/FIRST-PR escalation (first T-task under Cowork) combined with the residual. Four resolution options for the developer: (a) merge as-is, (b) one-line revision, (c) fix on branch directly, (d) drop the PHASE-T0/FIRST-PR gate and merge. Track INFRA parked at holding/solo-dev."
