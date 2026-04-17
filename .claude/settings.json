@@ -96,7 +96,29 @@
 
       "Write(//home/cc-runner/**)",
       "Write(//tmp/**)",
-      "Write(//var/tmp/**)"
+      "Write(//var/tmp/**)",
+
+      "Write(.claude/**)",
+      "Write(.github/**)",
+      "Write(internal/**)",
+      "Write(cmd/**)",
+      "Write(tools/**)",
+      "Write(deploy/**)",
+      "Write(docs/**)",
+      "Write(scripts/**)",
+      "Write(packaging/**)",
+      "Write(release-notes/**)",
+      "Write(testutil/**)",
+      "Write(validation/**)",
+      "Write(CHANGELOG.md)",
+      "Write(README.md)",
+      "Write(Makefile)",
+      "Write(go.mod)",
+      "Write(go.sum)",
+      "Write(config.example.yaml)",
+      "Write(.goreleaser.yml)",
+      "Write(.gitignore)",
+      "Write(.gitattributes)"
     ],
     "deny": [
       "Bash(sudo:*)",
