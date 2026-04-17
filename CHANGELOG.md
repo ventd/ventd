@@ -19,6 +19,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ci: rule-to-subtest binding lint (#T0-META-01)
 - ci: regression-test-per-closed-bug lint (#T0-META-02)
 
+### Tests
+
+- test: bind internal/watchdog safety invariants (#T-WD-01)
+
 ### Fixed
 
 - `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
