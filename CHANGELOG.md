@@ -16,6 +16,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - feat: fingerprint-keyed hwdb replaces substring table (#P1-FP-01)
 - test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
 - ci: rule-to-subtest binding lint (#T0-META-01)
+- ci: regression-test-per-closed-bug lint (#T0-META-02)
 
 ### Fixed
 

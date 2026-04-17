@@ -1,0 +1,9 @@
+[
+  {
+    "number": 99,
+    "title": "Fan speed spikes to 100% on temp sensor read error",
+    "state": "closed",
+    "labels": [{"name": "bug"}],
+    "html_url": "https://github.com/ventd/ventd/issues/99"
+  }
+]
