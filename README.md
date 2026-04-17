@@ -82,6 +82,7 @@ CoolerControl is the more mature option if you want a pre-seeded profile for you
 
 ## Documentation
 
+- [Roadmap](docs/roadmap.md)
 - [Installation guide](docs/install.md)
 - [Configuration reference](docs/config.md)
 - [Hardware compatibility](docs/hardware.md)

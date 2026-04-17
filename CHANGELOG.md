@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- docs: add public roadmap (#P0-02)
+
 ### Fixed
 
 - `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
