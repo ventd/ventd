@@ -1,5 +1,5 @@
 version: 1
-updated: 2026-04-18T00:10:00Z
+updated: 2026-04-18T00:25:00Z
 tracks:
   FOUND:
     status: merged
@@ -13,15 +13,19 @@ tracks:
       - P0-02
       - P0-03
   INFRA:
-    status: holding/solo-dev
-    current_task: T0-INFRA-01
-    branch: claude/INFRA-fixture-skeletons-4c9e2
-    pr: https://github.com/ventd/ventd/pull/239
-    pr_tip: f30cc81f8210f578fcf37dced751c3f92c2c9dae
-    last_review: T0-INFRA-01-R2
-    revisions: 1
-    completed_tasks: []
-in_flight: []
+    status: in_flight
+    current_task: T0-INFRA-02
+    branch: claude/INFRA-fakehwmon-b5e7a
+    pr: null
+    last_review: null
+    revisions: 0
+    completed_tasks:
+      - T0-INFRA-01
+in_flight:
+  - track: INFRA
+    task: T0-INFRA-02
+    cc_session: cowork-2026-04-18T00:25:00Z-t0-infra-02
+    started: 2026-04-18T00:25:00Z
 reviews:
   P0-02-R1:
     task: P0-02
@@ -50,13 +54,16 @@ reviews:
   T0-INFRA-01-R1:
     task: T0-INFRA-01
     verdict: revise
-    notes: "R7 partial: fakemic package doc/stub method misinterpreted as microcontroller instead of microphone. Two-line fix prompted."
     timestamp: 2026-04-17T23:55:00Z
   T0-INFRA-01-R2:
     task: T0-INFRA-01
     verdict: accept-pending (PHASE-T0/FIRST-PR + residual)
-    notes: "R1 fix applied correctly on the three edit sites I named (package doc, Fake struct doc, method). One residual: New constructor doc still says 'microcontroller' — my R1 prompt omitted that line, CC followed literally. Cowork prompt gap, not CC failure. 9/13 CI green on f30cc81; 4 distro lanes in_progress. PHASE-T0/FIRST-PR gate + residual both surfaced in ESCALATIONS.md with options (merge as-is / one-line revision / branch edit / drop the gate entirely)."
     timestamp: 2026-04-18T00:10:00Z
+  T0-INFRA-01-R3:
+    task: T0-INFRA-01
+    verdict: accept (merged at e0dcef6; Cowork direct edit for residual; policy §14 softened)
+    notes: "Developer directed Cowork to fix the residual 'microcontroller' line on the New constructor doc directly on the branch rather than spin a fresh CC prompt. Cowork committed 7d9adef touching one file (internal/testfixture/fakemic/fakemic.go). All 13 CI lanes verified green on the new tip. PR marked ready-for-review, squash-merged as e0dcef649d95f25a0c4d1825d995ace273c69c9f. This is the first Cowork-authored code commit under the new §14 small-fix carve-out; noted in ESCALATIONS.md for posterity."
+    timestamp: 2026-04-18T00:25:00Z
 merges:
   P0-02:
     sha: 4aa6a37b7aac954f2588f339f408dfbe067f00cd
@@ -68,6 +75,13 @@ merges:
     pr: https://github.com/ventd/ventd/pull/238
     method: squash
     timestamp: 2026-04-17T23:45:00Z
+  T0-INFRA-01:
+    sha: e0dcef649d95f25a0c4d1825d995ace273c69c9f
+    pr: https://github.com/ventd/ventd/pull/239
+    branch: claude/INFRA-fixture-skeletons-4c9e2
+    method: squash
+    timestamp: 2026-04-18T00:25:00Z
+    note: "Included Cowork direct edit 7d9adef for the R2 residual."
 merge_queue: []
 escalations:
   - timestamp: 2026-04-17T23:00:00Z
@@ -84,10 +98,8 @@ escalations:
     kind: PHASE-T0/FIRST-PR
     task: T0-INFRA-01
     pr: https://github.com/ventd/ventd/pull/239
-    path: .cowork/ESCALATIONS.md
-    resolved: null
-    resolution: null
-    notes: "Combined with a minor R7 residual doc miss (Cowork prompt gap on the New constructor doc comment); four resolution options enumerated."
+    resolved: 2026-04-18T00:25:00Z
+    resolution: "developer directed Cowork to fix the residual doc line directly on the branch; Cowork committed 7d9adef; CI green; squash-merged as e0dcef6; §14 small-fix carve-out policy recorded"
 phase_tracking:
   masterplan_phase_0:
     status: complete
@@ -95,11 +107,18 @@ phase_tracking:
     completed_at: 2026-04-17T23:45:00Z
   testplan_phase_t0:
     status: in_progress
-    tasks_in_flight: []
-    tasks_pending_gate: [T0-INFRA-01]
-    tasks_ready: [T0-INFRA-02, T0-INFRA-03, T0-META-01, T0-META-02, T0-META-03]
+    tasks_merged: [T0-INFRA-01]
+    tasks_in_flight: [T0-INFRA-02]
+    tasks_ready: [T0-META-01, T0-META-02, T0-META-03]
+    tasks_blocked: [T0-INFRA-03]
+    note: "T0-INFRA-03 depends on T0-INFRA-02's groundwork (faketime implementation mirrors fakehwmon structure). T0-META-01/02/03 are independent and only concurrency-blocked."
   masterplan_phase_1:
     status: not_started
+policy_updates:
+  - timestamp: 2026-04-18T00:25:00Z
+    affects: "masterplan §14"
+    change: "Cowork may make direct small-fix edits to code when measurably cheaper than dispatching a fresh CC prompt. Applies to 1–2 line changes, typo/doc fixes, or any edit that would be a one-shot for a CC terminal. Cowork does not design, refactor, or write substantial code under this carve-out. Direct edits still go through the same §5 review on the next poll and are recorded in reviews and merges for audit."
+    source: "developer directive following T0-INFRA-01 R2"
 notes:
-  - 2026-04-17T23:55:00Z: "T0-INFRA-01 R1: revise (fakemic misinterpretation)."
-  - 2026-04-18T00:10:00Z: "T0-INFRA-01 R2: accept-pending. CC's round-1 push (tip f30cc81) fixed the three edit sites I named in R1 exactly. One residual: New constructor's doc still says 'microcontroller' because I didn't list it. CC followed the prompt literally. Cowork prompt gap, not CC execution failure — called out as such in the review artifact and escalation. Surfacing via PHASE-T0/FIRST-PR escalation (first T-task under Cowork) combined with the residual. Four resolution options for the developer: (a) merge as-is, (b) one-line revision, (c) fix on branch directly, (d) drop the PHASE-T0/FIRST-PR gate and merge. Track INFRA parked at holding/solo-dev."
+  - 2026-04-18T00:10:00Z: "T0-INFRA-01 R2: accept-pending with residual doc miss caused by Cowork prompt gap."
+  - 2026-04-18T00:25:00Z: "Developer directed Cowork to fix residual directly on branch rather than issue another CC round. Cowork committed 7d9adef touching only internal/testfixture/fakemic/fakemic.go line 18 ('microcontroller' → 'acoustic signal generator'). CI triggered a fresh 13-lane run on the new tip; all 13 passed in ~3 minutes. PR #239 marked ready-for-review, squash-merged as e0dcef649d95f25a0c4d1825d995ace273c69c9f. PHASE-T0/FIRST-PR escalation resolved. §14 policy softened in the same turn: small-fix direct edits by Cowork are now explicitly permitted when more efficient than a CC round; recorded in policy_updates[] for audit. Track INFRA released from holding/solo-dev. Next-ready dispatch: T0-INFRA-02 (fakehwmon implementation) — first real fixture implementation, a measurable step up from the skeleton work. Per operator model map T0-INFRA belongs to Haiku 4.5; dispatching Haiku with close monitoring. If R7/R9/R17 fail twice on this task, escalating to Sonnet 4.6 per operator's failure-to-upgrade rule. New branch claude/INFRA-fakehwmon-b5e7a. T0-INFRA-02 allowlist extended from its §17-catalogue entry (internal/testfixture/fakehwmon/**) to cover the ~3 existing test-file refactors required by its DoD ('used by at least 3 existing tests; replaces ad-hoc t.TempDir() duplication'); this deviation is documented in the CC prompt and the review will check R4 against the expanded allowlist."

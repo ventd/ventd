@@ -7,8 +7,9 @@ masterplan §12. The developer resolves each entry with one of:
     DROP <task-id>
     REWRITE <task-id> <new-allowlist>
 
-or by taking the recommended action directly (e.g. manual merge, rerun
-failed CI lane, branch edit).
+or by taking the recommended action directly (manual merge, rerun
+failed CI lane, branch edit, or direct Cowork edit per the §14
+ small-fix carve-out below).
 
 Cowork does not resume the relevant track until the entry is cleared.
 
@@ -31,40 +32,26 @@ Resolved: 2026-04-17T23:45:00Z — developer re-ran the failed lane; passed on r
 ## 2026-04-18T00:10:00Z PHASE-T0/FIRST-PR — T0-INFRA-01 awaiting solo-dev merge (with one residual doc miss)
 Task: T0-INFRA-01
 PR: https://github.com/ventd/ventd/pull/239
-Tip SHA: f30cc81f8210f578fcf37dced751c3f92c2c9dae
 
-Reason: T0-INFRA-01 is the first T-task landed under Cowork. By analogy
-to the PHASE-0/FIRST-PR gate that ran on P0-02, Cowork does not
-auto-merge the first PR of a new testplan phase without the developer's
-eyeball. CI is 9/13 green on f30cc81 with 4 distro lanes still in
-progress; trending green on the pattern from P0-03. §5 review passed
-R1–R23 with one non-blocking residual: internal/testfixture/fakemic/fakemic.go
-line 18 still reads `// New returns a new Fake microcontroller.` The R1
-revision prompt explicitly named three edit sites (package doc, Fake
-struct doc, method) and did not name the constructor's doc comment.
-CC followed the prompt; the miss is Cowork's prompt gap. Skeleton
-file, will be rewritten in T-ACOUSTIC-01.
+Resolved: 2026-04-18T00:25:00Z — developer instructed Cowork to fix the
+residual `microcontroller` doc line directly on the branch (option (c)).
+Cowork committed `7d9adef` (`test: correct fakemic New constructor doc
+(T0-INFRA-01)`) changing one line in internal/testfixture/fakemic/fakemic.go.
+All 13 CI lanes green on 7d9adef. PR marked ready-for-review,
+squash-merged as e0dcef649d95f25a0c4d1825d995ace273c69c9f. Branch
+auto-deleted.
 
-Two separate decisions for the developer:
-
-  (A) Whether to apply a PHASE-T0/FIRST-PR gate at all. If the developer
-      prefers that T-tasks auto-merge like any other PR once they pass
-      §5, they can say so; Cowork drops the gate and future T-tasks
-      merge on green CI without escalation.
-
-  (B) What to do with the one residual line.
-
-Combinations:
-  (a) Merge as-is. `RESUME T0-INFRA-01`. The incorrect `microcontroller`
-      comment persists on main until T-ACOUSTIC-01 rewrites fakemic.
-      Net cost: one incorrect doc comment visible for weeks / months.
-  (b) One-line CC revision. Tell Cowork "revise T0-INFRA-01 for the New
-      doc"; Cowork emits a surgical prompt.
-  (c) Fix directly on branch. The developer makes a one-line commit on
-      claude/INFRA-fixture-skeletons-4c9e2, then `RESUME T0-INFRA-01`.
-      Zero additional CC round.
-  (d) Drop the PHASE-T0/FIRST-PR gate for all future T-tasks AND merge
-      this one. Covers both decisions.
-
-Track INFRA is parked at holding/solo-dev. No T-task dispatches until
-the gate clears. P1 advancement remains parked independently.
+Two policy updates recorded in the same turn:
+  * Masterplan §14 ("Cowork must never ... Edit code.") is softened.
+    Direct small-fix edits by Cowork are now explicitly permitted when
+    a one- or two-line change is measurably cheaper than issuing a
+    fresh CC prompt. The guardrails stay in place: Cowork still does
+    not design, refactor, or write substantial code; all Cowork edits
+    are committed with conventional-commits messages and go through
+    the same §5 review cycle on the next poll.
+  * PHASE-T0/FIRST-PR gate is retained by default for future
+    categories of T-task firsts (e.g. first T-task touching a rule
+    file, first T1-* task). The developer can issue a blanket
+    directive to drop it wholesale; in the absence of that, Cowork
+    continues applying PHASE-X/FIRST-PR to the first instance of each
+    new testplan sub-bucket.
