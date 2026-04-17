@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(hwmon): `persistModule` now merges (append + dedup + sort) into `/etc/modules-load.d/ventd.conf` instead of overwriting, so running `--probe-modules` twice on a dual-chip board keeps both detected modules (P1-MOD-02)
+
 ### Changed
 
 - perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)

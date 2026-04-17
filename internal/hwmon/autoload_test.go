@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -607,6 +608,126 @@ func TestCountControllablePWM(t *testing.T) {
 		)
 		if got := countControllablePWM(paths); got != 0 {
 			t.Errorf("want 0, got %d", got)
+		}
+	})
+}
+
+// --- I. mergeModuleLoadFile / readModuleNames --------------------------------
+
+func TestMergeModuleLoadFile(t *testing.T) {
+	t.Run("first_probe_creates_file", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "nct6775"); err != nil {
+			t.Fatalf("mergeModuleLoadFile: %v", err)
+		}
+
+		got := readModuleNames(path)
+		if len(got) != 1 || got[0] != "nct6775" {
+			t.Fatalf("want [nct6775], got %v", got)
+		}
+	})
+
+	t.Run("second_probe_appends_dedup_sorted", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "nct6775"); err != nil {
+			t.Fatalf("first probe: %v", err)
+		}
+		if err := mergeModuleLoadFile(path, "it87"); err != nil {
+			t.Fatalf("second probe: %v", err)
+		}
+
+		got := readModuleNames(path)
+		want := []string{"it87", "nct6775"} // sorted lexically
+		if len(got) != len(want) {
+			t.Fatalf("want %v, got %v", want, got)
+		}
+		for i, m := range want {
+			if got[i] != m {
+				t.Errorf("modules[%d]: want %q got %q", i, m, got[i])
+			}
+		}
+	})
+
+	t.Run("idempotent_repeated_probe", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "nct6775"); err != nil {
+			t.Fatalf("first probe: %v", err)
+		}
+		if err := mergeModuleLoadFile(path, "it87"); err != nil {
+			t.Fatalf("second probe: %v", err)
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := mergeModuleLoadFile(path, "it87"); err != nil {
+			t.Fatalf("third probe (repeat): %v", err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(before) != string(after) {
+			t.Fatalf("idempotency violated\nbefore: %q\nafter:  %q", before, after)
+		}
+	})
+
+	t.Run("empty_probe_does_not_truncate", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "nct6775"); err != nil {
+			t.Fatalf("setup probe: %v", err)
+		}
+		if err := mergeModuleLoadFile(path, ""); err != nil {
+			t.Fatalf("empty probe returned error: %v", err)
+		}
+
+		got := readModuleNames(path)
+		if len(got) != 1 || got[0] != "nct6775" {
+			t.Fatalf("want [nct6775] after empty probe, got %v", got)
+		}
+	})
+
+	t.Run("header_comment_present", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "coretemp"); err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(data), "# Written by ventd") {
+			t.Errorf("expected header comment, file content: %q", string(data))
+		}
+	})
+
+	t.Run("write_is_atomic_tmp_rename", func(t *testing.T) {
+		// Verify no .tmp file is left behind after a successful write.
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ventd.conf")
+
+		if err := mergeModuleLoadFile(path, "nct6775"); err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".tmp") {
+				t.Errorf("leftover tmp file after successful write: %s", e.Name())
+			}
 		}
 	})
 }
