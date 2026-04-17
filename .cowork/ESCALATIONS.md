@@ -45,13 +45,50 @@ Two policy updates recorded in the same turn:
   * Masterplan §14 ("Cowork must never ... Edit code.") is softened.
     Direct small-fix edits by Cowork are now explicitly permitted when
     a one- or two-line change is measurably cheaper than issuing a
-    fresh CC prompt. The guardrails stay in place: Cowork still does
-    not design, refactor, or write substantial code; all Cowork edits
-    are committed with conventional-commits messages and go through
-    the same §5 review cycle on the next poll.
-  * PHASE-T0/FIRST-PR gate is retained by default for future
-    categories of T-task firsts (e.g. first T-task touching a rule
-    file, first T1-* task). The developer can issue a blanket
-    directive to drop it wholesale; in the absence of that, Cowork
-    continues applying PHASE-X/FIRST-PR to the first instance of each
-    new testplan sub-bucket.
+    fresh CC prompt.
+  * PHASE-T0/FIRST-PR gate is retained by default for future categories
+    of T-task firsts, modulo per-task judgement calls (see below).
+
+---
+
+## 2026-04-18T00:45:00Z CI-FLAKE-CHECK — T0-META-03 build-and-test-fedora failed on markdown-only PR
+Task: T0-META-03
+PR: https://github.com/ventd/ventd/pull/240
+Branch: claude/META-prtpl-9e8d1
+Head SHA: 14c9bb5cc35c7dbdb3b071a032ca57ae95be7417
+Authorship: Cowork direct (under §14 broadened efficiency carve-out)
+Failed lane: build-and-test-fedora
+
+Evidence:
+  * Diff is a single file: `.github/pull_request_template.md`, +1 line
+    (new regression-test checkbox).
+  * The Fedora lane runs `go build` and `go test ./...`. Neither
+    touches markdown files. The PR template is not part of any Go
+    package, is not compiled, and is not referenced in any test.
+  * No code path under `go build` or `go test` distinguishes the
+    pre-diff tree from the post-diff tree. The failure cannot have
+    been caused by this diff.
+  * 10/13 lanes green, including four other OS build lanes:
+    ubuntu-arm64, alpine, cross-compile (linux/amd64, linux/arm64),
+    plus apparmor-parse-debian13, golangci-lint, govulncheck,
+    shellcheck, nix-drift, headless-chromium. Two lanes still
+    in-progress (build-and-test-ubuntu, build-and-test-arch).
+  * Same pattern as the P0-03 ubuntu-arm64 flake on 2026-04-17T23:30Z;
+    that one also cleared on developer rerun.
+
+Recommended action: rerun `build-and-test-fedora` on the PR; expect
+green. If it fails again with the same diff, that would indicate a
+Fedora-specific issue in the existing tree that happens to manifest
+on this run — escalate separately with the log.
+
+PHASE-T-META/FIRST-PR gate: NOT applied to this task. Rationale
+recorded in `state.yaml` policy_updates[4]: single-file, zero-code
+template edit is below the novelty threshold for a phase-first gate,
+and the developer's parallel-work directive explicitly prioritises
+efficiency over ceremony on trivia. The gate is retained as default
+for future T-META tasks that ship real tooling (T0-META-01,
+T0-META-02).
+
+Resolved: _(pending developer lane rerun)_
+
+---
