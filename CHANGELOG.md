@@ -23,6 +23,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ci: rule-to-subtest binding lint (#T0-META-01)
 - ci: regression-test-per-closed-bug lint (#T0-META-02)
 - test(hal): contract test T-HAL-01 binds backend invariants to .claude/rules/hal-contract.md
+- feat: opt-in remote hwdb refresh with SHA-256 pin via `--refresh-hwdb` flag (#P1-FP-02)
 
 ### Tests
 

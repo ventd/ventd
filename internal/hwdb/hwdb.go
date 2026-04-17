@@ -82,11 +82,12 @@ func Load() ([]Profile, error) {
 	return profiles, nil
 }
 
-// Match resolves fp against the embedded database. See the package doc for
-// the exact > prefix > wildcard resolution order. Returns ErrNoMatch (not
+// Match resolves fp against the merged database (embedded + any remote
+// profiles loaded via RefreshFromRemote). See the package doc for the
+// exact > prefix > wildcard resolution order. Returns ErrNoMatch (not
 // nil profile, nil error) when no entry matches.
 func Match(fp HardwareFingerprint) (*Profile, error) {
-	profiles, err := Load()
+	profiles, err := mergedProfiles()
 	if err != nil {
 		return nil, err
 	}
