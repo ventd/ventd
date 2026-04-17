@@ -1,4 +1,4 @@
-// Package fakemic provides a deterministic microcontroller interface for unit tests.
+// Package fakemic provides a deterministic synthetic fan-acoustic signal generator for unit tests.
 package fakemic
 
 import (
@@ -10,7 +10,7 @@ import (
 // Options holds configuration for fakemic. Reserved for future use.
 type Options struct{}
 
-// Fake provides a mock microcontroller interface.
+// Fake provides a mock acoustic signal generator.
 type Fake struct {
 	rec *testutil.CallRecorder
 }
@@ -28,7 +28,7 @@ func New(t *testing.T, opts *Options) *Fake {
 	}
 }
 
-// Send sends data to the microcontroller.
-func (f *Fake) Send() {
-	f.rec.Record("Send")
+// Generate produces a synthetic acoustic sample.
+func (f *Fake) Generate() {
+	f.rec.Record("Generate")
 }
