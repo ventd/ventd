@@ -1,35 +1,34 @@
 version: 1
-updated: 2026-04-18T01:30:00Z
+updated: 2026-04-18T01:45:00Z
 role: "Cowork is solo developer of record; employer is stakeholder"
 workflow:
-  cc_host: "Desktop (phoenix@192.168.7.209) — 32 threads, 32 GB, local to real hwmon/GPU"
-  cc_activation: "see .cowork/HOWTO-START-CC.md; single paste-able line per task"
+  cc_host: Desktop (phoenix@192.168.7.209), 32 threads
+  cc_activation_short: "paste an alias like `hal`, `fp`, `rulelint`, `permpol`; CC resolves via CLAUDE.md (PR #243)"
+  cc_activation_fallback: "paste: Execute the task at .cowork/prompts/<TASK-ID>.md on origin/cowork/state exactly as written."
+  alias_file: .cowork/aliases.yaml
   prompt_index: .cowork/prompts/INDEX.md
-  concurrent_capacity: "~6-8 CC instances comfortably; start with 3-4"
-  fallback: "dev VM 950 (mosh+claude) still works; not preferred"
+  howto: .cowork/HOWTO-START-CC.md
 tracks:
-  FOUND: {status: merged, completed_tasks: [P0-01, P0-02, P0-03]}
-  INFRA: {status: in_flight, current_task: T0-INFRA-03, completed_tasks: [T0-INFRA-01, T0-INFRA-02]}
-  META: {status: in_flight, current_task: T0-META-01, completed_tasks: [T0-META-03]}
+  FOUND: {status: merged}
+  INFRA: {status: review, current_task: T0-INFRA-03}
+  META: {status: in_flight, current_task: T0-META-01}
   HAL: {status: in_flight, current_task: P1-HAL-01}
   FP: {status: in_flight, current_task: P1-FP-01}
 in_flight:
-  - {task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, priority: 3}
-  - {task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, priority: 4}
-  - {task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, priority: 1}
-  - {task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, priority: 2}
+  - {task: T0-META-01, alias: rulelint, pr: null}
+  - {task: T0-INFRA-03, alias: faketime, pr: 242, ci: "awaiting start", head_sha: 57d0cd5}
+  - {task: P1-HAL-01, alias: hal, pr: null}
+  - {task: P1-FP-01, alias: fp, pr: null}
+  - {task: "cowork-protocol-doc", pr: 243, branch: claude/cowork-protocol-b2d9a, authorship: cowork-direct, ci: "awaiting start", note: "CLAUDE.md protocol for alias-based activation"}
 pre_drafted:
-  - {task: T0-META-02, prompt: .cowork/prompts/T0-META-02.md, blocked_on: "T0-META-01 merge"}
-  - {task: P10-PERMPOL-01, prompt: .cowork/prompts/P10-PERMPOL-01.md, status: ready_queued}
+  - {task: T0-META-02, alias: regresslint, blocked_on: T0-META-01 merge}
+  - {task: P10-PERMPOL-01, alias: permpol, status: ready-queued}
 merges:
   P0-02: {sha: 4aa6a37}
   P0-03: {sha: c08d9b3}
   T0-INFRA-01: {sha: e0dcef6}
   T0-INFRA-02: {sha: 037e1c0}
   T0-META-03: {sha: 8646e05}
-test_environment:
-  see: .cowork/TESTING.md
-  desktop_fingerprint: {board_vendor: "Micro-Star International Co., Ltd.", board_name: "MS-7D25", cpu: "i9-13900K", ram_gb: 32, gpu: "RTX 4090", os: "Ubuntu 24.04.4 LTS"}
 escalations_open: []
 notes:
-  - 2026-04-18T01:30:00Z: "Workflow pivot: CC now runs on Desktop HIL rig directly, not the dev VM. Eliminates SCP/SSH for HIL-local work, and Desktop's 32 threads comfortably host 6-8 concurrent CC instances. Employer's per-session activation is a single paste-able line keyed by task ID. .cowork/HOWTO-START-CC.md documents the one-time setup and per-session ritual. .cowork/prompts/INDEX.md is the canonical list of dispatchable prompts with status, model, and recommended start order. Dev VM (950) retained as fallback."
+  - 2026-04-18T01:45:00Z: "Workflow simplification. Employer requested short names to paste instead of task-IDs. Added .cowork/aliases.yaml (authoritative alias map) and CLAUDE.md on main via PR #243 (teaches CC to resolve `<alias>` / `run <alias>` / `cowork <alias>` into a prompt fetch + execute). PR #242 (T0-INFRA-03 faketime) arrived from Sonnet; report contract-compliant, 730ms→≤1ms migrated-test speedup. CI awaiting start on both PRs."
