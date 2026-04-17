@@ -11,6 +11,7 @@ func TestRegressLint(t *testing.T) {
 		name       string
 		root       string
 		issuesFile string
+		strict     bool
 		wantCode   int
 		wantSubstr string
 	}{
@@ -18,6 +19,7 @@ func TestRegressLint(t *testing.T) {
 			name:       "happy path — all closed bugs have regression tests",
 			root:       "testdata/fixture_with_test",
 			issuesFile: "testdata/fixture_with_test/issues.json",
+			strict:     false,
 			wantCode:   0,
 			wantSubstr: "ok:",
 		},
@@ -25,6 +27,7 @@ func TestRegressLint(t *testing.T) {
 			name:       "missing regression test",
 			root:       "testdata/fixture_missing",
 			issuesFile: "testdata/fixture_missing/issues.json",
+			strict:     true,
 			wantCode:   1,
 			wantSubstr: "FAIL:",
 		},
@@ -32,6 +35,7 @@ func TestRegressLint(t *testing.T) {
 			name:       "exempt — no-regression-test label skips check",
 			root:       ".",
 			issuesFile: "testdata/happy.json",
+			strict:     false,
 			wantCode:   0,
 			wantSubstr: "exempt",
 		},
@@ -39,6 +43,7 @@ func TestRegressLint(t *testing.T) {
 			name:       "malformed JSON input",
 			root:       ".",
 			issuesFile: "testdata/malformed.json",
+			strict:     false,
 			wantCode:   1,
 			wantSubstr: "ERROR:",
 		},
@@ -47,7 +52,7 @@ func TestRegressLint(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			got := run(tc.root, tc.issuesFile, "", &buf)
+			got := run(tc.root, tc.issuesFile, "", tc.strict, &buf)
 			if got != tc.wantCode {
 				t.Errorf("exit code: got %d, want %d\noutput:\n%s", got, tc.wantCode, buf.String())
 			}
@@ -60,7 +65,7 @@ func TestRegressLint(t *testing.T) {
 
 func TestMissingReport_ContainsActionHint(t *testing.T) {
 	var buf bytes.Buffer
-	code := run("testdata/fixture_missing", "testdata/fixture_missing/issues.json", "", &buf)
+	code := run("testdata/fixture_missing", "testdata/fixture_missing/issues.json", "", true, &buf)
 	if code != 1 {
 		t.Fatalf("expected exit 1, got %d", code)
 	}

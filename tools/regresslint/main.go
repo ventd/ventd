@@ -83,13 +83,13 @@ func fetchIssues(token string) ([]issue, error) {
 			return nil, err
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil, fmt.Errorf("GitHub API returned %s", resp.Status)
 		}
 
 		var batch []issue
 		err = json.NewDecoder(resp.Body).Decode(&batch)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("decoding GitHub response (page %d): %w", page, err)
 		}
@@ -153,7 +153,7 @@ func walkForPatterns(dir string, patterns ...string) (bool, error) {
 	return found, err
 }
 
-func run(root, issuesFile, token string, w io.Writer) int {
+func run(root, issuesFile, token string, strict bool, w io.Writer) int {
 	var (
 		issues []issue
 		err    error
@@ -162,17 +162,17 @@ func run(root, issuesFile, token string, w io.Writer) int {
 	if issuesFile != "" {
 		issues, err = loadIssues(issuesFile)
 		if err != nil {
-			fmt.Fprintf(w, "ERROR: %v\n", err)
+			_, _ = fmt.Fprintf(w, "ERROR: %v\n", err)
 			return 1
 		}
 	} else {
 		if token == "" {
-			fmt.Fprintln(w, "ERROR: GITHUB_TOKEN env var required when -issues is not set")
+			_, _ = fmt.Fprintln(w, "ERROR: GITHUB_TOKEN env var required when -issues is not set")
 			return 1
 		}
 		issues, err = fetchIssues(token)
 		if err != nil {
-			fmt.Fprintf(w, "ERROR: fetching GitHub issues: %v\n", err)
+			_, _ = fmt.Fprintf(w, "ERROR: fetching GitHub issues: %v\n", err)
 			return 1
 		}
 	}
@@ -191,7 +191,7 @@ func run(root, issuesFile, token string, w io.Writer) int {
 		checked++
 		found, err := hasRegressionTest(root, iss.Number)
 		if err != nil {
-			fmt.Fprintf(w, "ERROR: searching tests for issue #%d: %v\n", iss.Number, err)
+			_, _ = fmt.Fprintf(w, "ERROR: searching tests for issue #%d: %v\n", iss.Number, err)
 			return 1
 		}
 		if !found {
@@ -203,15 +203,19 @@ func run(root, issuesFile, token string, w io.Writer) int {
 	}
 
 	if len(violations) > 0 {
-		fmt.Fprintf(w, "FAIL: %d closed bug(s) missing a regression test:\n\n", len(violations))
-		for _, v := range violations {
-			fmt.Fprintln(w, v)
-			fmt.Fprintln(w)
+		if strict {
+			_, _ = fmt.Fprintf(w, "FAIL: %d closed bug(s) missing a regression test:\n\n", len(violations))
+			for _, v := range violations {
+				_, _ = fmt.Fprintln(w, v)
+				_, _ = fmt.Fprintln(w)
+			}
+			return 1
 		}
-		return 1
+		_, _ = fmt.Fprintf(w, "WARN: %d closed bug(s) missing regression test (not fatal; run with -strict to fail)\n", len(violations))
+		return 0
 	}
 
-	fmt.Fprintf(w, "ok: %d closed bug(s) checked, %d exempt\n", checked, exempt)
+	_, _ = fmt.Fprintf(w, "ok: %d closed bug(s) checked, %d exempt\n", checked, exempt)
 	return 0
 }
 
@@ -219,10 +223,13 @@ func main() {
 	var (
 		root       string
 		issuesFile string
+		strict     bool
 	)
 	flag.StringVar(&root, "root", ".", "repo root to search for regression tests")
 	flag.StringVar(&issuesFile, "issues", "", "JSON file of issues (omit to query GitHub API via GITHUB_TOKEN)")
+	// TODO: flip -strict=true once the backlog of unlabeled closed bugs is triaged (TX-REGRESSION-AUDIT).
+	flag.BoolVar(&strict, "strict", false, "exit 1 on violations instead of warning")
 	flag.Parse()
 
-	os.Exit(run(root, issuesFile, os.Getenv("GITHUB_TOKEN"), os.Stderr))
+	os.Exit(run(root, issuesFile, os.Getenv("GITHUB_TOKEN"), strict, os.Stderr))
 }
