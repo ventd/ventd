@@ -1,7 +1,12 @@
 version: 1
-updated: 2026-04-18T01:20:00Z
+updated: 2026-04-18T01:30:00Z
 role: "Cowork is solo developer of record; employer is stakeholder"
-deadline_pressure: "ventd must ship before the money runs out. No quality compromise."
+workflow:
+  cc_host: "Desktop (phoenix@192.168.7.209) — 32 threads, 32 GB, local to real hwmon/GPU"
+  cc_activation: "see .cowork/HOWTO-START-CC.md; single paste-able line per task"
+  prompt_index: .cowork/prompts/INDEX.md
+  concurrent_capacity: "~6-8 CC instances comfortably; start with 3-4"
+  fallback: "dev VM 950 (mosh+claude) still works; not preferred"
 tracks:
   FOUND: {status: merged, completed_tasks: [P0-01, P0-02, P0-03]}
   INFRA: {status: in_flight, current_task: T0-INFRA-03, completed_tasks: [T0-INFRA-01, T0-INFRA-02]}
@@ -9,13 +14,13 @@ tracks:
   HAL: {status: in_flight, current_task: P1-HAL-01}
   FP: {status: in_flight, current_task: P1-FP-01}
 in_flight:
-  - {track: META, task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, priority: 3, started: 2026-04-18T00:55:00Z}
-  - {track: INFRA, task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, priority: 4, started: 2026-04-18T00:55:00Z}
-  - {track: HAL, task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, priority: 1, started: 2026-04-18T01:05:00Z}
-  - {track: FP, task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, priority: 2, started: 2026-04-18T01:05:00Z}
+  - {task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, priority: 3}
+  - {task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, priority: 4}
+  - {task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, priority: 1}
+  - {task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, priority: 2}
 pre_drafted:
-  - {task: T0-META-02, prompt_file: .cowork/prompts/T0-META-02.md, blocked_on: "T0-META-01 merge (shared workflow file)"}
-  - {task: P10-PERMPOL-01, prompt_file: .cowork/prompts/P10-PERMPOL-01.md, held_for: "CC terminal capacity"}
+  - {task: T0-META-02, prompt: .cowork/prompts/T0-META-02.md, blocked_on: "T0-META-01 merge"}
+  - {task: P10-PERMPOL-01, prompt: .cowork/prompts/P10-PERMPOL-01.md, status: ready_queued}
 merges:
   P0-02: {sha: 4aa6a37}
   P0-03: {sha: c08d9b3}
@@ -24,26 +29,7 @@ merges:
   T0-META-03: {sha: 8646e05}
 test_environment:
   see: .cowork/TESTING.md
-  desktop_fingerprint:
-    board_vendor: "Micro-Star International Co., Ltd."
-    board_name: "MS-7D25"
-    cpu: "13th Gen Intel Core i9-13900K"
-    memory_gb: 32
-    gpu: "NVIDIA RTX 4090"
-    os: "Ubuntu 24.04.4 LTS"
-    hostname: "phoenix-MS-7D25"
-    captured: 2026-04-18T01:20:00Z
-    note: "Real DMI seed data for P1-FP-01 hwdb. Prompt already dispatched without this; CC may need to re-read TESTING.md on its own, or a follow-up PR will add this fingerprint to profiles.yaml after P1-FP-01 merges."
-cc_parallelism:
-  current_capacity: 1
-  bottleneck: "employer's local workflow opens a single mosh/cc session; parallel CC requires either multiple local terminal tabs or tmux-inside-mosh"
-  proposed_fixes_documented_in: .cowork/TESTING.md#cc-parallelism-on-the-dev-vm
-  implication: "Queued prompts are currently serialised. P10-PERMPOL-01 held until capacity unlocks. Dispatch order should favour critical path (P1-HAL-01 first) if employer is single-threaded."
-phase_tracking:
-  masterplan_phase_0: {status: complete}
-  testplan_phase_t0: {status: in_progress}
-  masterplan_phase_1: {status: in_progress, in_flight: [P1-HAL-01, P1-FP-01]}
-  masterplan_phase_10: {status: pre_drafted, task: P10-PERMPOL-01}
+  desktop_fingerprint: {board_vendor: "Micro-Star International Co., Ltd.", board_name: "MS-7D25", cpu: "i9-13900K", ram_gb: 32, gpu: "RTX 4090", os: "Ubuntu 24.04.4 LTS"}
 escalations_open: []
 notes:
-  - 2026-04-18T01:20:00Z: "Employer's CC workflow is currently single-threaded (one mosh → one cc invocation). Three parallelism paths documented in TESTING.md: (A) multiple local terminal tabs, (B) tmux-inside-mosh, (C) separate VMs. Cheapest is A. Desktop HIL fingerprint captured: MSI MS-7D25, i9-13900K, RTX 4090. Added GPU inventory: 4090 (Desktop, native) + 3090 (Proxmox, passthrough-to-Plex). NVML validation will prefer the 4090 for native-rig simplicity."
+  - 2026-04-18T01:30:00Z: "Workflow pivot: CC now runs on Desktop HIL rig directly, not the dev VM. Eliminates SCP/SSH for HIL-local work, and Desktop's 32 threads comfortably host 6-8 concurrent CC instances. Employer's per-session activation is a single paste-able line keyed by task ID. .cowork/HOWTO-START-CC.md documents the one-time setup and per-session ritual. .cowork/prompts/INDEX.md is the canonical list of dispatchable prompts with status, model, and recommended start order. Dev VM (950) retained as fallback."
