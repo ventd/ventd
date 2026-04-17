@@ -1,0 +1,167 @@
+# Ventd hardware fingerprint database.
+#
+# Each entry matches a board via DMI/SMBIOS fields (from /sys/class/dmi/id/)
+# and optional hwmon / PCI / CPU identifiers, then proposes an ordered list
+# of kernel modules to load for fan-controller access.
+#
+# Match semantics (see internal/hwdb/hwdb.go): exact > prefix > wildcard
+# (substring). Empty fields are wildcards. Entries with every match field
+# empty never match.
+#
+# Verification:
+#   unverified: true  — chip / module mapping not confirmed against a
+#                       trusted source. The entry is retained for prefix /
+#                       wildcard coverage but callers should surface it as
+#                       tentative in diagnostics.
+#
+# Do not fabricate chip_hex_id values. Leave the field empty when the
+# specific chip on a board cannot be confirmed.
+
+# ── Ported from internal/hwmon/autoload.go knownDriverNeeds DMITriggers ──
+
+- board_vendor: "Micro-Star International"
+  board_name: "MAG"
+  modules: [nct6687]
+  notes: "MSI MAG series boards (Z490/Z590/Z690/Z790, B550/X570/B650/X670): NCT6687D Super I/O. In-kernel nct6683 exposes read-only PWM; out-of-tree nct6687 required for control."
+
+- board_vendor: "Micro-Star International"
+  board_name: "MPG"
+  modules: [nct6687]
+  notes: "MSI MPG series boards: NCT6687D Super I/O. Same driver requirement as MAG series."
+
+- board_vendor: "Gigabyte Technology"
+  modules: [it87]
+  notes: "Gigabyte AMD boards (Aorus, Gaming X, UD) almost universally route fan headers through IT8688E, which the in-kernel it87 driver does not recognise; the out-of-tree fork handles this chip and the related IT8689E."
+  unverified: true
+
+# ── MSI high-end enthusiast / workstation boards (NCT6687D typical) ──
+
+- board_vendor: "Micro-Star International"
+  board_name: "MEG X570 ACE"
+  modules: [nct6687]
+  notes: "MSI MEG X570 ACE: NCT6687D Super I/O."
+  unverified: true
+
+- board_vendor: "Micro-Star International"
+  board_name: "MEG X570 UNIFY"
+  modules: [nct6687]
+  notes: "MSI MEG X570 UNIFY: NCT6687D Super I/O."
+  unverified: true
+
+- board_vendor: "Micro-Star International"
+  board_name: "MEG Z790 ACE"
+  modules: [nct6687]
+  notes: "MSI MEG Z790 ACE: NCT6687D Super I/O."
+  unverified: true
+
+- board_vendor: "Micro-Star International"
+  board_name: "MAG Z790 TOMAHAWK"
+  modules: [nct6687]
+  notes: "MSI MAG Z790 TOMAHAWK: reportedly ships two NCT6687D Super I/Os; a single nct6687 load binds both instances."
+  unverified: true
+
+# ── Gigabyte recent AMD desktop (IT8688E typical) ──
+
+- board_vendor: "Gigabyte Technology"
+  board_name: "X870E AORUS MASTER"
+  modules: [it87]
+  notes: "Gigabyte X870E Aorus Master: ITE Super I/O, out-of-tree it87 required."
+  unverified: true
+
+- board_vendor: "Gigabyte Technology"
+  board_name: "B650E AORUS ELITE"
+  modules: [it87]
+  notes: "Gigabyte B650E Aorus Elite: ITE Super I/O, out-of-tree it87 required."
+  unverified: true
+
+# ── ASUS recent desktop (NCT679x typical, newer boards expose asus_ec) ──
+
+- board_vendor: "ASUSTeK COMPUTER INC."
+  board_name: "PRIME X670E"
+  modules: [nct6775, asus_ec_sensors]
+  notes: "ASUS Prime X670E family: NCT679x Super I/O plus newer ASUS embedded-controller sensors."
+  unverified: true
+
+- board_vendor: "ASUSTeK COMPUTER INC."
+  board_name: "ROG STRIX X670E"
+  modules: [nct6775, asus_ec_sensors]
+  notes: "ASUS ROG Strix X670E: NCT679x Super I/O plus asus_ec_sensors."
+  unverified: true
+
+- board_vendor: "ASUSTeK COMPUTER INC."
+  board_name: "ProArt X670E-CREATOR"
+  modules: [nct6775, asus_ec_sensors]
+  notes: "ASUS ProArt X670E-Creator: NCT679x Super I/O plus asus_ec_sensors."
+  unverified: true
+
+# ── ASRock recent desktop (NCT6796 typical) ──
+
+- board_vendor: "ASRock"
+  board_name: "X670E Taichi"
+  modules: [nct6775]
+  notes: "ASRock X670E Taichi: NCT679x Super I/O."
+  unverified: true
+
+- board_vendor: "ASRock"
+  board_name: "B650 PG Lightning"
+  modules: [nct6775]
+  notes: "ASRock B650 PG Lightning: NCT679x Super I/O."
+  unverified: true
+
+# ── Supermicro server / workstation boards ──
+
+- board_vendor: "Supermicro"
+  board_name: "X11SCH-F"
+  modules: [nct6775]
+  notes: "Supermicro X11SCH-F: NCT679x-family Super I/O; BMC typically owns fans but the Super I/O is accessible for monitoring."
+  unverified: true
+
+- board_vendor: "Supermicro"
+  board_name: "X12STH"
+  modules: [nct6775]
+  notes: "Supermicro X12STH: NCT679x-family Super I/O; fans are usually under BMC control."
+  unverified: true
+
+# ── Dell PowerEdge — fans are BMC/iDRAC-managed, no hwmon PWM ──
+
+- board_vendor: "Dell Inc."
+  board_name: "PowerEdge R740"
+  modules: [dell_smm_hwmon]
+  notes: "Dell PowerEdge R740: fans are managed by iDRAC; hwmon exposes temperatures only. No user PWM path."
+  unverified: true
+
+- board_vendor: "Dell Inc."
+  board_name: "PowerEdge R750"
+  modules: [dell_smm_hwmon]
+  notes: "Dell PowerEdge R750: iDRAC-managed fans; hwmon is monitoring-only."
+  unverified: true
+
+# ── Framework laptops (EC-driven thermals) ──
+
+- board_vendor: "Framework"
+  board_name: "Laptop 13 (AMD Ryzen 7040Series)"
+  modules: [cros_ec_sensors, cros_ec_lpcs]
+  notes: "Framework Laptop 13 (AMD): ChromeOS-style embedded controller exposes fans via cros_ec; no Super I/O."
+  unverified: true
+
+- board_vendor: "Framework"
+  board_name: "Laptop 16"
+  modules: [cros_ec_sensors, cros_ec_lpcs]
+  notes: "Framework Laptop 16: cros_ec-based EC; same thermal surface as Framework 13."
+  unverified: true
+
+# ── Intel NUC — fans are firmware-managed ──
+
+- board_vendor: "Intel Corporation"
+  board_name: "NUC13"
+  modules: []
+  notes: "Intel NUC 13 Pro: BIOS/firmware manages the fan curve; no controllable hwmon PWM is exposed. hwdb returns an empty module list so callers fall straight through to the default heuristic."
+  unverified: true
+
+# ── Raspberry Pi 5 (device-tree PWM fan) ──
+
+- board_vendor: "Raspberry Pi Foundation"
+  board_name: "Raspberry Pi 5"
+  modules: [pwm-fan, gpio-fan]
+  notes: "Raspberry Pi 5: official active cooler is driven via device-tree pwm-fan; gpio-fan is a fallback for third-party GPIO-switched fans."
+  unverified: true

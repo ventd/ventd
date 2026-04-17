@@ -13,6 +13,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - docs: add hardware-report issue template (#P0-03)
 - test: add fixture library skeleton (#T0-INFRA-01)
 - test: implement fakehwmon fixture + migrate 3 tests (#T0-INFRA-02)
+- feat: fingerprint-keyed hwdb replaces substring table (#P1-FP-01)
 
 ### Fixed
 
