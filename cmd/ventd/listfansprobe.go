@@ -16,15 +16,25 @@ package main
 // hosts.
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdb"
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 )
+
+// doRefreshHWDB wires ventd --list-fans-probe --refresh-hwdb=<sha256> so
+// the hwdb remote refresh can be exercised alongside the DMI probe without
+// requiring a separate binary. Empty string means "skip refresh".
+var doRefreshHWDB = flag.String("refresh-hwdb", "", "with --list-fans-probe: fetch remote hwdb, verify SHA-256, merge (requires hwdb.allow_remote=true in config)")
 
 type lfpTuple struct {
 	hwmonDir string
@@ -39,6 +49,24 @@ func (t lfpTuple) key() string { return t.kind + "\x00" + t.control }
 // code main should pass to os.Exit. Caller is responsible for
 // converting non-zero into a process exit.
 func runListFansProbe() int {
+	if pinnedSHA := *doRefreshHWDB; pinnedSHA != "" {
+		cfg, err := config.Load(flag.Lookup("config").Value.String())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "refresh-hwdb: load config: %v\n", err)
+			return 1
+		}
+		if !cfg.HWDB.AllowRemote {
+			fmt.Fprintln(os.Stderr, "refresh-hwdb: skipped (hwdb.allow_remote=false in config)")
+		} else {
+			n, err := hwdb.RefreshFromRemote(context.Background(), http.DefaultClient, pinnedSHA)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "refresh-hwdb: %v\n", err)
+				return 1
+			}
+			fmt.Printf("hwdb: refreshed %d remote profiles\n", n)
+		}
+	}
+
 	devices := hwmonpkg.EnumerateDevices(hwmonpkg.DefaultHwmonRoot)
 
 	dmi := hwmonpkg.ReadDMI("")
