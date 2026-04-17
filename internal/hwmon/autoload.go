@@ -1,6 +1,7 @@
 package hwmon
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/ventd/ventd/internal/hwdb"
 )
 
 // AutoloadModules is the install-time module probe. It is exercised
@@ -175,9 +178,14 @@ type sensorsDetectResult struct {
 //
 // Probe sequence:
 //  1. Fast path: PWM already visible → persist and return.
-//  2. Install lm-sensors (if missing) and run sensors-detect --auto;
+//  2. Fingerprint-keyed hwdb lookup: read DMI and consult the embedded
+//     profile database (internal/hwdb/profiles.yaml). On match, try the
+//     profile's module list before falling through. On miss, emit a
+//     structured "hwdb_miss" log event so fingerprints can be reviewed
+//     later for inclusion.
+//  3. Install lm-sensors (if missing) and run sensors-detect --auto;
 //     load the modules it recommends, including force_id for ITE chips.
-//  3. Dynamic fallback: enumerate hwmon modules from the running kernel
+//  4. Dynamic fallback: enumerate hwmon modules from the running kernel
 //     (filtering out bus-specific non-fan drivers) and try each one.
 //
 // If no module produces PWM channels, Diagnose() will identify which
@@ -203,7 +211,13 @@ func AutoloadModules(logger *slog.Logger) {
 
 	logger.Info("no hwmon PWM channels found, probing kernel modules")
 
-	// 2. Install lm-sensors and run sensors-detect --auto.
+	// 2. Fingerprint-keyed hwdb lookup. If the board is in the profile
+	// database, try its modules before the sensors-detect / scan fallbacks.
+	if done := tryHWDB(logger); done {
+		return
+	}
+
+	// 3. Install lm-sensors and run sensors-detect --auto.
 	installLmSensors(logger)
 	sdResult := runSensorsDetect(logger)
 	if len(sdResult.modules) > 0 {
@@ -225,7 +239,7 @@ func AutoloadModules(logger *slog.Logger) {
 		}
 	}
 
-	// 3. Dynamic fallback: ARM SBCs use device-tree PWM controllers;
+	// 4. Dynamic fallback: ARM SBCs use device-tree PWM controllers;
 	// everything else gets the full kernel hwmon module scan.
 	if runtime.GOARCH == "arm" || runtime.GOARCH == "arm64" {
 		tryModuleCandidates(logger, armProbeOrder)
@@ -240,9 +254,57 @@ func AutoloadModules(logger *slog.Logger) {
 		tryModuleCandidates(logger, candidates)
 	}
 
-	// 4. Nothing worked. Diagnose() will explain why and surface driver needs.
+	// 5. Nothing worked. Diagnose() will explain why and surface driver needs.
 	logger.Warn("no hwmon module produced PWM channels — " +
 		"setup wizard will check for required drivers")
+}
+
+// tryHWDB consults the embedded hwdb profile database for the current board.
+// On match it tries the profile's modules in order and returns whether one
+// won (same semantics as tryModuleCandidates). On a miss — or on any hwdb
+// error — it logs a structured "hwdb_miss" event carrying the fingerprint
+// so telemetry can review unseen boards, and returns false so callers fall
+// through to the next probe stage.
+func tryHWDB(logger *slog.Logger) bool {
+	fp := hwdb.HardwareFingerprint{
+		BoardVendor:   dmiRead("board_vendor"),
+		BoardName:     dmiRead("board_name"),
+		BoardVersion:  dmiRead("board_version"),
+		ProductFamily: dmiRead("product_family"),
+	}
+	profile, err := hwdb.Match(fp)
+	if err != nil {
+		level := slog.LevelInfo
+		if !errors.Is(err, hwdb.ErrNoMatch) {
+			level = slog.LevelWarn
+		}
+		logger.Log(nil, level, "hwdb_miss",
+			"board_vendor", fp.BoardVendor,
+			"board_name", fp.BoardName,
+			"board_version", fp.BoardVersion,
+			"product_family", fp.ProductFamily,
+			"err", err,
+		)
+		return false
+	}
+	if len(profile.Modules) == 0 {
+		logger.Info("hwdb matched board but profile declares no modules",
+			"board_vendor", fp.BoardVendor, "board_name", fp.BoardName,
+			"notes", profile.Notes, "unverified", profile.Unverified)
+		return false
+	}
+	logger.Info("hwdb matched board profile",
+		"board_vendor", fp.BoardVendor,
+		"board_name", fp.BoardName,
+		"modules", profile.Modules,
+		"unverified", profile.Unverified,
+		"notes", profile.Notes,
+	)
+	cands := make([]candidate, 0, len(profile.Modules))
+	for _, m := range profile.Modules {
+		cands = append(cands, candidate{module: m})
+	}
+	return tryModuleCandidates(logger, cands)
 }
 
 // tryModuleCandidates loads each candidate module and checks whether it
