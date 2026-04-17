@@ -53,7 +53,7 @@ func withCapturedStdout(t *testing.T, fn func()) []byte {
 		done <- buf
 	}()
 	fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 	return <-done
 }

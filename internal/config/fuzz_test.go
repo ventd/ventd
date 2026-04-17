@@ -58,10 +58,10 @@ func FuzzParseConfig(f *testing.F) {
 	f.Add([]byte{})
 	f.Add([]byte("version: 1\n"))
 	f.Add([]byte("version: 1\nfans: []\ncontrols: []\n"))
-	f.Add([]byte("version: 1\nfans:\n  - name: a\n    name: b\n")) // duplicate key
+	f.Add([]byte("version: 1\nfans:\n  - name: a\n    name: b\n"))  // duplicate key
 	f.Add([]byte("\xff\xfeUTF-16-BOM"))                             // invalid UTF-8
 	f.Add([]byte("version: 1\nfans:\n  - pwm_path: \"\\u0000\"\n")) // embedded NUL
-	f.Add([]byte(strings.Repeat("a: 1\n", 200))) // deep duplicate-key stream
+	f.Add([]byte(strings.Repeat("a: 1\n", 200)))                    // deep duplicate-key stream
 	// YAML anchor bombs: a small file that expands exponentially.
 	// We only guard against the panic, not against memory usage —
 	// yaml.v3 has its own depth/anchor limits.
