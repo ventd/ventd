@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/testfixture/fakehwmon"
 )
 
 // newRampingHwmon builds a minimal hwmon tree with one pwm channel and
@@ -167,18 +168,17 @@ func TestDetectRPMSensor_HappyPath(t *testing.T) {
 // sensor crosses the 50-RPM noise floor. The contract is (empty, nil):
 // "detection ran, no winner" — see calibrate.go:1022-1026.
 func TestDetectRPMSensor_NoCorrelation(t *testing.T) {
-	dir := t.TempDir()
-	pwm := filepath.Join(dir, "pwm1")
-	pwmEnable := pwm + "_enable"
-	fan1In := filepath.Join(dir, "fan1_input")
-	fan2In := filepath.Join(dir, "fan2_input")
-	for _, seed := range []struct{ path, val string }{
-		{pwm, "100\n"}, {pwmEnable, "1\n"}, {fan1In, "800\n"}, {fan2In, "820\n"},
-	} {
-		if err := os.WriteFile(seed.path, []byte(seed.val), 0o600); err != nil {
-			t.Fatalf("seed %s: %v", seed.path, err)
-		}
-	}
+	fake := fakehwmon.New(t, &fakehwmon.Options{
+		Chips: []fakehwmon.ChipOptions{{
+			Name: "testchip",
+			PWMs: []fakehwmon.PWMOptions{{Index: 1, PWM: 100, Enable: 1}},
+			Fans: []fakehwmon.FanOptions{
+				{Index: 1, RPM: 800},
+				{Index: 2, RPM: 820},
+			},
+		}},
+	})
+	pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
 
 	m := newQuietManager(t)
 	fan := &config.Fan{Type: "hwmon", PWMPath: pwm, MaxPWM: 255}
@@ -212,15 +212,14 @@ func TestDetectRPMSensor_RejectsNvidia(t *testing.T) {
 // must surface "no fan*_input files" instead of returning a misleading
 // empty-result success. Regression target for calibrate.go:985-987.
 func TestDetectRPMSensor_NoFanInputFiles(t *testing.T) {
-	dir := t.TempDir()
-	pwm := filepath.Join(dir, "pwm1")
-	pwmEnable := pwm + "_enable"
-	if err := os.WriteFile(pwm, []byte("100\n"), 0o600); err != nil {
-		t.Fatalf("seed pwm: %v", err)
-	}
-	if err := os.WriteFile(pwmEnable, []byte("1\n"), 0o600); err != nil {
-		t.Fatalf("seed pwm_enable: %v", err)
-	}
+	fake := fakehwmon.New(t, &fakehwmon.Options{
+		Chips: []fakehwmon.ChipOptions{{
+			Name: "testchip",
+			PWMs: []fakehwmon.PWMOptions{{Index: 1, PWM: 100, Enable: 1}},
+			// No Fans: no fan*_input files in the chip directory.
+		}},
+	})
+	pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
 
 	m := newQuietManager(t)
 	fan := &config.Fan{Type: "hwmon", PWMPath: pwm, MaxPWM: 255}
