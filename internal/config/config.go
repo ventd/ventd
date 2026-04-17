@@ -49,6 +49,7 @@ type Config struct {
 	PollInterval  Duration           `yaml:"poll_interval" json:"poll_interval"`
 	Web           Web                `yaml:"web" json:"web"`
 	Hwmon         Hwmon              `yaml:"hwmon,omitempty" json:"hwmon,omitempty"`
+	HWDB          HWDB               `yaml:"hwdb,omitempty" json:"hwdb,omitempty"`
 	Sensors       []Sensor           `yaml:"sensors" json:"sensors"`
 	Fans          []Fan              `yaml:"fans" json:"fans"`
 	Curves        []CurveConfig      `yaml:"curves" json:"curves"`
@@ -79,6 +80,16 @@ type Config struct {
 type Profile struct {
 	Bindings map[string]string `yaml:"bindings" json:"bindings"`
 	Schedule string            `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+}
+
+// HWDB groups knobs for the hardware fingerprint database. All fields are
+// optional; zero values preserve existing behaviour so configs without an
+// hwdb: block load unchanged.
+type HWDB struct {
+	// AllowRemote opts in to CLI-triggered remote refresh of profiles.yaml
+	// from ventd/hardware-profiles. Default false: no network calls at daemon
+	// startup or at runtime — refresh is CLI-only.
+	AllowRemote bool `yaml:"allow_remote,omitempty" json:"allow_remote,omitempty"`
 }
 
 // Hwmon groups runtime-tunable knobs for the hwmon watcher. All fields are
