@@ -677,7 +677,18 @@ func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	s.httpSrv.Addr = addr
 	if s.tlsActive {
 		s.logger.Info("web: server listening (TLS)", "addr", "https://"+addr)
-		if err := s.httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
+		// Bind the socket ourselves so we can wrap the listener in a
+		// TLS-sniffing shim that 301-redirects plaintext HTTP requests
+		// to the https:// equivalent. See #200 — without this, a
+		// browser that autocompletes `host:9999` to `http://` hits
+		// stdlib's "client sent an HTTP request to an HTTPS server"
+		// and the operator has no idea what went wrong.
+		rawListener, err := net.Listen("tcp", addr)
+		if err != nil {
+			return fmt.Errorf("web: listen tls: %w", err)
+		}
+		sniff := newTLSSniffListener(rawListener, addr, s.logger)
+		if err := s.httpSrv.ServeTLS(sniff, tlsCert, tlsKey); err != http.ErrServerClosed {
 			return fmt.Errorf("web: serve tls: %w", err)
 		}
 		return nil

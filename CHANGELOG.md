@@ -32,6 +32,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cert on first boot), matching what the README and the daemon actually
   do. Partial fix for #182 — the token-file persistence and
   `systemctl status` status-line surfacing remain open.
+- The TLS listener now sniffs the first byte of every accepted connection
+  and, for plaintext HTTP requests that arrive on the TLS port (a
+  mobile browser auto-completing `host:9999` to `http://`, a human
+  forgetting the `s`), responds with `301 Moved Permanently` to the
+  `https://` equivalent of the same URI instead of the stdlib's
+  user-hostile "client sent an HTTP request to an HTTPS server" error.
+  TLS ClientHello packets (first byte `0x16`) pass through untouched via
+  a peekedConn wrapper. No new port binding; no new capability. Closes #200.
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
