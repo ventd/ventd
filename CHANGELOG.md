@@ -17,6 +17,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
 - ci: rule-to-subtest binding lint (#T0-META-01)
 
+### Tests
+
+- test: bind internal/watchdog safety invariants (#T-WD-01)
+
 ### Fixed
 
 - `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
