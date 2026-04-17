@@ -35,6 +35,26 @@ type PanicChecker interface {
 	IsPanicked(pwmPath string) bool
 }
 
+// curveSig is a comparable fingerprint of the non-slice fields in a
+// CurveConfig. Used by the compiled-curve cache (Opt-2) to detect
+// in-place config mutations (test-only pattern) that share the same
+// pointer as the previously-built config.
+type curveSig struct {
+	typ, sensor, function        string
+	minTemp, maxTemp, hysteresis float64
+	smoothing                    time.Duration
+	minPWM, maxPWM, value        uint8
+}
+
+func curveSigOf(c config.CurveConfig) curveSig {
+	return curveSig{
+		typ: c.Type, sensor: c.Sensor, function: c.Function,
+		minTemp: c.MinTemp, maxTemp: c.MaxTemp, hysteresis: c.Hysteresis,
+		smoothing: c.Smoothing.Duration,
+		minPWM:    c.MinPWM, maxPWM: c.MaxPWM, value: c.Value,
+	}
+}
+
 // Controller manages one fan channel.
 type Controller struct {
 	fanName   string
@@ -64,6 +84,22 @@ type Controller struct {
 	lastTemp    float64 // curve's sensor reading at the moment of lastPWM
 	hasLastPWM  bool    // false until the first successful write
 	activeCurve string  // tracks curveCfg.Name to detect hot-reload swaps
+
+	// Opt-1: pre-allocated maps cleared and reused every tick to eliminate
+	// per-tick heap allocations from readAllSensors and applySmoothing.
+	rawSensorsBuf map[string]float64
+	smoothedBuf   map[string]float64
+
+	// Opt-2: compiled curve cached across ticks; rebuilt when the config
+	// pointer changes (SIGHUP) or any comparable CurveConfig field changes.
+	compiledCurve    curve.Curve
+	curveBuiltForCfg *config.Config
+	compiledCurveSig curveSig
+
+	// Opt-4: fan*_max read once on first RPM-target write and cached here;
+	// 0 = not yet cached (non-RPM-target fans stay 0 and are never used).
+	maxRPM       int
+	maxRPMCached bool
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -96,14 +132,16 @@ func New(
 	opts ...Option,
 ) *Controller {
 	c := &Controller{
-		fanName:   fanName,
-		curveName: curveName,
-		pwmPath:   pwmPath,
-		fanType:   fanType,
-		cfg:       cfg,
-		wd:        wd,
-		cal:       cal,
-		logger:    logger.With("fan", fanName, "curve", curveName),
+		fanName:       fanName,
+		curveName:     curveName,
+		pwmPath:       pwmPath,
+		fanType:       fanType,
+		cfg:           cfg,
+		wd:            wd,
+		cal:           cal,
+		logger:        logger.With("fan", fanName, "curve", curveName),
+		rawSensorsBuf: make(map[string]float64), // Opt-1
+		smoothedBuf:   make(map[string]float64), // Opt-1
 	}
 	if fanType == "nvidia" {
 		c.backend = halnvml.NewBackend(c.logger)
@@ -186,6 +224,9 @@ func (c *Controller) tick() {
 		return
 	}
 
+	// Opt-3: read the config pointer exactly once per tick; all code below
+	// uses this snapshot so the full tick sees a consistent config view even
+	// if a SIGHUP swaps the pointer mid-tick.
 	live := c.cfg.Load()
 
 	fan, ok := findFanByPath(live, c.pwmPath, c.fanType)
@@ -245,21 +286,31 @@ func (c *Controller) tick() {
 	// is omitted from the map; the curve implementations handle missing sensors
 	// safely (Linear returns MaxPWM, keeping the fan at full speed on data loss).
 	// This isolates a single flaky sensor from affecting fans on other sensors.
-	rawSensors := readAllSensors(c.logger, live.Sensors)
+	// Opt-1: writes into the pre-allocated rawSensorsBuf; no heap allocation.
+	readAllSensors(c.logger, live.Sensors, c.rawSensorsBuf)
 
 	// Apply EMA smoothing to each sensor before curve evaluation. With
 	// Smoothing=0 (the default), α=1 → passthrough; a zero-smoothing
 	// config produces the same sensor map it would have without this
 	// stage, preserving pre-3a behaviour bit-for-bit.
-	sensors := c.applySmoothing(rawSensors, curveCfg.Smoothing.Duration, live.PollInterval.Duration)
+	sensors := c.applySmoothing(c.rawSensorsBuf, curveCfg.Smoothing.Duration, live.PollInterval.Duration)
 
-	crv, err := buildCurve(curveCfg, live.Curves)
-	if err != nil {
-		c.logger.Error("controller: cannot build curve from live config", "err", err)
-		return
+	// Opt-2: build the curve graph once; only rebuild when the config pointer
+	// changes (SIGHUP) or any comparable CurveConfig field changes (catches
+	// in-place mutations used in tests while production always uses new pointers).
+	sig := curveSigOf(curveCfg)
+	if c.compiledCurve == nil || c.curveBuiltForCfg != live || c.compiledCurveSig != sig {
+		built, err := buildCurve(curveCfg, live.Curves)
+		if err != nil {
+			c.logger.Error("controller: cannot build curve from live config", "err", err)
+			return
+		}
+		c.compiledCurve = built
+		c.curveBuiltForCfg = live
+		c.compiledCurveSig = sig
 	}
 
-	raw := crv.Evaluate(sensors)
+	raw := c.compiledCurve.Evaluate(sensors)
 
 	// Clamp to the fan's configured PWM range. This is the hard safety layer:
 	// the fan config is authoritative — the curve cannot drive PWM outside it.
@@ -333,6 +384,9 @@ func (c *Controller) initCurveStateIfNeeded(curveName string) {
 	c.hasLastPWM = false
 	c.lastPWM = 0
 	c.lastTemp = 0
+	// Opt-2: curve name changed; force a graph rebuild on the next tick.
+	c.compiledCurve = nil
+	c.curveBuiltForCfg = nil
 }
 
 // applySmoothing applies a per-sensor EMA using α = poll / (smoothing + poll).
@@ -346,19 +400,21 @@ func (c *Controller) applySmoothing(raw map[string]float64, smoothing, poll time
 		c.smoothed = make(map[string]float64, len(raw))
 	}
 	alpha := float64(poll) / float64(smoothing+poll)
-	out := make(map[string]float64, len(raw))
+	// Opt-1: reuse the pre-allocated smoothedBuf map instead of allocating a
+	// new map each tick. clear() resets entries without releasing memory.
+	clear(c.smoothedBuf)
 	for name, v := range raw {
 		prev, seen := c.smoothed[name]
 		if !seen {
 			c.smoothed[name] = v
-			out[name] = v
+			c.smoothedBuf[name] = v
 			continue
 		}
 		s := alpha*v + (1-alpha)*prev
 		c.smoothed[name] = s
-		out[name] = s
+		c.smoothedBuf[name] = s
 	}
-	return out
+	return c.smoothedBuf
 }
 
 // readNvidiaMetric is overridable so tests can substitute a fake without
@@ -366,11 +422,12 @@ func (c *Controller) applySmoothing(raw map[string]float64, smoothing, poll time
 // nvidia.ReadMetric.
 var readNvidiaMetric = nvidia.ReadMetric
 
-// readAllSensors reads every sensor in the config and returns a name→tempC map.
-// Individual sensor failures are logged and the sensor is omitted from the
-// returned map; the caller never receives an error for a partial read.
-func readAllSensors(logger *slog.Logger, sensors []config.Sensor) map[string]float64 {
-	m := make(map[string]float64, len(sensors))
+// readAllSensors reads every sensor in the config into dst, clearing it first.
+// Opt-1: dst is the Controller's pre-allocated rawSensorsBuf, reused every tick.
+// Individual sensor failures are logged and the sensor is omitted from dst;
+// the caller never receives an error for a partial read.
+func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string]float64) {
+	clear(dst)
 	for _, s := range sensors {
 		var (
 			tempC float64
@@ -398,9 +455,8 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor) map[string]flo
 				"sensor", s.Name, "err", err)
 			continue
 		}
-		m[s.Name] = tempC
+		dst[s.Name] = tempC
 	}
-	return m
 }
 
 // buildCurve constructs a Curve from a CurveConfig.
@@ -486,10 +542,9 @@ func parseNvidiaIndex(s string) (uint, error) {
 	return uint(v), nil
 }
 
-// channelFor builds the hal.Channel the configured backend expects for
-// this fan at the current tick. Called each tick rather than cached
-// because config.Fan.ControlKind can flip on hot-reload (a user may
-// retype a fan from pwm to rpm_target in config.yaml + SIGHUP), and
+// channelFor builds the hal.Channel the configured backend expects for this fan.
+// The channel is built fresh each tick because config.Fan.ControlKind can flip
+// on hot-reload (a user may retype a fan from pwm to rpm_target + SIGHUP), and
 // the backend dispatches Write based on the RPMTarget opaque flag.
 func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
 	if c.fanType == "nvidia" {
@@ -504,8 +559,16 @@ func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
 		}, nil
 	}
 	caps := hal.CapRead | hal.CapRestore
-	if fan.ControlKind == "rpm_target" {
+	rpmTarget := fan.ControlKind == "rpm_target"
+	if rpmTarget {
 		caps |= hal.CapWriteRPMTarget
+		// Opt-4: read fan*_max once on first RPM-target write and cache it so
+		// subsequent ticks skip the sysfs round-trip. The cached value is
+		// embedded in the channel state where the backend reads it.
+		if !c.maxRPMCached {
+			c.maxRPM = hwmon.ReadFanMaxRPM(c.pwmPath)
+			c.maxRPMCached = true
+		}
 	} else {
 		caps |= hal.CapWritePWM
 	}
@@ -515,7 +578,8 @@ func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
 		Caps: caps,
 		Opaque: halhwmon.State{
 			PWMPath:    c.pwmPath,
-			RPMTarget:  fan.ControlKind == "rpm_target",
+			RPMTarget:  rpmTarget,
+			MaxRPM:     c.maxRPM,
 			OrigEnable: -1,
 		},
 	}, nil
