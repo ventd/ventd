@@ -109,6 +109,29 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 	w.entries = append(w.entries, e)
 }
 
+// RestoreOne restores the most recently registered entry for pwmPath.
+// No-op when no matching entry exists — a controller whose fan was
+// deregistered concurrently should not cause a panic. Inherits the
+// same per-entry panic-recovery envelope as Restore().
+func (w *Watchdog) RestoreOne(pwmPath string) {
+	w.mu.Lock()
+	var matched entry
+	var found bool
+	for i := len(w.entries) - 1; i >= 0; i-- {
+		if w.entries[i].pwmPath == pwmPath {
+			matched = w.entries[i]
+			found = true
+			break
+		}
+	}
+	w.mu.Unlock()
+
+	if !found {
+		return
+	}
+	w.restoreOne(matched)
+}
+
 // Deregister removes the most recently added entry matching pwmPath.
 // Per-sweep registrations stack on top of the daemon-startup registration;
 // Deregister pops the top one so the startup entry continues to drive the

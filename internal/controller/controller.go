@@ -350,8 +350,21 @@ func (c *Controller) tick() {
 		return
 	}
 	if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
-		c.logger.Error("controller: PWM write failed", "err", writeErr)
-		return
+		c.logger.Warn("controller: PWM write failed, retrying",
+			"event", "write_retry",
+			"pwm_path", c.pwmPath, "fan", c.fanName, "err", writeErr)
+		time.Sleep(50 * time.Millisecond)
+		if retryErr := c.backend.Write(ch, pwm); retryErr != nil {
+			c.logger.Error("controller: PWM write failed after retry, triggering restore",
+				"event", "write_failed_restore_triggered",
+				"pwm_path", c.pwmPath, "fan", c.fanName,
+				"err1", writeErr, "err2", retryErr)
+			c.wd.RestoreOne(c.pwmPath)
+			return
+		}
+		c.logger.Info("controller: PWM write retry succeeded",
+			"event", "write_retry_succeeded",
+			"pwm_path", c.pwmPath, "fan", c.fanName)
 	}
 
 	// Update hysteresis baseline — the temp + PWM we just committed are
