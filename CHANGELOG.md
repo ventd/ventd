@@ -22,6 +22,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   AppArmor profile exists on disk but `/proc/self/attr/current` reads
   `unconfined` — so an operator running `journalctl -u ventd` finds the
   signal even if the install scrollback is long gone. Closes #211.
+- `scripts/install.sh` now prints a box-drawn completion block at the top
+  of its final output with the dashboard URL, the one-time setup token
+  read from `/run/ventd/setup-token`, and the three steps the user needs
+  to reach a running fan-control daemon. Previously the output buried the
+  URL on one line and omitted the token entirely — first-boot users had
+  to know about `/run/ventd/setup-token` to find it. The scheme default
+  is now `https` unconditionally (the daemon auto-generates a self-signed
+  cert on first boot), matching what the README and the daemon actually
+  do. Partial fix for #182 — the token-file persistence and
+  `systemctl status` status-line surfacing remain open.
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 

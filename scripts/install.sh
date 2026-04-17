@@ -950,7 +950,7 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
-# Resolve a machine IP for the "open http://… to set up" hint. `hostname -I`
+# Resolve a machine IP for the "open https://… to set up" hint. `hostname -I`
 # is a GNU-hostname extension not present in inetutils-hostname (Arch's
 # default) — under `set -o pipefail` that would make the install script
 # exit non-zero right after a perfectly healthy install and the operator
@@ -960,19 +960,80 @@ MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || MACHINE_IP=""
 if [[ -z "$MACHINE_IP" ]] && command -v ip >/dev/null 2>&1; then
     MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
 fi
-# Pick the scheme: if a prior install enabled TLS via the wizard, the
-# daemon now binds HTTPS and `http://…` would hit "client sent an HTTP
-# request to an HTTPS server". Grep anchors on line-start + indent so
-# a commented `# tls_cert:` doesn't match. See GitHub #201.
-WEB_SCHEME="http"
-if [[ -f "${VENTD_ETC_DIR}/config.yaml" ]] \
-   && grep -Eq '^[[:space:]]*tls_cert:[[:space:]]*[^[:space:]#]' "${VENTD_ETC_DIR}/config.yaml" 2>/dev/null; then
-    WEB_SCHEME="https"
-fi
+# Scheme is always https on first boot: the daemon auto-generates a
+# self-signed cert if no tls_cert is configured. Older installs that
+# explicitly disabled TLS in config.yaml are the only reason this would
+# drop to http — that case is extremely rare and the wizard itself
+# surfaces the right URL anyway, so we bias toward the correct default.
+WEB_SCHEME="https"
 WEB_URL="${WEB_SCHEME}://${MACHINE_IP:-<this-machine-ip>}:9999"
 
+# Read the one-time setup token. The daemon writes it to
+# /run/ventd/setup-token (0600, root-only) within a second of startup.
+# Poll briefly in case we raced the daemon's first-boot write path.
+# Absent token = password already configured on a prior install; in that
+# case we print a login prompt instead.
+SETUP_TOKEN=""
+if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
+    for _ in 1 2 3 4 5; do
+        if [[ -r /run/ventd/setup-token ]]; then
+            SETUP_TOKEN="$(cat /run/ventd/setup-token 2>/dev/null || true)"
+            [[ -n "$SETUP_TOKEN" ]] && break
+        fi
+        sleep 1
+    done
+fi
+
+# Visually distinct completion block. Box-drawn so the URL + token don't
+# disappear into the scrollback of a noisy apt-get / dnf / pacman run.
+# The characters below are Unicode box-drawing; they render correctly on
+# every terminal the README lists as a supported install surface.
 echo ""
-echo "ventd installed. Open ${WEB_URL} to set up."
+if [[ -n "$SETUP_TOKEN" ]]; then
+    cat <<EOF
+
+╔════════════════════════════════════════════════════════════════════╗
+║  ventd is installed and running.                                   ║
+╠════════════════════════════════════════════════════════════════════╣
+║                                                                    ║
+║    1. Open this URL in your browser:                               ║
+║                                                                    ║
+║         ${WEB_URL}
+║                                                                    ║
+║       (you'll see a self-signed-certificate warning — accept it;   ║
+║        the daemon auto-generated a local cert on first boot)       ║
+║                                                                    ║
+║    2. Paste this one-time setup token when prompted:               ║
+║                                                                    ║
+║         ${SETUP_TOKEN}
+║                                                                    ║
+║       (single-use, 15-minute expiry; recover later with            ║
+║        \`sudo cat /run/ventd/setup-token\`)                          ║
+║                                                                    ║
+║    3. Set a password. That's it — no more terminal work required.  ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+EOF
+else
+    cat <<EOF
+
+╔════════════════════════════════════════════════════════════════════╗
+║  ventd is installed and running.                                   ║
+╠════════════════════════════════════════════════════════════════════╣
+║                                                                    ║
+║    Open this URL in your browser:                                  ║
+║                                                                    ║
+║         ${WEB_URL}
+║                                                                    ║
+║    (if this is a fresh install and you don't see a login prompt    ║
+║     but a setup wizard instead, the setup token is readable via    ║
+║     \`sudo cat /run/ventd/setup-token\`)                             ║
+║                                                                    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+EOF
+fi
 
 if [[ "$INIT_SYSTEM" == "unknown" ]]; then
     echo ""
