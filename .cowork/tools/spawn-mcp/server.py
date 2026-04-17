@@ -36,12 +36,15 @@ import secrets
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.requests import Request
+from starlette.responses import JSONResponse, RedirectResponse
 
 log = logging.getLogger("spawn-mcp")
 logging.basicConfig(
@@ -77,6 +80,7 @@ mcp = FastMCP(
     "spawn-mcp",
     host=HOST,
     port=PORT,
+    streamable_http_path="/",
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=ENABLE_DNS_REBINDING_PROTECTION,
         allowed_hosts=ALLOWED_HOSTS,
@@ -306,6 +310,94 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
         "scrollback": r.stdout,
         "stderr": r.stderr,
     }
+
+
+# --- OAuth shim (to satisfy claude.ai's custom-connector OAuth flow) -------
+# The trycloudflare tunnel + claude.ai connector registration is the
+# security boundary. These endpoints auto-approve; no PKCE verification,
+# no client_id check, no token validation on /mcp. If this server ever
+# moves behind a stable hostname we should replace this with a real AS.
+
+
+def _public_origin(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    return f"{proto}://{host}"
+
+
+@mcp.custom_route("/.well-known/oauth-authorization-server", methods=["GET"])
+async def _oauth_as_metadata(request: Request) -> JSONResponse:
+    origin = _public_origin(request)
+    return JSONResponse(
+        {
+            "issuer": origin,
+            "authorization_endpoint": f"{origin}/authorize",
+            "token_endpoint": f"{origin}/token",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256", "plain"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "scopes_supported": ["mcp"],
+        }
+    )
+
+
+@mcp.custom_route("/.well-known/oauth-protected-resource", methods=["GET"])
+async def _oauth_pr_metadata(request: Request) -> JSONResponse:
+    origin = _public_origin(request)
+    return JSONResponse(
+        {
+            "resource": origin,
+            "authorization_servers": [origin],
+        }
+    )
+
+
+@mcp.custom_route("/authorize", methods=["GET"])
+async def _authorize(request: Request) -> RedirectResponse:
+    redirect_uri = request.query_params.get("redirect_uri", "")
+    state = request.query_params.get("state", "")
+    code = secrets.token_urlsafe(24)
+    params = urllib.parse.urlencode({"code": code, "state": state})
+    sep = "&" if "?" in redirect_uri else "?"
+    target = f"{redirect_uri}{sep}{params}"
+    _audit({"kind": "oauth-authorize", "redirect_uri": redirect_uri, "state_len": len(state)})
+    return RedirectResponse(url=target, status_code=302)
+
+
+@mcp.custom_route("/token", methods=["POST"])
+async def _token(request: Request) -> JSONResponse:
+    _audit({"kind": "oauth-token"})
+    return JSONResponse(
+        {
+            "access_token": secrets.token_urlsafe(32),
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": "mcp",
+        }
+    )
+
+
+@mcp.custom_route("/register", methods=["POST"])
+async def _register(request: Request) -> JSONResponse:
+    # RFC 7591 dynamic client registration stub. Claude.ai may probe this
+    # if it decides to register a client dynamically. Always accept.
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    _audit({"kind": "oauth-register", "body_keys": sorted(body.keys()) if isinstance(body, dict) else []})
+    client_id = body.get("client_id") if isinstance(body, dict) else None
+    return JSONResponse(
+        {
+            "client_id": client_id or secrets.token_urlsafe(16),
+            "client_id_issued_at": int(time.time()),
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+            "redirect_uris": (body.get("redirect_uris") if isinstance(body, dict) else None) or [],
+        }
+    )
 
 
 if __name__ == "__main__":
