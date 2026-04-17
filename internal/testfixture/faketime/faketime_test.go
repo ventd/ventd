@@ -231,7 +231,7 @@ func TestWaitUntilTimeout(t *testing.T) {
 	go func() {
 		defer func() { close(done) }()
 		// This will call inner.Fatal, which panics inside a goroutine.
-		defer func() { recover() }()
+		defer func() { _ = recover() }()
 		faketime.WaitUntil(inner, func() bool { return false }, 20*time.Millisecond)
 	}()
 	select {
