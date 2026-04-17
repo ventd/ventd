@@ -51,7 +51,7 @@ func parseRuleFile(path string) ([]ruleEntry, []string) {
 	if err != nil {
 		return nil, []string{fmt.Sprintf("cannot open %s: %v", path, err)}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// ruleHeadingRE matches ## RULE-<ID>: <invariant>
 	ruleHeadingRE := regexp.MustCompile(`^## RULE-(\S+):\s+(.+)$`)
@@ -123,7 +123,7 @@ func containsSubtest(path, name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	tRunNeedle := fmt.Sprintf(`t.Run("%s"`, name)
 	funcNeedle := fmt.Sprintf("func %s(", name)
@@ -147,7 +147,7 @@ func enumerateSubtests(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var names []string
 	sc := bufio.NewScanner(f)
@@ -207,7 +207,7 @@ func run(root string, w io.Writer) int {
 		}
 		for _, name := range subtests {
 			if !claimed[name] {
-				fmt.Fprintf(w, "WARN: %s: subtest %q unclaimed by any rule\n",
+				_, _ = fmt.Fprintf(w, "WARN: %s: subtest %q unclaimed by any rule\n",
 					targetFile, name)
 			}
 		}
@@ -215,10 +215,10 @@ func run(root string, w io.Writer) int {
 
 	if len(parseErrs) > 0 || len(forwardErrs) > 0 {
 		for _, e := range parseErrs {
-			fmt.Fprintln(w, "ERROR:", e)
+			_, _ = fmt.Fprintln(w, "ERROR:", e)
 		}
 		for _, e := range forwardErrs {
-			fmt.Fprintln(w, "ERROR:", e)
+			_, _ = fmt.Fprintln(w, "ERROR:", e)
 		}
 		return 1
 	}
@@ -227,7 +227,7 @@ func run(root string, w io.Writer) int {
 	for _, r := range rules {
 		totalBounds += len(r.bounds)
 	}
-	fmt.Fprintf(w, "ok: %d rule(s), %d bound(s) verified\n", len(rules), totalBounds)
+	_, _ = fmt.Fprintf(w, "ok: %d rule(s), %d bound(s) verified\n", len(rules), totalBounds)
 	return 0
 }
 
