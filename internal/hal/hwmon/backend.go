@@ -37,6 +37,11 @@ type State struct {
 	// AMD) rather than a pwm*N file. Changes the Write dispatch and
 	// the Restore fallback.
 	RPMTarget bool
+	// MaxRPM is the cached fan*_max value for RPM-target channels.
+	// Opt-4: the controller reads fan*_max once at startup and embeds
+	// it here so Write can skip the per-tick sysfs round-trip.
+	// Zero means "not cached" — Write falls back to hwmon.ReadFanMaxRPM.
+	MaxRPM int
 	// OrigEnable is the pre-ventd pwm_enable value captured by the
 	// watchdog before the controller flipped the channel into manual
 	// mode. -1 means "captured nothing usable" — Restore falls back
@@ -171,7 +176,13 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		return err
 	}
 	if st.RPMTarget {
-		maxRPM := hwmon.ReadFanMaxRPM(st.PWMPath)
+		// Opt-4: prefer the cached MaxRPM embedded by the controller; fall back
+		// to a live sysfs read only when the cache is absent (first write, or
+		// a channel constructed without a pre-cached value).
+		maxRPM := st.MaxRPM
+		if maxRPM <= 0 {
+			maxRPM = hwmon.ReadFanMaxRPM(st.PWMPath)
+		}
 		rpm := int(math.Round(float64(pwm) / 255.0 * float64(maxRPM)))
 		return hwmon.WriteFanTarget(st.PWMPath, rpm)
 	}

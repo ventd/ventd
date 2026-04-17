@@ -111,7 +111,8 @@ func TestReadAllSensors_NvidiaPathInvariant(t *testing.T) {
 				Path:   tc.path,
 				Metric: "temperature",
 			}
-			m := readAllSensors(logger, []config.Sensor{nvSensor, hwmonSensor})
+			m := make(map[string]float64)
+			readAllSensors(logger, []config.Sensor{nvSensor, hwmonSensor}, m)
 
 			// The hwmon sibling must always land in the map — skip-and-continue
 			// means one bad sensor never hides a healthy one.

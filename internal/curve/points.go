@@ -1,6 +1,9 @@
 package curve
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // Points interpolates PWM between a list of (temperature, pwm) anchors.
 // Valid configs carry at least two points sorted by ascending Temp
@@ -45,19 +48,14 @@ func (c *Points) Evaluate(sensors map[string]float64) uint8 {
 	if tempC >= last.Temp {
 		return last.PWM
 	}
-	// Linear scan — Anchors is never long enough to justify a binary
-	// search (operators define a handful of points, not thousands).
-	for i := 0; i < len(c.Anchors)-1; i++ {
-		lo := c.Anchors[i]
-		hi := c.Anchors[i+1]
-		if tempC < lo.Temp || tempC > hi.Temp {
-			continue
-		}
-		ratio := (tempC - lo.Temp) / (hi.Temp - lo.Temp)
-		pwm := float64(lo.PWM) + ratio*(float64(hi.PWM)-float64(lo.PWM))
-		return uint8(math.Round(pwm))
-	}
-	// Unreachable given the guards above, but return last anchor to
-	// match the fail-high contract if the invariants ever slip.
-	return last.PWM
+	// Opt-5: binary search replaces the O(n) linear scan. Anchors are sorted
+	// ascending by Temp at config load (validate()), so sort.Search is safe.
+	// After the guards above, tempC is strictly between first and last, so i
+	// is in [1, len-1] and Anchors[i-1]/Anchors[i] bracket the temperature.
+	i := sort.Search(len(c.Anchors), func(k int) bool { return c.Anchors[k].Temp >= tempC })
+	lo := c.Anchors[i-1]
+	hi := c.Anchors[i]
+	ratio := (tempC - lo.Temp) / (hi.Temp - lo.Temp)
+	pwm := float64(lo.PWM) + ratio*(float64(hi.PWM)-float64(lo.PWM))
+	return uint8(math.Round(pwm))
 }

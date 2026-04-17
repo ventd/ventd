@@ -9,6 +9,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
+- perf(controller): eliminate per-tick allocations in the hot loop — preallocate sensor/smoothed maps, cache compiled curve graph, one-shot config snapshot, cache fan*_max for rpm_target fans, binary-search Points curve, pool Mix.Evaluate vals slice (P1-HOT-01)
 
 ### Added
 
