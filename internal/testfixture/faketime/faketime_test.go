@@ -186,19 +186,19 @@ func TestTickerStop(t *testing.T) {
 func TestConcurrentAdvanceAndNewTimer(t *testing.T) {
 	c := faketime.New(t, epoch)
 	var wg sync.WaitGroup
-	var fired atomic.Int32
 
 	// Spawn goroutines that concurrently create timers and advance the clock.
+	// The test's purpose is to catch data races under -race; the exact number
+	// of timers that fire is non-deterministic and not asserted.
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			tm := c.NewTimer(time.Duration(i+1) * time.Millisecond)
 			defer tm.Stop()
-			// Drain if it fired.
+			// Drain if it fired (channel read is the race-relevant op).
 			select {
 			case <-tm.C:
-				fired.Add(1)
 			default:
 			}
 		}(i)
@@ -213,9 +213,6 @@ func TestConcurrentAdvanceAndNewTimer(t *testing.T) {
 	}
 
 	wg.Wait()
-	// Under -race, this must not flag any data races. The exact number of
-	// fired timers is non-deterministic because Advance and NewTimer are
-	// interleaved, so we just check for no panics/races.
 }
 
 func TestWaitUntilHappy(t *testing.T) {
