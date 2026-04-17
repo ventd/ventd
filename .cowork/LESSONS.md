@@ -53,3 +53,21 @@ Append-only self-optimization log. Most recent at bottom. New Cowork sessions re
 **Handoff reducible to MCP**: none this session.
 
 ---
+
+## 2026-04-18T (spawn-mcp deploy, claude-opus-4-7) — sixth lesson (HIGH IMPACT)
+
+**Inefficiency observed**: shipped `spawn-mcp` v1 with four distinct deploy-blocking bugs, caught sequentially by the operator's interactive CC session over four redeploy cycles:
+1. systemd unit with `PrivateTmp=yes` + `ReadWritePaths=/tmp/cc-runner` (architecturally incoherent — private tmpfs makes cross-user IPC path invisible).
+2. `mcp.run(transport="streamable-http")` with no host/port, falling back to FastMCP's default :8000 while docstring and tunnel both expected :8891.
+3. MCP SDK 1.23+ enables DNS-rebinding protection by default on localhost bind — public CVE from Dec 2025 — rejected every request whose Host header was the tunnel hostname.
+4. Tried to fix #3 with `allowed_hosts=["*"]`; SDK does literal string-equals on Host (no wildcard for hosts, only for ports via `base:*`). Still rejected every request.
+
+Each bug consumed one full deploy+diagnose+patch+redeploy cycle of the operator's time. Root cause is identical across all four: I shipped infra code+config that I had not executed once end-to-end before handing it to the operator.
+
+**Fix applied**: hard rule for future infra-from-scratch work — before writing any deploy runbook or handing config to the operator, propose an ephemeral target (Incus container, Docker container, nspawn, QEMU micro-VM) where the operator can `systemctl start` and tail journal/logs. I iterate against CC's `tail_session` equivalent in that ephemeral environment until green, THEN hand the verified artifacts to production deploy. The operator's production deploy is not my integration test loop. If the project has no ephemeral target, I read SDK source code and the last 6 months of its CVEs before writing the first line — not after. I run `systemd-analyze verify` equivalent reasoning on any unit file (check for conflicting directives like `PrivateTmp` + cross-user IPC paths) before shipping.
+
+Secondary fix: the operator also caught `Requires=` propagating restarts in `spawn-mcp-tunnel.service` and collapsing the quick-tunnel hostname on every server bounce. Shipped with `Wants=`+`After=` instead. This was a fifth bug caught in review; moving it into the same lesson because the pattern is identical (no deploy-cycle smoke test).
+
+**Handoff reducible to MCP**: once spawn-mcp is live, every future Cowork-designed MCP server gets smoke-tested against a throwaway target spawned via `spawn_cc("mcp-smoke-<name>")` before touching production — i.e. the tool I just shipped is now how future iterations of this pattern avoid repeating today's failure mode.
+
+---
