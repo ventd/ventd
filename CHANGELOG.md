@@ -14,6 +14,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - test: add fixture library skeleton (#T0-INFRA-01)
 - test: implement fakehwmon fixture + migrate 3 tests (#T0-INFRA-02)
 - feat: fingerprint-keyed hwdb replaces substring table (#P1-FP-01)
+- test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
 
 ### Fixed
 
@@ -113,7 +114,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   duty bar already use. Backed by a per-metric ring buffer (1 hour
   of history at the 2 s sampler interval, ~58 KB total for a
   typical 8-metric config). New `GET /api/history` endpoint returns
-  either a single metric's samples (`?metric=<name>`) or all metrics
+  either a single metric's samples (`?metric=<n>`) or all metrics
   in one envelope for fresh-tab seed loads. Client appends to its
   local buffer from the existing SSE stream, so steady-state adds
   zero new network chatter. (Refs #180)
