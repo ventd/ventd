@@ -1,12 +1,12 @@
 version: 1
-updated: 2026-04-17T23:45:00Z
+updated: 2026-04-17T23:55:00Z
 tracks:
   FOUND:
     status: merged
     current_task: null
     branch: null
     pr: null
-    last_review: P0-03-R2
+    last_review: P0-03-R3
     revisions: 0
     completed_tasks:
       - P0-01
@@ -16,15 +16,15 @@ tracks:
     status: in_flight
     current_task: T0-INFRA-01
     branch: claude/INFRA-fixture-skeletons-4c9e2
-    pr: null
-    last_review: null
-    revisions: 0
+    pr: https://github.com/ventd/ventd/pull/239
+    last_review: T0-INFRA-01-R1
+    revisions: 1
     completed_tasks: []
 in_flight:
   - track: INFRA
     task: T0-INFRA-01
-    cc_session: cowork-2026-04-17T23:45:00Z-t0-infra-01
-    started: 2026-04-17T23:45:00Z
+    cc_session: cowork-2026-04-17T23:55:00Z-t0-infra-01-rev1
+    started: 2026-04-17T23:55:00Z
 reviews:
   P0-02-R1:
     task: P0-02
@@ -44,18 +44,23 @@ reviews:
   P0-03-R1:
     task: P0-03
     verdict: revise
-    notes: "R6 only: stale base (fb581b9, pre-P0-02); CHANGELOG conflict; rebase prompt delivered."
+    notes: "R6 only: stale base; CHANGELOG conflict; rebase prompt delivered."
     timestamp: 2026-04-17T23:25:00Z
   P0-03-R2:
     task: P0-03
     verdict: accept-pending (CI-FLAKE-CHECK)
-    notes: "Rebase clean on dfbbb16; 12/13 CI green; ubuntu-arm64 flake on docs-only diff; escalated."
+    notes: "Rebase clean; 12/13 CI green; ubuntu-arm64 flake on docs-only diff; escalated."
     timestamp: 2026-04-17T23:30:00Z
   P0-03-R3:
     task: P0-03
     verdict: accept (merged at c08d9b3)
-    notes: "Developer re-ran build-and-test-ubuntu-arm64 (job 71842073651), passed 14:34:15Z. Flake confirmed. All 13 lanes green on dfbbb16. PR marked ready, squash-merged as c08d9b399d5a8ee076b26889883733ca7743b7c8. Branch auto-deleted. Phase 0 P-tasks complete."
+    notes: "Developer re-ran failed lane; passed. All 13 green. Squash-merged."
     timestamp: 2026-04-17T23:45:00Z
+  T0-INFRA-01-R1:
+    task: T0-INFRA-01
+    verdict: revise
+    notes: "R7 partial fail: 13/14 fixture packages correctly interpret their future role per testplan §3; fakemic misinterpreted (CC read 'mic' as microcontroller instead of microphone). Doc comment and stub method name both wrong for fakemic; package name and paths correct. 8/13 CI lanes green (all static-analysis); 5 in_progress. PHASE-T0/FIRST-PR gate still applies on accept. Full detail in .cowork/reviews/T0-INFRA-01-R1.md. Revision round 1 of 3; fix is a two-line edit."
+    timestamp: 2026-04-17T23:55:00Z
 merges:
   P0-02:
     sha: 4aa6a37b7aac954f2588f339f408dfbe067f00cd
@@ -94,19 +99,10 @@ phase_tracking:
     status: in_progress
     tasks_in_flight: [T0-INFRA-01]
     tasks_ready: [T0-INFRA-02, T0-INFRA-03, T0-META-01, T0-META-02, T0-META-03]
-    note: "T0-INFRA-02 and T0-INFRA-03 depend on T0-INFRA-01. T0-META-01/02/03 are independent and can parallelise once MAX_PARALLEL expands past 1 (i.e. Phase 1 opens)."
+    note: "T0-INFRA-02 and T0-INFRA-03 depend on T0-INFRA-01. T0-META-* independent of T0-INFRA but concurrency-blocked until MAX_PARALLEL raises."
   masterplan_phase_1:
     status: not_started
-    note: "Requires developer ack per masterplan §10 #5 before dispatching P1-HAL-01, P1-HOT-01, or P1-FP-01. Operator checkpoint §15 also due."
+    note: "Requires developer ack per masterplan §10 #5 before dispatching P1-HAL-01 / P1-HOT-01 / P1-FP-01."
 notes:
-  - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached."
-  - 2026-04-17T11:15:00Z: "P0-01 bootstrapped manually by developer CC."
-  - 2026-04-17T21:30:00Z: "Cowork resumed via gh CLI (no MCP). Phantom in_flight."
-  - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live. P0-02 reset."
-  - 2026-04-17T22:30:00Z: "P0-02 round-1 review: revise (R7 content)."
-  - 2026-04-17T22:45:00Z: "P0-02 round-2 review: revise (phantom push)."
-  - 2026-04-17T23:00:00Z: "P0-02 round-3 review: accept. PHASE-0/FIRST-PR."
-  - 2026-04-17T23:10:00Z: "Developer RESUME P0-02. Auto-merged as 4aa6a37."
-  - 2026-04-17T23:25:00Z: "P0-03 round-1 review: revise (R6 stale base)."
-  - 2026-04-17T23:30:00Z: "P0-03 round-2 review: accept-pending. CI-FLAKE-CHECK."
-  - 2026-04-17T23:45:00Z: "Developer signal: all tests passed. Verified: build-and-test-ubuntu-arm64 re-run (job 71842073651) succeeded 14:34:15Z; all 13 lanes green on dfbbb16. PR #238 marked ready-for-review, squash-merged as c08d9b399d5a8ee076b26889883733ca7743b7c8 on main. Branch claude/FOUND-hwissue-7b2f8 auto-deleted. CI-FLAKE-CHECK escalation resolved. FOUND track closed at status=merged (all Phase-0 P-tasks done). Masterplan Phase 0 complete: P0-01, P0-02, P0-03. Next dispatch: T0-INFRA-01 on new INFRA track (claude/INFRA-fixture-skeletons-4c9e2, Haiku 4.5). This is the first T-task under Cowork; I am applying a PHASE-T0/FIRST-PR gate by analogy to PHASE-0/FIRST-PR on the review (not merging the first testplan PR without developer eyeball). If the developer prefers no such gate, they can say so and I drop it. Masterplan Phase 1 advancement remains parked — P1-HAL-01 / P1-HOT-01 / P1-FP-01 not dispatched until developer ack per §10 #5. T0 tasks stay in the Phase-0/T0 concurrency window (MAX_PARALLEL=1), so T0-INFRA-02/03 and T0-META-01/02/03 queue behind T0-INFRA-01 until either T0 completes or Phase 1 opens with MAX_PARALLEL=3."
+  - 2026-04-17T23:45:00Z: "Developer 'all tests passed' signal. P0-03 merged as c08d9b3. Phase 0 P-tasks complete. T0-INFRA-01 dispatched."
+  - 2026-04-17T23:55:00Z: "T0-INFRA-01 round-1 review: revise. PR #239 tip d9e2a8a, +615 lines across 31 files matching the expected shape (2 testutil + 28 fixture Go files + CHANGELOG). go build / vet / test all 0 per CC report; golangci-lint lane confirms. 8/13 CI lanes green with 5 distro+browser in_progress on fresh run. Thirteen of fourteen fixture packages correctly interpret their future role per testplan §3. R7 fails on fakemic: package doc reads 'microcontroller interface' and stub method is Send(); correct per testplan §3 is acoustic signal generator (microphone, consumed by internal/acoustic). Two-line fix: doc comment + method name. Revision prompt emitted targeting fakemic.go only. PHASE-T0/FIRST-PR gate still applies on accept. Revisions counter 1 of 3."
