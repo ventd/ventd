@@ -124,6 +124,13 @@ type Server struct {
 	// immediately. A buffered cap-1 channel is sufficient: the signal
 	// is edge-triggered, not a queue of requests.
 	schedWake chan struct{}
+
+	// rebootBlocker is the test seam for handleSystemReboot's
+	// container-detection guard. Nil in production; tests set it to
+	// exercise the 409 path without needing to run under PID 1 or
+	// touch /.dockerenv. See rebootEnvironmentBlocker for the real
+	// detection logic.
+	rebootBlocker func() string
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -1083,12 +1090,54 @@ func (s *Server) handleSetupLoadModule(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, resp)
 }
 
+// rebootEnvironmentBlocker returns a human-readable reason string when
+// the current runtime environment cannot safely reboot the host — or ""
+// when reboot is appropriate. Three signals are checked:
+//   - os.Getpid() == 1: ventd is the init process (container)
+//   - /.dockerenv exists: Docker marker file
+//   - systemd-detect-virt --container returns non-"none"
+//
+// Any one hit is sufficient. Kept as a free function so tests can exercise
+// it without standing up a Server.
+func rebootEnvironmentBlocker() string {
+	if os.Getpid() == 1 {
+		return "ventd is running as PID 1 (container init)"
+	}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return "Docker container detected (/.dockerenv present)"
+	}
+	// systemd-detect-virt prints the container type to stdout and exits 0,
+	// or prints "none" and exits 1. Either "none" output or a non-zero exit
+	// means "not a container" for our purposes.
+	if out, err := exec.Command("systemd-detect-virt", "--container").Output(); err == nil {
+		kind := strings.TrimSpace(string(out))
+		if kind != "" && kind != "none" {
+			return "container runtime detected: " + kind
+		}
+	}
+	return ""
+}
+
 // handleSystemReboot POST /api/system/reboot
 // Sends a response immediately then issues a system reboot.
 // Used after the setup wizard auto-patches GRUB and needs a reboot to continue.
+//
+// Refuses with 409 Conflict when the daemon is running in an environment
+// where "reboot the host" isn't the right action — containers, LXC, WSL,
+// anywhere ventd is PID 1. The wizard surfaces the body verbatim so the
+// user sees a human explanation, not a stdlib error string.
 func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	blocker := s.rebootBlocker
+	if blocker == nil {
+		blocker = rebootEnvironmentBlocker
+	}
+	if reason := blocker(); reason != "" {
+		s.logger.Warn("web: system reboot refused", "reason", reason)
+		http.Error(w, "reboot not supported in this environment: "+reason, http.StatusConflict)
 		return
 	}
 	s.logger.Info("web: system reboot requested via setup wizard")

@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
+  body when ventd detects it is running inside a container (PID 1,
+  `/.dockerenv` present, or `systemd-detect-virt --container` reports non-`none`).
+  Previously the wizard would either crash the container or silently no-op.
+  A new test seam on the web server lets the existing handler test exercise
+  the 409 path without faking PID 1 in CI. Closes #177.
+
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
 - PWM 0-255 → percent 0-100 migration across the config surface.
