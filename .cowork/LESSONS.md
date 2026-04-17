@@ -125,3 +125,56 @@ Root cause of the failure-to-name: (a) sunk-cost momentum after the first sympto
 **Handoff reducible to MCP**: none. This is self-discipline, not tooling.
 
 **Secondary observation**: the failure happened in under 30 seconds from the lesson #9 commit. The protocol change I'd just committed (two-failure stop rule, in-session citation) did not prevent a failure mode I'd explicitly logged before — because the new failure was a different class (file-content hallucination) that lesson #4 had logged but not crisply enough. Lesson: protocol rules need to be checked against the immediate next action, not just the horizon.
+
+---
+
+## 2026-04-18T (S5, claude-opus-4-7) — eleventh lesson (THROUGHPUT UNLOCK)
+
+**Inefficiency observed**: first parallel-dispatch batch of the session (4 concurrent spawn_cc calls in one turn) produced 4 merged PRs in ~45 min = 5.3 PR/hr. Prior single-dispatch-per-turn pattern (S4) was 2.7 PR/hr. Measured gap: **~2x throughput from parallelism alone**, with no change to task difficulty, CC model, or review rigor. Sequential dispatch was leaving half of capacity on the floor every turn.
+
+**Fix applied**: when MAX_PARALLEL budget is available and multiple tasks have non-overlapping allowlists, dispatch ALL of them in a single Cowork turn. Not "dispatch one, wait, dispatch next." The buffering-by-`tee` pattern (stdout block-buffered → log empty until session exits) means polling sessions mid-flight returns nothing useful anyway; the right pattern is fire-all-four, let them cook in parallel, then harvest in one sweep when `list_sessions` shows them finishing.
+
+**Handoff reducible to MCP**: `list_pull_requests state=open` is the right poll target, not `list_sessions`. Sessions reporting empty logs isn't a useful signal (buffering masks progress); the signal is "PR appeared" or "PR didn't appear after 40 min". Poll GitHub, not tmux.
+
+---
+
+## 2026-04-18T (S5, claude-opus-4-7) — twelfth lesson
+
+**Inefficiency observed**: P1-HAL-02 CC session aborted voluntarily on `claude-sonnet-4-6 != claude-opus-4-7` prompt model check, because my prompt template included `## Model: Opus 4.7 (safety-critical: ...)` with implicit instructions to self-abort on mismatch. In this single-cc-runner-account setup, the model is whatever the account defaults to; there's no per-task model selection. So every Opus-tagged prompt wastes a dispatch slot + blocks the task.
+
+**Fix applied**: prompts never include model-mismatch-abort instructions. Instead, prompts declare a `## Care level` section explaining why a task is safety-critical, with extra-explicit verification steps (run cross-package test suites, cite rule files, audit specific invariants). Prompt rigor compensates for model assignment being a no-op in the current setup. Per-task model selection in spawn-mcp is a future fix, NOT something to retrofit mid-session per memory #13 (infra ship rule).
+
+**Handoff reducible to MCP**: spawn-mcp needs `model` parameter on `spawn_cc`. Not now — per lesson #9 stop rules, don't touch MCP infra mid-session. Future work: add `model: str | None = None` to spawn_cc; when set, append `--model claude-{model}` to the CLI invocation.
+
+---
+
+## 2026-04-18T (S5, claude-opus-4-7) — thirteenth lesson
+
+**Inefficiency observed**: Updated `.cowork/prompts/P1-HAL-02.md` on cowork/state with a model-mismatch-abort removal, then immediately re-dispatched. spawn-mcp fetched the prompt from `raw.githubusercontent.com`, but the CDN cache (~5 min TTL) served the stale version. Re-dispatch aborted on the same model mismatch. Burned 1 spawn_cc call, 1 kill_session call, and 3 minutes of wall-clock time waiting for cache to expire.
+
+**Fix applied**: (1) When updating a prompt and needing to re-dispatch immediately, rename the alias to a new name (`P1-HAL-02-v2.md`) so spawn-mcp fetches from a cache-cold URL. (2) Alternatively, add a cache-bust query string to the spawn-mcp fetch URL (`?t=<epoch>`) — future spawn-mcp fix. (3) For now: plan prompt edits before dispatch, not after. If dispatching and an edit becomes obvious, wait 5 min or bump the alias name.
+
+**Handoff reducible to MCP**: spawn-mcp should accept a `cache_bust=True` flag on spawn_cc, or always append `?t=<epoch>` to the raw.githubusercontent.com URL. Low-priority future fix.
+
+---
+
+## 2026-04-18T (S5, claude-opus-4-7) — fourteenth lesson (CRITICAL)
+
+**Inefficiency observed**: #257 P1-FP-02 PR couldn't auto-merge because the CC session had branched from pre-#253 main while #253/#254/#255/#256 merged on main. CHANGELOG conflict. I attempted to resolve it via MCP `create_or_update_file` by writing a merged CHANGELOG directly to the PR branch. **This does not work**: MCP file-writes create a new commit on the branch but do NOT merge main's history into the branch. The update_pull_request_branch API still returns 422 merge-conflict because git-level history divergence is the real issue, not file content. I burned ~5 MCP calls (one for each of: get main CHANGELOG, get PR branch CHANGELOG, write merged version to #257 branch, write same to #260 branch, retry update_pull_request_branch) before accepting that MCP cannot do git merges.
+
+**Fix applied**: when update_pull_request_branch returns 422, the ONLY resolution path is to dispatch CC with a targeted rebase prompt. Do not attempt MCP file-write pre-resolution — it creates a new commit on the branch that CC will then have to throw away during rebase, and the merge conflict remains. Pattern: detect conflict → write `.cowork/prompts/fix-<PR>-rebase.md` → `spawn_cc("fix-<PR>-rebase")` → wait for completion → re-check `get_check_runs` → merge. The fix-257-rebase session successfully demonstrated this pattern (rebased cleanly, dropped upstream-merged commits automatically, all 16/16 CI green).
+
+**Handoff reducible to MCP**: none. Git merge requires a working tree. MCP is not a git client.
+
+**Secondary observation**: this is lesson #4 restated more crisply. Lesson #4 said "never rewrite CHANGELOG.md via MCP for conflicts." This lesson says "even if the rewrite is correct content, MCP cannot resolve git-level conflicts — the rewrite is wasted work." Lesson #4 was about cost; lesson #14 is about impossibility. Both converge on: CC-dispatch for merge conflicts, always.
+
+---
+
+## 2026-04-18T (S5, claude-opus-4-7) — fifteenth lesson
+
+**Inefficiency observed**: CC session output is block-buffered through `tee -a <log>`. `tail_session` returns empty string for 15-40 minutes while CC works, then the full session log flushes at once when `claude -p` exits. I spent several polling cycles tailing empty logs trying to assess whether sessions were "stuck" or "working". The right signal is always `list_pull_requests state=open` showing a new PR, not tmux scrollback.
+
+**Fix applied**: (1) Never interpret empty tail_session output as "stuck". Treat it as "running, no progress signal available". (2) Poll frequency for session progress: `list_pull_requests` every 3-5 min; `tail_session` only to diagnose AFTER a session has been alive >45 min with no PR appearing (likely genuine failure), or AFTER the session has disappeared from `list_sessions` (to see completion report). (3) Between polls, do useful prep work: queue next-batch prompts, write documentation, read source for upcoming review — don't burn tokens polling nothing.
+
+**Handoff reducible to MCP**: spawn-mcp could emit heartbeat lines to the log periodically (every 30s: `[heartbeat: <UTC>, ...`), or implement a line-buffered stdout via `stdbuf -oL` in `_build_claude_cmd`. Low-priority; the GitHub-poll pattern works without it.
+

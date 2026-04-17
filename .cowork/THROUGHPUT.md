@@ -20,7 +20,23 @@ on ventd/ventd. Method: active sessions delimited by >2h gap in
 
 | session | date | duration | PRs | PR/hr | blocker | lesson ref |
 |---------|------|----------|-----|-------|---------|------------|
-| S5 | 2026-04-18 | in-progress | 0 | **0.0** | spawn-mcp perms cascade (5 failed dispatches) | #9, #10 |
+| S5 | 2026-04-18 | ~5h | 9 | **1.8** | PAT rotation + prompt-model trap + buffered-log diagnostics + CHANGELOG conflict mis-diagnosis | #11, #12, #13, #14, #15 |
+
+## S5 summary
+
+Merged: #251 spawn-mcp-user-collapse, #252 spawn-mcp-print-mode, #253 P10-PERMPOL-01, #254 T0-META-02, #255 T-WD-01, #256 settings-allowlist-fix, #257 P1-FP-02, #258 T-HAL-01, #259 P1-MOD-01.
+
+Open at session end: #260 P1-HOT-01 (CHANGELOG conflict, fix-260-rebase queued).
+
+Real masterplan/testplan progress: 6 PRs (#253, #254, #255, #257, #258, #259). Other 3 PRs were unblocking infra.
+
+Throughput gap vs human baseline (5 PR/hr): factor of 2.8x slower. Causes:
+- 90 min lost to PAT rotation diagnostic + fix (memory #8 predicted 0 PR/hr while blocked; actual was worse due to diagnostic overhead)
+- 20 min lost to P1-HAL-02 model-mismatch-abort + CDN cache wait (lessons #12, #13)
+- 15 min lost to #257 CHANGELOG conflict MCP mis-resolution (lesson #14)
+- ~60 min of useful parallel work (4 concurrent CC dispatches produced 4 merges at 5.3 PR/hr — at human baseline)
+
+The parallel-dispatch architecture works. When it works. The tax to reach "it works" consumed 60% of the session.
 
 ## Rule
 

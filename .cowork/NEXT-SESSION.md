@@ -1,82 +1,65 @@
-# Wake-up brief — 2026-04-18 S5 night
+# Wake-up brief — S6 start (session end 2026-04-18 S5)
 
-Read this first on wake. ~5 min to act, then S6 can start.
+Read this first. ~3 min to act, then S6 can run.
 
-## What works
+## Session S5 summary
 
-- `spawn-mcp` is fully operational end-to-end. Verified via `spawn_cc("smoke-test")` → `tail_session` → clean output with `rc=0`. Theme-picker deadlock is resolved.
-- OAuth token seeded in `/etc/spawn-mcp/env` (`sk-ant-oat01-...`). Service log shows `oauth_token_set=True`.
-- Deploy clean: cc-runner uid 986/976, CapEff 0, NoNewPrivs 1.
-- MCP round-trip works: Cowork → claude.ai connector → phoenix-desktop spawn-mcp → tmux → `claude -p` → session log persisted.
+**9 PRs merged**: #251 spawn-mcp-user-collapse, #252 spawn-mcp-print-mode, #253 P10-PERMPOL-01, #254 T0-META-02, #255 T-WD-01, #256 settings-allowlist-fix, #257 P1-FP-02, #258 T-HAL-01, #259 P1-MOD-01.
 
-## What doesn't work
+**Real masterplan/testplan progress**: 6 (everything except the 3 infra PRs).
 
-- **cc-runner's gh PAT has no push access to `ventd/ventd`.** Authenticated as `PhoenixDnB`, token is `github_pat_11AYEKLWA0npT7sw5PfOMz_***`, but `git push` returns `403: Permission denied`. Confirmed via `cc-auth-diag` CC session.
-- This blocks every real CC dispatch. Every PR-producing session would produce a local commit that can't reach GitHub.
+**Throughput**: 1.8 PR/hr across full session; 5.3 PR/hr in pure parallel-dispatch mode (60 min window). Parallel-dispatch pattern works; the tax to reach it consumed most of the session.
 
-## Action on wake (required before S6 starts)
+**Ultrareview counter**: 6/10 real-task merges since last ultrareview. Next fire at 4 more real-task merges OR Phase 1 close. Phase 1 has P1-HOT-01 (in flight #260), P1-HOT-02, P1-MOD-02, P1-HAL-02 remaining. P1-HAL-02 blocks T-CAL-01. Likely ultrareview fires at Phase 1 boundary ~4-6 PRs from now.
 
-Fix cc-runner's PAT. Two common causes for this 403:
+## Immediate action on wake
 
-**Cause A — PAT scoped to the wrong repositories:**
-Fine-grained PATs specify which repos they can touch. This PAT probably lists only `PhoenixDnB/*` repos (or no repos) in its "Repository access" field, not `ventd/ventd`.
+**1. Merge #260.** It's open with CHANGELOG conflict. Prompt `.cowork/prompts/fix-260-rebase.md` is queued.
 
-Fix: Mint a new fine-grained PAT at https://github.com/settings/tokens?type=beta with:
-  - Resource owner: `ventd` (the org, not your personal account)
-  - Repository access: select `ventd/ventd` (and `ventd/hardware-profiles` for Phase 5)
-  - Permissions: `Contents: Read and write`, `Pull requests: Read and write`, `Issues: Read and write`, `Workflows: Read and write` (for P3, P10), `Metadata: Read`
-  - Expiration: whatever you're comfortable with (90 days is common for bot accounts)
-
-If `ventd` org doesn't show up as a resource owner, you need to accept org access for fine-grained PATs under org settings first.
-
-Then on phoenix-desktop:
 ```
-sudo -u cc-runner -i
-echo <NEW_PAT> | gh auth login --with-token
-gh auth status  # verify
-exit
+spawn_cc("fix-260-rebase")
 ```
 
-**Cause B — `PhoenixDnB` isn't a collaborator on `ventd/ventd`:**
-If you're using a personal account but haven't added it to the ventd org. Fix: add yourself as org member with write access to the repo.
+Wait for completion (40 min buffering expected). Check `list_pull_requests state=open`. When #260 has 16/16 green CI, merge it.
 
-(Cause A is more likely since the PAT exists and authenticates fine.)
+**2. Investigate lingering session.** `list_sessions` at session end showed `cc-hal2-682f5c` — unclear provenance. Either kill it or wait for it to emit a PR. Check `tail_session` first to diagnose.
 
-## Verify the fix
+**3. P1-HAL-02 still not dispatched.** After clearing #260 and hal2-session, dispatch P1-HAL-02 (prompt at `.cowork/prompts/P1-HAL-02.md`, already model-mismatch-abort-free per lesson #12). CDN cache is cold now (7+ hours since edit).
 
-After rotating the PAT, dispatch the diagnostic again to prove:
+## Queue (Phase 1 remaining)
 
-    spawn_cc("cc-auth-diag")
+After #260 merges, these are the next dispatches. All non-overlapping allowlists, safe to parallel-dispatch in one turn (MAX_PARALLEL=4):
 
-Then `tail_session(...)`. Expect `PUSH_RESULT: PUSH_OK`.
+- `P1-HAL-02` — calibrate via hal.FanBackend. Prompt ready. Depends on P1-HAL-01 ✓.
+- `P1-HOT-02` — symmetric PWM write error handling. Allowlist: `internal/controller/controller.go`. **Conflicts with #260 #P1-HOT-01**; wait until #260 merges, then dispatch.
+- `P1-MOD-02` — append-not-overwrite in persistModule. Prompt not yet written. Depends on P1-MOD-01 ✓ (just merged #259).
+- `T-CAL-01` — calibrate safety invariants. Prompt not yet written. **Depends on P1-HAL-02 merge**.
+- `T-HOT-01` — bench + alloc assertions. Prompt not yet written. **Depends on P1-HOT-01 merge** (#260).
 
-## Then S6 can start
+Optimal sequencing: dispatch P1-HAL-02 and P1-MOD-02 (after writing its prompt) immediately after #260 merges. Once P1-HAL-02 merges, unblocks T-CAL-01. Once #260 merges, P1-HOT-02 + T-HOT-01 unblock.
 
-Queue is primed, 4 aliases ready, all with non-overlapping allowlists:
-- `wd-safety` (T-WD-01, Opus 4.7)
-- `permpol` (P10-PERMPOL-01, Sonnet 4.6)
-- `T0-META-02` (T0-META-02, Sonnet 4.6)
-- `t-hal-01` (T-HAL-01, Opus 4.7)
+## Hot lessons to apply at start of S6
 
-Dispatch all four concurrently via one Cowork turn. Phase 2–3 MAX_PARALLEL=4.
+- **#11** parallel-dispatch pattern works. Fire all 4 slots in one turn when allowlists don't overlap.
+- **#12** never include model-mismatch-abort in prompts.
+- **#13** after editing a prompt on cowork/state, wait 5 min before re-dispatch OR rename the alias to dodge raw.githubusercontent.com CDN.
+- **#14** on update_pull_request_branch 422 conflict: dispatch fix-<PR>-rebase, never MCP-edit the CHANGELOG.
+- **#15** empty tail_session is not "stuck"; poll `list_pull_requests` instead. Use session time for prep work (next prompts, documentation).
 
-## Merged this session (S5)
+## Ultrareview watch
 
-- `#251` chore(spawn-mcp): collapse service user to cc-runner
-- `#252` fix(spawn-mcp): print-mode + onboarding bypass + per-session logs
-- cowork/state direct commits: `9f03d86` smoke-test prompt, `6fd43a2` cc-auth-diag prompt, `a75b9db` INDEX.md refresh, `bf05c83` THROUGHPUT.md tracker, `4b30b0d` LESSONS.md #9 + #10, `5ce57ab` ESCALATIONS.md
+At 4 more real-task merges OR Phase 1 close: halt new dispatches, `spawn_cc("ultrareview")`, address blockers before resuming. Spec at `.cowork/ULTRAREVIEW.md`.
 
-## S5 throughput
+## Outstanding cleanup
 
-2 PRs merged + 5 cowork/state direct commits, in ~3h wall-clock = **0.67 PR/hr merged**. Below human baseline (5 PR/hr), below S4 (2.7 PR/hr). Cause: one full session consumed unblocking spawn-mcp from its #251 deploy gap. Neither PR advances the ventd roadmap. Infrastructure tax paid; S6 is where the parallel-dispatch architecture finally earns its keep — or gets cut.
+- `cc-hal2-682f5c` session of unknown provenance (investigate first turn).
+- `/var/log/spawn-mcp/sessions/cc-*.log` files accumulating on phoenix-desktop. No rotation. Not urgent.
+- PR #260 has a Cowork-authored CHANGELOG commit (`390c7ad8`) that the rebase will drop. Expected; fix-260-rebase prompt documents this.
 
-## What I did with the rest of the night
+## Deferred items (not blocking S6, revisit later)
 
-Deep-dive on ventd's competitive position. Document at `.cowork/STRATEGY.md` (will be committed shortly). Lists every known fan control tool, where ventd already wins, where it loses, and the concrete technical wedges to dominate each.
-
-## Outstanding local state on cc-runner
-
-- Local commit `abea31b` on cc-runner's `/home/cc-runner/ventd` cowork/state branch has same content as my MCP commit `9f03d86`. Harmless. Next `git reset --hard origin/cowork/state` in cc-runner's worktree clears it if needed.
-- `/tmp/spawn-mcp-smoke.md` exists (600, cc-runner). Can be deleted or left.
-- `/var/log/spawn-mcp/sessions/cc-smoke-test-c9c497.log` exists — evidence.
-- `/var/log/spawn-mcp/sessions/cc-cc-auth-diag-899bdb.log` exists — evidence.
+- spawn-mcp per-alias model selection (lesson #12 future fix).
+- spawn-mcp cache-bust on raw.githubusercontent.com fetch (lesson #13 future fix).
+- spawn-mcp line-buffered stdout (lesson #15 future fix).
+- All three deferred per memory #13/#14 stop rules — don't touch MCP infra mid-session.
+- `T-HAL-01` already merged as #258 despite being model-mismatch-tagged Opus 4.7 in the original prompt. Sonnet-compatible execution of safety-critical rule-file work is an empirical data point in favor of lesson #12's premise.
