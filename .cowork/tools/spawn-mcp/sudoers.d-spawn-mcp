@@ -1,0 +1,15 @@
+# /etc/sudoers.d/spawn-mcp
+# Allows the spawn-mcp service user to execute a tightly scoped set of
+# commands as cc-runner. No shell, no env passthrough, no wildcards on
+# arbitrary paths.
+
+Cmnd_Alias SPAWN_MCP_CMDS = \
+    /usr/bin/tmux new-session -d -s *, \
+    /usr/bin/tmux ls -F *, \
+    /usr/bin/tmux kill-session -t *, \
+    /usr/bin/tmux capture-pane -p -S * -t *, \
+    /usr/bin/git -C /home/cc-runner/ventd fetch origin main --depth=50
+
+spawn-mcp ALL=(cc-runner) NOPASSWD: SPAWN_MCP_CMDS
+Defaults:spawn-mcp !requiretty
+Defaults:spawn-mcp env_reset

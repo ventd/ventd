@@ -1,0 +1,39 @@
+[Unit]
+Description=spawn-mcp (Cowork -> Claude Code dispatcher)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spawn-mcp
+Group=spawn-mcp
+WorkingDirectory=/opt/spawn-mcp
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/etc/spawn-mcp/env
+ExecStart=/opt/spawn-mcp/venv/bin/python /opt/spawn-mcp/server.py
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log/spawn-mcp /tmp/cc-runner
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+
+# spawn-mcp needs to exec `sudo -u cc-runner tmux ...`
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=cloudflared tunnel for spawn-mcp
+After=spawn-mcp.service
+Requires=spawn-mcp.service
+
+[Service]
+Type=simple
+User=spawn-mcp
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8891 --no-autoupdate
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
