@@ -156,10 +156,17 @@ function addSensorFromReading(btn){
 function renderSensorCardHTML(s, i){
   const st = sts ? sts.sensors.find(x=>x.name===s.name) : null;
   const val = st ? fmtSensorVal(st.value, st.unit) : '\u2014';
-  const valCls = (st && st.unit==='\u00b0C') ? 'sensor-val '+tempClass(st.value) : 'sensor-val';
+  const heatClass = (st && st.unit==='\u00b0C') ? tempClass(st.value) : '';
+  const valCls = heatClass ? 'sensor-val '+heatClass : 'sensor-val';
   const pathDisplay = s.type==='nvidia'
     ? 'GPU '+(s.path||'0')+(s.metric?' \u00b7 '+s.metric:'')
     : (s.path||'').replace('/sys/class/hwmon/','');
+  // Sparkline inherits its stroke from the wrapper's colour class.
+  // For temps that's the tc-* ramp (cool→crit); for everything else
+  // (voltage, power, RPM) we leave the wrapper uncoloured so the
+  // default .sparkline-wrap rule picks up var(--fg3).
+  const spark = (typeof sparklineHTML === 'function')
+    ? sparklineHTML(s.name, heatClass) : '';
   return '<div class="card sensor-card" data-sensor="'+esc(s.name)+'">'+
     '<div class="card-name-edit sensor-name-edit">'+
       '<input type="text" value="'+esc(s.name)+'" '+
@@ -170,6 +177,7 @@ function renderSensorCardHTML(s, i){
     '</div>'+
     '<div class="sensor-path">'+esc(pathDisplay)+'</div>'+
     '<div class="'+valCls+'">'+val+'</div>'+
+    spark+
     '<div class="sensor-actions">'+
       '<button class="danger" data-action="delete-sensor" data-idx="'+i+'" title="Remove sensor"><svg class="icon" aria-hidden="true"><use href="/ui/icons/sprite.svg#trash-2"/></svg></button>'+
     '</div>'+
@@ -290,6 +298,11 @@ function renderFanCardHTML(ctrl, i){
 
     const dCls = dutyClass(duty);
     const fanBindCurve = (!isManual && ctrl.curve) ? ctrl.curve : '';
+    // Sparkline uses the same duty-colour ramp the duty bar already
+    // applies — low=teal, mid=amber, high=red — so a glance at the
+    // card reads both "where is it now" and "where has it been".
+    const fanSpark = (typeof sparklineHTML === 'function')
+      ? sparklineHTML(ctrl.fan, dCls) : '';
     return '<div class="card fan-card" data-fan="'+esc(ctrl.fan)+'"'+
       (fanBindCurve ? ' data-binds-curve="'+esc(fanBindCurve)+'"' : '')+'>'+
       '<div class="card-name-edit">'+
@@ -307,6 +320,7 @@ function renderFanCardHTML(ctrl, i){
         '<div class="duty-bar"><div class="fill '+dCls+'" data-width="'+duty+'"></div></div>'+
         '<span class="'+dCls+'">'+duty+'%</span>'+
       '</div>'+
+      fanSpark+
       '<div class="mode-toggle">'+
         '<button class="mode-btn'+(isManual?'':' active')+'" data-action="set-mode" data-idx="'+i+'" data-manual="0">Curve</button>'+
         '<button class="mode-btn'+(isManual?' active':'')+'" data-action="set-mode" data-idx="'+i+'" data-manual="1">Manual</button>'+

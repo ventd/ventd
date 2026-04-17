@@ -30,6 +30,11 @@ async function loadConfig(){
 function applyStatus(snap){
   const dot = document.getElementById('live-dot');
   sts = snap;
+  // Append new readings to the per-metric history buffer BEFORE the
+  // cards re-render, so the sparkline path inside each card template
+  // reflects the freshest tick the same repaint cycle that updates
+  // the numeric value.
+  if(typeof updateHistoryFromStatus === 'function') updateHistoryFromStatus(snap);
   if(dot){ dot.className='live-dot on'; clearTimeout(dot._t); dot._t=setTimeout(()=>{ dot.className='live-dot'; },2000); }
   const editingFan = document.activeElement && document.activeElement.closest('.card-name-edit');
   const editingSensor = document.activeElement && document.activeElement.closest('.sensor-name-edit');

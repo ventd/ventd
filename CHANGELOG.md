@@ -63,6 +63,16 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   accumulator state. Clamp to `[MinPWM, MaxPWM]` remains the final
   safety gate — smoothing cannot push the written PWM below the fan's
   floor. (Refs #180)
+- Time-series sparklines on every sensor and fan card. Each tile
+  now carries a tiny SVG trend strip below its current value,
+  coloured with the same teal/amber/red ramp the numeric value and
+  duty bar already use. Backed by a per-metric ring buffer (1 hour
+  of history at the 2 s sampler interval, ~58 KB total for a
+  typical 8-metric config). New `GET /api/history` endpoint returns
+  either a single metric's samples (`?metric=<name>`) or all metrics
+  in one envelope for fresh-tab seed loads. Client appends to its
+  local buffer from the existing SSE stream, so steady-state adds
+  zero new network chatter. (Refs #180)
 
 ### Added — Phase 2 UI (Session C, v0.3 stream)
 
