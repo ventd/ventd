@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
+
 ### Added
 
 - security: Permissions-Policy header and ETag caching on embedded UI (#P10-PERMPOL-01)

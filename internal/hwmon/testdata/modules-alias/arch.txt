@@ -1,0 +1,50 @@
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/coretemp.ko.zst'
+alias platform:coretemp coretemp
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/nct6775.ko.zst'
+alias platform:nct6775 nct6775
+alias platform:nct6776 nct6775
+alias platform:nct6779 nct6775
+alias platform:nct6791 nct6775
+alias platform:nct6792 nct6775
+alias platform:nct6793 nct6775
+alias platform:nct6795 nct6775
+alias platform:nct6796 nct6775
+alias platform:nct6797 nct6775
+alias platform:nct6798 nct6775
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/nct6683.ko.zst'
+alias platform:nct6683 nct6683
+alias platform:nct6687 nct6683
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/it87.ko.zst'
+alias platform:it87 it87
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/pwm-fan.ko.zst'
+alias of:N*T*Cpwm-fan pwm-fan
+alias of:N*T*Cpwm-fan0C* pwm-fan
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/gpio-fan.ko.zst'
+alias of:N*T*Cgpio-fan gpio-fan
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/k10temp.ko.zst'
+alias pci:v00001022d00001603sv*sd*bc*sc*i* k10temp
+alias pci:v00001022d00001533sv*sd*bc*sc*i* k10temp
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/lm75.ko.zst'
+alias i2c:ds75 lm75
+alias i2c:lm75 lm75
+alias i2c:lm75a lm75
+alias i2c:tmp100 lm75
+alias i2c:tmp101 lm75
+alias i2c:tmp105 lm75
+alias of:N*T*Cnational,lm75 lm75
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/asus-ec-sensors.ko.zst'
+alias acpi*:ASUSECSENS:* asus_ec_sensors
+alias platform:asus-ec-sensors asus_ec_sensors
+
+# Aliases extracted from file '/lib/modules/6.12.1-arch1-1/kernel/drivers/hwmon/w83627ehf.ko.zst'
+alias platform:w83627ehf w83627ehf
+alias platform:w83627dhg w83627ehf
+alias platform:w83677hg w83627ehf

@@ -509,13 +509,18 @@ func enumerateHwmonCandidates(logger *slog.Logger) []candidate {
 		logger.Debug("could not read kernel release", "err", err)
 		return nil
 	}
-	dir := "/lib/modules/" + strings.TrimSpace(string(release)) + "/kernel/drivers/hwmon"
+	krelease := strings.TrimSpace(string(release))
+	root := modulesRootFor(krelease)
+	dir := filepath.Join(root, "kernel/drivers/hwmon")
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		logger.Debug("could not read hwmon module directory", "dir", dir, "err", err)
 		return nil
 	}
+
+	// Parse modules.alias once for all modules — replaces per-module modinfo invocations.
+	aliasMap := loadModulesAlias(root, logger)
 
 	var candidates []candidate
 	for _, e := range entries {
@@ -526,8 +531,7 @@ func enumerateHwmonCandidates(logger *slog.Logger) []candidate {
 		if mod == "" {
 			continue
 		}
-		aliasOut, _ := exec.Command("modinfo", "-F", "alias", mod).Output()
-		if isBusSpecificModule(string(aliasOut)) {
+		if aliasMap != nil && isBusSpecificModule(strings.Join(aliasMap[mod], "\n")) {
 			continue
 		}
 		candidates = append(candidates, candidate{module: mod})
