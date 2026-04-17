@@ -120,6 +120,54 @@ button.danger:hover { background: var(--red); color: #fff; }
 }
 .profile-select:focus { outline: 1px solid var(--teal); }
 
+/* Schedule source badge — sits next to the profile dropdown and
+ * tells the operator whether a scheduled switch or a manual override
+ * is driving the current profile. Shown only while a profile is
+ * actually running. */
+.schedule-source {
+  font-size: 0.65rem; text-transform: uppercase;
+  letter-spacing: 0.08em; padding: 2px 6px; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--fg2);
+  line-height: 1.4; user-select: none;
+}
+.schedule-source.scheduled { color: var(--teal); border-color: var(--teal); }
+.schedule-source.manual { color: var(--amber, #c0a040); border-color: var(--amber, #c0a040); }
+
+/* Profile schedule editor (Settings modal). Kept minimal — the
+ * daemon's validator is authoritative; this UI just gives operators
+ * a click-driven alternative to hand-editing the grammar string. */
+.profile-schedules-intro { margin-bottom: 0.75rem; }
+.profile-schedules-intro code {
+  font-family: var(--font-mono, monospace); font-size: 0.85em;
+  background: var(--bg2); padding: 0 4px; border-radius: 3px;
+}
+.sched-row {
+  padding: 0.75rem 0; border-bottom: 1px solid var(--border);
+  display: grid; gap: 0.5rem;
+}
+.sched-row:last-child { border-bottom: none; }
+.sched-row-hdr { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.sched-preview { color: var(--fg3); font-size: 0.8rem; }
+.sched-inputs {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+}
+.sched-inputs input[type="time"] {
+  background: var(--bg2); color: var(--fg1); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 6px; font-family: var(--font-sans);
+}
+.sched-sep { color: var(--fg3); }
+.sched-days {
+  display: flex; flex-wrap: wrap; gap: 0.75rem;
+}
+.sched-day {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 0.8rem; color: var(--fg2);
+}
+.sched-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.schedule-editor-status { font-size: 0.8rem; color: var(--fg3); margin-top: 0.5rem; }
+.schedule-editor-status.error { color: var(--red, #c05050); }
+.schedule-editor-status.ok { color: var(--teal); }
+
 /* ── Sidebar contents (hardware monitor) ── */
 .sidebar-hdr {
   color: var(--fg2); font-size: 0.65rem; text-transform: uppercase;

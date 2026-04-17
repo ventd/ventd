@@ -68,10 +68,17 @@ type Config struct {
 // profile, because "force a fixed duty" is a per-fan ad-hoc
 // intervention, not a preset the operator wants to switch back to.
 //
+// The optional Schedule string lets the daemon auto-switch profiles on
+// a time-of-day / day-of-week cadence — see ParseSchedule for grammar.
+// Profiles with an empty Schedule are eligible for manual selection
+// only; they are the implicit "default fallback" when no scheduled
+// profile matches the current local time.
+//
 // Zero value (empty map) is safe: v0.2.x configs omit the profiles
-// block entirely and the omitempty tag keeps round-trip clean.
+// block entirely and the omitempty tags keep round-trip clean.
 type Profile struct {
 	Bindings map[string]string `yaml:"bindings" json:"bindings"`
+	Schedule string            `yaml:"schedule,omitempty" json:"schedule,omitempty"`
 }
 
 // Hwmon groups runtime-tunable knobs for the hwmon watcher. All fields are
@@ -945,6 +952,21 @@ func validate(cfg *Config) error {
 		}
 		if _, ok := curves[ctrl.Curve]; !ok {
 			return fmt.Errorf("config: controls[%d]: curve %q is not defined", i, ctrl.Curve)
+		}
+	}
+
+	// Schedule grammar is validated strictly: a typo in a schedule string
+	// would otherwise leave the profile silently manual-only, and the
+	// operator would be debugging "why didn't my silent mode fire at 10pm"
+	// for hours. Reject at load so the mistake surfaces immediately. The
+	// parser is pure and cheap — no I/O, no allocations beyond the
+	// returned Schedule.
+	for name, p := range cfg.Profiles {
+		if p.Schedule == "" {
+			continue
+		}
+		if _, err := ParseSchedule(p.Schedule); err != nil {
+			return fmt.Errorf("config: profile %q: %w", name, err)
 		}
 	}
 

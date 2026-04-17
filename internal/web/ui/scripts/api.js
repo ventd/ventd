@@ -556,9 +556,17 @@ function renderProfileSelect(state){
     return;
   }
   names.sort();
-  sel.innerHTML = names.map(n =>
-    '<option value="'+esc(n)+'"'+(n===state.active?' selected':'')+'>'+esc(n)+'</option>').join('');
+  sel.innerHTML = names.map(n => {
+    const schedule = (state.profiles[n] && state.profiles[n].schedule) || '';
+    const suffix = schedule ? ' ('+esc(schedule)+')' : ' (default)';
+    return '<option value="'+esc(n)+'"'+(n===state.active?' selected':'')+'>'+esc(n)+suffix+'</option>';
+  }).join('');
   sel.classList.remove('hidden');
+  // Schedule source badge is refreshed by schedule.js; kick it so the
+  // badge tracks the same loadProfiles cadence without a separate
+  // polling loop.
+  if(typeof refreshScheduleStatus === 'function') refreshScheduleStatus();
+  if(typeof renderProfileScheduleEditor === 'function') renderProfileScheduleEditor(state);
 }
 
 async function switchProfile(name){
@@ -573,6 +581,8 @@ async function switchProfile(name){
     notify('Switched to '+name, 'ok');
     // Re-fetch config so the dashboard reflects the new bindings.
     if(typeof loadConfig === 'function') loadConfig();
+    // Update the source badge: the POST flipped us to manual.
+    if(typeof refreshScheduleStatus === 'function') refreshScheduleStatus();
   } catch(e){
     notify('Switch profile failed: '+e.message, 'error');
   }

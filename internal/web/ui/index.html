@@ -83,6 +83,7 @@
   </div>
   <div class="header-actions">
     <select id="profile-select" class="profile-select hidden" data-action="switch-profile" title="Active profile"></select>
+    <span id="schedule-source" class="schedule-source hidden" title="Active profile source"></span>
     <div class="panic-wrap">
       <button id="btn-panic" class="danger panic-btn" data-action="toggle-panic-popover" title="Pin all fans to max PWM">Panic</button>
       <div id="panic-popover" class="panic-popover hidden" role="menu">
@@ -135,6 +136,13 @@
           <option value="f">°F</option>
         </select>
       </div>
+    </div>
+
+    <div class="modal-section" id="profile-schedules-section" hidden>
+      <div class="modal-section-hdr">Profile Schedules</div>
+      <div class="row-subtitle profile-schedules-intro">Grammar: <code>HH:MM-HH:MM *</code> or weekday spec like <code>mon-fri</code>, <code>sat,sun</code>. Leave blank for manual-only.</div>
+      <div id="profile-schedules-body"></div>
+      <div id="schedule-editor-status"></div>
     </div>
 
     <div class="modal-section">
@@ -234,6 +242,7 @@
 <script src="/ui/scripts/api.js" defer></script>
 <script src="/ui/scripts/render.js" defer></script>
 <script src="/ui/scripts/curve-editor.js" defer></script>
+<script src="/ui/scripts/schedule.js" defer></script>
 <script src="/ui/scripts/setup.js" defer></script>
 </body>
 </html>

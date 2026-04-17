@@ -111,8 +111,5 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // readyNow returns time.Now() or the injected clock in tests. Lifted to a
 // method so /readyz's staleness check is deterministic under test.
 func (s *Server) readyNow() time.Time {
-	if s.nowFn != nil {
-		return s.nowFn()
-	}
-	return time.Now()
+	return s.now()
 }

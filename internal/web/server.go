@@ -86,10 +86,13 @@ type Server struct {
 	// SetReadyState. Nil-safe: the handlers return 503 with a clear reason
 	// when ready is nil, so tests that skip readiness plumbing still work.
 	ready *ReadyState
-	// nowFn is a test seam for /readyz's staleness check. Never set in
-	// production; tests inject a deterministic clock to exercise the 5s
-	// boundary without racing time.Now().
-	nowFn func() time.Time
+	// nowFn is a test seam for time-dependent code paths (/readyz
+	// staleness, scheduler tick evaluation). Never set in production;
+	// tests inject a deterministic clock via SetNowFn. Held as an
+	// atomic.Pointer because production reads happen from the scheduler
+	// goroutine concurrent with test writes, and the race detector
+	// flags a plain field even when only one goroutine actually writes.
+	nowFn atomic.Pointer[nowFnValue]
 
 	// rescan holds the before/after/current snapshots from the most
 	// recent /api/hardware/rescan call. Lazily initialised by the
@@ -106,6 +109,21 @@ type Server struct {
 	// per tick. Lost on daemon restart — the UI seeds from /api/history
 	// once on page load and then appends from the existing SSE stream.
 	history *HistoryStore
+
+	// schedState tracks the scheduler goroutine's manual-override
+	// flag and last observed scheduled winner. Zero value is ready
+	// to use; see internal/web/schedule.go for the semantics.
+	schedState scheduleState
+	// schedIntervalNS is the scheduler's tick period in nanoseconds,
+	// accessed atomically because tests override it after New() has
+	// already launched the scheduler goroutine. Zero falls back to
+	// defaultScheduleInterval (60s) — see Server.schedulerInterval.
+	schedIntervalNS atomic.Int64
+	// schedWake is signalled by SetSchedulerInterval so the running
+	// goroutine aborts its current wait and re-reads the new cadence
+	// immediately. A buffered cap-1 channel is sufficient: the signal
+	// is edge-triggered, not a queue of requests.
+	schedWake chan struct{}
 }
 
 // New constructs the web server. setupToken is the one-time first-boot token
@@ -131,6 +149,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		trustedProxies: parseTrustedProxies(live.Web.TrustProxy, logger),
 		sseInterval:    defaultSSEInterval,
 		history:        NewHistoryStore(defaultSSEInterval, historyDefaultWindow),
+		schedWake:      make(chan struct{}, 1),
 	}
 	// Construct the http.Server at New-time rather than ListenAndServe-time
 	// so Shutdown() can safely be called from another goroutine without
@@ -205,6 +224,8 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		{name: "profile", handler: s.handleProfile, auth: true},
 		{name: "profile/active", handler: s.handleProfileActive, auth: true},
 		{name: "history", handler: s.handleHistory, auth: true},
+		{name: "profile/schedule", handler: s.handleProfileSchedule, auth: true},
+		{name: "schedule/status", handler: s.handleScheduleStatus, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
@@ -243,6 +264,12 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	// the daemon-scoped ctx is cancelled (same pattern as
 	// expireSetupToken) so Shutdown() doesn't leak the ticker.
 	go s.runHistorySampler(ctx)
+	// Kick the scheduler goroutine off at construction rather than in
+	// ListenAndServe so tests that exercise /api/schedule/status (and
+	// the mock-clock tick path) don't need to stand up the HTTP
+	// listener. The loop exits when ctx cancels.
+	go s.runScheduler()
+
 	return s
 }
 
@@ -269,6 +296,49 @@ func (s *Server) registerAPIRoutes(routes []apiRoute) {
 		s.mux.HandleFunc("/api/"+r.name, h)
 		s.mux.HandleFunc("/api/v1/"+r.name, h)
 	}
+}
+
+// nowFnValue wraps a clock function so Server.nowFn can be an
+// atomic.Pointer without Go complaining about storing bare func values.
+type nowFnValue struct {
+	fn func() time.Time
+}
+
+// SetNowFn installs a test clock that replaces time.Now() in
+// readyNow() and the scheduler goroutine. Safe to call concurrently
+// with handlers and the scheduler tick.
+func (s *Server) SetNowFn(fn func() time.Time) {
+	if fn == nil {
+		s.nowFn.Store(nil)
+		return
+	}
+	s.nowFn.Store(&nowFnValue{fn: fn})
+}
+
+// SetSchedulerInterval overrides the scheduler tick cadence. Tests
+// drop this to milliseconds so transitions land within the test's
+// patience window. Production never calls it — the default 60s
+// cadence matches minute-granularity schedule grammar. Atomic so
+// calls from a test goroutine race-safely with the scheduler loop.
+//
+// A wake signal is raised so the goroutine aborts its current (long)
+// wait and re-reads the shorter interval on the next iteration
+// instead of sleeping through the old cadence.
+func (s *Server) SetSchedulerInterval(d time.Duration) {
+	s.schedIntervalNS.Store(int64(d))
+	select {
+	case s.schedWake <- struct{}{}:
+	default:
+	}
+}
+
+// schedulerInterval returns the current tick cadence, falling back
+// to defaultScheduleInterval when unset.
+func (s *Server) schedulerInterval() time.Duration {
+	if v := s.schedIntervalNS.Load(); v > 0 {
+		return time.Duration(v)
+	}
+	return defaultScheduleInterval
 }
 
 // SetVersionInfo populates the build metadata served by /api/version. Must
