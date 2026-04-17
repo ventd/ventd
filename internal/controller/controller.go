@@ -4,17 +4,17 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"math"
 	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/curve"
+	"github.com/ventd/ventd/internal/hal"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/watchdog"
@@ -46,6 +46,7 @@ type Controller struct {
 	cal       CalibrationChecker
 	panic     PanicChecker // nil-safe; nil → panic check skipped
 	logger    *slog.Logger
+	backend   hal.FanBackend // resolved from fanType at construction
 	// onSensorRead is called after each completed tick that attempted a
 	// sensor read. Nil in tests; main.go wires it to web.ReadyState so the
 	// /readyz probe reflects whether the control loop is still ticking.
@@ -104,6 +105,11 @@ func New(
 		cal:       cal,
 		logger:    logger.With("fan", fanName, "curve", curveName),
 	}
+	if fanType == "nvidia" {
+		c.backend = halnvml.NewBackend(c.logger)
+	} else {
+		c.backend = halhwmon.NewBackend(c.logger)
+	}
 	for _, o := range opts {
 		o(c)
 	}
@@ -111,7 +117,7 @@ func New(
 }
 
 // Run starts the control loop. It takes manual control of the PWM channel
-// (pwm_enable=1), ticks at interval until ctx is cancelled, then returns.
+// via the backend, ticks at interval until ctx is cancelled, then returns.
 //
 // The watchdog is restored on every exit path — normal ctx.Done(), early
 // error return, and panic — per hwmon-safety rule 4. The daemon-level
@@ -135,31 +141,12 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 
 	if c.fanType == "nvidia" {
 		c.logger.Info("controller: nvidia fan control acquired", "gpu_index", c.pwmPath)
-	} else {
-		live := c.cfg.Load()
-		isRPMTarget := false
-		if fan, ok := findFanByPath(live, c.pwmPath, c.fanType); ok {
-			isRPMTarget = fan.ControlKind == "rpm_target"
-		}
-		if isRPMTarget {
-			// fan*_target fans use pwm*_enable for manual mode, not a
-			// (non-existent) fan*_target_enable file.
-			enablePath := hwmon.RPMTargetEnablePath(c.pwmPath)
-			if writeErr := hwmon.WritePWMEnablePath(enablePath, 1); writeErr != nil &&
-				!errors.Is(writeErr, fs.ErrNotExist) {
-				return fmt.Errorf("controller %s: take manual control: %w", c.fanName, writeErr)
-			}
-			c.logger.Info("controller: RPM-target fan manual control acquired", "path", c.pwmPath)
-		} else if writeErr := hwmon.WritePWMEnable(c.pwmPath, 1); writeErr != nil {
-			if !errors.Is(writeErr, fs.ErrNotExist) {
-				return fmt.Errorf("controller %s: take manual control: %w", c.fanName, writeErr)
-			}
-			c.logger.Info("controller: pwm_enable not supported by driver, writing PWM values directly",
-				"pwm_path", c.pwmPath)
-		} else {
-			c.logger.Info("controller: manual PWM control acquired", "pwm_path", c.pwmPath)
-		}
 	}
+	// For hwmon fans, manual-mode acquisition happens lazily inside
+	// hal/hwmon.Backend.Write on the first tick — the controller no
+	// longer touches sysfs mode files directly. Acquire-level errors
+	// surface as the first tick's Write error, logged via the same
+	// path as any transient write failure.
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -229,22 +216,12 @@ func (c *Controller) tick() {
 				"pwm_path", c.pwmPath, "fan_type", fan.Type)
 			return
 		}
-		var writeErr error
-		if c.fanType == "nvidia" {
-			idx, err := parseNvidiaIndex(c.pwmPath)
-			if err != nil {
-				c.logger.Error("controller: invalid nvidia GPU index", "err", err)
-				return
-			}
-			writeErr = nvidia.WriteFanSpeed(idx, pwm)
-		} else if fan.ControlKind == "rpm_target" {
-			maxRPM := hwmon.ReadFanMaxRPM(c.pwmPath)
-			rpm := int(math.Round(float64(pwm) / 255.0 * float64(maxRPM)))
-			writeErr = hwmon.WriteFanTarget(c.pwmPath, rpm)
-		} else {
-			writeErr = hwmon.WritePWM(c.pwmPath, pwm)
+		ch, err := c.channelFor(fan)
+		if err != nil {
+			c.logger.Error("controller: cannot build backend channel", "err", err)
+			return
 		}
-		if writeErr != nil {
+		if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
 			c.logger.Error("controller: manual PWM write failed", "err", writeErr)
 		}
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
@@ -316,22 +293,12 @@ func (c *Controller) tick() {
 		}
 	}
 
-	var writeErr error
-	if c.fanType == "nvidia" {
-		idx, err := parseNvidiaIndex(c.pwmPath)
-		if err != nil {
-			c.logger.Error("controller: invalid nvidia GPU index", "err", err)
-			return
-		}
-		writeErr = nvidia.WriteFanSpeed(idx, pwm)
-	} else if fan.ControlKind == "rpm_target" {
-		maxRPM := hwmon.ReadFanMaxRPM(c.pwmPath)
-		rpm := int(math.Round(float64(pwm) / 255.0 * float64(maxRPM)))
-		writeErr = hwmon.WriteFanTarget(c.pwmPath, rpm)
-	} else {
-		writeErr = hwmon.WritePWM(c.pwmPath, pwm)
+	ch, err := c.channelFor(fan)
+	if err != nil {
+		c.logger.Error("controller: cannot build backend channel", "err", err)
+		return
 	}
-	if writeErr != nil {
+	if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
 		c.logger.Error("controller: PWM write failed", "err", writeErr)
 		return
 	}
@@ -517,6 +484,41 @@ func parseNvidiaIndex(s string) (uint, error) {
 		return 0, fmt.Errorf("controller: parse nvidia GPU index from %q: %w", s, err)
 	}
 	return uint(v), nil
+}
+
+// channelFor builds the hal.Channel the configured backend expects for
+// this fan at the current tick. Called each tick rather than cached
+// because config.Fan.ControlKind can flip on hot-reload (a user may
+// retype a fan from pwm to rpm_target in config.yaml + SIGHUP), and
+// the backend dispatches Write based on the RPMTarget opaque flag.
+func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
+	if c.fanType == "nvidia" {
+		if _, err := parseNvidiaIndex(c.pwmPath); err != nil {
+			return hal.Channel{}, err
+		}
+		return hal.Channel{
+			ID:     c.pwmPath,
+			Role:   hal.RoleGPU,
+			Caps:   hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+			Opaque: halnvml.State{Index: c.pwmPath},
+		}, nil
+	}
+	caps := hal.CapRead | hal.CapRestore
+	if fan.ControlKind == "rpm_target" {
+		caps |= hal.CapWriteRPMTarget
+	} else {
+		caps |= hal.CapWritePWM
+	}
+	return hal.Channel{
+		ID:   c.pwmPath,
+		Role: hal.RoleUnknown,
+		Caps: caps,
+		Opaque: halhwmon.State{
+			PWMPath:    c.pwmPath,
+			RPMTarget:  fan.ControlKind == "rpm_target",
+			OrigEnable: -1,
+		},
+	}, nil
 }
 
 func clamp(v, lo, hi uint8) uint8 {

@@ -8,6 +8,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- refactor: FanBackend interface (#P1-HAL-01)
 - docs: add public roadmap (#P0-02)
 - docs: add hardware-report issue template (#P0-03)
 - test: add fixture library skeleton (#T0-INFRA-01)
