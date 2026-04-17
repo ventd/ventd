@@ -15,7 +15,7 @@ type Fake struct {
 	rec *testutil.CallRecorder
 }
 
-// New returns a new Fake microcontroller.
+// New returns a new Fake acoustic signal generator.
 func New(t *testing.T, opts *Options) *Fake {
 	t.Helper()
 	if opts == nil {
