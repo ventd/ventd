@@ -1,6 +1,7 @@
 package hwmon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -278,7 +279,7 @@ func tryHWDB(logger *slog.Logger) bool {
 		if !errors.Is(err, hwdb.ErrNoMatch) {
 			level = slog.LevelWarn
 		}
-		logger.Log(nil, level, "hwdb_miss",
+		logger.Log(context.Background(), level, "hwdb_miss",
 			"board_vendor", fp.BoardVendor,
 			"board_name", fp.BoardName,
 			"board_version", fp.BoardVersion,

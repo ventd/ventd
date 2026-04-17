@@ -3,9 +3,9 @@
 // install-time probe.
 //
 // The database is an embedded YAML file (profiles.yaml) compiled in via
-// go:embed so the daemon has no runtime filesystem dependency on the
-// profile data. Remote refresh from ventd/hardware-profiles is deliberately
-// out of scope here — see P1-FP-02.
+// the embed package so the daemon has no runtime filesystem dependency on
+// the profile data. Remote refresh from ventd/hardware-profiles is
+// deliberately out of scope here — see P1-FP-02.
 //
 // # Resolution order
 //
