@@ -1,0 +1,17 @@
+{"ts":"UNKNOWN","kind":"merge","task":"P0-02","pr":238,"sha":"4aa6a37","by":"cowork","text":"docs: add public roadmap"}
+{"ts":"UNKNOWN","kind":"merge","task":"P0-03","pr":239,"sha":"c08d9b3","by":"cowork","text":"docs: add hardware-report issue template"}
+{"ts":"UNKNOWN","kind":"merge","task":"T0-INFRA-01","sha":"e0dcef6","by":"cowork","text":"test: add fixture library skeleton"}
+{"ts":"UNKNOWN","kind":"merge","task":"T0-INFRA-02","sha":"037e1c0","by":"cowork","text":"test: implement fakehwmon fixture"}
+{"ts":"UNKNOWN","kind":"merge","task":"T0-META-03","sha":"8646e05","by":"cowork","text":"docs: add regression-test checkbox to PR template"}
+{"ts":"UNKNOWN","kind":"merge","task":"cowork-protocol-doc","pr":243,"sha":"1e91bc3","by":"cowork","text":"docs: CLAUDE.md alias protocol"}
+{"ts":"2026-04-17T17:27:57Z","kind":"dispatch","task":"P1-HAL-01","alias":"hal","pr":247,"model":"claude-opus-4-7"}
+{"ts":"2026-04-17T16:57:08Z","kind":"dispatch","task":"P1-FP-01","alias":"fp","pr":246,"model":"claude-sonnet-4-6"}
+{"ts":"2026-04-17T16:01:53Z","kind":"dispatch","task":"T0-META-01","alias":"rulelint","pr":244,"model":"claude-sonnet-4-6"}
+{"ts":"2026-04-17T16:28:21Z","kind":"dispatch","task":"T0-INFRA-03","alias":"faketime","pr":245,"model":"claude-sonnet-4-6"}
+{"ts":"2026-04-18T00:00:00Z","kind":"accept","task":"P1-HAL-01","pr":247,"sha":"c6726f93","reason":"CI 13/13 green; deviations (no init, lazy manual acquire) signed off"}
+{"ts":"2026-04-18T00:00:01Z","kind":"merge","task":"P1-HAL-01","pr":247,"sha":"c049a0f","by":"cowork"}
+{"ts":"2026-04-18T00:00:02Z","kind":"accept","task":"P1-FP-01","pr":246,"sha":"91e18b5d","reason":"partial accepted; knownDriverNeeds retirement deferred to P1-FP-01b"}
+{"ts":"2026-04-18T00:00:03Z","kind":"merge","task":"P1-FP-01","pr":246,"sha":"c9b5e76","by":"cowork"}
+{"ts":"2026-04-18T00:00:04Z","kind":"revise","task":"T0-INFRA-03","pr":245,"reason":"golangci-lint errcheck on recover() return"}
+{"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck — same class as T0-INFRA-03"}
+{"ts":"2026-04-18T00:00:06Z","kind":"note","text":"Event-sourced state: .cowork/state.yaml retired as primary; live PR/CI state = GitHub, decision log = this file."}
