@@ -1,0 +1,23 @@
+version: 1
+updated: 2026-04-17T22:15:00Z
+tracks:
+  FOUND:
+    status: in_flight
+    current_task: P0-02
+    branch: claude/FOUND-roadmap-e4b9f
+    pr: null
+    last_review: null
+    completed_tasks:
+      - P0-01
+in_flight:
+  - track: FOUND
+    task: P0-02
+    cc_session: cowork-2026-04-17T22:15:00Z-p0-02
+    started: 2026-04-17T22:15:00Z
+reviews: {}
+merge_queue: []
+notes:
+  - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached — see ESCALATIONS.md first entry."
+  - 2026-04-17T11:15:00Z: "P0-01 bootstrapped manually by the developer's CC session because the prior Cowork session couldn't reach MCP. .cowork/ACK.md and .cowork/state.yaml committed on cowork/state at 6c054a8. The unscheduled `.cowork/` gitignore carve-out (per masterplan §3) was also merged out-of-band as PR #236 (squashed to fb581b9 on main). FOUND track now ready; P0-02 and P0-03 unblocked. Next Cowork session should resume from P0-02 after verifying MCP works."
+  - 2026-04-17T21:30:00Z: "Cowork resumed via gh CLI (no MCP). Read-reconciled against origin/main and PR list through #236. P0-02 assigned to CC on Haiku 4.5 per operator model policy. Auto-merge gated by PHASE-0/FIRST-PR escalation on completion (this is Cowork's first Phase-0 PR even though P0-01 existed pre-loop). ventd/hardware-profiles repo missing — future-blocks P5-PROF-01; not escalating yet."
+  - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live to both repos. Reconciliation: prior P0-02 in_flight was phantom — branch claude/FOUND-roadmap-d3f2a absent upstream, no PR opened, past §6 45-min timeout. P0-02 reset and reassigned to new branch claude/FOUND-roadmap-e4b9f on Haiku 4.5. PHASE-0/FIRST-PR escalation still applies on completion — no auto-merge. hardware-profiles repo now reachable; prior P5-PROF-01 future-block concern resolved. ACK.md updated per developer instruction: current masterplan and testplan SHA-256s recorded (masterplan SHA changed since original ACK at 3be1a38 — plan was edited between sessions; new SHA 077ab5ef reflects the plan this loop is operating against); masterplan §2 'tests out of scope' noted as superseded by testplan post-#227."
