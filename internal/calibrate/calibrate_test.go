@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/testfixture/faketime"
 	"github.com/ventd/ventd/internal/watchdog"
@@ -47,6 +49,30 @@ func jsonNumber(v int64) string {
 	return string(b)
 }
 
+// makeHwmonResolver returns a ChannelResolver backed by a fresh halhwmon.Backend.
+// The resolver builds a hal.Channel from the fan's PWMPath and ControlKind so
+// tests drive calibration through the HAL layer without a real sysfs enumeration.
+func makeHwmonResolver(t *testing.T) (ChannelResolver, *halhwmon.Backend) {
+	t.Helper()
+	backend := halhwmon.NewBackend(nil)
+	return func(_ context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error) {
+		isRPM := fan.ControlKind == "rpm_target"
+		caps := hal.CapRead | hal.CapWritePWM | hal.CapRestore
+		if isRPM {
+			caps = hal.CapRead | hal.CapWriteRPMTarget | hal.CapRestore
+		}
+		return backend, hal.Channel{
+			ID:   fan.PWMPath,
+			Caps: caps,
+			Opaque: halhwmon.State{
+				PWMPath:    fan.PWMPath,
+				RPMTarget:  isRPM,
+				OrigEnable: -1,
+			},
+		}, nil
+	}, backend
+}
+
 func TestResumeFromCheckpoint(t *testing.T) {
 	pwmPath := makeFakeHwmon(t, 0, 2, 1500)
 	calPath := filepath.Join(t.TempDir(), "calibration.json")
@@ -76,6 +102,8 @@ func TestResumeFromCheckpoint(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	m := New(calPath, logger, nil)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	// load() should have populated the partial result.
 	loaded, ok := m.results[pwmPath]
@@ -138,6 +166,8 @@ func TestAbortRestoresPWM(t *testing.T) {
 	// pre-calibration pwm_enable so wd.Restore() can put it back later.
 	wd.Register(pwmPath, "hwmon")
 	m := New(calPath, logger, wd)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	fan := &config.Fan{
 		Name:    "test",
@@ -357,6 +387,8 @@ func TestConcurrentAllResults(t *testing.T) {
 	wd := watchdog.New(logger)
 	wd.Register(pwmPath, "hwmon")
 	m := New(calPath, logger, wd)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	fan := &config.Fan{
 		Name:    "test",
@@ -443,6 +475,8 @@ func TestResumeDiscardedOnFingerprintMismatch(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	m := New(calPath, logger, nil)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -476,6 +510,8 @@ func TestAbortPersistsTerminalState(t *testing.T) {
 	wd := watchdog.New(logger)
 	wd.Register(pwmPath, "hwmon")
 	m := New(calPath, logger, wd)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	fan := &config.Fan{Name: "test", Type: "hwmon", PWMPath: pwmPath, MinPWM: 0, MaxPWM: 255}
 	if err := m.Start(fan); err != nil {
@@ -518,6 +554,8 @@ func TestAbortPersistsTerminalState(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger2 := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	m2 := New(calPath, logger2, nil)
+	r2, _ := makeHwmonResolver(t)
+	m2.SetChannelResolver(r2)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := m2.RunSync(ctx, fan); err == nil {
@@ -614,6 +652,8 @@ func TestRPMSweepHappyPath(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m := New(calPath, logger, nil)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	fan := &config.Fan{
 		Name:        "amd",
@@ -671,6 +711,8 @@ func TestRPMSweepAbortPersistsTerminalState(t *testing.T) {
 	wd := watchdog.New(logger)
 	wd.Register(targetPath, "hwmon")
 	m := New(calPath, logger, wd)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	fan := &config.Fan{
 		Name:        "amd",
@@ -753,6 +795,8 @@ func TestLoadV1EnvelopeUnderV2(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	m := New(calPath, logger, nil)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 
 	loaded, ok := m.results[pwmPath]
 	if !ok {

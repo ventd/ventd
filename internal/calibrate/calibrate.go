@@ -3,22 +3,40 @@
 // and max_rpm.
 package calibrate
 
+// Direct hwmon/nvidia call checklist (all must remain absent from this file):
+//   - hwmon.WritePWM          → b.Write(ch, pwm)
+//   - hwmon.WritePWMSafe      → b.Write(ch, pwm)
+//   - hwmon.WritePWMEnable    → removed; b.Write ensureManualMode handles it
+//   - hwmon.WritePWMEnablePath → removed; same
+//   - hwmon.WriteFanTarget    → b.Write(ch, rpmToCalPWM(rpm, maxRPM))
+//   - hwmon.ReadRPM           → b.Read(ch).RPM
+//   - hwmon.ReadRPMPath       → readSysfsInt(path) or b.Read(ch).RPM
+//   - hwmon.ReadPWM           → b.Read(ch).PWM (or readSysfsUint8 for detect)
+//   - hwmon.ReadFanMaxRPM     → calReadFanMaxRPM(path)
+//   - hwmon.ReadFanMinRPM     → calReadFanMinRPM(path)
+//   - hwmon.RPMTargetEnablePath → calRPMTargetEnablePath(path) [unused after removal]
+//   - hwmon.RPMTargetInputPath  → calRPMTargetInputPath(path) [unused after removal]
+//   - nvidia.WriteFanSpeed    → b.Write(ch, pwm)
+//   - nvidia.ResetFanSpeed    → b.Restore(ch)
+//   - nvidia.ReadFanSpeed     → b.Read(ch).PWM (proxy for spinning)
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwdiag"
-	"github.com/ventd/ventd/internal/hwmon"
-	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -34,6 +52,12 @@ const SchemaVersion = 2
 // import hwdiag directly. Tier 5 moved the canonical definition into hwdiag;
 // new code should reference hwdiag.AutoFixRecalibrate.
 const AutoFixRecalibrate = hwdiag.AutoFixRecalibrate
+
+// ChannelResolver maps a config.Fan to the HAL backend and channel that
+// calibration should use for that fan. Injected from main.go via
+// SetChannelResolver; tests inject a local stub. When nil, RunSync / Start
+// return an error immediately.
+type ChannelResolver func(ctx context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error)
 
 // onDiskEnvelope wraps the results map with a schema_version. v1 is the
 // current format; v0 is the legacy bare map and is migrated transparently.
@@ -157,6 +181,7 @@ type Manager struct {
 	wd          *watchdog.Watchdog // optional; when non-nil each sweep registers/deregisters its fan
 	diagnostics []hwdiag.Entry     // populated by load() when on-disk schema is unsupported
 	store       *hwdiag.Store      // optional; when non-nil emitters also push into the shared store
+	resolver    ChannelResolver    // injected from main.go via SetChannelResolver
 }
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. Diagnostics
@@ -174,6 +199,15 @@ func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
 	for _, e := range pending {
 		s.Set(e)
 	}
+}
+
+// SetChannelResolver wires up the HAL backend resolver. Must be called before
+// any sweep is started. Production code passes a resolver that calls
+// hal.Resolve; tests inject a stub.
+func (m *Manager) SetChannelResolver(r ChannelResolver) {
+	m.mu.Lock()
+	m.resolver = r
+	m.mu.Unlock()
 }
 
 // New creates a Manager and loads persisted results from path (if it exists).
@@ -408,9 +442,16 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		maxPWM = 255
 	}
 	isNvidia := fan.Type == "nvidia"
-	var gpuIdx uint64
-	if isNvidia {
-		gpuIdx, _ = strconv.ParseUint(pwmPath, 10, 32)
+
+	m.mu.Lock()
+	resolver := m.resolver
+	m.mu.Unlock()
+	if resolver == nil {
+		return Result{PWMPath: pwmPath}, fmt.Errorf("calibrate: no channel resolver set for %s", pwmPath)
+	}
+	b, ch, err := resolver(ctx, fan)
+	if err != nil {
+		return Result{PWMPath: pwmPath}, fmt.Errorf("calibrate: resolve channel %s: %w", pwmPath, err)
 	}
 
 	rs.mu.Lock()
@@ -435,11 +476,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 	// a hung sweep can never leave a fan stopped under load. See
 	// internal/calibrate/safety.go for the full design note.
 	sentinel := NewZeroPWMSentinel(m.logger, func() {
-		if isNvidia {
-			_ = nvidia.WriteFanSpeed(uint(gpuIdx), SafePWMFloor)
-		} else {
-			_ = hwmon.WritePWM(pwmPath, SafePWMFloor)
-		}
+		_ = b.Write(ch, SafePWMFloor)
 	})
 	defer sentinel.Stop()
 
@@ -448,14 +485,16 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 	// callers polling Status see the right label after the goroutine exits.
 	defer func() {
 		if isNvidia {
-			_ = nvidia.ResetFanSpeed(uint(gpuIdx))
+			// NVML: hand control back to the driver's autonomous curve.
+			_ = b.Restore(ch)
 		} else {
-			// Intentionally WritePWM (not WritePWMSafe): this is the cleanup path.
-			// If pwm_enable has somehow flipped to 0/2 mid-sweep, WritePWMSafe would
-			// refuse and leave the fan at whatever duty the last forward write set —
-			// the opposite of safe. The controller or watchdog will reassert mode=2
-			// on the next tick; this write is just a best-effort knock-down.
-			_ = hwmon.WritePWM(pwmPath, minPWM)
+			// Intentionally Write (not a safe-mode write): this is the cleanup path.
+			// If pwm_enable has somehow flipped to 0/2 mid-sweep, a mode-checking
+			// write would refuse and leave the fan at whatever duty the last forward
+			// write set — the opposite of safe. The controller or watchdog will
+			// reassert mode on the next tick; this write is just a best-effort
+			// knock-down.
+			_ = b.Write(ch, minPWM)
 		}
 		rs.mu.Lock()
 		rs.running = false
@@ -469,17 +508,6 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		}
 		rs.mu.Unlock()
 	}()
-
-	// Take manual control (hwmon only; NVML manages its own mode).
-	if !isNvidia {
-		if err := hwmon.WritePWMEnable(pwmPath, 1); err != nil {
-			rs.mu.Lock()
-			rs.errMsg = err.Error()
-			rs.mu.Unlock()
-			m.logger.Warn("calibrate: take manual control failed", "pwm_path", pwmPath, "err", err)
-			// Continue anyway — some drivers don't support pwm_enable.
-		}
-	}
 
 	// ctxSleep waits for d or ctx cancellation. Returns true if cancelled.
 	ctxSleep := func(d time.Duration) bool {
@@ -573,12 +601,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		rs.progress = step * 100 / steps
 		rs.mu.Unlock()
 
-		var writeErr error
-		if isNvidia {
-			writeErr = nvidia.WriteFanSpeed(uint(gpuIdx), pwm)
-		} else {
-			writeErr = hwmon.WritePWMSafe(pwmPath, pwm)
-		}
+		writeErr := b.Write(ch, pwm)
 		if writeErr == nil {
 			// Notify the safety sentinel of the new commanded PWM
 			// after a successful write. Set(0) arms the 2s
@@ -598,16 +621,18 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			return snapshot(0, step), ctx.Err()
 		}
 
-		// For nvidia, ReadFanSpeed returns a 0–255 PWM readback (not RPM).
-		// For hwmon, we read actual RPM from the paired sensor.
+		// For nvidia, Read returns PWM readback in the PWM field (not RPM) as a
+		// proxy for "spinning". For hwmon, RPM field is the actual speed.
+		r, _ := b.Read(ch)
 		var rpm int
 		if isNvidia {
-			v, _ := nvidia.ReadFanSpeed(uint(gpuIdx))
-			rpm = int(v) // PWM readback used as a proxy for "spinning"
+			rpm = int(r.PWM) // PWM readback used as a proxy for "spinning"
 		} else if fan.RPMPath != "" {
-			rpm, _ = hwmon.ReadRPMPath(fan.RPMPath)
+			// fan.RPMPath override (set by DetectRPMSensor): read from the
+			// explicitly-detected sensor path rather than the auto-derived one.
+			rpm, _ = readSysfsInt(fan.RPMPath)
 		} else {
-			rpm, _ = hwmon.ReadRPM(pwmPath)
+			rpm = int(r.RPM)
 		}
 
 		if rpm > 0 && startPWM == 0 {
@@ -650,7 +675,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			if ctx.Err() != nil {
 				return snapshot(uint8(p), steps+1), ctx.Err()
 			}
-			if err := hwmon.WritePWMSafe(pwmPath, uint8(p)); err != nil {
+			if err := b.Write(ch, uint8(p)); err != nil {
 				break
 			}
 			if ctxSleep(1500 * time.Millisecond) {
@@ -658,9 +683,10 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			}
 			var rpm int
 			if fan.RPMPath != "" {
-				rpm, _ = hwmon.ReadRPMPath(fan.RPMPath)
+				rpm, _ = readSysfsInt(fan.RPMPath)
 			} else {
-				rpm, _ = hwmon.ReadRPM(pwmPath)
+				r, _ := b.Read(ch)
+				rpm = int(r.RPM)
 			}
 			m.logger.Debug("calibrate: down-ramp", "pwm_path", pwmPath, "pwm", p, "rpm", rpm)
 			if rpm == 0 {
@@ -709,6 +735,17 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState) (Result, error) {
 	targetPath := fan.PWMPath
 
+	m.mu.Lock()
+	resolver := m.resolver
+	m.mu.Unlock()
+	if resolver == nil {
+		return Result{PWMPath: targetPath}, fmt.Errorf("calibrate: no channel resolver set for %s", targetPath)
+	}
+	b, ch, err := resolver(ctx, fan)
+	if err != nil {
+		return Result{PWMPath: targetPath}, fmt.Errorf("calibrate: resolve channel %s: %w", targetPath, err)
+	}
+
 	rs.mu.Lock()
 	rs.running = true
 	rs.state = "running"
@@ -721,10 +758,10 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 	}
 
 	// Discover the driver-advertised RPM range. Fall back to a conservative
-	// window if fan*_min is absent (ReadFanMinRPM returns 0) — we don't want
-	// to spin at 0 RPM for more than a moment.
-	minRPMRange := hwmon.ReadFanMinRPM(targetPath)
-	maxRPMRange := hwmon.ReadFanMaxRPM(targetPath)
+	// window if fan*_min is absent (calReadFanMinRPM returns 0) — we don't
+	// want to spin at 0 RPM for more than a moment.
+	minRPMRange := calReadFanMinRPM(targetPath)
+	maxRPMRange := calReadFanMaxRPM(targetPath)
 	if minRPMRange <= 0 {
 		minRPMRange = maxRPMRange / 4 // safe floor: 25% of max
 	}
@@ -732,12 +769,11 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 		maxRPMRange = minRPMRange + 100 // degenerate; will still emit a diagnostic below
 	}
 
-	enablePath := hwmon.RPMTargetEnablePath(targetPath)
 	defer func() {
-		// On exit, write fan*_min as a safe floor. Watchdog handles the
-		// pwm_enable restore on abnormal termination; this is the normal-exit
-		// path where we just leave the fan at a low but non-zero RPM.
-		_ = hwmon.WriteFanTarget(targetPath, minRPMRange)
+		// On exit, write fan*_min as a safe floor via the backend. Watchdog handles
+		// the pwm_enable restore on abnormal termination; this is the normal-exit
+		// path where we leave the fan at a low but non-zero RPM.
+		_ = b.Write(ch, rpmToCalPWM(minRPMRange, maxRPMRange))
 		rs.mu.Lock()
 		rs.running = false
 		switch {
@@ -750,13 +786,6 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 		}
 		rs.mu.Unlock()
 	}()
-
-	// Take manual control. Some drivers don't expose pwm_enable for the
-	// companion fan channel — log and continue.
-	if err := hwmon.WritePWMEnablePath(enablePath, 1); err != nil {
-		m.logger.Warn("calibrate: take manual control (rpm_target) failed",
-			"target_path", targetPath, "enable_path", enablePath, "err", err)
-	}
 
 	ctxSleep := func(d time.Duration) bool {
 		select {
@@ -823,18 +852,23 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 			return snapshot(step), err
 		}
 		frac := float64(step) / float64(steps-1)
-		target := minRPMRange + int(frac*float64(rangeSpan))
+		targetRPM := minRPMRange + int(frac*float64(rangeSpan))
 
 		rs.mu.Lock()
 		rs.progress = step * 100 / steps
 		rs.mu.Unlock()
 
-		if err := hwmon.WriteFanTarget(targetPath, target); err != nil {
+		// Scale the target RPM to 0-255 PWM for the HAL backend. The backend
+		// converts it back via pwm/255 * maxRPM, so the round-trip is exact
+		// (modulo integer rounding). The settle check uses targetRPM (not the
+		// scaled PWM) so the tolerance arithmetic is in RPM units throughout.
+		scaledPWM := rpmToCalPWM(targetRPM, maxRPMRange)
+		if err := b.Write(ch, scaledPWM); err != nil {
 			rs.mu.Lock()
 			rs.errMsg = err.Error()
 			rs.mu.Unlock()
 			m.logger.Error("calibrate: write fan_target failed",
-				"target_path", targetPath, "target_rpm", target, "err", err)
+				"target_path", targetPath, "target_rpm", targetRPM, "err", err)
 			return snapshot(step), err
 		}
 
@@ -847,16 +881,17 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 				return snapshot(step), ctx.Err()
 			}
 			if fan.RPMPath != "" {
-				last, _ = hwmon.ReadRPMPath(fan.RPMPath)
+				last, _ = readSysfsInt(fan.RPMPath)
 			} else {
-				last, _ = hwmon.ReadRPMPath(hwmon.RPMTargetInputPath(targetPath))
+				r, _ := b.Read(ch)
+				last = int(r.RPM)
 			}
-			delta := last - target
+			delta := last - targetRPM
 			if delta < 0 {
 				delta = -delta
 			}
 			// ±5% of target (guard target==0 with a fixed 50 RPM window).
-			tolerance := target / 20
+			tolerance := targetRPM / 20
 			if tolerance < 50 {
 				tolerance = 50
 			}
@@ -867,12 +902,12 @@ func (m *Manager) runSyncRPM(ctx context.Context, fan *config.Fan, rs *runState)
 		}
 
 		samples = append(samples, RPMTargetPoint{
-			TargetRPM: target,
+			TargetRPM: targetRPM,
 			ActualRPM: last,
 			Settled:   settled,
 		})
 		m.logger.Debug("calibrate: rpm step",
-			"target_path", targetPath, "target", target, "actual", last, "settled", settled)
+			"target_path", targetPath, "target", targetRPM, "actual", last, "settled", settled)
 
 		m.checkpoint(targetPath, snapshot(step+1))
 	}
@@ -927,15 +962,28 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 			return DetectResult{}, fmt.Errorf("detect: calibration already running for %s", pwmPath)
 		}
 	}
+	resolver := m.resolver
 	rs := &runState{running: true, progress: 0}
 	m.runs[pwmPath] = rs
 	m.mu.Unlock()
+
+	if resolver == nil {
+		rs.mu.Lock()
+		rs.running = false
+		rs.mu.Unlock()
+		return DetectResult{}, fmt.Errorf("detect: no channel resolver set for %s", pwmPath)
+	}
 
 	defer func() {
 		rs.mu.Lock()
 		rs.running = false
 		rs.mu.Unlock()
 	}()
+
+	b, ch, err := resolver(context.Background(), fan)
+	if err != nil {
+		return DetectResult{}, fmt.Errorf("detect: resolve channel: %w", err)
+	}
 
 	// Per-sweep watchdog wrap (DetectRPMSensor writes PWM too). Symmetric with
 	// runSync — Register at start, Deregister on normal exit; the restore at
@@ -947,7 +995,7 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 
 	// Read current PWM so we can restore it.
-	origPWM, err := hwmon.ReadPWM(pwmPath)
+	origPWM, err := readSysfsUint8(pwmPath)
 	if err != nil {
 		return DetectResult{}, fmt.Errorf("detect: read current pwm: %w", err)
 	}
@@ -970,13 +1018,11 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 
 	// Always restore the original PWM when we're done.
-	// Intentionally WritePWM (not WritePWMSafe): cleanup path. See the matching
-	// comment in runSync — a safety-guarded restore that refuses on mode 0/2 is
-	// worse than a best-effort one, because the fan would otherwise stay at the
-	// test PWM until the next controller tick.
-	defer func() { _ = hwmon.WritePWM(pwmPath, origPWM) }()
-
-	_ = hwmon.WritePWMEnable(pwmPath, 1) // ignore — some drivers don't expose this
+	// Intentionally Write (not a mode-checked write): cleanup path. See the
+	// matching comment in runSync — a safety-guarded restore that refuses on
+	// mode 0/2 is worse than a best-effort one, because the fan would otherwise
+	// stay at the test PWM until the next controller tick.
+	defer func() { _ = b.Write(ch, origPWM) }()
 
 	// Find all fan*_input files in the same hwmon directory.
 	dir := filepath.Dir(pwmPath)
@@ -989,12 +1035,12 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	// Baseline read.
 	baseline := make(map[string]int, len(matches))
 	for _, p := range matches {
-		v, _ := hwmon.ReadRPMPath(p)
+		v, _ := readSysfsInt(p)
 		baseline[p] = v
 	}
 
 	// Write test PWM and wait for the fan to settle.
-	if err := hwmon.WritePWMSafe(pwmPath, testPWM); err != nil {
+	if err := b.Write(ch, testPWM); err != nil {
 		return DetectResult{}, fmt.Errorf("detect: write test pwm: %w", err)
 	}
 	time.Sleep(2 * time.Second)
@@ -1005,7 +1051,7 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	ramped := testPWM > origPWM // true = we increased PWM, expect RPM to increase
 	best, bestDelta := "", 0
 	for _, p := range matches {
-		v, _ := hwmon.ReadRPMPath(p)
+		v, _ := readSysfsInt(p)
 		var d int
 		if ramped {
 			d = v - baseline[p] // positive when fan sped up
@@ -1154,4 +1200,80 @@ func (m *Manager) checkpoint(pwmPath string, partial Result) {
 	m.results[pwmPath] = partial
 	m.mu.Unlock()
 	m.save()
+}
+
+// ---- Private sysfs helpers ----
+// These helpers perform read-only access to sysfs files. They are intentionally
+// narrow: only RPM sensor reads and RPM-range queries for rpm_target fans. All
+// hardware writes go through FanBackend.Write.
+
+// readSysfsInt reads an integer from a sysfs file. Used for RPM sensor reads
+// and rpm_target range queries; never mutates hardware state.
+func readSysfsInt(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("calibrate: sysfs read %s: %w", path, err)
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("calibrate: sysfs parse %s: %w", path, err)
+	}
+	return v, nil
+}
+
+// readSysfsUint8 reads a 0-255 integer from a sysfs file. Preserves the error
+// semantics of hwmon.ReadPWM: values outside 0-255 are errors.
+func readSysfsUint8(path string) (uint8, error) {
+	v, err := readSysfsInt(path)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 || v > 255 {
+		return 0, fmt.Errorf("calibrate: value %d at %s out of uint8 range", v, path)
+	}
+	return uint8(v), nil
+}
+
+// calReadFanMaxRPM reads the max RPM for a fan*_target channel from its
+// companion fan*_max sysfs file. Returns 2000 when absent (matches the default
+// in hwmon.ReadFanMaxRPM — a conservative estimate for AMD GPU fans).
+func calReadFanMaxRPM(targetPath string) int {
+	base := filepath.Base(targetPath)
+	num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+	maxPath := filepath.Join(filepath.Dir(targetPath), "fan"+num+"_max")
+	v, err := readSysfsInt(maxPath)
+	if err != nil || v <= 0 {
+		return 2000
+	}
+	return v
+}
+
+// calReadFanMinRPM reads the min RPM for a fan*_target channel from its
+// companion fan*_min sysfs file. Returns 0 when absent.
+func calReadFanMinRPM(targetPath string) int {
+	base := filepath.Base(targetPath)
+	num := strings.TrimSuffix(strings.TrimPrefix(base, "fan"), "_target")
+	minPath := filepath.Join(filepath.Dir(targetPath), "fan"+num+"_min")
+	v, err := readSysfsInt(minPath)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return v
+}
+
+// rpmToCalPWM converts an RPM value to the 0-255 PWM byte accepted by
+// FanBackend.Write for an rpm_target channel. The backend reconstructs the RPM
+// via pwm/255 * maxRPM, so this is the inverse. Clamps to [0, 255].
+func rpmToCalPWM(rpm, maxRPM int) uint8 {
+	if maxRPM <= 0 {
+		return 0
+	}
+	v := int(math.Round(float64(rpm) / float64(maxRPM) * 255))
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
 }

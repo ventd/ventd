@@ -8,6 +8,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- refactor: calibration subsystem drives fans via `hal.FanBackend` — eliminates direct `internal/hwmon` and `internal/nvidia` imports from `internal/calibrate` (#P1-HAL-02)
 - perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
 
 ### Added

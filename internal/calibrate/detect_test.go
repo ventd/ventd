@@ -146,6 +146,8 @@ func TestDetectRPMSensor_HappyPath(t *testing.T) {
 	defer stop()
 
 	m := newQuietManager(t)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 	fan := &config.Fan{
 		Type:    "hwmon",
 		PWMPath: pwm,
@@ -181,6 +183,8 @@ func TestDetectRPMSensor_NoCorrelation(t *testing.T) {
 	pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
 
 	m := newQuietManager(t)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 	fan := &config.Fan{Type: "hwmon", PWMPath: pwm, MaxPWM: 255}
 	res, err := m.DetectRPMSensor(fan)
 	if err != nil {
@@ -222,6 +226,8 @@ func TestDetectRPMSensor_NoFanInputFiles(t *testing.T) {
 	pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
 
 	m := newQuietManager(t)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 	fan := &config.Fan{Type: "hwmon", PWMPath: pwm, MaxPWM: 255}
 	_, err := m.DetectRPMSensor(fan)
 	if err == nil {
@@ -244,6 +250,8 @@ func TestDetectRPMSensor_ConcurrentCall_Rejected(t *testing.T) {
 	defer stop()
 
 	m := newQuietManager(t)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
 	fan := &config.Fan{Type: "hwmon", PWMPath: pwm, MaxPWM: 255}
 
 	var wg sync.WaitGroup
