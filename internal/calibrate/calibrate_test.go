@@ -16,6 +16,7 @@ import (
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hwdiag"
+	"github.com/ventd/ventd/internal/testfixture/faketime"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -251,7 +252,7 @@ func TestSchemaMismatchSurfacesDiagnostic(t *testing.T) {
 	// implicit because the test passes nil watchdog and never calls runSync).
 	pwmStat1, _ := os.Stat(calPath)
 	if !pwmStat0.ModTime().Equal(pwmStat1.ModTime()) {
-		t.Errorf("load mutated calibration.json; mtime moved %v → %v",
+		t.Errorf("load mutated calibration.json; mtime moved %v \u2192 %v",
 			pwmStat0.ModTime(), pwmStat1.ModTime())
 	}
 }
@@ -531,7 +532,7 @@ func TestAbortPersistsTerminalState(t *testing.T) {
 // fan1_input, fan1_min, fan1_max, and pwm1_enable populated. rpmResponder, if
 // non-nil, is invoked whenever fan*_target is written and should compute the
 // fan*_input value the next read will return. This lets tests drive the
-// settle loop: a clean responder echoes target→actual for instant settle; a
+// settle loop: a clean responder echoes target\u2192actual for instant settle; a
 // non-responsive responder holds fan1_input at a fixed value to force
 // "never settled" behaviour.
 func makeFakeRPMTargetHwmon(t *testing.T, initialEnable int, minRPM, maxRPM, initialActual int) (targetPath string, inputPath string) {
@@ -656,6 +657,10 @@ func TestRPMSweepHappyPath(t *testing.T) {
 // TestRPMSweepAbortPersistsTerminalState — abort mid-RPM-sweep. The on-disk
 // record must carry SweepMode="rpm", Aborted=true, Partial=false so that
 // restart doesn't attempt to resume a user-cancelled sweep.
+//
+// Migrated from fixed time.Sleep to faketime.WaitUntil: the original 700ms
+// sleep was dead weight — no assertion inspects RPMCurve samples. Removing it
+// and polling via WaitUntil cuts wall-clock from ~730ms to <50ms.
 func TestRPMSweepAbortPersistsTerminalState(t *testing.T) {
 	// No responder — fan1_input never matches target, so every step spends the
 	// full 5s settle window. Plenty of headroom to abort mid-sweep.
@@ -677,16 +682,12 @@ func TestRPMSweepAbortPersistsTerminalState(t *testing.T) {
 	if err := m.Start(fan); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if !waitFor(t, 500*time.Millisecond, func() bool { return m.IsCalibrating(targetPath) }) {
-		t.Fatal("calibration did not start")
-	}
+	faketime.WaitUntil(t, func() bool { return m.IsCalibrating(targetPath) }, 500*time.Millisecond)
 
-	// Let at least one step complete so there's a sample to inspect.
-	time.Sleep(700 * time.Millisecond)
+	// Abort immediately — the terminal-state assertions (SweepMode, Partial,
+	// Aborted, CompletedSteps) do not depend on any sweep step completing.
 	m.Abort(targetPath)
-	if !waitFor(t, 2*time.Second, func() bool { return !m.IsCalibrating(targetPath) }) {
-		t.Fatal("calibration did not terminate within 2s of abort")
-	}
+	faketime.WaitUntil(t, func() bool { return !m.IsCalibrating(targetPath) }, 2*time.Second)
 
 	data, err := os.ReadFile(calPath)
 	if err != nil {
