@@ -1,0 +1,45 @@
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/coretemp.ko.xz'
+alias platform:coretemp coretemp
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/nct6775.ko.xz'
+alias platform:nct6775 nct6775
+alias platform:nct6776 nct6775
+alias platform:nct6779 nct6775
+alias platform:nct6791 nct6775
+alias platform:nct6792 nct6775
+alias platform:nct6793 nct6775
+alias platform:nct6795 nct6775
+alias platform:nct6796 nct6775
+alias platform:nct6797 nct6775
+alias platform:nct6798 nct6775
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/nct6683.ko.xz'
+alias platform:nct6683 nct6683
+alias platform:nct6687 nct6683
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/it87.ko.xz'
+alias platform:it87 it87
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/k10temp.ko.xz'
+alias pci:v00001022d00001603sv*sd*bc*sc*i* k10temp
+alias pci:v00001022d00001533sv*sd*bc*sc*i* k10temp
+alias cpu:type:x86,ven0002fam*mod* k10temp
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/amdgpu.ko.xz'
+alias pci:v00001002d*sv*sd*bc03sc00i00* amdgpu
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/w83627ehf.ko.xz'
+alias platform:w83627ehf w83627ehf
+alias platform:w83627dhg w83627ehf
+alias platform:w83627dhg-p w83627ehf
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/f71882fg.ko.xz'
+alias platform:f71858fg f71882fg
+alias platform:f71862fg f71882fg
+alias platform:f71882fg f71882fg
+alias platform:f71889fg f71882fg
+alias platform:f71889ed f71882fg
+alias platform:f71889a f71882fg
+
+# Aliases extracted from file '/lib/modules/6.11.4-301.fc41.x86_64/kernel/drivers/hwmon/adt7462.ko.xz'
+alias i2c:adt7462 adt7462

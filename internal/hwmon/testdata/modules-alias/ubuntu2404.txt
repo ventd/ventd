@@ -1,0 +1,48 @@
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/coretemp.ko.zst'
+alias platform:coretemp coretemp
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/nct6775.ko.zst'
+alias platform:nct6775 nct6775
+alias platform:nct6776 nct6775
+alias platform:nct6779 nct6775
+alias platform:nct6791 nct6775
+alias platform:nct6792 nct6775
+alias platform:nct6793 nct6775
+alias platform:nct6795 nct6775
+alias platform:nct6796 nct6775
+alias platform:nct6797 nct6775
+alias platform:nct6798 nct6775
+alias platform:w83627ehf nct6775
+alias platform:w83627dhg nct6775
+alias platform:w83677hg nct6775
+alias platform:w83627uhg nct6775
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/nct6683.ko.zst'
+alias platform:nct6683 nct6683
+alias platform:nct6687 nct6683
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/it87.ko.zst'
+alias platform:it87 it87
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/lm78.ko.zst'
+alias pci:v00000000d00000000sv*sd*bc*sc*i* lm78
+alias isa:lm78 lm78
+alias isa:lm79 lm78
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/via686a.ko.zst'
+alias pci:v00001106d00003057sv*sd*bc*sc*i* via686a
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/adm1021.ko.zst'
+alias i2c:adm1021 adm1021
+alias i2c:adm1023 adm1021
+alias i2c:thmc10 adm1021
+alias i2c:lm84 adm1021
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/tmp102.ko.zst'
+alias i2c:tmp102 tmp102
+alias of:N*T*Cti,tmp102C* tmp102
+alias of:N*T*Cti,tmp102 tmp102
+
+# Aliases extracted from file '/lib/modules/6.8.0-57-generic/kernel/drivers/hwmon/asus-ec-sensors.ko.zst'
+alias acpi*:ASUSECSENS:* asus_ec_sensors
+alias platform:asus-ec-sensors asus_ec_sensors
