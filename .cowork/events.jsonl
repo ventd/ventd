@@ -15,3 +15,9 @@
 {"ts":"2026-04-18T00:00:04Z","kind":"revise","task":"T0-INFRA-03","pr":245,"reason":"golangci-lint errcheck on recover() return"}
 {"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck — same class as T0-INFRA-03"}
 {"ts":"2026-04-18T00:00:06Z","kind":"note","text":"Event-sourced state: .cowork/state.yaml retired as primary; live PR/CI state = GitHub, decision log = this file."}
+{"ts":"2026-04-17T18:20:01Z","kind":"merge","task":"T0-INFRA-03","pr":245,"sha":"8e4dcfc7","by":"developer","text":"test: implement faketime fixture (retry from #242 tangle)"}
+{"ts":"2026-04-17T18:24:48Z","kind":"merge","task":"T0-META-01","pr":244,"sha":"50fa22ed","by":"developer","text":"ci: rule-to-subtest binding lint"}
+{"ts":"2026-04-17T21:50:15Z","kind":"merge","task":"P1-MOD-01","pr":259,"sha":"380d88cd","by":"developer","text":"perf(hwmon): drop modinfo shellouts, parse modules.alias directly"}
+{"ts":"2026-04-17T21:36:23Z","kind":"dispatch","task":"P1-FP-02","alias":"hwdb-remote","pr":257,"model":"claude-sonnet-4-6"}
+{"ts":"2026-04-17T21:49:26Z","kind":"dispatch","task":"P1-HOT-01","alias":"hot","pr":260,"model":"claude-sonnet-4-6"}
+{"ts":"2026-04-18T-session-resume","kind":"note","text":"Session resume: #257 + #260 CI in-progress on head SHAs; both 'behind' main (needs rebase post-green). No action until CI completes. Events.jsonl catch-up for 3 dev-side merges (#244,#245,#259) recorded above."}
