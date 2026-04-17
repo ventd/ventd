@@ -1,7 +1,7 @@
 version: 1
-updated: 2026-04-18T01:12:00Z
+updated: 2026-04-18T01:20:00Z
 role: "Cowork is solo developer of record; employer is stakeholder"
-deadline_pressure: "ventd must ship before the money runs out. No quality compromise. CI 13/13 on merge; safety invariants preserved; no rollbacks."
+deadline_pressure: "ventd must ship before the money runs out. No quality compromise."
 tracks:
   FOUND: {status: merged, completed_tasks: [P0-01, P0-02, P0-03]}
   INFRA: {status: in_flight, current_task: T0-INFRA-03, completed_tasks: [T0-INFRA-01, T0-INFRA-02]}
@@ -9,44 +9,41 @@ tracks:
   HAL: {status: in_flight, current_task: P1-HAL-01}
   FP: {status: in_flight, current_task: P1-FP-01}
 in_flight:
-  - {track: META, task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, started: 2026-04-18T00:55:00Z}
-  - {track: INFRA, task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, started: 2026-04-18T00:55:00Z}
-  - {track: HAL, task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, started: 2026-04-18T01:05:00Z}
-  - {track: FP, task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, started: 2026-04-18T01:05:00Z}
+  - {track: META, task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, priority: 3, started: 2026-04-18T00:55:00Z}
+  - {track: INFRA, task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, priority: 4, started: 2026-04-18T00:55:00Z}
+  - {track: HAL, task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, priority: 1, started: 2026-04-18T01:05:00Z}
+  - {track: FP, task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, priority: 2, started: 2026-04-18T01:05:00Z}
+pre_drafted:
+  - {task: T0-META-02, prompt_file: .cowork/prompts/T0-META-02.md, blocked_on: "T0-META-01 merge (shared workflow file)"}
+  - {task: P10-PERMPOL-01, prompt_file: .cowork/prompts/P10-PERMPOL-01.md, held_for: "CC terminal capacity"}
 merges:
-  P0-02: {sha: 4aa6a37, pr: 237}
-  P0-03: {sha: c08d9b3, pr: 238}
-  T0-INFRA-01: {sha: e0dcef6, pr: 239}
-  T0-INFRA-02: {sha: 037e1c0, pr: 241}
-  T0-META-03: {sha: 8646e05, pr: 240}
+  P0-02: {sha: 4aa6a37}
+  P0-03: {sha: c08d9b3}
+  T0-INFRA-01: {sha: e0dcef6}
+  T0-INFRA-02: {sha: 037e1c0}
+  T0-META-03: {sha: 8646e05}
 test_environment:
   see: .cowork/TESTING.md
-  last_updated: 2026-04-18T01:12:00Z
-  hil_rigs:
-    - {host: 192.168.7.209, user: phoenix, role: primary-desktop}
-    - {host: 192.168.7.222, user: phoenix, role: minipc-secondary}
-  gpu: {model: RTX 3090, location: "Proxmox host", current_passthrough: "Plex VM 100", reassignable: true}
-  windows_laptop: {status: available, access: on-demand}
-  proxmox_host: {address: "192.168.7.10:8006"}
-  macos: {status: not_available}
-  ipmi_bmc: {status: not_available}
-  aio_cooler: {status: not_available}
-  laptop_ec: {status: not_available}
-  sbc: {status: not_available}
-  asahi_mac: {status: not_available}
-  usb_mic: {status: not_available}
+  desktop_fingerprint:
+    board_vendor: "Micro-Star International Co., Ltd."
+    board_name: "MS-7D25"
+    cpu: "13th Gen Intel Core i9-13900K"
+    memory_gb: 32
+    gpu: "NVIDIA RTX 4090"
+    os: "Ubuntu 24.04.4 LTS"
+    hostname: "phoenix-MS-7D25"
+    captured: 2026-04-18T01:20:00Z
+    note: "Real DMI seed data for P1-FP-01 hwdb. Prompt already dispatched without this; CC may need to re-read TESTING.md on its own, or a follow-up PR will add this fingerprint to profiles.yaml after P1-FP-01 merges."
+cc_parallelism:
+  current_capacity: 1
+  bottleneck: "employer's local workflow opens a single mosh/cc session; parallel CC requires either multiple local terminal tabs or tmux-inside-mosh"
+  proposed_fixes_documented_in: .cowork/TESTING.md#cc-parallelism-on-the-dev-vm
+  implication: "Queued prompts are currently serialised. P10-PERMPOL-01 held until capacity unlocks. Dispatch order should favour critical path (P1-HAL-01 first) if employer is single-threaded."
 phase_tracking:
   masterplan_phase_0: {status: complete}
-  testplan_phase_t0: {status: in_progress, merged: [T0-INFRA-01, T0-INFRA-02, T0-META-03], in_flight: [T0-META-01, T0-INFRA-03], ready: [T0-META-02]}
-  masterplan_phase_1:
-    status: in_progress
-    in_flight: [P1-HAL-01, P1-FP-01]
-    hardware_gate: "auto-validatable via CC SSH to 192.168.7.209 + 192.168.7.222 — no employer pause required"
-  masterplan_phase_10:
-    status: ready_to_parallelize
-    ready: [P10-SBOM-01, P10-SIGN-01, P10-PERMPOL-01]
-    queued: true
-    note: "Dispatch next turn after polling throughput of the current 4 CC streams. No code-topology dependency on HAL."
+  testplan_phase_t0: {status: in_progress}
+  masterplan_phase_1: {status: in_progress, in_flight: [P1-HAL-01, P1-FP-01]}
+  masterplan_phase_10: {status: pre_drafted, task: P10-PERMPOL-01}
 escalations_open: []
 notes:
-  - 2026-04-18T01:12:00Z: "Major capability update: employer catalogued HIL rigs (Desktop 192.168.7.209, MiniPC 192.168.7.222), Windows laptop, and RTX 3090 GPU passthrough. Most Phase 1-4 hardware gates collapse from 'escalate-and-wait' to 'CC SSH and run rig-check'. .cowork/TESTING.md updated with resource map and per-task routing. The four in-flight tasks were dispatched before this update so their prompts do NOT yet reference the new rigs; that's fine — for Sonnet-tier T0 work and the HAL refactor, CI + unit-test validation is sufficient. Post-merge Phase 1 → Phase 2 gate now executes via CC instead of pausing for employer."
+  - 2026-04-18T01:20:00Z: "Employer's CC workflow is currently single-threaded (one mosh → one cc invocation). Three parallelism paths documented in TESTING.md: (A) multiple local terminal tabs, (B) tmux-inside-mosh, (C) separate VMs. Cheapest is A. Desktop HIL fingerprint captured: MSI MS-7D25, i9-13900K, RTX 4090. Added GPU inventory: 4090 (Desktop, native) + 3090 (Proxmox, passthrough-to-Plex). NVML validation will prefer the 4090 for native-rig simplicity."
