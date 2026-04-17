@@ -27,3 +27,7 @@
 {"ts":"2026-04-18T-session-resume-2","kind":"dispatch","task":"P1-HAL-02","alias":"hal2","session":"cc-hal2-682f5c","model":"claude-opus-4-7"}
 {"ts":"2026-04-18T-session-resume-2","kind":"note","task":"P1-FP-02","pr":257,"text":"Rebase dispatched via MCP update_pull_request_branch \u2014 no conflict expected (behind, not dirty)."}
 {"ts":"2026-04-18T-session-resume-2","kind":"revise","task":"P1-HOT-01","pr":260,"reason":"mergeable_state=dirty; CHANGELOG.md conflicts with #258 T-HAL-01 line now on main. Dispatch 'hot2' to rebase and drop the duplicate entry."}
+{"ts":"2026-04-18T-session-resume-3","kind":"accept","task":"P1-FP-02","pr":257,"reason":"CI clean after rebase (E2E+meta-lint+govulncheck+cowork-status+CI all green); diff + PR body clean against \u00a75 R1-R19."}
+{"ts":"2026-04-18T-session-resume-3","kind":"merge","task":"P1-FP-02","pr":257,"sha":"c431f02e","by":"cowork","text":"feat(hwdb): opt-in remote refresh with SHA-256 pin"}
+{"ts":"2026-04-18T-session-resume-3","kind":"note","task":"P1-HOT-01","pr":260,"text":"hot2 session returned rc=0: CHANGELOG conflict resolved, old resolution commit dropped, force-pushed to 856246d2. CI + E2E re-running."}
+{"ts":"2026-04-18T-session-resume-3","kind":"dispatch","task":"P1-MOD-02","alias":"mod2","model":"claude-sonnet-4-6"}
