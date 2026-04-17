@@ -28,6 +28,43 @@ fi
 
 ventd_create_account
 
+# Record security-module status to /var/log/ventd/install.log so a
+# silent confinement downgrade (see #202, #211) is still auditable
+# after the .deb / .rpm postinstall output scrolls away. Best-effort.
+# The .deb / .rpm flow leaves apparmor profile registration to the
+# package manager's apparmor hook; we only log what ended up loaded.
+log_security_outcome() {
+    module="$1"; outcome="$2"; detail="$3"
+    mkdir -p /var/log/ventd 2>/dev/null || return 0
+    chmod 750 /var/log/ventd 2>/dev/null || true
+    if getent group ventd >/dev/null 2>&1; then
+        chown root:ventd /var/log/ventd 2>/dev/null || true
+    fi
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+    printf '%s %s=%s %s\n' "$ts" "$module" "$outcome" "$detail" \
+        >> /var/log/ventd/install.log 2>/dev/null || true
+    chmod 640 /var/log/ventd/install.log 2>/dev/null || true
+    if getent group ventd >/dev/null 2>&1; then
+        chown root:ventd /var/log/ventd/install.log 2>/dev/null || true
+    fi
+}
+
+if [ -f /etc/apparmor.d/usr.local.bin.ventd ]; then
+    if command -v aa-status >/dev/null 2>&1 \
+       && aa-status --enabled 2>/dev/null \
+       && aa-status 2>/dev/null | grep -q 'usr\.local\.bin\.ventd'; then
+        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd pkg=dpkg/rpm"
+    else
+        log_security_outcome apparmor refused "profile=/etc/apparmor.d/usr.local.bin.ventd pkg=dpkg/rpm hint=aa-status-did-not-list-profile"
+    fi
+else
+    log_security_outcome apparmor skipped "reason=profile-not-shipped-by-pkg pkg=dpkg/rpm"
+fi
+
+if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -q '^ventd'; then
+    log_security_outcome selinux loaded "module=ventd pkg=dpkg/rpm"
+fi
+
 # nfpms.contents writes config.example.yaml to /etc/ventd/ as root. The
 # daemon will run as ventd:ventd and needs to read its own config dir,
 # so normalise ownership and mode here.

@@ -127,3 +127,28 @@ The long-running daemon never attempts these operations. At startup
 it runs `DiagnoseHwmon`, a strictly read-only enumeration of
 `/sys/class/hwmon`, and surfaces a remediation pointer in the journal
 when no PWM channels are visible.
+
+## Install-time security-module log
+
+Both `scripts/install.sh` (binary / tarball / curl-pipe) and
+`scripts/postinstall.sh` (.deb / .rpm) write a one-line outcome record
+per security-module load attempt to `/var/log/ventd/install.log`.
+Directory mode `0750`, file mode `0640`, owned `root:ventd`. The line
+shape is:
+
+```
+2026-04-16T10:18:30Z apparmor=loaded  profile=/etc/apparmor.d/usr.local.bin.ventd
+2026-04-16T10:18:30Z apparmor=refused parser_exit=1 profile=/etc/apparmor.d/usr.local.bin.ventd
+2026-04-16T10:18:30Z apparmor=skipped reason=parser-not-installed
+2026-04-16T10:18:31Z selinux=loaded   module=ventd.pp
+2026-04-16T10:18:31Z selinux=refused  reason=semodule-refused module=ventd.pp
+```
+
+This is the answer to "did AppArmor actually confine ventd after
+install?" once the install scrollback is gone. See #202, #204, #211.
+
+At daemon startup, ventd additionally emits a `WARN` slog line when
+`/etc/apparmor.d/usr.local.bin.ventd` exists on disk but
+`/proc/self/attr/current` reads `unconfined` — this catches the
+silent-downgrade class directly from `journalctl -u ventd` without
+requiring the operator to remember where the install log lives.

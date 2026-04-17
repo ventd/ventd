@@ -14,6 +14,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Previously the wizard would either crash the container or silently no-op.
   A new test seam on the web server lets the existing handler test exercise
   the 409 path without faking PID 1 in CI. Closes #177.
+- Silent confinement downgrade is now auditable post-install. Both
+  `scripts/install.sh` and `scripts/postinstall.sh` append one
+  timestamped line per security-module load attempt to
+  `/var/log/ventd/install.log` (mode 0640, owned `root:ventd`). The
+  daemon additionally emits a `WARN` slog line at startup when an
+  AppArmor profile exists on disk but `/proc/self/attr/current` reads
+  `unconfined` — so an operator running `journalctl -u ventd` finds the
+  signal even if the install scrollback is long gone. Closes #211.
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 

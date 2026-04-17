@@ -802,8 +802,32 @@ fi
 # when the corresponding kernel-side enforcement is present so we
 # don't drop policy on systems that won't use it.
 
+# log_security_outcome appends one timestamped line to /var/log/ventd/install.log
+# so a silent confinement downgrade is still auditable once the install
+# scrollback is gone. The directory is created on first call with mode
+# 0750 and owned root:ventd — the ventd group is created earlier by the
+# account helper. Best-effort: any mkdir / chown / write failure is
+# non-fatal; this is a signalling enhancement, not a gating one. See #211.
+log_security_outcome() {
+    local module="$1" outcome="$2" detail="$3"
+    [[ "$VENTD_TEST_MODE" == "1" ]] && return 0
+    install -d -m 750 /var/log/ventd 2>/dev/null || return 0
+    if getent group ventd >/dev/null 2>&1; then
+        chown root:ventd /var/log/ventd 2>/dev/null || true
+    fi
+    local ts
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)"
+    printf '%s %s=%s %s\n' "$ts" "$module" "$outcome" "$detail" \
+        >> /var/log/ventd/install.log 2>/dev/null || true
+    chmod 640 /var/log/ventd/install.log 2>/dev/null || true
+    if getent group ventd >/dev/null 2>&1; then
+        chown root:ventd /var/log/ventd/install.log 2>/dev/null || true
+    fi
+}
+
 install_apparmor_profile() {
     if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor skipped "reason=parser-not-installed"
         return 0
     fi
     local src=""
@@ -816,20 +840,26 @@ install_apparmor_profile() {
         fi
     done
     if [[ -z "$src" ]]; then
+        log_security_outcome apparmor skipped "reason=profile-not-shipped"
         return 0
     fi
     install -d -m 755 /etc/apparmor.d
     install -m 644 "$src" /etc/apparmor.d/usr.local.bin.ventd
-    if apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null; then
+    local parser_rc=0
+    apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || parser_rc=$?
+    if [[ $parser_rc -eq 0 ]]; then
         echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded)"
+        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd"
     else
         echo "  ! AppArmor profile installed but parser refused to load it"
         echo "    (run \`apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd\` for details)"
+        log_security_outcome apparmor refused "parser_exit=${parser_rc} profile=/etc/apparmor.d/usr.local.bin.ventd"
     fi
 }
 
 install_selinux_module() {
     if ! command -v semodule >/dev/null 2>&1 || ! command -v checkmodule >/dev/null 2>&1; then
+        log_security_outcome selinux skipped "reason=tools-not-installed"
         return 0
     fi
     local srcdir=""
@@ -842,17 +872,20 @@ install_selinux_module() {
         fi
     done
     if [[ -z "$srcdir" ]]; then
+        log_security_outcome selinux skipped "reason=module-not-shipped"
         return 0
     fi
     if [[ ! -d /usr/share/selinux/devel ]]; then
         echo "  ! SELinux tooling present but selinux-policy-devel is missing"
         echo "    Install it (selinux-policy-devel on Fedora/RHEL, selinux-policy-dev"
         echo "    on Debian/Ubuntu) then run: sudo make -C ${srcdir} install"
+        log_security_outcome selinux skipped "reason=selinux-policy-devel-missing"
         return 0
     fi
     local builddir
     builddir="$(mktemp -d)"
     cp "${srcdir}"/ventd.te "${srcdir}"/ventd.fc "${builddir}/" || {
+        log_security_outcome selinux refused "reason=source-copy-failed"
         rm -rf "$builddir"
         return 0
     }
@@ -860,11 +893,14 @@ install_selinux_module() {
         if semodule -i "${builddir}/ventd.pp" 2>/dev/null; then
             restorecon -Rv /usr/local/bin/ventd /etc/ventd /run/ventd >/dev/null 2>&1 || true
             echo "  ✓ SELinux module → ventd.pp (loaded; restorecon applied)"
+            log_security_outcome selinux loaded "module=ventd.pp"
         else
             echo "  ! SELinux module built but semodule refused to load it"
+            log_security_outcome selinux refused "reason=semodule-refused module=ventd.pp"
         fi
     else
         echo "  ! SELinux module build failed (run make in ${srcdir} for details)"
+        log_security_outcome selinux refused "reason=make-failed"
     fi
     rm -rf "$builddir"
 }
