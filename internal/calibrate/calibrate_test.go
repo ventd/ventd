@@ -688,6 +688,9 @@ func TestRPMSweepAbortPersistsTerminalState(t *testing.T) {
 	// Aborted, CompletedSteps) do not depend on any sweep step completing.
 	m.Abort(targetPath)
 	faketime.WaitUntil(t, func() bool { return !m.IsCalibrating(targetPath) }, 2*time.Second)
+	// running=false is set in runSyncRPM's defer; m.save() runs after in run().
+	// Poll for the file to appear so we don't race on slow arm64 runners.
+	faketime.WaitUntil(t, func() bool { _, err := os.Stat(calPath); return err == nil }, 500*time.Millisecond)
 
 	data, err := os.ReadFile(calPath)
 	if err != nil {
