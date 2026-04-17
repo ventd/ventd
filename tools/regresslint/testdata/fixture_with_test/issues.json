@@ -1,0 +1,9 @@
+[
+  {
+    "number": 42,
+    "title": "Fan speed drops to zero on high load",
+    "state": "closed",
+    "labels": [{"name": "bug"}],
+    "html_url": "https://github.com/ventd/ventd/issues/42"
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "number": 1,
+    "title": "Watchdog does not restore PWM on SIGKILL",
+    "state": "closed",
+    "labels": [{"name": "bug"}, {"name": "no-regression-test"}],
+    "html_url": "https://github.com/ventd/ventd/issues/1"
+  }
+]

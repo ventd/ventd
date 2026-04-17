@@ -12,3 +12,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go run ./tools/rulelint
+  regresslint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go run ./tools/regresslint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
