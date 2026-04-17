@@ -1,63 +1,30 @@
-# Cowork prompt index
+# Cowork prompts — index
 
-Prompts live at `.cowork/prompts/<TASK-ID>.md` on the `cowork/state`
-branch. Aliases for these prompts are in `.cowork/aliases.yaml`.
+One CC session per prompt. Paste the alias (left column) into a fresh Claude Code terminal; the alias resolver in `/CLAUDE.md` fetches the corresponding file from `.cowork/prompts/<alias>.md` on `cowork/state` and executes it verbatim.
 
-## Paste one of these into a fresh CC window
+| alias | task | status | model | notes |
+|---|---|---|---|---|
+| `unblock` | merge #247+#246, fix lint on #244+#245, install events.jsonl | ready | opus-4-7 | combined 4-part; CURRENT |
+| `permpol` | P10-PERMPOL-01 | ready | sonnet-4-6 | Permissions-Policy header |
+| `regresslint` | T0-META-02 | blocked on #244 merge | sonnet-4-6 | |
+| `wd-safety` | T-WD-01 | ready after HAL | opus-4-7 | watchdog at 23% cov |
+| `runner-smoke` | add self-hosted runner workflow | ready | sonnet-4-6 | verify phoenix-desktop routing |
+| `hal` | P1-HAL-01 | MERGED | — | historical, for reference |
+| `fp` | P1-FP-01 | MERGING | — | historical |
+| `rulelint` | T0-META-01 | MERGING | — | historical |
+| `faketime` | T0-INFRA-03 | MERGING | — | historical |
 
-| Paste this | What it runs                                            | Model        |
-|------------|---------------------------------------------------------|--------------|
-| `hal`      | HAL interface refactor (critical path)                  | **Opus 4.7** |
-| `fp`       | Hardware fingerprint DB                                 | Sonnet 4.6   |
-| `rulelint` | CI lint — rule-to-subtest bindings                      | Sonnet 4.6   |
-| `permpol`  | Permissions-Policy header + ETag (ready; queued)        | Sonnet 4.6   |
+## Spinning up
 
-`regresslint` and `faketime` are currently unavailable (regresslint
-blocked on rulelint merge; faketime already dispatched and its PR
-is pending merge).
+1. Open a fresh CC terminal (web CC preferred).
+2. Paste the alias. Example: `unblock`.
+3. Wait for CC's `SUMMARY` at the end.
+4. Say `done` in this Cowork thread and Cowork will move to the next queue item.
 
-## If CC hasn't read CLAUDE.md yet
+## Model assignment policy
 
-Fallback activation (self-contained paste, no reliance on CLAUDE.md):
+- **Opus 4.7** — HAL, FP (except trivial data edits), IPMI, LIQUID, MPC, ACOUSTIC, UEFI, EXPR, MAC, WIN, FLEET, anything touching controller/watchdog/calibration safety, multi-part tasks crossing safety boundaries.
+- **Sonnet 4.6** — HOT, MOD, UDEV, METRICS, HISTORY, SBOM, SIGN, REPRO, PERMPOL, I18N, T0-META-*, T0-INFRA-*, regression-replay, fuzz-corpus, TX-* evergreen, data-only profile edits.
+- **Haiku 4.5** — P0-01/02/03, pure-docs, fixture skeletons, trivially bounded edits.
 
-```
-Execute the task at .cowork/prompts/<TASK-ID>.md on origin/cowork/state exactly as written.
-```
-
-Replace `<TASK-ID>` with the task you want: `P1-HAL-01`,
-`P1-FP-01`, `T0-META-01`, `T0-META-02`, `P10-PERMPOL-01`.
-
-## Alias ↔ task-ID map
-
-| Alias         | Task ID          |
-|---------------|------------------|
-| `hal`         | `P1-HAL-01`      |
-| `fp` / `hwdb` | `P1-FP-01`       |
-| `rulelint`    | `T0-META-01`     |
-| `regresslint` | `T0-META-02`     |
-| `permpol`     | `P10-PERMPOL-01` |
-
-## Status legend
-
-- **dispatched**: a CC terminal is presumed to be running this; don't start another on the same alias
-- **ready**: no unmet deps; safe to start now
-- **ready-queued**: ready but Cowork is holding it to manage terminal capacity
-- **blocked**: has unmet dependency; waits for an upstream merge
-
-## Auto-unlock chain
-
-- `rulelint` merges → `regresslint` becomes `ready`
-- `hal` merges → three new aliases appear (`hal-calibrate`, `hot`, etc. — Cowork publishes names when the time comes)
-- `fp` merges → two new aliases appear (`hwdb-remote`, `modalias`)
-
-## Recommended start order (single-threaded)
-
-1. `hal` — longest, critical path
-2. `fp` — parallel track to HAL
-3. `rulelint` — unblocks `regresslint`
-4. `permpol` — independent; fills a spare terminal
-
-## This file is authoritative
-
-The `cowork/state` branch's version of this file is the source of
-truth. Local copies go stale when Cowork publishes new prompts.
+If a Sonnet/Haiku task fails the same rule twice, Cowork bumps the model automatically on dispatch-3 (not an escalation).
