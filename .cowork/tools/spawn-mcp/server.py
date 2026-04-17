@@ -4,9 +4,10 @@ Runs on phoenix-desktop. Launches detached tmux sessions that run the
 Claude Code CLI with a prompt pulled from the ventd repo's
 .cowork/prompts/<alias>.md on the cowork/state branch.
 
-Transport: streamable-http on 127.0.0.1:8891. cloudflared tunnel
-terminates TLS and exposes a trycloudflare.com hostname that Cowork's
-claude.ai connector is pointed at.
+Transport: streamable-http on 127.0.0.1:8891 (override via
+SPAWN_MCP_HOST / SPAWN_MCP_PORT). cloudflared tunnel terminates TLS
+and exposes a trycloudflare.com hostname that Cowork's claude.ai
+connector is pointed at.
 """
 
 from __future__ import annotations
@@ -43,10 +44,12 @@ TMUX_BIN = os.environ.get("SPAWN_MCP_TMUX_BIN", "tmux")
 AS_USER = os.environ.get("SPAWN_MCP_AS_USER", "cc-runner")
 ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
 AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jsonl"))
+HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
 
 AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-mcp = FastMCP("spawn-mcp")
+mcp = FastMCP("spawn-mcp", host=HOST, port=PORT)
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -273,5 +276,5 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    log.info("spawn-mcp starting; worktree=%s user=%s", WORKTREE, AS_USER)
+    log.info("spawn-mcp starting on %s:%d; worktree=%s user=%s", HOST, PORT, WORKTREE, AS_USER)
     mcp.run(transport="streamable-http")
