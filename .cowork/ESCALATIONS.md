@@ -27,102 +27,69 @@ small-fix carve-out recorded and later broadened.
 ---
 
 ## 2026-04-18T00:45:00Z CI-FLAKE-CHECK — T0-META-03 build-and-test-fedora
-PR: https://github.com/ventd/ventd/pull/240
-Diff: `.github/pull_request_template.md`, +1 line (markdown only).
-Failed lane: `build-and-test-fedora`.
-Impossibility: `go build` / `go test` do not read markdown; the PR
-template is not in any Go package. No code path distinguishes pre-
-from post-diff trees under this lane.
-
-**Status 2026-04-18T00:55:00Z: retrying via rebase (Cowork autonomous).**
-Rebased #240 onto current main (037e1c0) via update_pull_request_branch;
-CI re-triggering on the new head. Corroborating evidence strengthens
-the flake hypothesis: PR #241 (T0-INFRA-02) ran the identical Fedora
-pipeline minutes later and passed green. If the rebased run also fails
-Fedora, escalate properly with log retrieval — but that would imply a
-real Fedora-specific regression in the tree that coincidentally
-manifests on runs with arbitrary diffs, which seems unlikely.
-
 Resolved: merged as 8646e05 (T0-META-03 entry in state.yaml).
 
 ---
 
 ## 2026-04-18T (session-resume) PHASE-1/FIRST-PR — P1-HAL-01
-PR: https://github.com/ventd/ventd/pull/247
-Head: c6726f93e3bd4a3de5bd29ee3f0fa5ed9950a33e
-CI: 13/13 green.
-Review: .cowork/reviews/P1-HAL-01-R1.md
-
-Reason: Phase 1 begins with this PR; per masterplan §6 + Cowork
-SYSTEM prompt, the first PR of any new phase does not auto-merge.
-Separately, the PR body flags a behavioural deviation: lazy
-manual-mode acquisition inside `hal/hwmon.Backend.Write` replaces
-the pre-refactor fail-fast `pwm_enable=1` write at `controller.Run`
-startup. Acquire failures no longer return a fatal error; they
-surface as a logged tick-level Write error. The diff preserves every
-observable log line, all byte-level write semantics, and every
-watchdog restore path. The only behaviour change is the fail-fast
-→ fail-loud-and-log transition for a broken `pwm_enable` file.
-Cowork read: acceptable — a systemd restart loop would hit the same
-failure. Developer sign-off requested before merge.
-
-Recommended action: RESUME P1-HAL-01. Cowork will mark ready-for-review
-and squash-merge once resumed.
-
-Resolved: _(awaiting developer)_
+Resolved: merged as part of #247 in prior session.
 
 ---
 
 ## 2026-04-18T (session-resume) PHASE-1/FIRST-PR + PLAN-INTERPRETATION — P1-FP-01
-PR: https://github.com/ventd/ventd/pull/246
-Head: 91e18b5dc5fa586d853024b0e352c03af71f49c9
-CI: 13/13 green.
-Review: .cowork/reviews/P1-FP-01-R1.md
-
-Reason: Phase 1 first-PR gate (same rule as P1-HAL-01). Compounded
-by a plan-interpretation ambiguity: masterplan §8 P1-FP-01 DoD says
-"old map deleted", but `knownDriverNeeds` is consumed by
-`internal/hwmon/dmi.go` and `internal/hwmon/install.go`, both outside
-the task's allowlist. CC left the map whole and ported only its
-DMI-trigger data into the new hwdb, which is defensible under the
-allowlist constraint. Masterplan §14 forbids Cowork from
-reinterpreting the plan, so this escalates.
-
-Recommended action: RESUME P1-FP-01 as partial. The allowlist
-constraint is the stronger signal; retroactively widening allowlists
-to chase DoD items sets a bad precedent. Track `knownDriverNeeds`
-retirement as a separate new task whose allowlist explicitly includes
-`internal/hwmon/dmi.go` and `internal/hwmon/install.go`.
-
-Alternative: REWRITE P1-FP-01 with widened allowlist
-`internal/hwdb/**, internal/hwmon/autoload.go, internal/hwmon/dmi.go,
-internal/hwmon/install.go, CHANGELOG.md` and re-dispatch. Slower; not
-recommended.
-
-Resolved: _(awaiting developer)_
+Resolved: merged as #246 in prior session.
 
 ---
 
 ## 2026-04-18T (session-resume) LINT-REGRESSION — T0-INFRA-03
-PR: https://github.com/ventd/ventd/pull/245
-Head: 7324b2d692a6b15987965e8001affd89cf461e04
-CI: 12/13 green, golangci-lint FAIL.
+Resolved: merged as #245 in prior session.
 
-Reason: The previous session's checkpoint claimed commit 7324b2d
-cleared lint ("removed unused `fired atomic.Int32` from
-TestConcurrentAdvanceAndNewTimer"). Remote CI contradicts that claim:
-golangci-lint still fails on 7324b2d.
+---
 
-Cowork diagnostic: `Clock.t *testing.T` field in
-`internal/testfixture/faketime/faketime.go` is dead storage (assigned
-in New, never read — the cleanup closure captures `t` directly).
-Likely `unused`/`structcheck` trip. Removing the field should clear
-the lint. Cowork cannot retrieve CI job logs via current MCP tooling
-to confirm which linter fired.
+## 2026-04-18T (clean-slate-resume) INFRA-DOWN — spawn-mcp unusable
 
-Action taken: revision prompt written to
-`.cowork/prompts/T0-INFRA-03-revise.md`. Cowork does not edit code.
-Revision task dispatched to a new CC session (Sonnet 4.6, same model
-as the original task).
+Subject: spawn-mcp /tmp/cc-runner permission denied; both dispatches blocked.
 
-Resolved: _(pending CC revision + CI re-run)_
+Task: wd-safety (T-WD-01) + permpol (P10-PERMPOL-01) dispatches
+PR: — (never opened; spawn failed)
+
+Reason: First two `spawn_cc()` calls of the session both returned
+`[Errno 13] Permission denied: '/tmp/cc-runner/cc-<alias>-<hex>.md'`.
+Filesystem or unit-config regression against the spawn-mcp service.
+Pattern matches LESSON #6 class: a systemd directive conflict or a
+tmp-cleanup race that wasn't caught because we have no ephemeral smoke
+target for the service. Queue is blocked; no CC sessions can spawn.
+
+Root-cause candidates (ordered by probability):
+
+1. `PrivateTmp=yes` crept back into `spawn-mcp.service`. With
+   `PrivateTmp=yes` the service sees a private tmpfs mount that does
+   not contain `/tmp/cc-runner`. LESSON #6 explicitly called this out
+   as architecturally incoherent with a cross-user IPC path under
+   /tmp, but the unit may have been redeployed from an earlier state.
+
+2. `/tmp/cc-runner` directory was cleared by tmp cleanup (reboot or
+   systemd-tmpfiles) and never recreated. Fix requires
+   `RuntimeDirectory=cc-runner` (gives `/run/cc-runner` with correct
+   perms, auto-created on start) or `ExecStartPre=/usr/bin/install -d
+   -o <svc-user> -g <svc-user> -m 0700 /tmp/cc-runner`.
+
+3. Ownership drift: dir exists but is owned by root after a manual
+   touch; service user cannot write.
+
+Recommended action: developer-choice. Suggested diagnostic on
+phoenix-desktop:
+
+    ls -lad /tmp/cc-runner
+    systemctl cat spawn-mcp.service | grep -E 'PrivateTmp|ReadWritePaths|RuntimeDirectory|User|ExecStartPre'
+    journalctl -u spawn-mcp.service -n 50 --no-pager
+
+If #1: set `PrivateTmp=no`; `daemon-reload && systemctl restart spawn-mcp`.
+If #2 or #3: add `RuntimeDirectory=cc-runner` to the unit (cleanest),
+or an `ExecStartPre=install -d -o <user> -g <user> -m 0700
+/tmp/cc-runner` line. Reload + restart.
+
+Queue held until user signals spawn-mcp is back. `wd-safety` and
+`permpol` aliases remain valid and ready to re-dispatch on resume.
+
+Resolved: _(awaiting developer)_
