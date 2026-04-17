@@ -6,10 +6,18 @@ One CC session per prompt. Cowork dispatches via `spawn_cc(alias)` through the s
 
 | alias | task | status | model | notes |
 |---|---|---|---|---|
+| `hal2` | P1-HAL-02 | ready | opus-4-7 | calibrate via FanBackend (unblocks Phase 2 backends + T-CAL-01) |
 | `wd-safety` | T-WD-01 | ready | opus-4-7 | watchdog safety invariants (23% → 80% cov target) |
 | `permpol` | P10-PERMPOL-01 | ready | sonnet-4-6 | Permissions-Policy header + ETag on embedded UI |
 | `T0-META-02` | T0-META-02 | ready | sonnet-4-6 | regression-replay lint (every closed bug issue has a replay test) |
 | `t-hal-01` | T-HAL-01 | ready | opus-4-7 | HAL contract invariants, bound to new .claude/rules/hal-contract.md |
+
+## In-flight (dispatched, PR open)
+
+| alias | task | PR | model | notes |
+|---|---|---|---|---|
+| `hwdb-remote` | P1-FP-02 | #257 | sonnet-4-6 | hwdb opt-in remote refresh |
+| `hot` | P1-HOT-01 | #260 | sonnet-4-6 | hot-loop alloc elimination |
 
 ## Diagnostic / utility
 
@@ -27,6 +35,7 @@ One CC session per prompt. Cowork dispatches via `spawn_cc(alias)` through the s
 | `fp` | P1-FP-01 | ✓ as #246 |
 | `hal` | P1-HAL-01 | ✓ as #247 |
 | `rulelint` | T0-META-01 | ✓ as #244 |
+| `P1-MOD-01` | P1-MOD-01 | ✓ as #259 |
 | `P1-FP-01` (duplicate of `fp`) | — | ✓ |
 | `P1-HAL-01` (duplicate of `hal`) | — | ✓ |
 | `P10-PERMPOL-01` (duplicate of `permpol`) | — | same file, two names |
