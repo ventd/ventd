@@ -5,8 +5,10 @@ ID: P1-HAL-02
 Track: HAL
 Goal: Migrate the calibration subsystem to drive fans via the `hal.FanBackend` interface introduced in P1-HAL-01, eliminating direct hwmon/NVML imports from the calibrate package.
 
-## Model
-Opus 4.7 (safety-critical: calibration sweeps the full PWM range; wrong abstraction here can stall fans under load).
+## Care level
+This task is safety-critical: calibration sweeps the full PWM range; wrong abstraction here can stall fans under load. Apply extra scrutiny to the safety-invariant preservation steps 3 and 4, and verify the full `internal/controller/safety_test.go` and `internal/calibrate/*_test.go` suites pass under `-race` before pushing.
+
+Do NOT abort on model-mismatch checks. The spawn-mcp dispatch path uses whatever model the cc-runner account is authenticated for. If that is Sonnet 4.6, the detailed prompt below is written so a careful Sonnet pass is sufficient. The model policy in CLAUDE.md is advisory, not a hard gate — the hard gate is the safety invariants in the Constraints section and the test suite.
 
 ## Context you should read first
 
@@ -33,7 +35,7 @@ Opus 4.7 (safety-critical: calibration sweeps the full PWM range; wrong abstract
 
 6. Ensure `CGO_ENABLED=0 go build ./...` still passes.
 
-7. Run `go test -race -count=1 ./internal/calibrate/...` and verify all existing tests still pass. If a test breaks because it used a direct hwmon constructor that no longer exists, adapt it to the new constructor (the test is exercising the same invariant, just via a different entrypoint).
+7. Run `go test -race -count=1 ./internal/calibrate/...` AND `go test -race -count=1 ./internal/controller/...` — both must pass. The controller safety suite is extra insurance that you haven't accidentally broken a cross-package invariant.
 
 8. Run `go vet ./...` and `golangci-lint run ./internal/calibrate/... ./cmd/ventd/...` — both must be clean.
 
@@ -43,7 +45,7 @@ Opus 4.7 (safety-critical: calibration sweeps the full PWM range; wrong abstract
 - Calibration writes go through `FanBackend.Write`, reads through `FanBackend.Read`.
 - `ZeroPWMSentinel` and fingerprint-fence tests still pass unchanged.
 - `cmd/ventd/main.go` constructs the new calibrate driver with the registry.
-- All existing `internal/calibrate/` tests pass under `-race`.
+- All existing `internal/calibrate/` AND `internal/controller/` tests pass under `-race`.
 - `go vet` and `golangci-lint` clean.
 - `CGO_ENABLED=0 go build ./cmd/ventd/` succeeds.
 - Binary size delta ≤ +30 KB.
