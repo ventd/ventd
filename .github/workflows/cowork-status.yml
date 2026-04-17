@@ -1,0 +1,36 @@
+name: cowork-status
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: cowork/state
+          path: state
+      - uses: actions/checkout@v6
+        with:
+          path: main
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: main/go.mod
+      - name: render dashboard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd main
+          go run ./tools/coworkstatus \
+            -events ../state/.cowork/events.jsonl \
+            > "${RUNNER_TEMP}/status.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cowork-status
+          path: ${{ runner.temp }}/status.md
