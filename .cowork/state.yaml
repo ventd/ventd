@@ -1,42 +1,44 @@
 version: 1
-updated: 2026-04-17T23:25:00Z
+updated: 2026-04-17T23:30:00Z
 tracks:
   FOUND:
-    status: in_flight
+    status: holding/solo-dev
     current_task: P0-03
     branch: claude/FOUND-hwissue-7b2f8
     pr: https://github.com/ventd/ventd/pull/238
-    last_review: P0-03-R1
+    pr_tip: dfbbb1631237d8415f8130e64286cd077322ba45
+    last_review: P0-03-R2
     revisions: 1
     completed_tasks:
       - P0-01
       - P0-02
-in_flight:
-  - track: FOUND
-    task: P0-03
-    cc_session: cowork-2026-04-17T23:25:00Z-p0-03-rev1
-    started: 2026-04-17T23:25:00Z
+in_flight: []
 reviews:
   P0-02-R1:
     task: P0-02
     verdict: revise
-    notes: "R7 content errors in docs/roadmap.md. Phase 3 para 2 invents structural claim about ventd-recover (masterplan has separate cmd/ binary) and misstates its purpose (ungraceful-exit, not stuck-daemon). Phase 10 para 2 claims Permissions-Policy + ETag prevent tampering/downgrade — factually wrong. Revision prompt delivered targeting only those two paragraphs; full checklist in .cowork/reviews/P0-02-R1.md."
+    notes: "R7 content errors in docs/roadmap.md. Phase 3 + Phase 10 rewrite prompted."
     timestamp: 2026-04-17T22:30:00Z
   P0-02-R2:
     task: P0-02
     verdict: revise (phantom push)
-    notes: "CC returned STATUS: done with plausible before/after excerpts but no new commit reached claude/FOUND-roadmap-e4b9f. Head SHA unchanged at e81db4a4, commits=1, additions=68. R7 failures from R1 unaddressed on the remote. Re-emitted with hardened reporting contract requiring post-push HEAD SHA in SUMMARY and remote-tip verification. Full detail in .cowork/reviews/P0-02-R2.md."
+    notes: "CC returned done but nothing reached remote. Hardened reporting contract added."
     timestamp: 2026-04-17T22:45:00Z
   P0-02-R3:
     task: P0-02
     verdict: accept (merged at 4aa6a37)
-    notes: "Tip d1a927e on remote. Both R1 content errors fixed. Developer RESUME P0-02; auto-merge executed: PR marked ready-for-review, squash-merged as 4aa6a37b7aac954f2588f339f408dfbe067f00cd, branch auto-deleted. Full checklist in .cowork/reviews/P0-02-R3.md."
+    notes: "All content fixed; CI green; RESUME P0-02; squash-merged as 4aa6a37."
     timestamp: 2026-04-17T23:00:00Z
   P0-03-R1:
     task: P0-03
     verdict: revise
-    notes: "R1-R5, R7-R23 clean. R6 fails: mergeable_state=dirty; 0 check runs. Branch base is fb581b9 (pre-P0-02), so CHANGELOG.md conflicts with current main (both P0-02 and P0-03 added `### Added` under `## [Unreleased]` at the same position). Template content itself is fully correct — GitHub Forms schema clean, privacy posture explicit, all six field groups present with correct required/optional and render:shell flags. Revision prompt asks CC to rebase onto origin/main, resolve the CHANGELOG conflict by keeping both Unreleased entries, and force-push. Round 1 of 3."
+    notes: "R6 only: branch base was fb581b9 (pre-P0-02), CHANGELOG conflict with main. Template content fully correct; rebase prompt delivered."
     timestamp: 2026-04-17T23:25:00Z
+  P0-03-R2:
+    task: P0-03
+    verdict: accept-pending (CI-FLAKE-CHECK)
+    notes: "Rebase verified clean on dfbbb16 (parented on 4aa6a37); CHANGELOG diff shows exactly the single-line addition in correct order. 12/13 CI lanes green. build-and-test-ubuntu-arm64 failed — docs-only diff so not causally attributable to the PR. Lane passed on both P0-02 runs ~20 min earlier. Escalated CI-FLAKE-CHECK; awaiting developer signal (re-run button, RESUME P0-03, empty-commit retrigger, or investigate). Full detail in .cowork/reviews/P0-03-R2.md. Revisions counter unchanged (still 1 of 3 — accept-pending does not increment)."
+    timestamp: 2026-04-17T23:30:00Z
 merges:
   P0-02:
     sha: 4aa6a37b7aac954f2588f339f408dfbe067f00cd
@@ -53,13 +55,21 @@ escalations:
     path: .cowork/ESCALATIONS.md
     resolved: 2026-04-17T23:10:00Z
     resolution: "developer RESUME P0-02; squash-merged as 4aa6a37"
+  - timestamp: 2026-04-17T23:30:00Z
+    kind: CI-FLAKE-CHECK
+    task: P0-03
+    pr: https://github.com/ventd/ventd/pull/238
+    path: .cowork/ESCALATIONS.md
+    resolved: null
+    resolution: null
 notes:
-  - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached — see ESCALATIONS.md first entry."
-  - 2026-04-17T11:15:00Z: "P0-01 bootstrapped manually by the developer's CC session because the prior Cowork session couldn't reach MCP. .cowork/ACK.md and .cowork/state.yaml committed on cowork/state at 6c054a8. The unscheduled `.cowork/` gitignore carve-out (per masterplan §3) was also merged out-of-band as PR #236 (squashed to fb581b9 on main). FOUND track now ready; P0-02 and P0-03 unblocked. Next Cowork session should resume from P0-02 after verifying MCP works."
-  - 2026-04-17T21:30:00Z: "Cowork resumed via gh CLI (no MCP). Read-reconciled against origin/main and PR list through #236. P0-02 assigned to CC on Haiku 4.5 per operator model policy. Auto-merge gated by PHASE-0/FIRST-PR escalation on completion (this is Cowork's first Phase-0 PR even though P0-01 existed pre-loop). ventd/hardware-profiles repo missing — future-blocks P5-PROF-01; not escalating yet."
-  - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live to both repos. Reconciliation: prior P0-02 in_flight was phantom. Reset to new branch and reassigned to Haiku 4.5."
+  - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached."
+  - 2026-04-17T11:15:00Z: "P0-01 bootstrapped manually by developer CC. PR #236 merged out-of-band."
+  - 2026-04-17T21:30:00Z: "Cowork resumed via gh CLI (no MCP). P0-02 assigned; phantom in_flight."
+  - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live. P0-02 reset."
   - 2026-04-17T22:30:00Z: "P0-02 round-1 review: revise (R7 content)."
   - 2026-04-17T22:45:00Z: "P0-02 round-2 review: revise (phantom push)."
-  - 2026-04-17T23:00:00Z: "P0-02 round-3 review: accept. PHASE-0/FIRST-PR escalation opened."
+  - 2026-04-17T23:00:00Z: "P0-02 round-3 review: accept. PHASE-0/FIRST-PR escalation."
   - 2026-04-17T23:10:00Z: "Developer RESUME P0-02. Auto-merged as 4aa6a37. P0-03 dispatched."
-  - 2026-04-17T23:25:00Z: "P0-03 round-1 review: revise (R6 only). PR #238 content-correct on the template and CHANGELOG line — R7 clean (GitHub Forms schema matches, privacy posture explicit, all six field groups present with correct required/optional flags, DMI snippet reads only the 8 permitted files with no serial/UUID). R6 fails: mergeable_state=dirty because CC branched from fb581b9 (pre-P0-02 main); CHANGELOG.md conflict with main's current state where P0-02's Unreleased/Added entry landed in the same region. 0 check runs — CI gated by the conflict. Revision prompt asks CC to rebase claude/FOUND-hwissue-7b2f8 onto origin/main (now at 4aa6a37+), resolve the CHANGELOG conflict by keeping BOTH '- docs: add public roadmap (#P0-02)' and '- docs: add hardware-report issue template (#P0-03)' under the same `### Added` block, and force-push. Template content preserved as-is. Revision round 1 of 3."
+  - 2026-04-17T23:25:00Z: "P0-03 round-1 review: revise (R6 stale-base rebase)."
+  - 2026-04-17T23:30:00Z: "P0-03 round-2 review: accept-pending. PR #238 content fully accepted on tip dfbbb16: template byte-identical to round 1, CHANGELOG now correctly inserts the single new line under the existing `### Added` block beneath P0-02's entry, mergeable_state no longer dirty. CI on the rebased tip: 12/13 lanes complete green (build-and-test ubuntu/fedora/arch/alpine, cross-compile amd64/arm64, headless-chromium, shellcheck, govulncheck, apparmor-parse-debian13, golangci-lint, nix-drift). build-and-test-ubuntu-arm64 failed at 14:29:45Z on a docs-only diff that cannot causally affect test execution; same lane passed on both P0-02 runs ~20 min earlier. Indistinguishable from a one-off infra flake at Cowork's tooling level (no job-log access). CI-FLAKE-CHECK escalation opened at .cowork/ESCALATIONS.md with four options: (a) re-run the failed lane, (b) RESUME P0-03 to authorise admin-merge over the red lane, (c) empty-commit retrigger, (d) investigate. Track FOUND parked at holding/solo-dev. P0-03 revisions counter unchanged at 1 — accept-pending does not increment. Phase 0 MAX_PARALLEL=1 slot held by P0-03; T0-INFRA-01 / T0-META-01 still queued until P0-03 merges."
