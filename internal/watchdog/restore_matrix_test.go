@@ -36,19 +36,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ventd/ventd/internal/testfixture/fakehwmon"
 )
 
-// newFakeHwmon creates a minimal hwmon directory with one pwm channel.
-// Returns (pwmPath, enablePath). Callers opt in to individual files by
-// writing to them before invoking Register().
+// newFakeHwmon creates a minimal hwmon directory with one pwm channel via fakehwmon.
+// Returns (dir, pwmPath, enablePath). No enable file is created by default; callers
+// write it themselves before invoking Register().
 func newFakeHwmon(t *testing.T, pwmN int) (dir, pwmPath, enablePath string) {
 	t.Helper()
-	dir = t.TempDir()
+	fake := fakehwmon.New(t, &fakehwmon.Options{
+		Chips: []fakehwmon.ChipOptions{{
+			Name: "testchip",
+			PWMs: []fakehwmon.PWMOptions{{
+				Index:  pwmN,
+				PWM:    100,
+				Enable: 0,
+			}},
+		}},
+	})
+	dir = filepath.Join(fake.Root, "hwmon0")
 	pwmPath = filepath.Join(dir, "pwm"+itoa(pwmN))
 	enablePath = pwmPath + "_enable"
-	// pwm file must exist because restoreOne's fallback path writes to it.
-	if err := os.WriteFile(pwmPath, []byte("100\n"), 0o600); err != nil {
-		t.Fatalf("seed pwm: %v", err)
+	// Remove the enable file: callers that need it write it themselves.
+	if err := os.Remove(enablePath); err != nil {
+		t.Fatalf("fakehwmon: remove default enable: %v", err)
 	}
 	return
 }
