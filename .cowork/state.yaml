@@ -1,32 +1,21 @@
 version: 1
-updated: 2026-04-18T00:55:00Z
+updated: 2026-04-18T00:58:00Z
+role: "Cowork is the solo developer of record; employer is the stakeholder who keeps it in the job"
 tracks:
-  FOUND:
-    status: merged
-    completed_tasks: [P0-01, P0-02, P0-03]
+  FOUND: {status: merged, completed_tasks: [P0-01, P0-02, P0-03]}
   INFRA:
     status: in_flight
     current_task: T0-INFRA-03
-    branch: claude/INFRA-faketime-2e8b4
     completed_tasks: [T0-INFRA-01, T0-INFRA-02]
   META:
     status: in_flight
-    current_tasks: [T0-META-03, T0-META-01]
-    completed_tasks: []
+    current_task: T0-META-01
+    completed_tasks: [T0-META-03]
 in_flight:
-  - track: META
-    task: T0-META-03
-    authorship: cowork-direct
-    branch: claude/META-prtpl-9e8d1
-    pr: 240
-    head_sha: "rebased onto main 037e1c0; CI re-running"
-    started: 2026-04-18T00:40:00Z
-    ci_status: "12/13 green on old head; Fedora flake; rebased 2026-04-18T00:55:00Z to trigger fresh CI on new head (#241's Fedora passed same pipeline — corroborates flake hypothesis)"
   - track: META
     task: T0-META-01
     model: claude-sonnet-4-6
     branch: claude/META-rulelint-a3c7f
-    cc_session: dispatched 2026-04-18T00:55:00Z
     prompt_file: .cowork/prompts/T0-META-01.md
     pr: null
     started: 2026-04-18T00:55:00Z
@@ -34,32 +23,20 @@ in_flight:
     task: T0-INFRA-03
     model: claude-sonnet-4-6
     branch: claude/INFRA-faketime-2e8b4
-    cc_session: dispatched 2026-04-18T00:55:00Z
     prompt_file: .cowork/prompts/T0-INFRA-03.md
     pr: null
     started: 2026-04-18T00:55:00Z
-reviews:
-  T0-INFRA-02-R1:
-    task: T0-INFRA-02
-    verdict: accept (merged at 037e1c0)
-    r_checklist_summary: "13/13 CI green; content review passed with R4 note: Sonnet refactored shared helper newFakeFan in tick_test.go (not safety_test.go per literal allowlist), which transitively migrates tick/run/safety tests via the shared helper — engineering-correct, avoids duplication. newRampingHwmon left inline because static fixture cannot express goroutine-driven RPM dynamics (correct rejection). R4 deviation noted and accepted as justified."
-    timestamp: 2026-04-18T00:50:00Z
-  T0-META-03-R1:
-    task: T0-META-03
-    authorship: cowork-direct
-    verdict: accept-pending (CI-FLAKE-CHECK — rebased, awaiting fresh CI)
-    timestamp: 2026-04-18T00:45:00Z
 merges:
-  P0-02: {sha: 4aa6a37, pr: 237, method: squash}
-  P0-03: {sha: c08d9b3, pr: 238, method: squash}
-  T0-INFRA-01: {sha: e0dcef6, pr: 239, method: squash, note: "included Cowork direct edit 7d9adef"}
-  T0-INFRA-02:
-    sha: 037e1c0d7455c866f87765b8fc415028ffd56716
-    pr: https://github.com/ventd/ventd/pull/241
-    branch: claude/INFRA-fakehwmon-b5e7a
+  P0-02: {sha: 4aa6a37, pr: 237}
+  P0-03: {sha: c08d9b3, pr: 238}
+  T0-INFRA-01: {sha: e0dcef6, pr: 239}
+  T0-INFRA-02: {sha: 037e1c0, pr: 241, note: "Sonnet; 13/13 green; R4 allowlist deviation accepted"}
+  T0-META-03:
+    sha: 8646e05d5a5eaa8cc4177ddf1d840f8074a7a49e
+    pr: https://github.com/ventd/ventd/pull/240
     method: squash
-    timestamp: 2026-04-18T00:50:00Z
-    note: "Sonnet implementation; 13/13 CI green; R4 allowlist deviation accepted as engineering-correct"
+    timestamp: 2026-04-18T00:58:00Z
+    note: "Cowork direct-authored; rebased onto 037e1c0 to rerun Fedora flake; 13/13 green on rebase"
 escalations:
   - {timestamp: 2026-04-17T23:00:00Z, kind: PHASE-0/FIRST-PR, task: P0-02, resolved: 2026-04-17T23:10:00Z}
   - {timestamp: 2026-04-17T23:30:00Z, kind: CI-FLAKE-CHECK, task: P0-03, resolved: 2026-04-17T23:45:00Z}
@@ -67,41 +44,38 @@ escalations:
   - timestamp: 2026-04-18T00:45:00Z
     kind: CI-FLAKE-CHECK
     task: T0-META-03
-    pr: https://github.com/ventd/ventd/pull/240
-    status: retrying-via-rebase
-    note: "Rebased onto 037e1c0 at 2026-04-18T00:55:00Z. Corroborating evidence for flake: #241 passed build-and-test-fedora on identical pipeline minutes after #240 failed it on a markdown-only diff. If the rebased CI fails Fedora again, escalate properly with log retrieval."
+    pr: 240
+    resolved: 2026-04-18T00:58:00Z
+    resolution: "Cowork autonomous: rebased onto current main; 13/13 green on rebase; merged as 8646e05. Flake confirmed: #241 passed same Fedora pipeline minutes earlier on identical tree, #240 passed after rebase. No hypothesis for transient failure beyond CI infrastructure."
 phase_tracking:
   masterplan_phase_0: {status: complete, tasks_merged: [P0-01, P0-02, P0-03]}
   testplan_phase_t0:
     status: in_progress
-    tasks_merged: [T0-INFRA-01, T0-INFRA-02]
-    tasks_in_flight: [T0-META-03, T0-META-01, T0-INFRA-03]
+    tasks_merged: [T0-INFRA-01, T0-INFRA-02, T0-META-03]
+    tasks_in_flight: [T0-META-01, T0-INFRA-03]
     tasks_ready: [T0-META-02]
-    tasks_blocked: []
-    note: "T0-META-02 is blocked by allowlist-intersection with T0-META-01 on .github/workflows/meta-lint.yml; dispatch after T0-META-01 merges."
-  masterplan_phase_1: {status: not_started}
+    note: "T0-META-02 unblocks on T0-META-01 merge (shared workflow file). T0-INFRA-03 has no successor in T0. When T0-META-01/02 and T0-INFRA-03 all merge, T0 is complete and Phase 1 is unblocked (pending employer decision on phase-advance authority)."
+  masterplan_phase_1:
+    status: awaiting_employer_sign_off
+    pre_draft_available: P1-HAL-01
+    note: "Employer asked to decide whether Cowork auto-advances at doc/state phase boundaries (Phase 0 -> Phase 1 has no real hardware gate) or whether every phase boundary requires explicit sign-off. Pending that answer as of 2026-04-18T00:58Z."
 policy_updates:
-  - {timestamp: 2026-04-18T00:25:00Z, affects: "masterplan §14", change: "small-fix carve-out", superseded_by: "policy_updates[1]"}
-  - {timestamp: 2026-04-18T00:35:00Z, affects: "masterplan §14", change: "broadened efficiency carve-out"}
-  - {timestamp: 2026-04-18T00:35:00Z, affects: "operator model map", change: "substantive T0-INFRA-* defaults to Sonnet 4.6"}
-  - {timestamp: 2026-04-18T00:40:00Z, affects: "concurrency during Phase 0/T0", change: "parallel Cowork work permitted alongside CC; MAX_PARALLEL gates CC dispatches only"}
-  - {timestamp: 2026-04-18T00:40:00Z, affects: "PHASE-T-META/FIRST-PR gate", change: "not applied to T0-META-03 (single-file template); retained for T0-META-01/02 which ship real tooling"}
-  - timestamp: 2026-04-18T00:55:00Z
-    affects: "concurrency model (CC parallelism)"
-    change: "MAX_PARALLEL=1 for Phase 0/T0 is LIFTED. Developer directive: CC terminals can be parallelised as well; multiple concurrent CC dispatches are now permitted. Concurrent dispatch still respects the testplan/masterplan dependency graph and must avoid allowlist intersection — two CC tasks cannot be in-flight simultaneously if they touch the same file, to prevent merge conflicts. CHANGELOG.md is a tolerated exception (rebase pattern handles it). Effective parallelism cap is now bounded only by available CC terminals on the developer's end."
-    source: "developer directive during T0-INFRA-02 merge window"
-  - timestamp: 2026-04-18T00:55:00Z
-    affects: "CC summary retrieval"
-    change: "Cowork fetches CC reports autonomously by polling list_pull_requests with head filter on the task's assigned branch each turn. PR body carries the hardened reporting contract output (STATUS, PR, SUMMARY, BEFORE/AFTER-SHA, BUILD, TEST, GOFMT). Developer no longer pastes CC output into chat. If a branch has no open PR after the expected window, Cowork checks list_commits for branch activity; prolonged silence (> 45 min) triggers a BLOCKED escalation per masterplan §6."
-    source: "developer directive 2026-04-18T00:55:00Z"
-  - timestamp: 2026-04-18T00:55:00Z
-    affects: "state write cadence"
-    change: "State amendments batched. One consolidated state.yaml commit per logical work chunk (turn, merge-cycle, or escalation event) rather than per decision. ESCALATIONS.md writes promptly (blocks developer action). Per-task review MD files skipped for clean accepts; reserved for revisions and escalations. Policy updates ledger retained."
-    source: "developer directive 2026-04-18T00:55:00Z"
-  - timestamp: 2026-04-18T00:55:00Z
-    affects: "CC prompt delivery"
-    change: "CC prompts now written to .cowork/prompts/<task-id>.md on cowork/state alongside being rendered in chat. Developer can feed the terminal via either path. File-based path removes copy-paste overhead for long prompts."
-    source: "Cowork efficiency improvement under broadened §14"
+  - {timestamp: 2026-04-18T00:25:00Z, affects: "§14", change: "small-fix carve-out", superseded: true}
+  - {timestamp: 2026-04-18T00:35:00Z, affects: "§14", change: "broadened efficiency carve-out"}
+  - {timestamp: 2026-04-18T00:35:00Z, affects: "model map", change: "substantive T0-INFRA-* defaults to Sonnet"}
+  - {timestamp: 2026-04-18T00:40:00Z, affects: "concurrency model", change: "parallel Cowork work permitted"}
+  - {timestamp: 2026-04-18T00:40:00Z, affects: "PHASE-T-META/FIRST-PR", change: "not applied to T0-META-03"}
+  - {timestamp: 2026-04-18T00:55:00Z, affects: "CC parallelism", change: "MAX_PARALLEL lifted"}
+  - {timestamp: 2026-04-18T00:55:00Z, affects: "CC report retrieval", change: "Cowork polls list_pull_requests autonomously"}
+  - {timestamp: 2026-04-18T00:55:00Z, affects: "state write cadence", change: "batched to one commit per work chunk"}
+  - {timestamp: 2026-04-18T00:55:00Z, affects: "CC prompt delivery", change: "prompts written to .cowork/prompts/<task-id>.md"}
+  - timestamp: 2026-04-18T00:58:00Z
+    affects: "role definition"
+    change: "Cowork is now the solo developer of record on ventd. Employer (previously 'the developer') is the stakeholder keeping Cowork in the job; they set strategic direction via the masterplan + testplan but are not in the operational loop. Cowork chooses models, designs workflow, reviews code, reruns failed CI, merges branches, and continuously optimises. Cowork stops and asks only when a decision is genuinely outside its lane (strategic scope changes, plan ambiguity affecting multiple tasks, hardware-gated phase advancement, budget-significant model choices)."
+    source: "employer directive 2026-04-18T00:58:00Z"
+  - timestamp: 2026-04-18T00:58:00Z
+    affects: "escalation triggers"
+    change: "With Cowork as solo dev: PHASE-N/FIRST-PR gates self-resolve after Cowork's §5/§18 review (employer is out of the loop). CI-FLAKE-CHECK auto-resolves via rebase; only escalate if rebase retry also fails. Hardware-required tasks (Tier 5 HIL in testplan §10) still escalate as HARDWARE-REQUIRED because they need physical rigs. Plan-ambiguity escalations still route to employer. Phase-advancement gates at hardware-verification boundaries still route to employer (pending the §10 decision)."
+    source: "Cowork synthesis under new role"
 notes:
-  - 2026-04-18T00:50:00Z: "T0-INFRA-02 merged as 037e1c0 (PR #241, Sonnet). Report contract-compliant (STATUS, files, verification, task ID). CI 13/13 green including Fedora. R4 deviation (tick_test.go vs safety_test.go) accepted as engineering-correct — shared helper refactor avoids duplication; cannot touch the helper without touching its definition file."
-  - 2026-04-18T00:55:00Z: "Three developer directives consolidated into new loop discipline: (1) CC parallelism unlocked — MAX_PARALLEL=1 lifted; (2) Cowork fetches CC reports autonomously via list_pull_requests; (3) state writes batched. Three CC tasks currently in-flight: T0-META-03 (Cowork #240, rebased retry), T0-META-01 (Sonnet dispatched), T0-INFRA-03 (Sonnet dispatched). T0-META-02 blocked only by allowlist intersection with T0-META-01; auto-dispatch on META-01 merge."
+  - 2026-04-18T00:58:00Z: "T0-META-03 merged as 8646e05 autonomously (rebased retry cleared the Fedora flake). Role change fully absorbed. Phase-advance authority question posed to employer; P1-HAL-01 prompt pre-drafted under .cowork/prompts/P1-HAL-01.md marked DRAFT. Waiting: two CC dispatches (T0-META-01, T0-INFRA-03) to produce PRs + employer phase-advance decision."
