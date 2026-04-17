@@ -11,15 +11,18 @@ connector is pointed at.
 
 Security:
 
-- The cloudflared tunnel + OAuth gate on claude.ai is the real access
-  control. The MCP SDK's built-in DNS-rebinding protection would
-  reject every request whose Host header is the trycloudflare hostname
-  (not 127.0.0.1), so we explicitly configure allowed_hosts=["*"] and
-  allowed_origins=["*"]. This keeps the protection code path enabled
-  (defense in depth) while accepting the specific reality that a
-  public tunnel rewrites neither header. If you move to a named
-  tunnel with a stable hostname, tighten these to
-  ["your-tunnel-host:*"].
+- DNS-rebinding protection is deliberately disabled. The SDK's
+  allowed_hosts check is a literal string-equals match (no wildcard
+  matching except ports like base:*), and trycloudflare quick-tunnel
+  hostnames rotate on every cloudflared restart, so there is no
+  reasonable value to put in allowed_hosts that would admit legitimate
+  traffic. The real access controls are:
+    1. Server binds to 127.0.0.1 only — no direct external reach.
+    2. cloudflared tunnel terminates the only external path.
+    3. OAuth on claude.ai's custom-connector layer authenticates Cowork.
+  If you later move to a named tunnel with a stable hostname, flip
+  SPAWN_MCP_ENABLE_DNS_REBINDING_PROTECTION=1 and set
+  SPAWN_MCP_ALLOWED_HOSTS="your-host:*" to tighten.
 """
 
 from __future__ import annotations
@@ -60,10 +63,13 @@ AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jso
 HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
 
-# Comma-separated list; default "*" allows any Host/Origin header because the
-# trycloudflare quick-tunnel hostname rotates on every cloudflared restart.
-ALLOWED_HOSTS = [h.strip() for h in os.environ.get("SPAWN_MCP_ALLOWED_HOSTS", "*").split(",") if h.strip()]
-ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SPAWN_MCP_ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+# DNS-rebinding protection: off by default because trycloudflare hostnames
+# rotate and the SDK does literal string matching on Host. See module docstring.
+ENABLE_DNS_REBINDING_PROTECTION = os.environ.get(
+    "SPAWN_MCP_ENABLE_DNS_REBINDING_PROTECTION", "0"
+) in ("1", "true", "yes")
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get("SPAWN_MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SPAWN_MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
 AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +78,7 @@ mcp = FastMCP(
     host=HOST,
     port=PORT,
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
+        enable_dns_rebinding_protection=ENABLE_DNS_REBINDING_PROTECTION,
         allowed_hosts=ALLOWED_HOSTS,
         allowed_origins=ALLOWED_ORIGINS,
     ),
@@ -304,9 +310,10 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
 
 if __name__ == "__main__":
     log.info(
-        "spawn-mcp starting on %s:%d; allowed_hosts=%s allowed_origins=%s worktree=%s user=%s",
+        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s user=%s",
         HOST,
         PORT,
+        ENABLE_DNS_REBINDING_PROTECTION,
         ALLOWED_HOSTS,
         ALLOWED_ORIGINS,
         WORKTREE,
