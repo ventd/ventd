@@ -6,11 +6,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"path/filepath"
-	"strconv"
 	"sync"
 
+	"github.com/ventd/ventd/internal/hal"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwmon"
-	"github.com/ventd/ventd/internal/nvidia"
 )
 
 // Safety envelope — what this watchdog actually covers.
@@ -24,7 +25,7 @@ import (
 //
 // NOT covered (do not surface these as guarantees in user-facing docs):
 //   - SIGKILL (kill -9). Process dies before defers run; nothing
-//     restores pwm_enable. Fan stays at the last-written PWM.
+//     restores pre-ventd state. Fan stays at the last-written PWM.
 //   - Kernel panic. Same — user-space defers never execute.
 //   - Power loss. Obviously — no user-space code runs at all.
 //   - Daemon crash via uncaught panic outside a recovered frame.
@@ -58,10 +59,21 @@ type Watchdog struct {
 	mu      sync.Mutex
 	entries []entry
 	logger  *slog.Logger
+	// hwmonBe / nvmlBe are the FanBackend instances Restore delegates
+	// into. Per-watchdog instances (constructed in New) keep the
+	// backend's log output scoped to this watchdog's logger — the
+	// pre-refactor restoreOne wrote through w.logger directly, and
+	// the test suite asserts on that logger's buffer.
+	hwmonBe *halhwmon.Backend
+	nvmlBe  *halnvml.Backend
 }
 
 func New(logger *slog.Logger) *Watchdog {
-	return &Watchdog{logger: logger}
+	return &Watchdog{
+		logger:  logger,
+		hwmonBe: halhwmon.NewBackend(logger),
+		nvmlBe:  halnvml.NewBackend(logger),
+	}
 }
 
 func (w *Watchdog) Register(pwmPath string, fanType string) {
@@ -126,6 +138,10 @@ func (w *Watchdog) Restore() {
 	}
 }
 
+// restoreOne dispatches a single entry's restore to the appropriate
+// FanBackend. The backend owns the byte-level sysfs write and the
+// operator-facing log lines; this method owns only the per-entry
+// panic recovery envelope.
 func (w *Watchdog) restoreOne(e entry) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -139,70 +155,41 @@ func (w *Watchdog) restoreOne(e entry) {
 		}
 	}()
 
+	var (
+		be hal.FanBackend
+		ch hal.Channel
+	)
 	if e.fanType == "nvidia" {
-		idx, err := strconv.ParseUint(e.pwmPath, 10, 32)
-		if err != nil {
-			w.logger.Error("watchdog: nvidia gpu index parse failed, skipping restore",
-				"gpu_index", e.pwmPath, "err", err)
-			return
-		}
-		if err := nvidia.ResetFanSpeed(uint(idx)); err != nil {
-			w.logger.Error("watchdog: nvidia fan reset failed",
-				"gpu_index", e.pwmPath, "err", err)
-		} else {
-			w.logger.Info("watchdog: nvidia fan restored to auto",
-				"gpu_index", e.pwmPath)
-		}
-		return
-	}
-
-	if e.rpmTarget {
-		enablePath := hwmon.RPMTargetEnablePath(e.pwmPath)
-		maxRPM := hwmon.ReadFanMaxRPM(e.pwmPath)
-		if e.origEnable < 0 {
-			if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
-				w.logger.Error("watchdog: pwm_enable unsupported and max-rpm fallback failed",
-					"target_path", e.pwmPath, "err", writeErr)
-			} else {
-				w.logger.Warn("watchdog: pwm_enable unsupported, wrote fan_target=max_rpm as safe fallback",
-					"target_path", e.pwmPath, "rpm", maxRPM)
-			}
-			return
-		}
-		if err := hwmon.WritePWMEnablePath(enablePath, e.origEnable); err != nil {
-			w.logger.Error("watchdog: failed to restore pwm_enable for rpm_target fan",
-				"enable_path", enablePath, "value", e.origEnable, "err", err)
-			if writeErr := hwmon.WriteFanTarget(e.pwmPath, maxRPM); writeErr != nil {
-				w.logger.Error("watchdog: max-rpm fallback also failed",
-					"target_path", e.pwmPath, "err", writeErr)
-			}
-		} else {
-			w.logger.Info("watchdog: restored pwm_enable for rpm_target fan",
-				"enable_path", enablePath, "value", e.origEnable)
-		}
-		return
-	}
-
-	if e.origEnable < 0 {
-		if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
-			w.logger.Error("watchdog: pwm_enable unsupported and full-speed fallback failed",
-				"path", e.pwmPath, "err", writeErr)
-		} else {
-			w.logger.Warn("watchdog: pwm_enable unsupported, wrote PWM=255 as safe fallback",
-				"path", e.pwmPath)
-		}
-		return
-	}
-
-	if err := hwmon.WritePWMEnable(e.pwmPath, e.origEnable); err != nil {
-		w.logger.Error("watchdog: failed to restore pwm_enable",
-			"path", e.pwmPath, "value", e.origEnable, "err", err)
-		if writeErr := hwmon.WritePWM(e.pwmPath, 255); writeErr != nil {
-			w.logger.Error("watchdog: full-speed fallback also failed",
-				"path", e.pwmPath, "err", writeErr)
+		be = w.nvmlBe
+		ch = hal.Channel{
+			ID:     e.pwmPath,
+			Role:   hal.RoleGPU,
+			Caps:   hal.CapRestore,
+			Opaque: halnvml.State{Index: e.pwmPath},
 		}
 	} else {
-		w.logger.Info("watchdog: restored pwm_enable",
-			"path", e.pwmPath, "value", e.origEnable)
+		be = w.hwmonBe
+		caps := hal.CapRestore
+		if e.rpmTarget {
+			caps |= hal.CapWriteRPMTarget
+		} else {
+			caps |= hal.CapWritePWM
+		}
+		ch = hal.Channel{
+			ID:   e.pwmPath,
+			Role: hal.RoleUnknown,
+			Caps: caps,
+			Opaque: halhwmon.State{
+				PWMPath:    e.pwmPath,
+				RPMTarget:  e.rpmTarget,
+				OrigEnable: e.origEnable,
+			},
+		}
 	}
+	// Backend.Restore is expected to log operator-visible detail
+	// itself. We intentionally swallow the returned error here: the
+	// loop-level contract is that one failing entry never blocks the
+	// remaining entries, and a backend that logged its failure has
+	// already communicated it.
+	_ = be.Restore(ch)
 }

@@ -19,6 +19,9 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/hal"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -228,6 +231,20 @@ func run() error {
 	// don't release a refcount we didn't acquire.
 	if err := nvidia.Init(logger); err == nil {
 		defer nvidia.Shutdown()
+	}
+
+	// Register fan backends with the HAL registry. The controllers and
+	// watchdog construct their own per-instance backends for scoped
+	// logging; the registry entries here exist so hal.Enumerate /
+	// hal.Resolve can drive Phase 2 features (IPMI / liquidctl / cros_ec
+	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
+	// a single source of truth.
+	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
+	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
+	if channels, err := hal.Enumerate(context.Background()); err != nil {
+		logger.Warn("hal: initial enumerate failed", "err", err)
+	} else {
+		logger.Info("hal: enumerated fan backends", "channels", len(channels))
 	}
 
 	sigCh := make(chan os.Signal, 1)
