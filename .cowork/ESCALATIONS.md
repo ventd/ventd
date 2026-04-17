@@ -35,3 +35,10 @@ Track FOUND is parked at holding/solo-dev; no further P-tasks or
 T-tasks dispatched on that track until this gate clears. Phase 0
 remains open; P0-03 (hardware-report issue template) becomes the
 next-ready FOUND task the moment P0-02 merges.
+
+Resolved: 2026-04-17T23:10:00Z — developer issued `RESUME P0-02`.
+All 13 CI lanes observed green on d1a927e. PR marked ready-for-review,
+squash-merged as 4aa6a37b7aac954f2588f339f408dfbe067f00cd. Branch
+claude/FOUND-roadmap-e4b9f auto-deleted. docs/roadmap.md verified on
+origin/main. Track FOUND released from holding/solo-dev; P0-03
+dispatched (single Phase-0/T0 MAX_PARALLEL slot).

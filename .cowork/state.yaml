@@ -1,17 +1,21 @@
 version: 1
-updated: 2026-04-17T23:00:00Z
+updated: 2026-04-17T23:10:00Z
 tracks:
   FOUND:
-    status: holding/solo-dev
-    current_task: P0-02
-    branch: claude/FOUND-roadmap-e4b9f
-    pr: https://github.com/ventd/ventd/pull/237
-    pr_tip: d1a927ebe06d44cade3cbefdcef62d7de4442047
-    last_review: P0-02-R3
-    revisions: 2
+    status: in_flight
+    current_task: P0-03
+    branch: claude/FOUND-hwissue-7b2f8
+    pr: null
+    last_review: null
+    revisions: 0
     completed_tasks:
       - P0-01
-in_flight: []
+      - P0-02
+in_flight:
+  - track: FOUND
+    task: P0-03
+    cc_session: cowork-2026-04-17T23:10:00Z-p0-03
+    started: 2026-04-17T23:10:00Z
 reviews:
   P0-02-R1:
     task: P0-02
@@ -25,9 +29,16 @@ reviews:
     timestamp: 2026-04-17T22:45:00Z
   P0-02-R3:
     task: P0-02
-    verdict: accept (PHASE-0/FIRST-PR gate)
-    notes: "Tip d1a927e on remote. Both R1 content errors fixed. Phase 3 para 2 now frames ventd-recover as an ungraceful-exit helper with no structural claims. Phase 10 para 2 now describes Permissions-Policy as a browser-feature denylist and ETag as cache validation; 'verified, auditable statement' moved to supply-chain phase context. Scope verification: round-2 push changed only the two target paragraphs; README.md and CHANGELOG.md byte-identical to round 0. CI 7/13 lanes green on new tip (all static-analysis complete); remaining 6 in_progress on fresh run. Word count 932, within 800–1200. Auto-merge blocked by PHASE-0/FIRST-PR per operator instructions. Escalation opened. Full checklist in .cowork/reviews/P0-02-R3.md."
+    verdict: accept (merged at 4aa6a37)
+    notes: "Tip d1a927e on remote. Both R1 content errors fixed. Phase 3 para 2 now frames ventd-recover as an ungraceful-exit helper with no structural claims. Phase 10 para 2 now describes Permissions-Policy as a browser-feature denylist and ETag as cache validation; 'verified, auditable statement' moved to supply-chain phase context. Scope verification: round-2 push changed only the two target paragraphs; README.md and CHANGELOG.md byte-identical to round 0. All 13 CI lanes green on d1a927e. Developer RESUME P0-02 signal received; auto-merge executed: PR marked ready-for-review, squash-merged as 4aa6a37b7aac954f2588f339f408dfbe067f00cd, branch auto-deleted. Full checklist in .cowork/reviews/P0-02-R3.md."
     timestamp: 2026-04-17T23:00:00Z
+merges:
+  P0-02:
+    sha: 4aa6a37b7aac954f2588f339f408dfbe067f00cd
+    pr: https://github.com/ventd/ventd/pull/237
+    branch: claude/FOUND-roadmap-e4b9f
+    method: squash
+    timestamp: 2026-04-17T23:10:00Z
 merge_queue: []
 escalations:
   - timestamp: 2026-04-17T23:00:00Z
@@ -35,6 +46,8 @@ escalations:
     task: P0-02
     pr: https://github.com/ventd/ventd/pull/237
     path: .cowork/ESCALATIONS.md
+    resolved: 2026-04-17T23:10:00Z
+    resolution: "developer RESUME P0-02; squash-merged as 4aa6a37"
 notes:
   - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached — see ESCALATIONS.md first entry."
   - 2026-04-17T11:15:00Z: "P0-01 bootstrapped manually by the developer's CC session because the prior Cowork session couldn't reach MCP. .cowork/ACK.md and .cowork/state.yaml committed on cowork/state at 6c054a8. The unscheduled `.cowork/` gitignore carve-out (per masterplan §3) was also merged out-of-band as PR #236 (squashed to fb581b9 on main). FOUND track now ready; P0-02 and P0-03 unblocked. Next Cowork session should resume from P0-02 after verifying MCP works."
@@ -42,4 +55,5 @@ notes:
   - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live to both repos. Reconciliation: prior P0-02 in_flight was phantom — branch claude/FOUND-roadmap-d3f2a absent upstream, no PR opened, past §6 45-min timeout. P0-02 reset and reassigned to new branch claude/FOUND-roadmap-e4b9f on Haiku 4.5. PHASE-0/FIRST-PR escalation still applies on completion — no auto-merge. hardware-profiles repo now reachable; prior P5-PROF-01 future-block concern resolved. ACK.md updated per developer instruction: current masterplan and testplan SHA-256s recorded (masterplan SHA changed since original ACK at 3be1a38 — plan was edited between sessions; new SHA 077ab5ef reflects the plan this loop is operating against); masterplan §2 'tests out of scope' noted as superseded by testplan post-#227."
   - 2026-04-17T22:30:00Z: "P0-02 round-1 review: revise. PR #237 opened on claude/FOUND-roadmap-e4b9f, draft, 3 files, 1 commit (conventional). CI 12/13 green with build-and-test-ubuntu still in_progress (trending green). R1–R6, R8–R23 clean. R7 fails on two content errors in docs/roadmap.md: Phase 3 para 2 invents structural packaging of ventd-recover (masterplan P3-RECOVER-01 has it as a separate cmd/ binary) and misstates purpose; Phase 10 para 2 claims Permissions-Policy + ETag prevent tampering/downgrade attacks (factually wrong for both mechanisms). Review artifact at .cowork/reviews/P0-02-R1.md. Revision prompt re-emitted targeting only those two paragraphs; branch, PR, commit history, word count, headings otherwise preserved. Revision round 1 of 3."
   - 2026-04-17T22:45:00Z: "P0-02 round-2 review: revise (phantom push). CC returned STATUS: done with plausible before/after excerpts but the branch tip is unchanged at e81db4a4 — no commit reached the remote. Three probable causes: CC didn't commit+push, silent push failure, or developer relayed the report before push completed. Revision prompt re-emitted with a hardened reporting contract: CC must now include the post-push HEAD SHA in SUMMARY and verify the remote tip before reporting done. Review artifact at .cowork/reviews/P0-02-R2.md. Revisions counter now 2 of 3 despite zero content-fix work landing on the remote; if round 3 also comes back phantom, escalate under §12 as task-progression loss, not as rows-failing trigger."
-  - 2026-04-17T23:00:00Z: "P0-02 round-3 review: accept. Remote tip advanced to d1a927e; CC's local round-1 work from the phantom round had survived in the working tree and was pushed as a second commit on the branch (not force-pushed). Both R1/R2 content errors verified fixed: Phase 3 para 2 reframed as ungraceful-exit helper with no structural claims; Phase 10 para 2 now describes Permissions-Policy + ETag accurately and moves the 'verified, auditable statement' claim to the whole supply-chain phase. Scope tight: only the two target paragraphs changed; README.md and CHANGELOG.md untouched since round 0. CI 7/13 lanes green on d1a927e with all static-analysis complete; remaining 6 distro / headless-chromium lanes in_progress on fresh run (docs-only diff, expect all green). Auto-merge blocked by PHASE-0/FIRST-PR gate per operator instructions. Escalation opened at .cowork/ESCALATIONS.md. Track FOUND parked at holding/solo-dev until the developer either merges directly or issues RESUME P0-02. P0-03 becomes next-ready the moment P0-02 merges; Phase 0 MAX_PARALLEL=1 prevents any concurrent dispatch in the meantime."
+  - 2026-04-17T23:00:00Z: "P0-02 round-3 review: accept. Remote tip advanced to d1a927e; CC's local round-1 work from the phantom round had survived in the working tree and was pushed as a second commit on the branch (not force-pushed). Both R1/R2 content errors verified fixed. Scope tight: only the two target paragraphs changed. Auto-merge blocked by PHASE-0/FIRST-PR gate per operator instructions. Escalation opened at .cowork/ESCALATIONS.md. Track FOUND parked at holding/solo-dev."
+  - 2026-04-17T23:10:00Z: "Developer RESUME P0-02 signal received. All 13 CI lanes verified green on d1a927e (headless-chromium, build-and-test ubuntu/ubuntu-arm64/fedora/arch/alpine, cross-compile amd64/arm64, shellcheck, govulncheck, apparmor-parse-debian13, golangci-lint, nix-drift). PR #237 marked ready-for-review via update_pull_request(draft=false), squash-merged as commit 4aa6a37b7aac954f2588f339f408dfbe067f00cd on main with title 'docs: add public roadmap (#237)'. Branch claude/FOUND-roadmap-e4b9f auto-deleted by repo policy. docs/roadmap.md content verified on origin/main. ESCALATIONS.md first entry marked Resolved. P0-02 recorded in merges map. FOUND track advanced to P0-03: hardware-report issue template. New branch claude/FOUND-hwissue-7b2f8, CC on Haiku 4.5. Allowlist tight: .github/ISSUE_TEMPLATE/hardware-report.yml (new) + CHANGELOG.md only — excludes the wider .github/ISSUE_TEMPLATE/** allowlist from masterplan §8 since no existing template needs editing. P0-03 is not first-PR-of-phase (P0-02 was); auto-merge applies on CI green. Phase 0 MAX_PARALLEL=1 — T0-INFRA-01/T0-META-01 stay queued until the slot frees. On P0-03 merge, Phase 0 P-tasks are complete; T0 fixture/lint infrastructure becomes the next ready work without requiring Phase-1 advancement (T0 is the testplan's phase-0 analogue)."
