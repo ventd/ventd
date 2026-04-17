@@ -31,3 +31,12 @@
 {"ts":"2026-04-18T-session-resume-3","kind":"merge","task":"P1-FP-02","pr":257,"sha":"c431f02e","by":"cowork","text":"feat(hwdb): opt-in remote refresh with SHA-256 pin"}
 {"ts":"2026-04-18T-session-resume-3","kind":"note","task":"P1-HOT-01","pr":260,"text":"hot2 session returned rc=0: CHANGELOG conflict resolved, old resolution commit dropped, force-pushed to 856246d2. CI + E2E re-running."}
 {"ts":"2026-04-18T-session-resume-3","kind":"dispatch","task":"P1-MOD-02","alias":"mod2","model":"claude-sonnet-4-6"}
+{"ts":"2026-04-18T-session-resume-4","kind":"accept","task":"P1-HOT-01","pr":260,"reason":"CI 16/16 green on rebased head 181f0636; diff clean against \u00a75."}
+{"ts":"2026-04-18T-session-resume-4","kind":"merge","task":"P1-HOT-01","pr":260,"sha":"ced97716","by":"cowork","text":"perf(controller): eliminate per-tick allocations"}
+{"ts":"2026-04-18T-session-resume-4","kind":"note","task":"P1-MOD-02","pr":261,"text":"mod2 returned rc=0, PR #261 opened at d54aef2b. Post-#260 rebased to acc09566."}
+{"ts":"2026-04-18T-session-overnight","kind":"dispatch","task":"merge-261","alias":"merge-261","note":"helper CC session to flip draft off (MCP gap); step 3 gh-merge denied by allowlist, but step 1 ready-flip succeeded"}
+{"ts":"2026-04-18T-session-overnight","kind":"accept","task":"P1-MOD-02","pr":261,"reason":"CI 16/16 green on rebased head acc09566; diff clean against \u00a75; allowlist exactly matches prompt."}
+{"ts":"2026-04-18T-session-overnight","kind":"merge","task":"P1-MOD-02","pr":261,"sha":"3e6a142e","by":"cowork","text":"fix(hwmon): append-not-overwrite in persistModule"}
+{"ts":"2026-04-18T-session-overnight","kind":"dispatch","task":"P1-HOT-02","alias":"hot-retry","session":"cc-hot-retry-5570f3","model":"claude-sonnet-4-6"}
+{"ts":"2026-04-18T-session-overnight","kind":"note","task":"P1-HAL-02","session":"cc-hal2-682f5c","text":"hal2 still running at ~30min wall-clock; non-interactive claude -p silent until rc. Per stop rules, 45min timeout before escalation."}
+{"ts":"2026-04-18T-session-overnight","kind":"note","text":"MCP gap discovered: no direct tool to flip PR draft->ready. Workaround: spawn CC session running `gh pr ready N`. Follow-up: consider adding `update_pull_request` to the self-hosted github-mcp-server toolset, OR update CC prompts to open PRs as ready-for-review by default rather than draft."}
