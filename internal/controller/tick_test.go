@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/testfixture/fakehwmon"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -39,20 +40,26 @@ type fakeFan struct {
 
 func newFakeFan(t *testing.T) fakeFan {
 	t.Helper()
-	dir := t.TempDir()
-	pwmPath := filepath.Join(dir, "pwm1")
-	enablePath := filepath.Join(dir, "pwm1_enable")
-	tempPath := filepath.Join(dir, "temp1_input")
-	for _, p := range []struct{ path, content string }{
-		{pwmPath, "0\n"},
-		{enablePath, "2\n"},
-		{tempPath, "60000\n"},
-	} {
-		if err := os.WriteFile(p.path, []byte(p.content), 0o600); err != nil {
-			t.Fatalf("write %s: %v", p.path, err)
-		}
+	fake := fakehwmon.New(t, &fakehwmon.Options{
+		Chips: []fakehwmon.ChipOptions{{
+			Name: "testchip",
+			PWMs: []fakehwmon.PWMOptions{{
+				Index:  1,
+				PWM:    0,
+				Enable: 2, // auto mode; Run() flips to 1 (manual)
+			}},
+			Temps: []fakehwmon.TempOptions{{
+				Index:  1,
+				MilliC: 60000,
+			}},
+		}},
+	})
+	chipDir := filepath.Join(fake.Root, "hwmon0")
+	return fakeFan{
+		pwmPath:    filepath.Join(chipDir, "pwm1"),
+		enablePath: filepath.Join(chipDir, "pwm1_enable"),
+		tempPath:   filepath.Join(chipDir, "temp1_input"),
 	}
-	return fakeFan{pwmPath: pwmPath, enablePath: enablePath, tempPath: tempPath}
 }
 
 // readPWMByte reads the current PWM value written to the fixture file.
