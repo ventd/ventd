@@ -15,6 +15,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - test: implement fakehwmon fixture + migrate 3 tests (#T0-INFRA-02)
 - feat: fingerprint-keyed hwdb replaces substring table (#P1-FP-01)
 - test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
+- ci: rule-to-subtest binding lint (#T0-META-01)
 
 ### Fixed
 
