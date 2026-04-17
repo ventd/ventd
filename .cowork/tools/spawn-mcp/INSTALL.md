@@ -63,12 +63,36 @@ sudo -u cc-runner git config --global user.name "cc-runner"
 sudo -u cc-runner git config --global user.email "cc-runner@localhost"
 ```
 
-## 4. Install the spawn-mcp service
+## 4. Generate a Claude OAuth token for cc-runner
+
+spawn-mcp launches `claude -p` in non-interactive print mode, which
+bypasses the theme picker and permission prompts but still needs auth.
+The simplest path is a long-lived OAuth token the service forwards via
+env. Generate it once, interactively, as cc-runner:
+
+```
+sudo -u cc-runner -i
+# inside the cc-runner shell:
+claude setup-token
+# follow the prompts, copy the printed token, then exit
+exit
+```
+
+The token is printed once and NOT saved to disk by `setup-token`. Put
+it in `/etc/spawn-mcp/env` (mode 0640, group cc-runner) under the
+`CLAUDE_CODE_OAUTH_TOKEN=` key. See step 5 below.
+
+Alternative: run `sudo -u cc-runner -i claude auth login` interactively
+once to seed `~/.claude/` and skip the token approach. Either works;
+the OAuth token path is cleaner for automation.
+
+## 5. Install the spawn-mcp service
 
 ```
 sudo install -d -o cc-runner -g cc-runner -m 755 /opt/spawn-mcp
 sudo install -d -o root -g root -m 755 /etc/spawn-mcp
 sudo install -d -o cc-runner -g cc-runner -m 755 /var/log/spawn-mcp
+sudo install -d -o cc-runner -g cc-runner -m 755 /var/log/spawn-mcp/sessions
 
 sudo cp .cowork/tools/spawn-mcp/server.py /opt/spawn-mcp/server.py
 sudo cp .cowork/tools/spawn-mcp/pyproject.toml /opt/spawn-mcp/pyproject.toml
@@ -86,6 +110,8 @@ SPAWN_MCP_CC_BIN=/home/cc-runner/.local/bin/claude
 SPAWN_MCP_TMUX_BIN=/usr/bin/tmux
 SPAWN_MCP_LOG=INFO
 SPAWN_MCP_AUDIT=/var/log/spawn-mcp/audit.jsonl
+SPAWN_MCP_SESSION_LOG_DIR=/var/log/spawn-mcp/sessions
+CLAUDE_CODE_OAUTH_TOKEN=<paste token from step 4 here>
 EOF
 
 sudo chmod 640 /etc/spawn-mcp/env
@@ -95,7 +121,7 @@ sudo cp .cowork/tools/spawn-mcp/spawn-mcp.service /etc/systemd/system/spawn-mcp.
 sudo cp .cowork/tools/spawn-mcp/spawn-mcp-tunnel.service /etc/systemd/system/spawn-mcp-tunnel.service
 ```
 
-## 5. Start and verify
+## 6. Start and verify
 
 ```
 sudo systemctl daemon-reload
@@ -118,36 +144,46 @@ and `NoNewPrivs: 1`.
 The tunnel log line will include a hostname like
 `https://foo-bar-baz.trycloudflare.com`. Copy it.
 
-## 6. Wire the connector into claude.ai
+## 7. Wire the connector into claude.ai
 
 1. Settings -> Connectors -> Add custom connector.
 2. Name: `spawn-mcp` (or `phoenix-spawn`).
-3. URL: the trycloudflare hostname from step 5.
+3. URL: the trycloudflare hostname from step 6.
 4. Auth: OAuth, point at the existing `ventd-cowork` app.
 5. Approve + test. Cowork's next session should see `spawn_cc`,
    `list_sessions`, `kill_session`, `tail_session` in its tool list.
 
-## 7. First smoke test
+## 8. First smoke test
 
 In a Cowork session, run:
 
     spawn_cc("wd-safety")
 
 This should return `{"status": "spawned", "session_name": "cc-wd-safety-ab12cd", ...}`.
-Then on phoenix-desktop:
+
+Then verify CC is actually progressing (not stuck on a prompt):
+
+    tail_session("cc-wd-safety-ab12cd", 50)
+
+You should see `claude` output (not a theme-picker welcome screen). If
+you see the welcome screen, the OAuth token or `IS_DEMO=1` env is not
+reaching the child process; check `sudo journalctl -u spawn-mcp.service`
+and `sudo cat /var/log/spawn-mcp/audit.jsonl | tail -5`.
+
+To attach and watch interactively:
 
     sudo -u cc-runner tmux attach -t cc-wd-safety-ab12cd
 
-to watch the CC agent work. (`sudo -u cc-runner` is needed to reach the
-cc-runner tmux server from a different shell user — it's not a
-service-side privilege escalation.)
+(`sudo -u cc-runner` is needed to reach the cc-runner tmux server from
+a different shell user — it's not a service-side privilege escalation.)
 
-## 8. Operational checks
+## 9. Operational checks
 
 - Audit log: `sudo tail -f /var/log/spawn-mcp/audit.jsonl`
+- Session logs: `ls /var/log/spawn-mcp/sessions/` — one .log per spawn
 - Session list: `sudo -u cc-runner tmux ls`
 - Kill a runaway: Cowork can call `kill_session(name)`; manually
-  `sudo -u cc-runner tmux kill-session -t cc-<name>`.
+  `sudo -u cc-runner tmux kill-session -t cc-<n>`.
 
 ## Uninstalling the old two-user model
 
@@ -163,7 +199,7 @@ sudo userdel spawn-mcp 2>/dev/null || true
 sudo groupdel spawn-mcp 2>/dev/null || true
 ```
 
-Then follow steps 4-5 to install the unified unit and restart.
+Then follow steps 5-6 to install the unified unit and restart.
 
 ## Threat model & limits
 
@@ -182,3 +218,7 @@ Then follow steps 4-5 to install the unified unit and restart.
   spawn CC sessions but only against aliases that exist in the repo.
   They cannot inject arbitrary shell, cannot bypass the allowlist,
   and every spawn is logged.
+- `CLAUDE_CODE_OAUTH_TOKEN` in /etc/spawn-mcp/env grants CC sessions
+  access to your Anthropic subscription. Rotate it if phoenix-desktop
+  is ever compromised. `claude setup-token` generates new tokens;
+  revoke old ones from claude.ai settings.

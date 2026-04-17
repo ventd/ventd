@@ -1,8 +1,8 @@
 """spawn-mcp: MCP server exposing spawn_cc(alias) for Cowork.
 
 Runs on phoenix-desktop. Launches detached tmux sessions that run the
-Claude Code CLI with a prompt pulled from the ventd repo's
-.cowork/prompts/<alias>.md on the cowork/state branch.
+Claude Code CLI in non-interactive print mode with a prompt pulled
+from the ventd repo's .cowork/prompts/<alias>.md on cowork/state.
 
 Transport: streamable-http on 127.0.0.1:8891 (override via
 SPAWN_MCP_HOST / SPAWN_MCP_PORT). cloudflared tunnel terminates TLS
@@ -23,6 +23,19 @@ Security:
   If you later move to a named tunnel with a stable hostname, flip
   SPAWN_MCP_ENABLE_DNS_REBINDING_PROTECTION=1 and set
   SPAWN_MCP_ALLOWED_HOSTS="your-host:*" to tighten.
+
+Claude CLI invocation:
+
+- Uses `claude --dangerously-skip-permissions -p < prompt.md` so the
+  CLI runs in non-interactive print mode. This is the documented
+  pattern for scripted / autonomous runs and bypasses the interactive
+  onboarding flow (theme picker, permission prompts, trust dialog).
+- IS_DEMO=1 is injected into the child environment as belt-and-braces
+  to skip onboarding on fresh installs where ~/.claude.json has not
+  been seeded.
+- CLAUDE_CODE_OAUTH_TOKEN, if set in /etc/spawn-mcp/env, is forwarded
+  to the CLI so a fresh service user without an interactive `claude
+  auth login` session can still authenticate.
 """
 
 from __future__ import annotations
@@ -33,6 +46,7 @@ import logging
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 import time
@@ -63,8 +77,15 @@ TMUX_BIN = os.environ.get("SPAWN_MCP_TMUX_BIN", "tmux")
 ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
 AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jsonl"))
 PROMPT_DIR = Path(os.environ.get("SPAWN_MCP_PROMPT_DIR", "/tmp/spawn-mcp"))
+SESSION_LOG_DIR = Path(os.environ.get("SPAWN_MCP_SESSION_LOG_DIR", "/var/log/spawn-mcp/sessions"))
 HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
+
+# Optional: forward a long-lived OAuth token to the claude CLI so a fresh
+# service user without interactive `claude auth login` can authenticate.
+# Generate with `claude setup-token` as cc-runner on phoenix-desktop once,
+# then set in /etc/spawn-mcp/env. Absent => CLI uses keychain / ~/.claude/.
+CLAUDE_CODE_OAUTH_TOKEN = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 # DNS-rebinding protection: off by default because trycloudflare hostnames
 # rotate and the SDK does literal string matching on Host. See module docstring.
@@ -75,6 +96,7 @@ ALLOWED_HOSTS = [h.strip() for h in os.environ.get("SPAWN_MCP_ALLOWED_HOSTS", ""
 ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SPAWN_MCP_ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
 AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 mcp = FastMCP(
     "spawn-mcp",
@@ -153,6 +175,40 @@ def _existing_sessions() -> list[str]:
     return [s.strip() for s in r.stdout.splitlines() if s.strip()]
 
 
+def _build_claude_cmd(prompt_path: Path, session_log: Path) -> str:
+    """Return the shell command tmux should run in the new session.
+
+    Uses `claude -p --dangerously-skip-permissions` reading the prompt
+    from stdin. Captures stdout+stderr to a session log so failures are
+    visible post-hoc without attaching. Appends a marker line on exit
+    so tail_session can detect completion.
+    """
+    # Environment injection: IS_DEMO=1 skips onboarding; token (if set)
+    # provides auth without an interactive login. shlex.quote guards
+    # against shell injection on both paths.
+    env_parts = ["IS_DEMO=1"]
+    if CLAUDE_CODE_OAUTH_TOKEN:
+        env_parts.append(f"CLAUDE_CODE_OAUTH_TOKEN={shlex.quote(CLAUDE_CODE_OAUTH_TOKEN)}")
+    env_prefix = " ".join(env_parts)
+
+    claude_invocation = (
+        f"{shlex.quote(CC_BIN)} "
+        "--dangerously-skip-permissions "
+        "-p "
+        f"< {shlex.quote(str(prompt_path))} "
+        f"2>&1 | tee -a {shlex.quote(str(session_log))}"
+    )
+    marker = (
+        f"echo '=== spawn-mcp: claude exited rc='$? ' at '$(date -Iseconds) >> "
+        f"{shlex.quote(str(session_log))}"
+    )
+    # Keep tmux session alive briefly after claude exits so tail_session
+    # can capture the final output.
+    tail = "sleep 30"
+
+    return f"{env_prefix} {claude_invocation}; {marker}; {tail}"
+
+
 # --- Tool: spawn_cc --------------------------------------------------------
 
 
@@ -164,10 +220,10 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     `.cowork/prompts/<alias>.md` on the `cowork/state` branch of the ventd
     repository. The server fetches the prompt over HTTPS at invocation time
     (no local caching), writes it to a 0600 tempfile owned by the service
-    user, and launches a detached tmux session that pipes the prompt into
-    `claude`.
+    user, and launches a detached tmux session that runs `claude -p` in
+    non-interactive print mode.
 
-    Returns a dict with: status, session_name, pid, prompt_sha256.
+    Returns a dict with: status, session_name, prompt_sha256, session_log.
     """
     if not ALIAS_RE.match(alias):
         _audit({"kind": "reject", "reason": "invalid-alias", "alias": alias})
@@ -200,6 +256,11 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     finally:
         os.close(fd)
 
+    # Per-session log captures stdout+stderr from claude for post-hoc
+    # inspection. Distinct from audit.jsonl which logs spawn-mcp's own
+    # actions.
+    session_log = SESSION_LOG_DIR / f"{session_name}.log"
+
     # Refresh worktree to latest main before dispatch.
     fetch = subprocess.run(
         ["git", "-C", str(WORKTREE), "fetch", "origin", "main", "--depth=50"],
@@ -209,9 +270,6 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     if fetch.returncode != 0:
         log.warning("git fetch failed: %s", fetch.stderr)
 
-    # Spawn. `claude --print` or `claude -p` reads the prompt from a file and
-    # starts the session. If the CC CLI lacks a file flag in the installed
-    # version, fall back to `cat prompt | claude`.
     cmd = [
         TMUX_BIN,
         "new-session",
@@ -220,7 +278,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
         session_name,
         "-c",
         str(WORKTREE),
-        f"cat {prompt_path} | {CC_BIN}; sleep 5",
+        _build_claude_cmd(prompt_path, session_log),
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -240,6 +298,8 @@ def spawn_cc(alias: str) -> dict[str, Any]:
             "alias": alias,
             "session": session_name,
             "prompt_sha256": prompt_sha,
+            "session_log": str(session_log),
+            "oauth_token_set": bool(CLAUDE_CODE_OAUTH_TOKEN),
         }
     )
     return {
@@ -247,6 +307,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
         "session_name": session_name,
         "prompt_sha256": prompt_sha,
         "worktree": str(WORKTREE),
+        "session_log": str(session_log),
         "hint": f"attach on phoenix-desktop: sudo -u cc-runner tmux attach -t {session_name}",
     }
 
@@ -283,10 +344,32 @@ def kill_session(session_name: str) -> dict[str, Any]:
 
 @mcp.tool()
 def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
-    """Dump the last N lines of a CC session's scrollback so Cowork can read CC's output."""
+    """Dump the last N lines of a CC session's scrollback or persistent log.
+
+    Prefers the session log file if present (survives tmux pane scroll-back
+    limits and tmux session exit). Falls back to tmux capture-pane if the
+    log is missing.
+    """
     if not re.match(r"^cc-[a-zA-Z0-9_-]+$", session_name):
         return {"status": "rejected", "reason": "invalid session name"}
     lines = max(1, min(lines, 2000))
+
+    # Prefer the persistent session log.
+    session_log = SESSION_LOG_DIR / f"{session_name}.log"
+    if session_log.exists():
+        try:
+            with session_log.open("r") as f:
+                content = f.readlines()
+            return {
+                "status": "ok",
+                "source": "session_log",
+                "scrollback": "".join(content[-lines:]),
+                "stderr": "",
+            }
+        except OSError as e:
+            log.warning("failed to read session log %s: %s", session_log, e)
+
+    # Fallback: tmux capture-pane.
     r = subprocess.run(
         [
             TMUX_BIN,
@@ -302,6 +385,7 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
     )
     return {
         "status": "ok" if r.returncode == 0 else "error",
+        "source": "tmux",
         "scrollback": r.stdout,
         "stderr": r.stderr,
     }
@@ -397,12 +481,13 @@ async def _register(request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     log.info(
-        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s",
+        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s oauth_token_set=%s",
         HOST,
         PORT,
         ENABLE_DNS_REBINDING_PROTECTION,
         ALLOWED_HOSTS,
         ALLOWED_ORIGINS,
         WORKTREE,
+        bool(CLAUDE_CODE_OAUTH_TOKEN),
     )
     mcp.run(transport="streamable-http")
