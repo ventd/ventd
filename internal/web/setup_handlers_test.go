@@ -223,36 +223,27 @@ func TestHandleSystemReboot_NonPOST_RejectedAs405(t *testing.T) {
 	}
 }
 
-// TestHandleSystemReboot_CurrentBehaviour_Returns200 — PINNED CURRENT
-// BEHAVIOUR. The reboot handler unconditionally returns 200 + a
-// "rebooting" JSON body and schedules a 300 ms-delayed systemctl
-// reboot command in a ctx-cancellable goroutine. The deferred cancel()
-// below fires at test exit (well under 300 ms), so the goroutine
-// observes ctx.Done() before the timer elapses — no real reboot is
-// ever spawned in CI.
-//
-// This is a DELIBERATE pinned-current-behaviour anchor. #177 tracks
-// the PID-1 refusal guard: refuse with 409 when ventd is PID 1 /
-// /.dockerenv exists / systemd-detect-virt --container returns
-// non-none. When that guard lands it will:
-//   - flip this test's assertion from "expect 200" to "expect 409",
-//   - add a mock-env companion test per clause,
-//   - and allow this TODO to be removed.
-//
-// TODO(#177): flip assertion and remove this TODO once the PID-1 guard
-// lands in handleSystemReboot at internal/web/server.go:981.
-func TestHandleSystemReboot_CurrentBehaviour_Returns200(t *testing.T) {
+// TestHandleSystemReboot_RefusedInContainer — verifies the #177 guard.
+// When the daemon detects it's running in a container-like environment,
+// /api/system/reboot must respond with 409 Conflict and a human-readable
+// body explaining why, rather than either crashing the container (PID 1
+// reboot) or silently no-op'ing. The handler is wired through a test
+// seam (Server.rebootBlocker) so this runs deterministically in CI
+// without needing to fake PID 1 or touch /.dockerenv.
+func TestHandleSystemReboot_RefusedInContainer(t *testing.T) {
 	srv, _, cancel := newHandlerHarness(t)
 	defer cancel()
+	srv.rebootBlocker = func() string { return "test container environment" }
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/reboot", nil)
 	w := httptest.NewRecorder()
 	srv.handleSystemReboot(w, req)
 
-	if got := w.Result().StatusCode; got != http.StatusOK {
-		t.Fatalf("reboot: status = %d, want %d (body=%q)", got, http.StatusOK, w.Body.String())
+	if got := w.Result().StatusCode; got != http.StatusConflict {
+		t.Fatalf("reboot in container: status = %d, want %d (body=%q)", got, http.StatusConflict, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, "rebooting") {
-		t.Fatalf("reboot: body = %q, want substring %q", body, "rebooting")
+	body := w.Body.String()
+	if !strings.Contains(body, "not supported") {
+		t.Fatalf("reboot in container: body = %q, want substring %q", body, "not supported")
 	}
 }
