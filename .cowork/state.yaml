@@ -1,34 +1,49 @@
 version: 1
-updated: 2026-04-18T01:45:00Z
+updated: 2026-04-18T (session-resume)
 role: "Cowork is solo developer of record; employer is stakeholder"
 workflow:
   cc_host: Desktop (phoenix@192.168.7.209), 32 threads
-  cc_activation_short: "paste an alias like `hal`, `fp`, `rulelint`, `permpol`; CC resolves via CLAUDE.md (PR #243)"
+  cc_activation_short: "paste an alias like `hal`, `fp`, `rulelint`, `permpol`; CC resolves via CLAUDE.md (PR #243 merged)"
   cc_activation_fallback: "paste: Execute the task at .cowork/prompts/<TASK-ID>.md on origin/cowork/state exactly as written."
   alias_file: .cowork/aliases.yaml
   prompt_index: .cowork/prompts/INDEX.md
   howto: .cowork/HOWTO-START-CC.md
+  mcp: "self-hosted github-mcp-server on phoenix-desktop via cloudflared trycloudflare tunnel; OAuth app `ventd-cowork`; PAT deprecated"
+  gha_runner:
+    service: actions.runner.ventd-ventd.phoenix-desktop.service
+    host: phoenix@192.168.7.209
+    user: ghrunner
+    paths: [/opt/ghrunner/runner, /opt/ghrunner/_work]
+    labels: [self-hosted, linux, x64, hil, phoenix-desktop, hwmon, nvml, rtx4090]
+    status: "online but not yet wired into any workflow; runner-smoke.yml PR pending"
 tracks:
   FOUND: {status: merged}
-  INFRA: {status: review, current_task: T0-INFRA-03}
-  META: {status: in_flight, current_task: T0-META-01}
-  HAL: {status: in_flight, current_task: P1-HAL-01}
-  FP: {status: in_flight, current_task: P1-FP-01}
+  INFRA: {status: review, current_task: T0-INFRA-03, note: "lint regression; revision dispatched"}
+  META: {status: in_flight, current_task: T0-META-01, note: "meta-lint.yml workflow pushed; golangci-lint still red — same lint class as T0-INFRA-03"}
+  HAL: {status: review, current_task: P1-HAL-01, note: "CI green; PHASE-1/FIRST-PR escalation"}
+  FP: {status: review, current_task: P1-FP-01, note: "CI green; PHASE-1/FIRST-PR + plan-interpretation escalation"}
 in_flight:
-  - {task: T0-META-01, alias: rulelint, pr: null}
-  - {task: T0-INFRA-03, alias: faketime, pr: 242, ci: "awaiting start", head_sha: 57d0cd5}
-  - {task: P1-HAL-01, alias: hal, pr: null}
-  - {task: P1-FP-01, alias: fp, pr: null}
-  - {task: "cowork-protocol-doc", pr: 243, branch: claude/cowork-protocol-b2d9a, authorship: cowork-direct, ci: "awaiting start", note: "CLAUDE.md protocol for alias-based activation"}
+  - {task: T0-META-01, alias: rulelint, pr: 244, head_sha: 84741db, ci: "13/14 green, golangci-lint fail", note: "workflow file pushed via MCP after OAuth switch; golangci-lint still failing — same class as T0-INFRA-03, may share a revision"}
+  - {task: T0-INFRA-03, alias: faketime, pr: 245, head_sha: 7324b2d, ci: "12/13 green, golangci-lint fail", note: "revision prompt at .cowork/prompts/T0-INFRA-03-revise.md; likely dead Clock.t field"}
+  - {task: P1-HAL-01, alias: hal, pr: 247, head_sha: c6726f9, ci: "13/13 green", note: "escalated PHASE-1/FIRST-PR + deviation 2 acquire-semantics"}
+  - {task: P1-FP-01, alias: fp, pr: 246, head_sha: 91e18b5, ci: "13/13 green", note: "escalated PHASE-1/FIRST-PR + plan interpretation"}
 pre_drafted:
   - {task: T0-META-02, alias: regresslint, blocked_on: T0-META-01 merge}
   - {task: P10-PERMPOL-01, alias: permpol, status: ready-queued}
+  - {task: runner-smoke, alias: runner-smoke, status: ready-queued, note: "add .github/workflows/runner-smoke.yml + workflow_dispatch, verify routing to phoenix-desktop before depending on self-hosted runner for any real job"}
+  - {task: T-WD-01, alias: wd-safety, status: ready-queued, note: "highest test priority per testplan §19; watchdog at 23% coverage; Opus 4.7 model"}
 merges:
   P0-02: {sha: 4aa6a37}
   P0-03: {sha: c08d9b3}
   T0-INFRA-01: {sha: e0dcef6}
   T0-INFRA-02: {sha: 037e1c0}
   T0-META-03: {sha: 8646e05}
-escalations_open: []
+  cowork-protocol-doc: {sha: 1e91bc3, pr: 243, note: "CLAUDE.md alias protocol"}
+  meta-lint-workflow: {sha: 84741db, branch: claude/META-rulelint-a3c7f, pr: 244, note: "not a main-merge — pushed to #244's branch to unblock"}
+escalations_open:
+  - {subject: "PHASE-1/FIRST-PR + acquire-semantics deviation", task: P1-HAL-01, pr: 247, recommended: "RESUME P1-HAL-01"}
+  - {subject: "PHASE-1/FIRST-PR + plan-interpretation (knownDriverNeeds deletion out of allowlist)", task: P1-FP-01, pr: 246, recommended: "RESUME P1-FP-01 as partial"}
+  - {subject: "lint regression — checkpoint's claimed fix didn't land", task: T0-INFRA-03, pr: 245, recommended: "await CC revision + CI re-run"}
+  - {subject: "same lint class as T0-INFRA-03; may need same fix pattern", task: T0-META-01, pr: 244, recommended: "await T0-INFRA-03 diagnosis; revise in parallel if root cause shared"}
 notes:
-  - 2026-04-18T01:45:00Z: "Workflow simplification. Employer requested short names to paste instead of task-IDs. Added .cowork/aliases.yaml (authoritative alias map) and CLAUDE.md on main via PR #243 (teaches CC to resolve `<alias>` / `run <alias>` / `cowork <alias>` into a prompt fetch + execute). PR #242 (T0-INFRA-03 faketime) arrived from Sonnet; report contract-compliant, 730ms→≤1ms migrated-test speedup. CI awaiting start on both PRs."
+  - 2026-04-18T (session-resume): "MCP rebuilt post-checkpoint. Memory corrected: MCP is self-hosted github-mcp-server on phoenix-desktop behind cloudflared tunnel with OAuth, not Anthropic first-party. Meta-lint workflow file pushed via MCP to claude/META-rulelint-a3c7f @ 84741db — unblocks the content side of #244 but golangci-lint still fails on that PR (same class as #245's failure). Escalated three: P1-HAL-01 and P1-FP-01 as PHASE-1/FIRST-PR; T0-INFRA-03 as a lint-regression revise. Prompts for hal, fp, rulelint persisted to .cowork/prompts/ (memory rule #6 — prompts must live in repo for respinability)."
