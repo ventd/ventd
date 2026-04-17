@@ -1,26 +1,31 @@
 version: 1
-updated: 2026-04-17T22:30:00Z
+updated: 2026-04-17T22:45:00Z
 tracks:
   FOUND:
     status: in_flight
     current_task: P0-02
     branch: claude/FOUND-roadmap-e4b9f
     pr: https://github.com/ventd/ventd/pull/237
-    last_review: P0-02-R1
-    revisions: 1
+    last_review: P0-02-R2
+    revisions: 2
     completed_tasks:
       - P0-01
 in_flight:
   - track: FOUND
     task: P0-02
-    cc_session: cowork-2026-04-17T22:30:00Z-p0-02-rev1
-    started: 2026-04-17T22:30:00Z
+    cc_session: cowork-2026-04-17T22:45:00Z-p0-02-rev2
+    started: 2026-04-17T22:45:00Z
 reviews:
   P0-02-R1:
     task: P0-02
     verdict: revise
     notes: "R7 content errors in docs/roadmap.md. Phase 3 para 2 invents structural claim about ventd-recover (masterplan has separate cmd/ binary) and misstates its purpose (ungraceful-exit, not stuck-daemon). Phase 10 para 2 claims Permissions-Policy + ETag prevent tampering/downgrade — factually wrong. Revision prompt delivered targeting only those two paragraphs; full checklist in .cowork/reviews/P0-02-R1.md."
     timestamp: 2026-04-17T22:30:00Z
+  P0-02-R2:
+    task: P0-02
+    verdict: revise (phantom push)
+    notes: "CC returned STATUS: done with plausible before/after excerpts but no new commit reached claude/FOUND-roadmap-e4b9f. Head SHA unchanged at e81db4a4, commits=1, additions=68. R7 failures from R1 unaddressed on the remote. Re-emitted with hardened reporting contract requiring post-push HEAD SHA in SUMMARY and remote-tip verification. Full detail in .cowork/reviews/P0-02-R2.md."
+    timestamp: 2026-04-17T22:45:00Z
 merge_queue: []
 notes:
   - 2026-04-17T10:57:13Z: "Cowork session initialized. MCP not attached — see ESCALATIONS.md first entry."
@@ -28,3 +33,4 @@ notes:
   - 2026-04-17T21:30:00Z: "Cowork resumed via gh CLI (no MCP). Read-reconciled against origin/main and PR list through #236. P0-02 assigned to CC on Haiku 4.5 per operator model policy. Auto-merge gated by PHASE-0/FIRST-PR escalation on completion (this is Cowork's first Phase-0 PR even though P0-01 existed pre-loop). ventd/hardware-profiles repo missing — future-blocks P5-PROF-01; not escalating yet."
   - 2026-04-17T22:15:00Z: "Cowork resumed on Opus 4.7 with MCP live to both repos. Reconciliation: prior P0-02 in_flight was phantom — branch claude/FOUND-roadmap-d3f2a absent upstream, no PR opened, past §6 45-min timeout. P0-02 reset and reassigned to new branch claude/FOUND-roadmap-e4b9f on Haiku 4.5. PHASE-0/FIRST-PR escalation still applies on completion — no auto-merge. hardware-profiles repo now reachable; prior P5-PROF-01 future-block concern resolved. ACK.md updated per developer instruction: current masterplan and testplan SHA-256s recorded (masterplan SHA changed since original ACK at 3be1a38 — plan was edited between sessions; new SHA 077ab5ef reflects the plan this loop is operating against); masterplan §2 'tests out of scope' noted as superseded by testplan post-#227."
   - 2026-04-17T22:30:00Z: "P0-02 round-1 review: revise. PR #237 opened on claude/FOUND-roadmap-e4b9f, draft, 3 files, 1 commit (conventional). CI 12/13 green with build-and-test-ubuntu still in_progress (trending green). R1–R6, R8–R23 clean. R7 fails on two content errors in docs/roadmap.md: Phase 3 para 2 invents structural packaging of ventd-recover (masterplan P3-RECOVER-01 has it as a separate cmd/ binary) and misstates purpose; Phase 10 para 2 claims Permissions-Policy + ETag prevent tampering/downgrade attacks (factually wrong for both mechanisms). Review artifact at .cowork/reviews/P0-02-R1.md. Revision prompt re-emitted targeting only those two paragraphs; branch, PR, commit history, word count, headings otherwise preserved. Revision round 1 of 3."
+  - 2026-04-17T22:45:00Z: "P0-02 round-2 review: revise (phantom push). CC returned STATUS: done with plausible before/after excerpts but the branch tip is unchanged at e81db4a4 — no commit reached the remote. Three probable causes: CC didn't commit+push, silent push failure, or developer relayed the report before push completed. Revision prompt re-emitted with a hardened reporting contract: CC must now include the post-push HEAD SHA in SUMMARY and verify the remote tip before reporting done. Review artifact at .cowork/reviews/P0-02-R2.md. Revisions counter now 2 of 3 despite zero content-fix work landing on the remote; if round 3 also comes back phantom, escalate under §12 as task-progression loss, not as rows-failing trigger."
