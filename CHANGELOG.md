@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
+
 ### Added
 
 - security: Permissions-Policy header and ETag caching on embedded UI (#P10-PERMPOL-01)
@@ -18,6 +22,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - test: faketime fixture for deterministic timer tests (#T0-INFRA-03)
 - ci: rule-to-subtest binding lint (#T0-META-01)
 - ci: regression-test-per-closed-bug lint (#T0-META-02)
+- test(hal): contract test T-HAL-01 binds backend invariants to .claude/rules/hal-contract.md
 
 ### Tests
 
