@@ -30,14 +30,14 @@ func TestParseModulesAlias(t *testing.T) {
 			wantModules: nil,
 		},
 		{
-			name: "single platform alias",
-			input: "alias platform:coretemp coretemp\n",
+			name:        "single platform alias",
+			input:       "alias platform:coretemp coretemp\n",
 			wantModules: []string{"coretemp"},
 			wantAliases: map[string]string{"coretemp": "platform:coretemp"},
 		},
 		{
-			name: "single pci alias",
-			input: "alias pci:v00001022d00001603sv*sd*bc*sc*i* k10temp\n",
+			name:        "single pci alias",
+			input:       "alias pci:v00001022d00001603sv*sd*bc*sc*i* k10temp\n",
 			wantModules: []string{"k10temp"},
 			wantAliases: map[string]string{"k10temp": "pci:"},
 		},
@@ -127,13 +127,13 @@ func TestParseModulesAlias(t *testing.T) {
 			},
 		},
 		{
-			name:  "utf-8 characters in comment do not panic",
-			input: "# Ångström module: nct6775\nalias platform:nct6775 nct6775\n",
+			name:        "utf-8 characters in comment do not panic",
+			input:       "# Ångström module: nct6775\nalias platform:nct6775 nct6775\n",
 			wantModules: []string{"nct6775"},
 		},
 		{
-			name: "leading and trailing whitespace on alias line is handled",
-			input: "  alias platform:coretemp coretemp  \n",
+			name:        "leading and trailing whitespace on alias line is handled",
+			input:       "  alias platform:coretemp coretemp  \n",
 			wantModules: []string{"coretemp"},
 		},
 	}
@@ -234,8 +234,8 @@ func TestParseModulesBuiltinModinfo(t *testing.T) {
 			wantModCount: 2,
 		},
 		{
-			name: "value with equals sign is preserved intact",
-			input: "mymod.param=key=value=extra" + nul,
+			name:         "value with equals sign is preserved intact",
+			input:        "mymod.param=key=value=extra" + nul,
 			wantModule:   "mymod",
 			wantKey:      "param",
 			wantValue:    "key=value=extra",
