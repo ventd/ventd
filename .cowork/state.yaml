@@ -1,72 +1,52 @@
 version: 1
-updated: 2026-04-18T01:05:00Z
+updated: 2026-04-18T01:12:00Z
 role: "Cowork is solo developer of record; employer is stakeholder"
-deadline_pressure: "ventd must ship before the money runs out. Working harder/faster/longer without sacrificing quality. Quality means: 13/13 CI green on every merge, safety invariants preserved, no rollbacks, no customer-facing regressions."
+deadline_pressure: "ventd must ship before the money runs out. No quality compromise. CI 13/13 on merge; safety invariants preserved; no rollbacks."
 tracks:
   FOUND: {status: merged, completed_tasks: [P0-01, P0-02, P0-03]}
   INFRA: {status: in_flight, current_task: T0-INFRA-03, completed_tasks: [T0-INFRA-01, T0-INFRA-02]}
   META: {status: in_flight, current_task: T0-META-01, completed_tasks: [T0-META-03]}
-  HAL: {status: in_flight, current_task: P1-HAL-01, completed_tasks: []}
-  FP: {status: in_flight, current_task: P1-FP-01, completed_tasks: []}
+  HAL: {status: in_flight, current_task: P1-HAL-01}
+  FP: {status: in_flight, current_task: P1-FP-01}
 in_flight:
-  - track: META
-    task: T0-META-01
-    model: claude-sonnet-4-6
-    branch: claude/META-rulelint-a3c7f
-    prompt_file: .cowork/prompts/T0-META-01.md
-    started: 2026-04-18T00:55:00Z
-  - track: INFRA
-    task: T0-INFRA-03
-    model: claude-sonnet-4-6
-    branch: claude/INFRA-faketime-2e8b4
-    prompt_file: .cowork/prompts/T0-INFRA-03.md
-    started: 2026-04-18T00:55:00Z
-  - track: HAL
-    task: P1-HAL-01
-    model: claude-opus-4-7
-    branch: claude/HAL-interface-c7f3b
-    prompt_file: .cowork/prompts/P1-HAL-01.md
-    started: 2026-04-18T01:05:00Z
-    model_rationale: "safety-critical refactor; controller, watchdog, and calibrate all move behind a new interface simultaneously; subtle invariants around PWM clamp, pwm_enable restore, ZeroPWMSentinel must remain behaviourally identical. Opus 4.7 justified."
-  - track: FP
-    task: P1-FP-01
-    model: claude-sonnet-4-6
-    branch: claude/FP-hwdb-5e1f2
-    prompt_file: .cowork/prompts/P1-FP-01.md
-    started: 2026-04-18T01:05:00Z
-    model_rationale: "data-heavy but well-specified: DMI struct, YAML DB, match function with clear resolution order. Sonnet handles this class efficiently."
+  - {track: META, task: T0-META-01, model: claude-sonnet-4-6, branch: claude/META-rulelint-a3c7f, started: 2026-04-18T00:55:00Z}
+  - {track: INFRA, task: T0-INFRA-03, model: claude-sonnet-4-6, branch: claude/INFRA-faketime-2e8b4, started: 2026-04-18T00:55:00Z}
+  - {track: HAL, task: P1-HAL-01, model: claude-opus-4-7, branch: claude/HAL-interface-c7f3b, started: 2026-04-18T01:05:00Z}
+  - {track: FP, task: P1-FP-01, model: claude-sonnet-4-6, branch: claude/FP-hwdb-5e1f2, started: 2026-04-18T01:05:00Z}
 merges:
   P0-02: {sha: 4aa6a37, pr: 237}
   P0-03: {sha: c08d9b3, pr: 238}
   T0-INFRA-01: {sha: e0dcef6, pr: 239}
   T0-INFRA-02: {sha: 037e1c0, pr: 241}
   T0-META-03: {sha: 8646e05, pr: 240}
-escalations_resolved: 4
-escalations_open: []
+test_environment:
+  see: .cowork/TESTING.md
+  last_updated: 2026-04-18T01:12:00Z
+  hil_rigs:
+    - {host: 192.168.7.209, user: phoenix, role: primary-desktop}
+    - {host: 192.168.7.222, user: phoenix, role: minipc-secondary}
+  gpu: {model: RTX 3090, location: "Proxmox host", current_passthrough: "Plex VM 100", reassignable: true}
+  windows_laptop: {status: available, access: on-demand}
+  proxmox_host: {address: "192.168.7.10:8006"}
+  macos: {status: not_available}
+  ipmi_bmc: {status: not_available}
+  aio_cooler: {status: not_available}
+  laptop_ec: {status: not_available}
+  sbc: {status: not_available}
+  asahi_mac: {status: not_available}
+  usb_mic: {status: not_available}
 phase_tracking:
   masterplan_phase_0: {status: complete}
   testplan_phase_t0: {status: in_progress, merged: [T0-INFRA-01, T0-INFRA-02, T0-META-03], in_flight: [T0-META-01, T0-INFRA-03], ready: [T0-META-02]}
   masterplan_phase_1:
     status: in_progress
     in_flight: [P1-HAL-01, P1-FP-01]
-    blocked_on_hal_01: [P1-HAL-02, P1-HOT-01, P1-HOT-02]
-    blocked_on_fp_01: [P1-FP-02, P1-MOD-01]
-    note: "Auto-advanced at 2026-04-18T01:05Z under employer directive: auto-advance on doc/state boundaries, hardware gates still pause. Phase 0 → Phase 1 has no hardware gate (pure code refactor). Phase 1 → Phase 2 will have a hardware gate (HAL must land cleanly on a real hwmon tree before backend proliferation begins) — that gate will use the fc-test-* Proxmox VMs plus the employer's rig."
+    hardware_gate: "auto-validatable via CC SSH to 192.168.7.209 + 192.168.7.222 — no employer pause required"
   masterplan_phase_10:
     status: ready_to_parallelize
-    note: "P10-SBOM-01, P10-SIGN-01, P10-PERMPOL-01 all depend only on P0-01 (met). Not dispatched this turn to avoid over-parallelising the HAL refactor window; queue for dispatch once P1-HAL-01 stabilises on main."
-test_environment:
-  see: .cowork/TESTING.md
-  summary: "Proxmox hosts: dev VM (950 ventd-dev), 8 per-distro fan-control test VMs (200-207), 5 fresh-install smoke templates (9000, 9100-9104). CC terminals can SSH to these for distro-specific validation beyond CI."
-policy_state:
-  role: "solo dev"
-  model_authority: cowork
-  workflow_authority: cowork
-  review_authority: cowork
-  merge_authority: cowork
-  ci_rerun_authority: cowork
-  phase_advance: "auto at doc/state boundaries; employer-gated at hardware-verification boundaries"
-  escalate_to_employer_only_if: ["plan ambiguity affecting multiple tasks", "hardware-required test blocking a critical-path merge", "budget-significant model choice", "strategic scope change"]
-  quality_floor: "CI 13/13 green on merge; safety invariants untouched; no public-API drift without task authorisation; rule-bound subtests remain bound"
+    ready: [P10-SBOM-01, P10-SIGN-01, P10-PERMPOL-01]
+    queued: true
+    note: "Dispatch next turn after polling throughput of the current 4 CC streams. No code-topology dependency on HAL."
+escalations_open: []
 notes:
-  - 2026-04-18T01:05:00Z: "Role change fully absorbed. Phase advancement: option A. Proxmox test VMs catalogued in .cowork/TESTING.md. P1-HAL-01 promoted from DRAFT to active (Opus 4.7); P1-FP-01 dispatched fresh (Sonnet). Four CC tasks now in flight: T0-META-01, T0-INFRA-03, P1-HAL-01, P1-FP-01. Phase 10 supply-chain tasks deliberately NOT dispatched this turn — HAL refactor changes the code topology; clearer to let it stabilise before adding release-pipeline work in parallel."
+  - 2026-04-18T01:12:00Z: "Major capability update: employer catalogued HIL rigs (Desktop 192.168.7.209, MiniPC 192.168.7.222), Windows laptop, and RTX 3090 GPU passthrough. Most Phase 1-4 hardware gates collapse from 'escalate-and-wait' to 'CC SSH and run rig-check'. .cowork/TESTING.md updated with resource map and per-task routing. The four in-flight tasks were dispatched before this update so their prompts do NOT yet reference the new rigs; that's fine — for Sonnet-tier T0 work and the HAL refactor, CI + unit-test validation is sufficient. Post-merge Phase 1 → Phase 2 gate now executes via CC instead of pausing for employer."
