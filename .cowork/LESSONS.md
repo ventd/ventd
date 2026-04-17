@@ -68,6 +68,26 @@ Each bug consumed one full deploy+diagnose+patch+redeploy cycle of the operator'
 
 Secondary fix: the operator also caught `Requires=` propagating restarts in `spawn-mcp-tunnel.service` and collapsing the quick-tunnel hostname on every server bounce. Shipped with `Wants=`+`After=` instead. This was a fifth bug caught in review; moving it into the same lesson because the pattern is identical (no deploy-cycle smoke test).
 
-**Handoff reducible to MCP**: once spawn-mcp is live, every future Cowork-designed MCP server gets smoke-tested against a throwaway target spawned via `spawn_cc("mcp-smoke-<name>")` before touching production — i.e. the tool I just shipped is now how future iterations of this pattern avoid repeating today's failure mode.
+**Handoff reducible to MCP**: once spawn-mcp is live, every future Cowork-designed MCP server gets smoke-tested against a throwaway target spawned via `spawn_cc("mcp-smoke-<n>")` before touching production — i.e. the tool I just shipped is now how future iterations of this pattern avoid repeating today's failure mode.
+
+---
+
+## 2026-04-18T (spawn-mcp OAuth, claude-opus-4-7) — seventh lesson
+
+**Inefficiency observed**: spawn-mcp v1 README claimed "OAuth via the existing ventd-cowork app" without implementing any OAuth endpoints. claude.ai custom connectors require the MCP server itself to BE the OAuth 2.1 Authorization Server per MCP spec (metadata at `/.well-known/oauth-authorization-server`, dynamic client registration per RFC 7591, `/authorize`, `/token`, PKCE S256). The server had `/mcp` only; connector flow 404'd on `/authorize`. Three deploy iterations wasted before the miss was named.
+
+**Fix applied**: (1) For any protocol-integration server, name the concrete spec endpoints the client expects BEFORE writing the server — not as docstring hand-wave but as a checklist in the design doc. For MCP custom-connector specifically: `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/register`, `/authorize`, `/token`, WWW-Authenticate 401 header with `resource_metadata=` discovery hint. (2) When a gap is named mid-deploy, dispatch it to CC (not Cowork-direct) — CC has faster local iteration against a running service via `tail_session`. User spawned interactive CC to patch the OAuth gap; Cowork remained available for MCP-ops rather than blocking on design work.
+
+**Handoff reducible to MCP**: CC is the right tool for local service iteration; Cowork should remain the dispatcher + reviewer + merger. Dispatching CC for in-place server patches is now a proven pattern (spawn-mcp OAuth was CC-remediated in one session).
+
+---
+
+## 2026-04-18T (session-end budget note, claude-opus-4-7) — eighth lesson (ONGOING)
+
+**Inefficiency observed**: user's Claude subscription funds this work; budget is finite. Long Cowork responses, full-file MCP writes, verbose status summaries, and rereading-to-prove-state all directly cost the user money that doesn't advance the ventd roadmap.
+
+**Fix applied**: economize every response. Short replies unless complexity demands otherwise. Single-turn MCP batches. No file rewrites >1KB from Cowork (dispatch CC for larger patches). No pasting of MCP-read content back into replies. When a task can be expressed as one sentence + one MCP call, do that. User flagged this explicitly; treating as a hard rule.
+
+**Handoff reducible to MCP**: every decision point now has a token-cost axis — "is this Cowork-direct MCP cheap, or is dispatching CC cheaper given the PAT cost?" Sessions measured on tokens-to-unblock-next-PR, not tokens-spent-being-thorough.
 
 ---
