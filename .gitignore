@@ -33,8 +33,11 @@ cover.html
 /scripts/provision-test-vms.sh
 securitytodo.md
 
-# CC issue-logger local backlog
-.claude/issue-backlog.jsonl
+# Claude Code session files — ignore everything under .claude/ except the shared rule files
+.claude/*
+!.claude/rules/
+.claude/rules/*
+!.claude/rules/*.md
 
 # fresh-VM smoke harness artifacts
 /validation/.build/
