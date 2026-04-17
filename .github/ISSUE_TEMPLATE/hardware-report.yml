@@ -1,0 +1,63 @@
+name: Hardware report
+description: Report a new hardware combination for ventd's hardware-profiles database.
+title: "[hw] "
+labels: ["hardware-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template helps ventd build a curated database of hardware combinations that have been calibrated. The data you provide will feed directly into ventd/hardware-profiles if accepted, enabling auto-configuration for other users with identical or similar hardware.
+
+        **Privacy note:** We do not ask for device serial numbers, product UUIDs, or SMBIOS identifiers—only the model names and sensor chip information needed to recognize your hardware.
+
+  - type: textarea
+    id: dmi_strings
+    attributes:
+      label: DMI strings
+      description: "Paste the output of: `for f in board_vendor board_name board_version product_name chassis_type bios_vendor bios_version sys_vendor; do echo \"$f: $(cat /sys/class/dmi/id/$f 2>/dev/null)\"; done`"
+      placeholder: "board_vendor: ASUS\nboard_name: PRIME Z790-A..."
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: sensor_chip
+    attributes:
+      label: Super I/O / sensor chip name
+      description: "Run `cat /sys/class/hwmon/hwmon*/name` or check the chip line in `sensors` output. Example: `nct6798` or `f71882fg`"
+      placeholder: "nct6798"
+    validations:
+      required: true
+
+  - type: input
+    id: fan_count
+    attributes:
+      label: Number of controllable PWM fans
+      description: "How many writable PWM controls does your motherboard expose?"
+      placeholder: "3"
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution + version
+      placeholder: "Ubuntu 24.04, Arch 2026-04, Fedora 41, ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: probe_output
+    attributes:
+      label: "ventd --probe-modules --dry-run output"
+      description: "Run `ventd --probe-modules --dry-run` and paste the complete output."
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware_notes
+    attributes:
+      label: System notes (optional)
+      description: "Case model, CPU cooler, GPU, AIO model, case-fan topology, or anything else relevant to fan layout."
+      placeholder: "Corsair 5000X case, Noctua NH-D15, NVIDIA 4080, 3× 120mm front intake fans"
