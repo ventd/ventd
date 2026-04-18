@@ -1,78 +1,67 @@
-You are Claude Code, working on the ventd repository.
+# P2-CROSEC-01 — Framework + Chromebook EC backend
+
+**Model:** Opus 4.7. Laptop EC writes can lock the EC into an unresponsive state requiring a hardware reset. Protocol correctness is non-negotiable.
+**Care level:** HIGH.
 
 ## Task
-ID: P2-CROSEC-01
-Track: CROSEC
-Goal: Framework laptop + Chromebook fan control via the cros_ec kernel interface at `/dev/cros_ec`. Uses `EC_CMD_HELLO` to detect EC presence, `EC_CMD_PWM_GET_FAN_RPM` / `EC_CMD_PWM_SET_FAN_DUTY` for reads/writes, and `EC_CMD_THERMAL_GET_THRESHOLD` for temp thresholds.
 
-## Care level
-Medium-high. Writing EC commands can lock out the EC if the PWM set command is malformed. The EC typically self-heals (firmware reasserts control after a few seconds of no commands), but worst-case requires a power cycle. All writes must be gated on successful HELLO.
+- **ID:** P2-CROSEC-01
+- **Track:** CROSEC (Phase 2)
+- **Goal:** `/dev/cros_ec` backend for Framework laptops + Chromebooks. Read fan RPM, set fan duty, read thermal zone thresholds. Gate by presence of `/dev/cros_ec` AND successful EC_CMD_HELLO response.
 
-## Context you should read first
+## Context
 
-- `internal/hal/backend.go`
-- `internal/hal/hwmon/backend.go`
-- Framework's EC command documentation: <https://github.com/FrameworkComputer/EmbeddedController/blob/main/include/ec_commands.h> — specifically EC_CMD_HELLO (0x0001), EC_CMD_PWM_GET_FAN_RPM (0x0020), EC_CMD_PWM_SET_FAN_DUTY (0x0024), EC_CMD_THERMAL_GET_THRESHOLD (0x0050).
-- Chromium OS EC interface: `/dev/cros_ec` uses `ioctl(CROS_EC_DEV_IOC)` with `cros_ec_command` struct.
+1. `ventdmasterplan.mkd` §8 P2-CROSEC-01 entry.
+2. Kernel source reference: `include/linux/mfd/cros_ec_commands.h` defines every command number and payload shape. Review EC_CMD_HELLO (0x0001), EC_CMD_PWM_GET_FAN_RPM (0x0020), EC_CMD_PWM_SET_FAN_DUTY (0x0024), EC_CMD_THERMAL_GET_THRESHOLD (0x0051).
+3. `internal/hal/backend.go` — FanBackend contract.
 
 ## What to do
 
-1. Create `internal/hal/crosec/backend.go`:
-   - `type Backend struct { device string; logger *slog.Logger; present bool }`.
-   - `NewBackend(logger)` opens `/dev/cros_ec` if present. If ENOENT or EC_CMD_HELLO fails, mark present=false. No error returned — just silent disable on non-Framework/Chromebook systems.
-   - HELLO handshake at construction, caches version info.
-
-2. `Enumerate(ctx)`:
-   - If not present, return empty.
-   - Issue `EC_CMD_PWM_GET_NUM_FANS` (or equivalent vendor-specific) to discover fan count.
-   - Emit one `hal.Channel` per fan with role `hal.RoleCaseFan` (Framework and Chromebook typically have one or two case fans, no CPU/GPU distinction at EC level).
-
-3. `Read(ch)`: EC_CMD_PWM_GET_FAN_RPM with fan index. Return `hal.Reading{RPM: <int>}`.
-
-4. `Write(ch, pwm)`: EC_CMD_PWM_SET_FAN_DUTY with fan index + duty 0-100 (scale from 0-255).
-
-5. `Restore(ch)`: EC_CMD_PWM_SET_FAN_DUTY with duty=255 (0xFF is the EC "return to firmware auto" magic). Alternative: EC_CMD_THERMAL_AUTO_FAN_CTRL if available.
-
-6. `Close()`: close fd.
-
-7. `Name()`: `"crosec"`.
-
-8. Unit tests:
-   - `TestBackend_AbsentDevice_NoError` — /dev/cros_ec missing → NewBackend returns non-nil with present=false, no error.
-   - `TestEnumerate_NotPresent_Empty` — Enumerate on absent backend returns 0 channels.
-   - `TestWrite_NotPresent_Error` — Write on absent backend returns clear error, does not attempt ioctl.
-   - `TestDutyConversion` — 0-255 PWM → 0-100 duty rounding correct.
-
-9. Register in `cmd/ventd/main.go`. Must not break boot on non-Chromebook systems.
-
-10. Build/vet/lint/test clean.
+1. `internal/hal/crosec/crosec.go`:
+   - `Backend` struct.
+   - ioctl wrapper for `CROS_EC_DEV_IOCXCMD_V2`.
+   - EC_CMD_HELLO gate: Enumerate returns empty if hello fails or `/dev/cros_ec` missing.
+   - `Read`: EC_CMD_PWM_GET_FAN_RPM returns RPM; also populates Reading.PWM via EC_CMD_PWM_GET_FAN_DUTY.
+   - `Write`: EC_CMD_PWM_SET_FAN_DUTY with duty 0-100.
+   - `Restore`: EC_CMD_THERMAL_AUTO_FAN_CTRL (0x0052) — puts EC back in firmware auto mode.
+2. `internal/testfixture/fakecrosec/fakecrosec.go`: char-dev stub with named pipe + ioctl dispatcher.
+3. `internal/hal/crosec/crosec_test.go`:
+   - HELLO gate: fake dev without hello handler → empty Enumerate.
+   - Happy path Read.
+   - Happy path Write.
+   - Restore hands back to auto.
+   - Lockout handling: consecutive write failures → Restore + structured event.
+4. Wire into `cmd/ventd/main.go` registry.
+5. CHANGELOG line.
 
 ## Definition of done
 
-- Package exists, backend implements FanBackend.
-- Absent-device path is silent (no error logs on desktop/server systems).
-- Registration doesn't break existing backends.
-- Tests pass.
-- CHANGELOG entry.
+- CGO-off build clean.
+- All tests pass `-race`.
+- Non-Framework/non-Chromebook systems: `/dev/cros_ec` absent → silent no-op at enumerate.
+- Kernel header command numbers match exactly (review kernel v6.7 header as canonical; values have been stable for years).
+- CHANGELOG one-line.
+- vet/fmt clean.
 
 ## Out of scope
 
-- ThinkPad (thinkpad_acpi), Dell (dell-smm-hwmon), HP (hp-wmi) — that's P2-CROSEC-02.
-- Real hardware verification (HIL).
-- Tests beyond the unit tests above.
+- ThinkPad (`thinkpad_acpi`), Dell (`dell-smm-hwmon`), HP (`hp-wmi`) — those are P2-CROSEC-02.
+- Battery / charger commands (EC does those too but not this PR).
+- AP-EC mailbox on non-standard chips.
+- Tests outside the scope this task targets per the testplan catalogue.
 
 ## Branch and PR
 
-- Branch: `claude/P2-CROSEC-01-framework-chromebook`
-- Title: `feat(hal/crosec): Framework + Chromebook EC fan control (P2-CROSEC-01)`
+- Branch: `claude/P2-CROSEC-01-framework-ec`.
+- Title: `feat(hal/crosec): Framework + Chromebook EC backend (P2-CROSEC-01)`.
 
-## Constraints
+## Allowlist
 
-- Files: `internal/hal/crosec/**`, `cmd/ventd/main.go` (registration), `CHANGELOG.md`.
-- No new deps beyond `golang.org/x/sys`.
-- CGO_ENABLED=0 compatible.
-- Never write EC commands without first succeeding a HELLO.
+- `internal/hal/crosec/**` (new)
+- `internal/testfixture/fakecrosec/**` (new)
+- `cmd/ventd/main.go` (registry line)
+- `CHANGELOG.md`
 
 ## Reporting
 
-- STATUS / PR / SUMMARY / CONCERNS / FOLLOWUPS.
+Standard block.
