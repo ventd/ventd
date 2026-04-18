@@ -62,3 +62,31 @@ Append-only. Every PR audited, every issue filed, every pattern noticed.
 - **Metrics after this session:** issues filed: 4 (#286, #287, #288, #289). Regressions caught: 1 real concurrency bug (#289 concern 1). Semantic-drift/doc-gap concerns: 3 (#287, #288, #289 concerns 2 & 3). Confirmed false-positives: 0 (none triaged yet). Backlog: 32/40. Still far over the <5 target.
 - **Pattern noticed (not a LESSONS entry yet):** Cowork-direct CC sessions disclose deviations honestly in PR bodies (#247 deviation 2, #225 implementation notes) but those disclosures don't consistently become follow-up issues. Atlas's merge workflow needs an "any CONCERNS/deviations → file a role:atlas issue" step, or Cassidy has to sweep every merged PR body for "CONCERNS:" sections. The current arrangement (rely on Cassidy to notice) is working because she's reading diffs anyway, but it's a load-bearing accident rather than a designed property.
 - **Rate at which new PRs are landing:** 40 PRs in ~24h since the ensemble bootstrapped. At ~1 deep audit per turn, Cassidy can't close the gap; can only prevent it widening. Realistic cadence: deep-audit 2–3 PRs per session, skim-pass the rest. Worth revisiting after a week's data whether the ensemble model is sustainable at this throughput.
+
+---
+
+## 2026-04-18 Session 2 continued — #223 sparklines audit
+**Context:** Second deep audit of the session. #223 adds a per-metric ring buffer + sampler goroutine + `/api/history` endpoint + client-side sparkline rendering. Goroutine-lifecycle shape mirrors #225 so the audit question was whether it fell into the same traps.
+
+**Action taken:**
+- Pulled full diff for #223. Read `internal/web/history.go` (new, 314 lines), `internal/web/history_test.go` (new, 433 lines), `internal/web/e2e_test.go` sparkline test, and the client-side `sparkline.js` + `api.js` + `render.js` changes.
+- Verified goroutine hygiene: `go s.runHistorySampler(ctx)` launched once from `New()`, exits on `<-ctx.Done()`, `defer t.Stop()` on the ticker. Correct and clean — unlike #225, no cadence-override wake channel, so no equivalent of the #225 race.
+- Verified field mapping: client JS reads `f.duty_pct`; Go side's `fanStatus.Duty` carries JSON tag `"duty_pct"` (confirmed in server.go). Not a bug.
+- Read `internal/config/config.go` `validate()` to check whether sensor+fan name uniqueness is enforced across namespaces. It isn't — `sensors` map and `fans` map are populated in isolation, never intersected. A sensor named `"cpu"` and a fan named `"cpu"` both pass validation, then silently collide in `HistoryStore`'s `historyBuf["cpu"]` and the sparkline shows interleaved °C-and-duty-% values.
+- Filed **#293** `config: validate doesn't reject sensor/fan name collisions, corrupting sparkline history keyspace (#223)` → @atlas. Low severity (cosmetic only, PWM control unaffected), one-line fix proposed: intersect `sensors` and `fans` maps in `validate()` and return an error on overlap.
+
+**Not filed (considered and dropped):**
+- Timestamp reconstruction skew in `HistoryStore.Snapshot` assumes fixed interval; a stalled sampler would stretch visible sample spacing. PR body acknowledges 0-1s skew; under stall the skew is worse but still bounded and user-visible only as visual compression, not wrong data. Dropped.
+- `handleSetPassword` exhibits the same read-modify-write TOCTOU pattern noted in #289 concern 3 (`Load` → mutate `PasswordHash` → `config.Save`). Out of scope for #223; already covered by the broader `mutateConfig` refactor note in #289.
+- `HistoryStore` mutex is `sync.RWMutex`; `Record` takes the write lock, `Snapshot`/`SnapshotAll` take the read lock. Correct pairing. `SnapshotAll` releases the lock between enumerating names and calling `Snapshot` per-name, so a metric added mid-enumeration is either included or silently absent — either outcome is fine for an at-a-glance chart. Not filing.
+- Client-side `HISTORY_MAX = 2000` is a hardcoded cap; long-open tabs silently drop oldest samples. Intentional (stated in the comment), not a bug.
+
+**For other roles:**
+- @atlas #293 is a one-line `validate()` change. Minimum viable fix is the check I proposed; alternative namespace-prefixing approach is mentioned but I don't recommend it (5x the churn for the same outcome).
+- @mia no close requests.
+
+**Followup:**
+- **Backlog: ~31 merged PRs still unaudited.** Remaining high-priority deep audits: #260 (hot-loop perf — highest remaining priority), #232 (warnIfUnconfined /proc/self/attr kernel-compat), #253 (web Permissions-Policy + ETag no-regression), #246 (hwdb fingerprint shadow-matching), #261 (persistModule atomic-rename correctness), #233 (http→https sniff listener goroutine leak), #230 (handleSystemReboot container-refuse).
+- **Metrics after this session:** issues filed: 5 (#286, #287, #288, #289, #293). Real bugs caught: 2 (#289 concern 1 race + #293 keyspace collision — the collision is low-severity but real). Semantic-drift/doc-gap concerns: 3. Confirmed false-positives: 0. Backlog: 31/40.
+- **Observation on audit yield:** 5 audits → 5 issues, 40% hit rate (2 real bugs / 5 audited PRs). That's higher than I expected. Either the CC-session PRs are leakier than per-PR review catches, or I'm pattern-matching well on the concurrent-state code that dominates this phase. Either way, the deep-audit investment is paying off — confirms the prioritisation (safety-critical paths, goroutine-heavy features) is correct.
+- **Session end: no LESSONS.md edit this session.** The pattern-noticed from earlier (PR body CONCERNS → followup issue gap) still holds but hasn't accumulated enough evidence to justify a canonical rule yet. Re-evaluate next session.
