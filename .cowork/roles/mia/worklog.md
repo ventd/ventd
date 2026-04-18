@@ -406,3 +406,56 @@ This session demonstrates the STATE-first protocol paid off immediately. Reading
 1. STATE-first, always. It works.
 2. When #304 lands: file a separate `role:atlas` issue for the strict-mode flip decision on regresslint (the `TODO(TX-REGRESSION-AUDIT)` at `tools/regresslint/main.go:212`).
 3. All prior followups stand; nothing urgent before Monday's metrics rollup.
+
+---
+
+## 2026-04-18 Session 3.7 — self-analysis, filed #310
+
+**Context:** Operator asked "How can your role be more productive do you think" and directed: "I want you to constantly reanalyse your role and productivity and figure out how you fit into this production team, let Atlas know your concerns and I will talk to him." First directive to produce a role self-analysis filed for orchestrator review.
+
+**Actions taken:**
+
+1. **Filed #310 as `role:atlas` + `role:mia`** — "meta: four structural concerns about Mia role effectiveness". Content covers:
+   - **Concern 1** (metrics-v2): SYSTEM.md metrics measure Mia-action counts, not backlog service to ensemble. Propose dispatch-latency, handoff-accuracy, duplicate-rate, label-utility metrics.
+   - **Concern 2** (close-request plumbing): `@mia closing:` protocol has no MCP surface. Propose `role:mia-close-request` label as replacement.
+   - **Concern 3** (mid-session ensemble-activity awareness): Mia is blind to in-session changes, as demonstrated by session 3.6's 2-hour #290-merged-but-unnoticed gap. Propose 30-min activity poll.
+   - **Concern 4** (mandated self-analysis): this session only happened because operator prompted it. Propose every-5th-session recurring protocol step.
+
+   Search-first confirmed no existing issues request this (two searches returned 0). Filed with both `role:atlas` (dispatch owner) and `role:mia` (stakeholder) labels.
+
+2. **Updated STATE.md** — added #310 to hot followups, added "Periodic self-reanalysis" to active-protocol-rules section (self-imposed pending SYSTEM.md edit from #310 concern 4).
+
+**Evidence citations from this session's worklog** (used to back #310's concerns concretely):
+
+- **Duplicate rate 75%**: session 3 filed 4 issues (#290, #291, #292, #297). Three closed as `duplicate`. Only #290 was the live filing. 75% waste rate on initial filing. Worklog-first and search-first installed mid-session reduced this; nothing measures whether the improvement holds.
+- **Mid-session blindness 2 hours**: session 3.6 caught the #290 merge at 11:55 UTC when the merge happened 10:08 UTC. Without operator prompt, gap could have extended to next session (next day or later).
+- **Close-request protocol has never been exercised**: 3 sessions × 0 `@mia closing:` comments processed = indistinguishable from "comments don't exist" and "comments exist but Mia missed them." No observability.
+
+**For other roles:**
+
+- **@atlas** — #310 is yours to dispatch. If you accept the recommendations, the cheapest order is 2 → 4 → 3 → 1. All four fit in one CC session editing `.cowork/roles/mia/SYSTEM.md`. Metrics-v2 (concern 1) may warrant its own followup since it also touches `.cowork/roles/mia/weekly-metrics-template.md`. `role:atlas` queue depth at session end: **12 open** (prior 11 + #310).
+- **@cassidy** — no new items. If Atlas decides concern 2 (close-request plumbing) needs alternate design, you're downstream — you'd use the new mechanism to request Mia-closes. Worth reading #310's concern 2 for context when it surfaces.
+
+**For the operator:**
+
+The self-analysis protocol you just asked for is now staged as a SYSTEM.md amendment (#310 concern 4). It will become recurring without your prompt once Atlas dispatches the SYSTEM.md edit. Until then, I'll self-impose the every-5th-session cadence. Session count so far: 7.5 (session 1, 2, 3, 3.1 through 3.7). Next self-analysis eligible: session 8 or 9, whichever comes first — or earlier if a structural pattern emerges before then.
+
+**Metrics (session 3.7):**
+
+- Issues closed this session: 0.
+- Issues filed this session: 1 (#310).
+- Issues commented: 0.
+- Labels applied: 0.
+- `role:atlas` queue depth: **12 open** (#235, #266, #268, #269, #271, #272, #274, #283, #288, #296, #297, #304, #310).
+- `role:mia` queue depth: **1 open** (#310 — self as stakeholder).
+
+**Followup for next Mia invocation:**
+
+1. STATE-first, as always.
+2. If #310 has been acted upon, re-read SYSTEM.md and apply any new protocol steps.
+3. If #310 is still open with no comment activity after 3+ days, comment on it to check if Atlas has capacity — then move on, don't self-badger.
+4. All prior followups stand (weekly metrics Monday, #68 pending, etc.).
+
+**Meta-observation for future-me reading this worklog:**
+
+This session was 100% self-directed (analysis of my own role) rather than ensemble-directed (triage of others' issues). That ratio is fine for periodic calibration — it shouldn't be the default. If I find myself doing self-analysis more than ~once every 5 sessions, that's a signal I'm avoiding real triage work, not improving the role. Watch for that pattern.
