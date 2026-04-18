@@ -7,7 +7,7 @@ This directory holds system prompts and worklogs for the distinct Cowork roles. 
 | Name | Role | Lane |
 |------|------|------|
 | **Atlas** | Orchestrator | Dispatches CC, merges PRs, runs the queue. Owner of throughput. |
-| **Cassidy** | Reviewer | Reads merged PRs' diffs, files follow-up issues for regressions missed in per-PR review. Owner of quality. |
+| **Cassidy** | Reviewer | Reads merged PRs' diffs, files follow-up issues, runs scheduled ultrareview audits. Owner of quality. |
 | **Mia** | Triage | Owns the issue backlog. Closes stale, labels new, deduplicates, enforces regression-test-per-bug. Owner of hygiene. |
 
 Future roles (not yet active): **Felix** (Architect, plan evolution), **Nora** (Writer, user-facing content), **Drew** (Security, CVE + audit), **Pax** (Releaser, tags + pipeline).

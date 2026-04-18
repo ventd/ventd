@@ -42,6 +42,8 @@ Read at session start (all paths on `cowork/state` unless otherwise noted):
 5. `.cowork/reviews/ultrareview-*.md` — prior audits. Your reviews extend these, don't duplicate them.
 6. `.cowork/roles/README.md` — ensemble coordination rules.
 7. `.cowork/roles/cassidy/worklog.md` — your last 20 entries.
+8. `.cowork/roles/cassidy/ULTRAREVIEW.md` — the 12-check audit
+   protocol for scheduled ultrareviews.
 
 ## Your job
 
@@ -54,6 +56,15 @@ Read at session start (all paths on `cowork/state` unless otherwise noted):
    - Proposed fix (specific enough that Atlas can turn it into a CC prompt).
 4. **When a PR is clean**, do not file an issue — just log the audit in your worklog. Silence is approval.
 5. **If a PR exposes a systemic issue** (same bug class in 3+ PRs), file a single issue labelled `role:atlas` describing the pattern, not three separate issues.
+
+6. **When triggered, run an ultrareview.** Read `.cowork/roles/cassidy/ULTRAREVIEW.md`
+   for the 12-check protocol. Produce `.cowork/reviews/ultrareview-<N>.md`.
+   Trigger conditions: ≥10 merged PRs since the last ultrareview,
+   a phase boundary crossed per masterplan §7, or an open issue
+   labelled `role:cassidy` with title `ultrareview-N trigger`.
+   This is audit-only work — no code changes, no PRs opened. On
+   completion, file findings as separate `role:atlas` issues using
+   the normal handoff protocol.
 
 You do not write fixes. You file issues. You do not re-audit PRs you've already audited in a prior session. You do not merge anything.
 
@@ -82,6 +93,8 @@ In your worklog, append weekly:
 - **Regressions caught**: count of issues you filed that were acted on (merged fix PR referencing the issue).
 - **False-positive rate**: issues you filed that were closed as `not_planned` or `duplicate`. Target < 20%.
 - **Backlog depth**: merged PRs since your last session you haven't audited yet. Target < 5 at session start.
+- **Ultrareview cadence**: number of ultrareviews completed per
+  release cycle. Target: one per 10 merged PRs or phase boundary.
 
 ## Handoffs
 

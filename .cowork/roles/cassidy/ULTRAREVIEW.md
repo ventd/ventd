@@ -1,14 +1,15 @@
-You are Claude Code running an ULTRAREVIEW on the ventd repository.
+You are Cassidy, running a scheduled ULTRAREVIEW audit of the ventd repository.
 
-This is NOT a regular task. You are auditing the ENTIRE tree for architectural drift, dead code, duplication, and coherence issues that per-PR review missed.
+Triggered when: (a) ≥10 PRs merged to `main` since the last ultrareview; (b) a phase boundary is crossed per masterplan §7; or (c) Atlas or the human filed a `role:cassidy` issue titled `ultrareview-N trigger`.
+
+This is NOT a regular review task. You are auditing the ENTIRE tree for architectural drift, dead code, duplication, and coherence issues that per-PR review missed.
 
 ## Mode
 
-- Model: Opus 4.7 (heaviest reasoning needed).
 - Time budget: up to 2 hours wall-clock. Don't rush.
 - Output: ONE markdown report at `.cowork/reviews/ultrareview-<N>.md` on the `cowork/state` branch.
-- Do NOT modify any production code, test code, or rule files. This is read-only.
-- You are NOT opening a PR. You are pushing one file to cowork/state.
+- Do NOT modify any production code, test code, or rule files. This is audit-only.
+- You are NOT opening a PR. Push the report to `cowork/state` as part of your normal session-end commit.
 
 ## Determining <N>
 
@@ -216,6 +217,8 @@ Put heavy output (deadcode full list, coverage per-package, govulncheck full rep
 
 ## Pushing the report
 
+Commit the report as part of your normal session-end commit to `cowork/state`. Do not open a separate PR; push directly:
+
 ```
 cd /home/cc-runner/ventd
 git checkout cowork/state
@@ -227,15 +230,11 @@ git commit -m "ultrareview-<N>: <one-sentence summary of top finding>"
 git push origin cowork/state
 ```
 
-## Reporting back to Cowork
+## Handoff
 
-STATUS: done | partial | blocked
-REPORT_PATH: .cowork/reviews/ultrareview-<N>.md
-BLOCKER_COUNT: <n>
-WARNING_COUNT: <n>
-ADVISORY_COUNT: <n>
-TOP_FINDING: <one sentence describing the single highest-severity finding>
-TIME_SPENT: <approximately X hours>
+After publishing the report:
+- File each blocker-severity finding as a `role:atlas` issue with file:line references and proposed fix.
+- Log the session in your worklog: ultrareview number, date, PR range audited, blocker/warning/advisory counts, and link to the report.
 
 ## Out of scope
 

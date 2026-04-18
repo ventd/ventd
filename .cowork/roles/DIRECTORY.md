@@ -13,7 +13,7 @@ its own worklog. Roles coordinate through GitHub (issues labelled
 | Role    | Purpose       | Owns                    | Does not           | Metrics                    |
 |---------|---------------|-------------------------|--------------------|----------------------------|
 | Atlas   | Orchestrator  | dispatch, merge, queue  | close issues, read diffs | PR/hr, TPM            |
-| Cassidy | Reviewer      | diff audit, regressions | merge, close, dispatch | catches/wk, FP rate   |
+| Cassidy | Reviewer      | diff audit, regressions, ultrareview audits (scheduled) | merge, close, dispatch | catches/wk, FP rate   |
 | Mia     | Triage        | backlog, labels, close  | merge, dispatch, diff-read | closures/wk, stale%|
 
 ## Active roles
@@ -46,6 +46,7 @@ its own worklog. Roles coordinate through GitHub (issues labelled
   - File issues labelled `role:atlas` for each regression or concern found (with PR number, file:line references, failure mode, proposed fix).
   - Log clean audits in the worklog (silence is approval).
   - File a single systemic issue when the same bug class appears in 3+ PRs.
+  - Ultrareview audits: 12-check repo-wide audits at 10-PR gates and phase boundaries, producing `.cowork/reviews/ultrareview-<N>.md`.
 - **Does not:**
   - Merge PRs (that's Atlas).
   - Close issues (comments `@mia closing: <reason>` instead).
@@ -54,7 +55,7 @@ its own worklog. Roles coordinate through GitHub (issues labelled
   - Edit Atlas's or Mia's SYSTEM.md.
 - **Handoffs in:** Issues labelled `role:cassidy`; merged PRs queued since last session.
 - **Handoffs out:** Files issues labelled `role:atlas` with PR number, file:line references, and proposed fix; comments `@mia closing: <link>` when a filed issue's fix has landed.
-- **Metrics:** Regressions caught per week, false-positive rate (follow-up issues closed as `not_planned`), backlog depth (merged PRs not yet audited). Tracked in Cassidy's worklog.
+- **Metrics:** Regressions caught per week, false-positive rate (follow-up issues closed as `not_planned`), backlog depth (merged PRs not yet audited), ultrareview cadence (one per 10 PRs / phase boundary). Tracked in Cassidy's worklog.
 - **Source of truth:** `.cowork/roles/cassidy/SYSTEM.md`
 
 ### Mia — Triage

@@ -193,3 +193,21 @@ This is not the same as lesson #6 (infra shipped without smoke-test) because the
 **Secondary observation**: this is evidence the three-role ensemble is already catching things solo-Atlas would have missed. Atlas would have booted from project memory, implicitly filled in the missing context, and proceeded — no error, no SYSTEM.md fix, latent bug waiting for the next fresh-project role bootstrap. Mia's refusal surfaced the bug at zero cost (one dispatch attempt, no corrupted state). If the "is the ensemble paying for itself" question needs early evidence: this is a data point.
 
 **Tertiary observation**: Cassidy's earlier refusal of the URL-fetch bootstrap was also correct behaviour surfacing a bootstrap-design bug. Two role refusals in one day, both correct, both productive. The pattern is "roles with skeptical dispositions surface bootstrap gaps that memory-contaminated roles would paper over." Worth preserving that disposition when writing future role SYSTEM.md files.
+
+---
+
+## 17 — ultrareview is Cassidy's lane, not a CC spawn
+
+**Date:** 2026-04-18
+**Surfaced by:** human turn in orchestrator session 2026-04-18.
+**Context:** Atlas was dispatching ultrareview via `spawn_cc("ultrareview")`
+against `.cowork/prompts/ultrareview.md`. That shape predates the
+three-role ensemble. Ultrareview is audit-only, read-diff-heavy, and
+temperamentally skeptical — that is Cassidy's lane by design.
+**Lesson:** When the 10-PR or phase-boundary gate trips, Atlas files a
+`role:cassidy` issue titled `ultrareview-N trigger: <reason>`. Cassidy
+picks it up next session and produces the report as part of her normal
+work. No `spawn_cc("ultrareview")` — that path is deprecated.
+**Corollary:** `.cowork/prompts/ultrareview.md` has moved to
+`.cowork/roles/cassidy/ULTRAREVIEW.md` and is no longer a valid
+spawn-mcp alias.
