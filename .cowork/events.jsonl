@@ -13,7 +13,7 @@
 {"ts":"2026-04-18T00:00:02Z","kind":"accept","task":"P1-FP-01","pr":246,"sha":"91e18b5d","reason":"partial accepted; knownDriverNeeds retirement deferred to P1-FP-01b"}
 {"ts":"2026-04-18T00:00:03Z","kind":"merge","task":"P1-FP-01","pr":246,"sha":"c9b5e76","by":"cowork"}
 {"ts":"2026-04-18T00:00:04Z","kind":"revise","task":"T0-INFRA-03","pr":245,"reason":"golangci-lint errcheck on recover() return"}
-{"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck \u2014 same class as T0-INFRA-03"}
+{"ts":"2026-04-18T00:00:05Z","kind":"revise","task":"T0-META-01","pr":244,"reason":"golangci-lint errcheck — same class as T0-INFRA-03"}
 {"ts":"2026-04-18T00:00:06Z","kind":"note","text":"Event-sourced state: .cowork/state.yaml retired as primary; live PR/CI state = GitHub, decision log = this file."}
 {"ts":"2026-04-17T18:20:01Z","kind":"merge","task":"T0-INFRA-03","pr":245,"sha":"8e4dcfc7","by":"developer","text":"test: implement faketime fixture (retry from #242 tangle)"}
 {"ts":"2026-04-17T18:24:48Z","kind":"merge","task":"T0-META-01","pr":244,"sha":"50fa22ed","by":"developer","text":"ci: rule-to-subtest binding lint"}
@@ -23,20 +23,28 @@
 {"ts":"2026-04-18T-session-resume","kind":"note","text":"Session resume: #257 + #260 CI in-progress on head SHAs; both 'behind' main (needs rebase post-green). No action until CI completes. Events.jsonl catch-up for 3 dev-side merges (#244,#245,#259) recorded above."}
 {"ts":"2026-04-17T21:25:27Z","kind":"merge","task":"claude-settings-allowlist-fix","pr":256,"by":"developer","text":"fix(claude-settings): relative-path Write allowlist for repo dirs (unblocks t-hal-01)"}
 {"ts":"2026-04-17T21:47:33Z","kind":"merge","task":"T-HAL-01","pr":258,"sha":"6884049e","by":"developer","text":"test(hal): backend contract invariants bound to .claude/rules/hal-contract.md (15 rules, 15 bound)"}
-{"ts":"2026-04-18T-session-catchup-2","kind":"note","text":"Further catch-up: #256 (claude-settings) and #258 (T-HAL-01) merged 2026-04-17 evening without events.jsonl entries. T-HAL-01 unblocks a rule-file precedent for T-WD-01 / T-CAL-01 / future safety suites \u2014 no more first-rule-file escalations needed for this class."}
+{"ts":"2026-04-18T-session-catchup-2","kind":"note","text":"Further catch-up: #256 (claude-settings) and #258 (T-HAL-01) merged 2026-04-17 evening without events.jsonl entries. T-HAL-01 unblocks a rule-file precedent for T-WD-01 / T-CAL-01 / future safety suites — no more first-rule-file escalations needed for this class."}
 {"ts":"2026-04-18T-session-resume-2","kind":"dispatch","task":"P1-HAL-02","alias":"hal2","session":"cc-hal2-682f5c","model":"claude-opus-4-7"}
-{"ts":"2026-04-18T-session-resume-2","kind":"note","task":"P1-FP-02","pr":257,"text":"Rebase dispatched via MCP update_pull_request_branch \u2014 no conflict expected (behind, not dirty)."}
+{"ts":"2026-04-18T-session-resume-2","kind":"note","task":"P1-FP-02","pr":257,"text":"Rebase dispatched via MCP update_pull_request_branch — no conflict expected (behind, not dirty)."}
 {"ts":"2026-04-18T-session-resume-2","kind":"revise","task":"P1-HOT-01","pr":260,"reason":"mergeable_state=dirty; CHANGELOG.md conflicts with #258 T-HAL-01 line now on main. Dispatch 'hot2' to rebase and drop the duplicate entry."}
-{"ts":"2026-04-18T-session-resume-3","kind":"accept","task":"P1-FP-02","pr":257,"reason":"CI clean after rebase (E2E+meta-lint+govulncheck+cowork-status+CI all green); diff + PR body clean against \u00a75 R1-R19."}
+{"ts":"2026-04-18T-session-resume-3","kind":"accept","task":"P1-FP-02","pr":257,"reason":"CI clean after rebase (E2E+meta-lint+govulncheck+cowork-status+CI all green); diff + PR body clean against §5 R1-R19."}
 {"ts":"2026-04-18T-session-resume-3","kind":"merge","task":"P1-FP-02","pr":257,"sha":"c431f02e","by":"cowork","text":"feat(hwdb): opt-in remote refresh with SHA-256 pin"}
 {"ts":"2026-04-18T-session-resume-3","kind":"note","task":"P1-HOT-01","pr":260,"text":"hot2 session returned rc=0: CHANGELOG conflict resolved, old resolution commit dropped, force-pushed to 856246d2. CI + E2E re-running."}
 {"ts":"2026-04-18T-session-resume-3","kind":"dispatch","task":"P1-MOD-02","alias":"mod2","model":"claude-sonnet-4-6"}
-{"ts":"2026-04-18T-session-resume-4","kind":"accept","task":"P1-HOT-01","pr":260,"reason":"CI 16/16 green on rebased head 181f0636; diff clean against \u00a75."}
+{"ts":"2026-04-18T-session-resume-4","kind":"accept","task":"P1-HOT-01","pr":260,"reason":"CI 16/16 green on rebased head 181f0636; diff clean against §5."}
 {"ts":"2026-04-18T-session-resume-4","kind":"merge","task":"P1-HOT-01","pr":260,"sha":"ced97716","by":"cowork","text":"perf(controller): eliminate per-tick allocations"}
 {"ts":"2026-04-18T-session-resume-4","kind":"note","task":"P1-MOD-02","pr":261,"text":"mod2 returned rc=0, PR #261 opened at d54aef2b. Post-#260 rebased to acc09566."}
 {"ts":"2026-04-18T-session-overnight","kind":"dispatch","task":"merge-261","alias":"merge-261","note":"helper CC session to flip draft off (MCP gap); step 3 gh-merge denied by allowlist, but step 1 ready-flip succeeded"}
-{"ts":"2026-04-18T-session-overnight","kind":"accept","task":"P1-MOD-02","pr":261,"reason":"CI 16/16 green on rebased head acc09566; diff clean against \u00a75; allowlist exactly matches prompt."}
+{"ts":"2026-04-18T-session-overnight","kind":"accept","task":"P1-MOD-02","pr":261,"reason":"CI 16/16 green on rebased head acc09566; diff clean against §5; allowlist exactly matches prompt."}
 {"ts":"2026-04-18T-session-overnight","kind":"merge","task":"P1-MOD-02","pr":261,"sha":"3e6a142e","by":"cowork","text":"fix(hwmon): append-not-overwrite in persistModule"}
 {"ts":"2026-04-18T-session-overnight","kind":"dispatch","task":"P1-HOT-02","alias":"hot-retry","session":"cc-hot-retry-5570f3","model":"claude-sonnet-4-6"}
 {"ts":"2026-04-18T-session-overnight","kind":"note","task":"P1-HAL-02","session":"cc-hal2-682f5c","text":"hal2 still running at ~30min wall-clock; non-interactive claude -p silent until rc. Per stop rules, 45min timeout before escalation."}
 {"ts":"2026-04-18T-session-overnight","kind":"note","text":"MCP gap discovered: no direct tool to flip PR draft->ready. Workaround: spawn CC session running `gh pr ready N`. Follow-up: consider adding `update_pull_request` to the self-hosted github-mcp-server toolset, OR update CC prompts to open PRs as ready-for-review by default rather than draft."}
+{"ts":"2026-04-18T12:17:39Z","kind":"note","text":"Mia-filed issue #297 resolved Cowork-direct: staged proposed-lesson-17.md deleted; lesson #17 already present in LESSONS.md. Commented on #297 for Mia-close."}
+{"ts":"2026-04-18T12:17:49Z","kind":"dispatch","task":"issue-269-docs-api","alias":"docs-api-reference","session":"cc-docs-api-reference-148023","model":"claude-sonnet-4-6","note":"Cassidy backlog: docs/api.md for 54 HTTP routes"}
+{"ts":"2026-04-18T12:22:37Z","kind":"dispatch","task":"issue-271-testfixture-base","alias":"refactor-testfixture-base","session":"cc-refactor-testfixture-base-d882a6","model":"claude-sonnet-4-6","note":"Cassidy backlog: extract testfixture.Base, de-dup 12 fakes (alternative-path per #271, not codegen)"}
+{"ts":"2026-04-18T12:22:00Z","kind":"accept","task":"issue-269-docs-api","pr":309,"reason":"40/40 routes documented, 834 insertions, 2 files, §5 R1–R19 clean, 16/16 CI green"}
+{"ts":"2026-04-18T12:22:00Z","kind":"merge","task":"issue-269-docs-api","pr":309,"sha":"807f2023","by":"cowork","text":"docs: HTTP API reference (closes #269)"}
+{"ts":"2026-04-18T12:25:00Z","kind":"note","task":"ensemble-restructure","text":"Mia role sunset after 5h operation on 2026-04-18 (3 sessions, 3/4 issues self-duplicates, no exclusive catches). Triage absorbed by Atlas (see .cowork/roles/atlas/ADDENDUM.md). New role Drew bootstrapped for release-engineering (see .cowork/roles/drew/SYSTEM.md). Phase 2 ensemble: Atlas + Cassidy + Drew. role:mia label deleted, role:drew label created."}
+{"ts":"2026-04-18T12:30:00Z","kind":"note","text":"Stale Cassidy-close-requests #274, #283, #286 cleared by Atlas (now holds close authority post-Mia-sunset). #310 closed as completed with disposition of all four concerns."}
+{"ts":"2026-04-18T12:34:32Z","kind":"dispatch","task":"merge-314","alias":"merge-314","note":"flip #314 draft→ready; Atlas merges via MCP after"}
