@@ -23,6 +23,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
 - `config.validate` now rejects configs where a sensor name and a fan name collide; the history keyspace would otherwise be ambiguous at runtime (closes #293).
 - controller: permission errors during manual-mode acquisition are now fatal, restoring pre-#247 systemd restart-loop visibility (closes #288).
+- controller: add `TestController_ErrNotPermittedFatal_ManualMode` regression test for manual-PWM `ErrNotPermitted` fatal path (closes #347).
 
 ### Security
 

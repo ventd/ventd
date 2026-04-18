@@ -404,5 +404,54 @@ func TestController_ErrNotPermittedFatal(t *testing.T) {
 	}
 }
 
+// makeManualFanCfg builds a Config with ManualPWM set on the control binding,
+// exercising the manual-mode tick path instead of the curve-driven path.
+func makeManualFanCfg(ff fakeFan, fanName string, manualPWM *uint8) *config.Config {
+	return &config.Config{
+		Fans: []config.Fan{{
+			Name: fanName, Type: "hwmon", PWMPath: ff.pwmPath,
+			MinPWM: 40, MaxPWM: 200,
+		}},
+		Controls: []config.Control{{Fan: fanName, ManualPWM: manualPWM}},
+	}
+}
+
+// TestController_ErrNotPermittedFatal_ManualMode regresses the manual-PWM
+// Write site introduced by #341: a hal.ErrNotPermitted on the manual-mode
+// branch must cause Run() to return a non-nil fatal error, not loop-and-log.
+// Mirrors TestController_ErrNotPermittedFatal which covers the curve-driven path.
+func TestController_ErrNotPermittedFatal_ManualMode(t *testing.T) {
+	ff := newFakeFan(t)
+	pwm := uint8(128)
+	cfg := makeManualFanCfg(ff, "cpu fan", &pwm)
+
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+	c := New("cpu fan", "", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+	// Inject a backend whose Write always returns hal.ErrNotPermitted.
+	c.backend = &fakeErrBackend{errs: []error{hal.ErrNotPermitted}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- c.Run(ctx, 20*time.Millisecond) }()
+
+	select {
+	case runErr := <-errCh:
+		if runErr == nil {
+			t.Fatal("Run returned nil on ErrNotPermitted; want non-nil fatal error")
+		}
+		if !errors.Is(runErr, hal.ErrNotPermitted) {
+			t.Errorf("Run returned %v; want errors.Is(..., hal.ErrNotPermitted) == true", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return within 2s after ErrNotPermitted; expected fatal propagation")
+	}
+}
+
 // Verify PICurve implements StatefulCurve at compile time.
 var _ curve.StatefulCurve = (*curve.PICurve)(nil)
