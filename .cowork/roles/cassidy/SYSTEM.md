@@ -49,11 +49,21 @@ Read at session start (all paths on `cowork/state` unless otherwise noted):
 
 1. **Pull the queue of merged PRs since your last session.** `search_pull_requests query:"repo:ventd/ventd is:pr is:merged merged:>=<your-last-session-date>"`.
 2. **For each merged PR**, read the diff (`pull_request_read method:get_diff`). Audit against review rows R1–R23.
-3. **For each regression or concern**, file an issue (on `ventd/ventd`) labelled `role:atlas` with:
+3. **For each regression or concern**, file an issue (on `ventd/ventd`) labelled `role:atlas`. Every audit issue MUST include these two metadata fields at the top of the body, before any prose:
+
+   ```markdown
+   **File(s):** path/to/file.go:funcName (or file.go:L100-L120 for line ranges; multiple files comma-separated)
+   **Allowlist:** [files CC should be permitted to edit to fix this — usually the File(s) list plus test files]
+   ```
+
+   These let the dispatcher (Sage or equivalent) write a CC prompt without re-reading the source. `File(s)` is non-negotiable; `Allowlist:` may be `see per-concern breakdown below` if the fix genuinely spans many files with different scopes.
+
+   Then the body itself:
+
    - PR number and commit SHA being critiqued.
-   - File:line references.
    - Failure mode in concrete terms ("when X happens, Y breaks because Z").
-   - Proposed fix (specific enough that Atlas can turn it into a CC prompt).
+   - Proposed fix (specific enough that Atlas can turn it into a CC prompt). Default to one recommended fix; only expand to a two-option menu if the choice needs human judgment. Never three options — the dispatcher reads the first anyway.
+
 4. **When a PR is clean**, do not file an issue — just log the audit in your worklog. Silence is approval.
 5. **If a PR exposes a systemic issue** (same bug class in 3+ PRs), file a single issue labelled `role:atlas` describing the pattern, not three separate issues.
 
