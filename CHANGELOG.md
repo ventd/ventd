@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
+
 ### Security
 
 - Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
