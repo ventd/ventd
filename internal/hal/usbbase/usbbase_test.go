@@ -110,7 +110,7 @@ func TestRead_Passthrough(t *testing.T) {
 			raw.QueueRead(tc.payload)
 
 			handle, _ := bus.Open("/dev/hidrawR")
-			defer handle.Close()
+			defer func() { _ = handle.Close() }()
 
 			buf := make([]byte, 16)
 			n, err := handle.Read(buf, time.Second)
@@ -139,7 +139,7 @@ func TestWrite_Passthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			bus, raw := newBusWithDevice("/dev/hidrawW")
 			handle, _ := bus.Open("/dev/hidrawW")
-			defer handle.Close()
+			defer func() { _ = handle.Close() }()
 
 			if err := handle.Write(tc.payload); err != nil {
 				t.Fatalf("Write: %v", err)
@@ -160,7 +160,7 @@ func TestGetFeature_Passthrough(t *testing.T) {
 	raw.SetFeatureReport(0x07, []byte{0x07, 0xBE, 0xEF})
 
 	handle, _ := bus.Open("/dev/hidrawF")
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 
 	buf := make([]byte, 4)
 	n, err := handle.GetFeature(0x07, buf)
@@ -182,7 +182,7 @@ func TestGetFeature_Passthrough(t *testing.T) {
 func TestGetFeature_EmptyBuf(t *testing.T) {
 	bus, _ := newBusWithDevice("/dev/hidrawFE")
 	handle, _ := bus.Open("/dev/hidrawFE")
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 
 	_, err := handle.GetFeature(0x01, nil)
 	if err == nil {
@@ -193,7 +193,7 @@ func TestGetFeature_EmptyBuf(t *testing.T) {
 func TestSendFeature_Passthrough(t *testing.T) {
 	bus, raw := newBusWithDevice("/dev/hidrawSF")
 	handle, _ := bus.Open("/dev/hidrawSF")
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 
 	payload := []byte{0x03, 0xCA, 0xFE}
 	if err := handle.SendFeature(payload); err != nil {
