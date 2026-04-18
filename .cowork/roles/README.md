@@ -2,15 +2,17 @@
 
 This directory holds system prompts and worklogs for the distinct Cowork roles. Each role is a separate claude.ai conversation with its own context window. Roles do not talk to each other directly — they coordinate through the GitHub repo (issues, PRs, cowork/state commits, worklogs in this directory).
 
-## The ensemble (Phase 1 — three roles)
+## The ensemble (Phase 2 — three roles)
 
 | Name | Role | Lane |
 |------|------|------|
-| **Atlas** | Orchestrator | Dispatches CC, merges PRs, runs the queue. Owner of throughput. |
+| **Atlas** | Orchestrator + triage | Dispatches CC, merges PRs, runs the queue, owns the issue backlog. Owner of throughput and hygiene. |
 | **Cassidy** | Reviewer | Reads merged PRs' diffs, files follow-up issues, runs scheduled ultrareview audits. Owner of quality. |
-| **Mia** | Triage | Owns the issue backlog. Closes stale, labels new, deduplicates, enforces regression-test-per-bug. Owner of hygiene. |
+| **Drew** | Release engineer | Cuts tags, owns Phase 10 P-tasks (SBOM, signing, reproducible builds), audits supply-chain. Owner of what ships. |
 
-Future roles (not yet active): **Felix** (Architect, plan evolution), **Nora** (Writer, user-facing content), **Drew** (Security, CVE + audit), **Pax** (Releaser, tags + pipeline).
+Future roles (not yet active): **Felix** (Architect, plan evolution), **Nora** (Writer, user-facing content), **Pax** (additional security/compliance lane).
+
+Phase 1 archived role: **Mia** (Triage) — sunset 2026-04-18 after ~5h of operation. Triage responsibilities absorbed by Atlas. See [`_archive/mia/HEADSTONE.md`](./_archive/mia/HEADSTONE.md) for the post-mortem.
 
 *See [DIRECTORY.md](./DIRECTORY.md) for a rollup of role responsibilities, lane boundaries, and handoff protocols.*
 
@@ -26,7 +28,7 @@ Do not use URL-fetch bootstraps for role identity. Use one of the two patterns b
 
 claude.ai Projects support a custom system prompt per project. This is the cleanest way to run a persistent role:
 
-1. In claude.ai, create a new Project. Name it after the role (e.g. "Cassidy" or "Mia").
+1. In claude.ai, create a new Project. Name it after the role (e.g. "Cassidy" or "Drew").
 2. Open the project's settings. Find the custom system prompt / instructions field.
 3. Copy the entire contents of `.cowork/roles/<n>/SYSTEM.md` from this repo. Paste into the custom system prompt field. Save.
 4. Start a new conversation in that project. The role is pre-loaded. The first user turn can simply say "Begin" or ask a specific question — no bootstrap ceremony needed.
@@ -55,9 +57,11 @@ Disadvantage: you copy-paste the full SYSTEM.md every time you start a new conve
 
 Each role's `SYSTEM.md` is a self-contained role definition: identity, authoritative documents, job description, lane boundaries, handoff protocol, session start/end protocol, tone. They are written to be pasted or loaded as-is with no additional bootstrap.
 
-`.cowork/roles/atlas/SYSTEM.md` — orchestrator
+Atlas additionally has an `ADDENDUM.md` capturing triage responsibilities absorbed from the sunset Mia role; paste this at the end of Atlas's project custom system prompt.
+
+`.cowork/roles/atlas/SYSTEM.md` — orchestrator (plus `atlas/ADDENDUM.md` for absorbed triage responsibilities)
 `.cowork/roles/cassidy/SYSTEM.md` — reviewer
-`.cowork/roles/mia/SYSTEM.md` — triage
+`.cowork/roles/drew/SYSTEM.md` — release engineer
 
 ## Coordination protocol
 
@@ -69,7 +73,7 @@ Every role maintains `.cowork/roles/<n>/worklog.md` on `cowork/state`. Append on
 ## <ISO-8601> <action>
 **Context:** one or two sentences.
 **Action taken:** what I did.
-**For other roles:** anything another role needs to know. Tag them with @atlas / @cassidy / @mia.
+**For other roles:** anything another role needs to know. Tag them with @atlas / @cassidy / @drew.
 **Followup:** GitHub issue number if one was filed, or "none".
 ```
 
@@ -79,7 +83,7 @@ Worklogs are authoritative. If a role acted, it must be in the worklog. If it's 
 
 When a role wants another role to act, it files an issue with a label of the form `role:<n>`. Example: Cassidy finds a regression in a merged PR → files an issue labelled `role:atlas` with the fix needed.
 
-Available role labels: `role:atlas`, `role:cassidy`, `role:mia`.
+Available role labels: `role:atlas`, `role:cassidy`, `role:drew`.
 
 Other roles ignore issues not labelled for them. A role's first action each session is to read its label-filtered queue: `is:issue is:open label:role:<n>`.
 
@@ -92,6 +96,17 @@ Other roles ignore issues not labelled for them. A role's first action each sess
 
 SYSTEM.md itself is loaded as the project's custom system prompt (Pattern A) or pasted at conversation start (Pattern B); it does not need to be re-read during the session.
 
+### Session continuation protocol (on operator re-prompt, mid-session)
+
+Before taking a new action on a re-prompt, run one cheap poll to catch cross-role activity:
+
+```
+search_issues(query="repo:ventd/ventd is:issue updated:>=<ISO of last MCP call> label:role:<n>", perPage=10)
+list_pull_requests(owner="ventd", repo="ventd", state="open", sort="updated", direction="desc", perPage=5)
+```
+
+Two MCP calls. Catches the case where another role filed a handoff or CC pushed a new PR between prompts. Added 2026-04-18 from the original #310 concern 3 — applies to every role, not just the one that surfaced it.
+
 ### Session end protocol (every role, every session)
 
 1. Append a final worklog entry summarising the session: PRs touched, issues filed, blockers hit.
@@ -102,28 +117,29 @@ SYSTEM.md itself is loaded as the project's custom system prompt (Pattern A) or 
 
 If two roles disagree on an action, the role that touches the artifact first wins. The other role files an issue documenting the disagreement for human review. **No role reverts another role's merge, close, or label without explicit human instruction.**
 
-Atlas has merge authority. Cassidy and Mia file issues. Mia closes issues. Atlas does not close issues (that's Mia's job) — if Atlas thinks an issue should close, Atlas files a comment with `@mia` asking.
+Atlas has merge authority AND close authority. Cassidy and Drew file issues. Cassidy comments `@atlas closing: <reason>` when a filed issue's fix has landed; Atlas verifies and closes.
 
 ### Lane boundaries (hard rules)
 
-- **Atlas merges PRs.** Cassidy and Mia do not.
-- **Mia closes issues.** Atlas and Cassidy do not (they comment with `@mia` instead).
-- **Cassidy reads diffs.** Atlas skips diff-reads to save TPM; Cassidy is where diff-review happens.
+- **Atlas merges PRs.** Cassidy and Drew do not.
+- **Atlas closes issues.** Cassidy and Drew do not (they comment `@atlas closing:` instead).
+- **Cassidy reads diffs.** Atlas skips routine diff-reads to save TPM; Cassidy is where post-merge diff audit happens.
+- **Drew cuts tags.** Atlas dispatches the tag-cut CC session on Drew's request; Drew audits the released artifacts.
 - **Nobody edits another role's SYSTEM.md** except in a role-bootstrap PR reviewed by the human.
 - **Nobody speaks for another role.** If a role wants to influence another role's work, they file an issue, not a direct edit.
 
 ## Metric tracking
 
-Each role tracks its own equivalent of TPM:
+Each role tracks its own metrics:
 
 - **Atlas:** PR/hr merged, TPM per merged PR. Existing metrics in `.cowork/THROUGHPUT.md`.
 - **Cassidy:** regressions caught per week, follow-up issues filed per week, false-positive rate (follow-up issues closed as `not_planned`).
-- **Mia:** issues closed per week, stale-issue ratio (open issues > 30 days idle / total open).
+- **Drew:** days since last release tag, Phase 10 P-tasks complete, SBOM compliance on latest release, reproducible-build delta, `role:atlas` issues filed by Drew dispatched within 48h.
 
-Weekly rollup: all three roles append a `## Weekly summary <ISO-week>` section to their worklogs with their week's numbers. Human reviews the rollups.
+Weekly rollup: each role appends a `## Weekly summary <ISO-week>` section to their worklogs with their week's numbers. Human reviews the rollups.
 
 ## Evolution
 
-This ensemble is explicitly a test. If the three-role model is working after ~two weeks of active use, add one more role from the "Future roles" list. If it's not working (coordination overhead > value, or roles are stepping on each other), halt and redesign.
+This ensemble is explicitly a test. Phase 1 (Atlas + Cassidy + Mia) ran for ~5h on 2026-04-18 before Mia was sunset; Phase 2 (Atlas + Cassidy + Drew) begins immediately after. If the three-role Phase 2 model is working after ~one week of active use, the ensemble can consider adding Felix, Nora, or Pax. If it's not working (Drew doesn't earn retention the way Cassidy has), halt and redesign.
 
-The metric for "working": throughput (PR/hr) is maintained or improved vs. the solo-Atlas baseline, AND at least one role outside Atlas catches something Atlas would have missed.
+The metric for "working": throughput (PR/hr) is maintained or improved vs. the solo-Atlas baseline, AND each non-Atlas role demonstrably makes a decision that would have been different without them. Cassidy has cleared this bar (see #288, #293, #296, #298 — regressions Atlas would have missed). Drew's bar is one release-related decision (tag-cut deferral, supply-chain compliance fix, release-blocker identification) that wouldn't have been made without the role.
