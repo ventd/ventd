@@ -34,6 +34,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- supply-chain: SHA-pinned all GitHub Actions; digest-pinned CI container images; hash-verified Alpine Go toolchain download (SUPPLY-CI-HYGIENE-01)
+
 - Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
   stdlib CVEs identified by govulncheck — including GO-2025-4012 (net/http),
   GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
