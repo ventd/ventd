@@ -165,3 +165,38 @@ Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races acr
 - **Next session:** resume backlog per the priority list. #232 (warnIfUnconfined /proc/self/attr kernel-compat) is next.
 - **Metrics unchanged from prior entry:** 7 issues filed, 2 real bugs, ~43% hit rate, 30/40 backlog.
 - **One protocol observation:** tried to discover a way for Atlas to see the review without editing Atlas's worklog. Settled on: (a) publishing to `.cowork/reviews/` which Atlas's SYSTEM.md references alongside mine, (b) pointer comment on the highest-priority open issue. Both are within lane boundaries. If the ensemble grows a "proposals" channel later, that would be the cleaner home for architectural reviews; for now, `.cowork/reviews/` + issue comment is the cleanest path.
+
+---
+
+## 2026-04-18 Session 2 continued — #232 warnIfUnconfined audit (clean, no issue filed)
+**Context:** Resumed backlog at the top of the followup list. #232 adds (1) `warnIfUnconfined` slog at daemon startup when `/etc/apparmor.d/usr.local.bin.ventd` exists but `/proc/self/attr/current` reads `unconfined`, and (2) `log_security_outcome` shell helpers in install.sh and postinstall.sh that write timestamped records to `/var/log/ventd/install.log`.
+
+**Action taken:**
+- Pulled full diff. Read the new `warnIfUnconfined` function in cmd/ventd/main.go, both shell helpers, and deploy/README.md doc update.
+- Traced 10 edge cases:
+  1. Kernel without `/proc/self/attr/current`: os.ReadFile error → early return. No panic.
+  2. SELinux-only box: profile file not dropped (installer gates on apparmor_parser presence), Stat fails, early return. No false positive.
+  3. NUL-trim and TrimSpace ordering: handles all documented /proc/self/attr/current layouts correctly (`"unconfined\n"`, `"ventd (enforce)\x00"`, trailing-NUL variants).
+  4. Substring match risk: `current == "unconfined"` is exact string equality, not contains; custom profile named `unconfined_with_logging` correctly doesn't trigger.
+  5. Write race during ReadFile: kernel attr writes are atomic; no concern.
+  6. install.log mode 0640 owned root:ventd: daemon doesn't read it at runtime, humans use sudo; any ventd-group membership leak is operational info not secrets.
+  7. `install -m 750` vs `mkdir + chmod 750`: small umask race in postinstall before chmod, no file exists in dir yet.
+  8. chown silently swallowed: if `ventd` group doesn't exist (account helper failed), file becomes root:root. No functional impact (daemon doesn't read it). Doc-vs-behavior drift but not regression.
+  9. `VENTD_TEST_MODE=1` gate in install.sh but not postinstall.sh: correct; postinstall runs only in real package install.
+  10. Permission asymmetry vs `/run/ventd/setup-token` (0700 dir, 0600 file, no group) vs `/var/log/ventd/install.log` (0750 dir, 0640 file, root:ventd group): two different files serving two different purposes. Deliberate, not an inconsistency.
+
+**Not filed (all considered):**
+- SELinux-parallel-install gap: operator hand-drops the AppArmor profile on a SELinux box → `current` reads SELinux label → warning never fires. Niche, non-standard install, `/var/log/ventd/install.log` exists as fallback. Not worth filing.
+- Permission policy documentation: the `/run/ventd/*` vs `/var/log/ventd/*` permission divergence is real but intentional. Worth a one-line note in SECURITY.md eventually, but not a regression.
+
+**Clean audit — no issue filed. Silence is approval.**
+
+**For other roles:**
+- @atlas: #232 is clean; no action needed.
+- @mia: no close requests.
+
+**Followup:**
+- **Backlog: ~29 merged PRs still unaudited.** Next priority list: #253 (web Permissions-Policy + ETag no-regression), #246 (hwdb fingerprint shadow-matching), #261 (persistModule atomic-rename correctness), #233 (http→https sniff listener goroutine leak), #230 (handleSystemReboot container-refuse). After those, skim-pass the rest.
+- **Metrics after this audit:** 8 audits total, 7 issues filed (no new issue this turn), ~37.5% hit rate on real-bug-or-concrete-concern. Slight drift from the 43% previous; absorbing one clean audit is exactly the variance expected. If hit rate stays above 30% over the next 5 audits the priority ranking is calibrated correctly; if it drops below 20%, I'm over-picking cold targets.
+- **Observation on audit discipline:** SYSTEM.md says "When a PR is clean, do not file an issue — just log the audit in your worklog. Silence is approval." This is my first clean audit this session. Explicit logging matters because otherwise future-Cassidy (or another reviewer) would see a gap in the audit record and re-audit #232 unnecessarily. The discipline of logging clean audits is orthogonal to the discipline of filing concerns, but no less important.
+- **Session end:** no LESSONS.md edit.
