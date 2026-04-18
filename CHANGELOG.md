@@ -17,6 +17,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `hal/hwmon`: fix `ensureManualMode` to store acquired-path only after successful write, preventing false-cache on transient errors (closes #348).
 - `mergeModuleLoadFile` now calls `tmp.Sync()` before close and fsyncs the parent directory after rename, preventing a zero-byte `/etc/modules-load.d/ventd.conf` after a kernel panic or power loss between rename and the next disk sync (closes #311).
 - `hal/crosec`: reset `failures` counter to zero when the `maxConsecutiveFailures` threshold triggers `Restore`, preventing repeated `Restore` calls and log spam on a persistently broken EC (closes #306).
 - `hal/usbbase`: per-handle I/O now serialised and honours closed state; `fakehid` matches real go-hid closed-device semantics (closes #305 concerns 1-2; concern 3 tracked separately).
