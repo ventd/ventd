@@ -42,6 +42,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
   reachable vulnerabilities.
 
+### Infrastructure
+
+- release: drew-audit.yml workflow automates Drew's post-tag audit gates (govulncheck real; SBOM/cosign/repro stubs until Phase 10 lands) (#DREW-AUDIT-01)
+
 ### Changed
 
 - test: extract `testfixture.Base` to de-duplicate 10 stub fixtures (#271)
