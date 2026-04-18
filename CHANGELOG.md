@@ -18,6 +18,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `mergeModuleLoadFile` now calls `tmp.Sync()` before close and fsyncs the parent directory after rename, preventing a zero-byte `/etc/modules-load.d/ventd.conf` after a kernel panic or power loss between rename and the next disk sync (closes #311).
+- `hal/crosec`: reset `failures` counter to zero when the `maxConsecutiveFailures` threshold triggers `Restore`, preventing repeated `Restore` calls and log spam on a persistently broken EC (closes #306).
 - Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
 - `config.validate` now rejects configs where a sensor name and a fan name collide; the history keyspace would otherwise be ambiguous at runtime (closes #293).
 
