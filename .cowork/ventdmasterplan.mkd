@@ -1,0 +1,639 @@
+# VENTD MASTERPLAN — Agent Coordination Document
+
+**Document purpose:** This is the single source of truth for the ventd development program. It is written for **Claude Cowork** (orchestrator) to use as the substrate from which to generate **Claude Code** (CC) terminal prompts, review CC output, and generate the next prompt. Operating mode is solo-developer: one human owner, one Cowork session, multiple short-lived CC terminals.
+
+Cowork does three things, in this order, forever: (1) select the next task per the dependency graph and state file, (2) emit a CC prompt using the template in §4, (3) when CC reports back, review against §5 and update state per §6 — then go to (1).
+
+Cowork does not itself edit code, design architecture, or reinterpret this plan. Cowork operates the loop.
+
+---
+
+## 0 · Glossary
+
+| Term | Meaning |
+|---|---|
+| **Developer** | The solo human owner. Sole reviewer-of-last-resort, sole merge-path-override authority. Reads git log weekly; otherwise hands-off. |
+| **Cowork** | Orchestrator Claude. One long-running conversation. Reads this doc, state file, and reviews. Writes prompts. Never edits code. Primary reviewer. |
+| **CC** | Claude Code terminal session. Short-lived, single-task. Does edits, commits, pushes, PRs. |
+| **Track** | A parallel stream of work. Tracks can progress independently when their dependencies are satisfied. |
+| **Task** | Smallest unit Cowork hands to a CC terminal. One branch, one PR, one review cycle. |
+| **Prompt** | The exact English instruction Cowork sends to a CC terminal. |
+| **State file** | `.cowork/state.yaml` in the repo root — the single truth of what's in flight, queued, done. |
+| **Gate** | A predicate that must be true before a task can start. |
+
+---
+
+## 1 · North star
+
+Ventd becomes *the* fan controller. Differentiators, locked in priority order:
+
+1. **Works on every system** — Linux, Windows, macOS (Intel + Apple Silicon), FreeBSD, OpenBSD, illumos, Android. Architecture: amd64, arm64, riscv64.
+2. **Works on every fan** — hwmon, NVML, IPMI, Corsair/NZXT/Lian Li USB AIOs, laptop EC (Framework/ThinkPad/Dell/HP/ASUS/Lenovo Legion), ARM SBC PWM, Apple Silicon SMC, Asahi.
+3. **Self-calibrating** — learns each fan's behaviour opportunistically during normal use; no 60-second fan-howl ritual.
+4. **Learning controller** — per-machine thermal model, MPC-driven, genuinely quieter than any curve.
+5. **Hot-plug aware** — notices new hardware in under a second, recalibrates, rebinds, all without operator input.
+6. **Profile-sourced** — every first boot benefits from every prior boot; curated hardware-profiles database grows as the developer calibrates more machines.
+7. **Acoustically intelligent** — detects bearing degradation via microphone fingerprinting; dithers synchronised fans to break beat frequencies.
+8. **Still a single, auditable, deprivileged binary** — all of the above ships in ventd, or in a clearly-bounded sidecar with minimal capability grant.
+
+Non-negotiables:
+
+- No runtime dependency on Python/Node/Ruby/Java.
+- No CGO in the main binary (native code acceptable only in bounded components via stable C-ABI loaded through purego, or via separately-packaged signed artifacts).
+- Zero-capability systemd unit stays zero-capability; any privileged actions move to scoped oneshots.
+- Every exit path, graceful or otherwise, restores hardware to a firmware-safe state within 2 s.
+
+---
+
+## 2 · Repo & working conventions
+
+- **Upstream:** `ventd/ventd`. Solo developer is the sole owner.
+- **Default branch:** `main`.
+- **Scoped repos:** Cowork may act on `ventd/ventd` and `ventd/hardware-profiles` only. Never any other.
+- **Working branch per task:** `claude/<track-id>-<short-slug>-<rand5>`. Cowork enforces naming.
+- **PR policy:** every CC task ends with a draft PR for auditability. After Cowork's §5 review returns `accept`, Cowork marks the PR ready-for-review and **auto-merges via squash** once CI is green. No human merge step in the normal path.
+- **Solo-dev override:** the developer may at any time convert a PR back to draft, leave a review comment, or merge manually. Cowork watches for these events and yields — if a PR it was about to auto-merge has a human review or is converted back to draft, Cowork sets the PR to `holding/solo-dev` in the state file and stops touching it until the developer issues `RESUME <pr-url>` or `DROP <pr-url>`.
+- **CI as the gate:** CI must be green. No `--admin` merges, no skip-required-checks. If CI fails, the task returns to `revise`.
+- **Branch protection:** `main` is branch-protected — require CI, require linear history. Cowork's bot identity has admin-merge; the developer is the only other actor with that grant.
+- **Commits:** conventional-commits style. CC must conform; Cowork rewords only if a commit message is actively wrong.
+- **Branch lifecycle:** branch → push → draft PR → Cowork review → ready-for-review → CI green → squash-merge → delete branch.
+- **No force-push to main.** No amending merged commits.
+- **Tests out of scope for this program.** A separate CC terminal is building the test suite in parallel; no task in this plan adds, refactors, or removes tests. Any incidental test edit must be noted `TEST-TOUCHED: <files>` and routes to escalation.
+
+---
+
+## 3 · State file
+
+Path: `.cowork/state.yaml` on a long-lived branch `cowork/state` rebased on `main` before each update.
+
+```yaml
+version: 1
+updated: <ISO-8601>
+tracks:
+  <track-id>:
+    status: blocked | ready | in_flight | review | merged | done | holding/solo-dev
+    current_task: <task-id or null>
+    branch: <branch-name or null>
+    pr: <pr-url or null>
+    last_review: <review-id or null>
+    completed_tasks: [<task-id>, ...]
+in_flight:
+  - track: <track-id>
+    task: <task-id>
+    cc_session: <opaque-id>
+    started: <ISO-8601>
+reviews:
+  <review-id>:
+    task: <task-id>
+    verdict: accept | revise | reject
+    notes: <text>
+    timestamp: <ISO-8601>
+merge_queue: [<pr-url>, ...]
+notes:
+  - <ISO-8601>: <free text>
+```
+
+Cowork updates via one commit per decision point. Rebase + re-read on every write.
+
+---
+
+## 4 · CC prompt template
+
+```
+You are Claude Code, working on the ventd repository.
+
+## Task
+ID: {task_id}
+Track: {track_id}
+Goal: {one-sentence goal}
+
+## Context you should read first
+{list of files to Read; keep under 15 unless the task genuinely needs more}
+
+## What to do
+{numbered list of concrete steps. Each step actionable by a single tool call
+ or a small group of them.}
+
+## Definition of done
+{bullet list of acceptance criteria, each one independently verifiable}
+
+## Out of scope for this task
+{list anything an eager CC might wander into. ALWAYS include: "Adding,
+modifying, or removing tests. A parallel stream owns the test suite."}
+
+## Branch and PR
+- Work on branch: {branch_name}
+- Commit style: conventional commits
+- Open a draft PR on completion with title: "{pr_title}"
+- PR description must include: the goal verbatim, bulleted files-touched list,
+  "How I verified" section, link back to task ID: {task_id}
+
+## Constraints
+- Do not touch files outside this list unless necessary: {allowlist}
+- Do not add new direct dependencies without explicit permission
+- Keep the main binary CGO_ENABLED=0 compatible
+- Preserve all existing safety guarantees (watchdog restore, PWM clamping)
+- If blocked, push WIP, open draft PR with "[BLOCKED]" prefix, write a
+  "Blocker" section in the description.
+
+## Reporting
+On completion:
+- STATUS: done | partial | blocked
+- PR: <url>
+- SUMMARY: <= 200 words
+- CONCERNS: second-guessing you had while working
+- FOLLOWUPS: work you noticed that isn't in scope
+```
+
+Cowork rules when filling the template:
+1. Never include the word "test" in "What to do".
+2. Keep the file read-list short.
+3. Acceptance criteria must be verifiable without live hardware.
+4. "Out of scope" always includes tests, unrelated refactors, dependency bumps, and formatting changes in files not otherwise touched.
+
+---
+
+## 5 · Review checklist
+
+Cowork is the reviewer. Any ambiguous row is `revise`, not a judgement call.
+
+| Row | Check |
+|---|---|
+| R1 | PR opened as draft with the task ID in the description |
+| R2 | Branch name matches the assigned name |
+| R3 | Commits follow conventional-commits format |
+| R4 | Files touched subset of allowlist OR deviation justified in PR |
+| R5 | No test files touched, or exactly the minimum noted with TEST-TOUCHED |
+| R6 | CI is green OR failures are env flakes explicitly called out |
+| R7 | Every acceptance criterion visibly satisfied in the diff |
+| R8 | No new direct dependencies OR addition explicitly permitted |
+| R9 | Safety guarantees preserved: watchdog.Restore paths, PWM clamping, pwm_enable save/restore unchanged unless task targets them |
+| R10 | No secrets, credentials, or real hardware fingerprints committed |
+| R11 | CHANGELOG.md updated under "## Unreleased" with one-line entry |
+| R12 | Public API not changed unless task targets it |
+| R13 | PR does not touch more than one track's files |
+| R14 | go vet, golangci-lint, gofmt all clean |
+| R15 | Binary size delta ≤ +100 KB outside Phase 6 unless SIZE-JUSTIFIED |
+| R16 | No panic/log.Fatal/os.Exit added outside cmd main.go paths |
+| R17 | Every new goroutine has clear lifecycle (ctx or stop channel) |
+| R18 | Every file reader/writer deferred Close or justified |
+
+---
+
+## 6 · Cowork's operating loop
+
+```
+loop forever:
+  1. read .cowork/SIGNALS; if "HALT", do not assign new tasks
+  2. git pull main on cowork/state, rebase
+  3. read .cowork/state.yaml
+  4. reconcile in_flight against live PRs
+  5. find tasks where ready AND deps done AND concurrency < MAX_PARALLEL AND
+     no other in_flight shares an allowlist file
+  6. if any AND SIGNALS != HALT:
+       - pick highest priority (lower phase wins; within phase, lower task-id)
+       - emit prompt per §4
+       - update state: mark in_flight
+  7. for each in_flight with reported completion:
+       - review per §5
+       - accept: ready-for-review → poll CI 60s/30min → squash-merge → delete
+         branch → record SHA → unblock downstream
+       - revise: re-emit with "## Revision" block listing failing rows
+       - reject: block, escalate, STOP
+  8. handle solo-dev overrides:
+       - draft conversion → holding/solo-dev
+       - review comment → holding/solo-dev + escalation summary
+       - force-push → holding/solo-dev
+       - manual state.yaml edit → re-read and resync
+  9. yield; await RESUME/DROP/REWRITE/completion
+```
+
+MAX_PARALLEL: Phase 0 = 1, Phase 1 = 3, Phase 2–3 = 4, Phase 4–7 = 6, Phase 8–10 = 8. Halve during deploy/ventd.service tasks.
+
+Task timeout 45 min → block and escalate.
+
+Max 3 revisions on the same failing row → fourth is auto-escalation.
+
+Never auto-merge: LICENSE, SECURITY.md, .github/CODEOWNERS, deploy/ sandbox files, or the first PR of any new phase (escalate PHASE-N/FIRST-PR).
+
+---
+
+## 7 · Dependency graph
+
+```
+                     Phase 0: Foundation
+                           │
+                     ┌─────┴─────┐
+                     │           │
+               Phase 1 Core:   Phase 1 DB:
+               HAL + Hot-loop  Fingerprint DB
+                     │           │
+       ┌──────┬──────┴──────┬────┴────┬──────┐
+       │      │             │         │      │
+ Phase 2a  Phase 2b      Phase 2c  Phase 2d Phase 2e
+ IPMI      LIQUIDCTL    CROS_EC   PWM_SYS   ASAHI
+       │      │             │         │      │
+       └──────┴──────┬──────┴─────────┴──────┘
+                     │
+               Phase 3: Install + Modprobe
+                     │
+                     ├───────────────────┐
+               Phase 4:            Phase 5:
+               Controller          Calibration
+                     │                   │
+                     └─────────┬─────────┘
+                               │
+                         Phase 6: Cross-platform
+                               │
+                         Phase 7: Advanced sensing
+                               │
+                         Phase 8: Observability
+                               │
+                         Phase 9: UX + UEFI
+                               │
+                         Phase 10: Release supply chain
+```
+
+Phases 2a–2e fully parallel once HAL merged. Phase 10 can start anytime.
+
+---
+
+## 8 · Task catalogue
+
+Format: `TASK-ID | Track | Depends on | Allowlist | Goal | Steps | DoD`
+
+### Phase 0 — Foundation
+
+**P0-01 | FOUND | — | `.cowork/**`, `CHANGELOG.md`**
+Goal: state file scaffolding + `.cowork/README.md`.
+Steps: create `.cowork/state.yaml` skeleton per §3, create `.cowork/README.md` pointing at this masterplan, `.gitignore` exception if needed.
+DoD: files committed on cowork/state; PR opened; no other files touched.
+
+**P0-02 | FOUND | P0-01 | `docs/roadmap.md`, `README.md`**
+Goal: public roadmap.
+Steps: create `docs/roadmap.md` with 2-page summary of Phases 1–10 (from §9). Add one link from README.md.
+DoD: renders on GitHub; link works.
+
+**P0-03 | FOUND | P0-01 | `.github/ISSUE_TEMPLATE/**`**
+Goal: hardware-report issue template.
+Steps: template requesting DMI strings, chip name, fan count, distro, `ventd --probe-modules --dry-run` output.
+DoD: template visible when filing new issue.
+
+### Phase 1 — Core refactor
+
+**P1-HAL-01 | HAL | P0-01 | `internal/hal/**` (new), `internal/controller/*.go`, `internal/calibrate/*.go`, `internal/watchdog/*.go`, `internal/hwmon/hwmon.go`, `internal/nvidia/nvidia.go`, `cmd/ventd/main.go`**
+Goal: `FanBackend` interface, existing code behind it, no behaviour change.
+Steps: (1) `internal/hal/backend.go` defining `FanBackend`, `Channel`, `Reading`, `Caps`, `ChannelRole`. (2) `internal/hal/registry.go` with `Register`, `Enumerate`, `Resolve`. (3) wrap hwmon as `HwmonBackend` via shims. (4) wrap nvidia as `NvmlBackend`. (5) controller holds `FanBackend` ref; delete direct sysfs writes. (6) watchdog via `FanBackend.Restore`.
+DoD: build passes; diff shows sysfs paths removed from hot path; go vet clean; CHANGELOG.
+
+**P1-HAL-02 | HAL | P1-HAL-01 | `internal/calibrate/*.go`**
+Goal: calibration via `FanBackend`.
+DoD: calibration completes on synthetic hwmon fixture; fingerprint resume works.
+
+**P1-HOT-01 | HOT | P1-HAL-01 | `internal/controller/controller.go`**
+Goal: eliminate per-tick allocations.
+Steps: (1) preallocate sensors/smoothed maps, reuse across ticks. (2) cache compiled curve graph; invalidate on SIGHUP. (3) replace per-tick cfg.Load with SIGHUP-refreshed snapshot. (4) cache maxRPM per RPM-target fan at startup. (5) binary-search Points curve. (6) sync.Pool the vals slice in Mix.Evaluate.
+DoD: diff shows all six; pwm_enable restore preserved; CHANGELOG.
+
+**P1-HOT-02 | HOT | P1-HAL-01 | `internal/controller/controller.go`**
+Goal: symmetric error handling on PWM writes.
+Steps: write fail → retry once @ 50ms → second fail → `wd.RestoreOne(id)` + structured event.
+DoD: logic in place; `wd.RestoreOne` exists and wired.
+
+**P1-FP-01 | FP | P0-01 | `internal/hwdb/**` (new), `internal/hwmon/autoload.go`**
+Goal: replace 3-entry DMI substring table with fingerprint-keyed YAML DB.
+Steps: (1) `HardwareFingerprint` struct (DMI board vendor/name/version, family, SMBIOS UUID-redacted, chip hex-ID, PCI subsystem, CPU microcode). (2) `internal/hwdb/profiles.yaml` via go:embed, current 3 + 15-25 known boards. (3) `hwdb.Match(fp)` exact → prefix → wildcard. (4) autoload.go calls into hwdb.Match; old map deleted.
+DoD: ≥18 entries; resolution order documented; CHANGELOG.
+
+**P1-FP-02 | FP | P1-FP-01 | `internal/hwdb/refresh.go` (new), `cmd/ventd/listfansprobe.go`**
+Goal: opt-in remote refresh from `ventd/hardware-profiles`.
+Steps: HTTPS GET, SHA256 verify against local pin, merge behind `hwdb.allow_remote: false`.
+DoD: flag off by default; structured event on refresh; no startup network call.
+
+**P1-MOD-01 | MOD | P1-FP-01 | `internal/hwmon/autoload.go`**
+Goal: parse modules.alias/modules.builtin-modinfo once; drop modinfo shell-outs.
+DoD: `strace -e execve` shows no modinfo invocations on normal Linux.
+
+**P1-MOD-02 | MOD | P1-MOD-01 | `internal/hwmon/autoload.go`**
+Goal: append-not-overwrite in persistModule.
+DoD: running probe twice on dual-chip board keeps both modules.
+
+### Phase 2 — Backend portfolio
+
+**P2-IPMI-01 | IPMI | P1-HAL-01 | `internal/hal/ipmi/**` (new)**
+Goal: native IPMI over /dev/ipmi0, no ipmitool dep.
+Steps: (1) IPMI request envelope pure Go. (2) ioctl `IPMICTL_SEND_COMMAND` + `IPMICTL_RECEIVE_MSG_TRUNC`. (3) Get Sensor Reading (0x04/0x2D), Set Fan Control per vendor (Supermicro 0x30/0x70/0x66, Dell 0x30/0x30, HPE stub). (4) DMI-gate on chassis_type=23 or known server vendor. (5) FanBackend impl.
+DoD: compiles; enumerate wired; no-IPMI systems show zero channels.
+
+**P2-IPMI-02 | IPMI | P2-IPMI-01 | `internal/hal/ipmi/**`, `deploy/ventd.service`, `deploy/ventd-ipmi.service` (new)**
+Goal: /dev/ipmi0 access without adding capability to main daemon.
+Steps: ventd-ipmi.service oneshot with DeviceAllow=/dev/ipmi0 rw, socket-activated. Main unit zero-capability. Shim forwards ioctls over abstract socket.
+DoD: main unit has no IPMI device grant; ventd-ipmi has exactly one.
+
+**P2-LIQUID-01 | LIQUID | P1-HAL-01 | `internal/hal/liquid/**` (new), `go.mod`**
+Goal: native USB HID — Corsair Commander Core, NZXT Kraken X3/Z3, Lian Li UNI Hub.
+Steps: (1) add `github.com/sstallion/go-hid` (pure-go). (2) discover by (VID,PID). (3) per-device protocols. (4) FanBackend; map to Pump/CaseFan/AIOFan. (5) `deploy/90-ventd-liquid.rules`.
+DoD: `ventd --list-fans` enumerates on a system with one of the three.
+
+**P2-LIQUID-02 | LIQUID | P2-LIQUID-01 | `internal/hal/liquid/**`**
+Goal: Aqua Computer Quadro/Octo, EK Loop Connect, Gigabyte AORUS RGB Fusion.
+DoD: each family in registry with discover/read; write optional.
+
+**P2-CROSEC-01 | CROSEC | P1-HAL-01 | `internal/hal/crosec/**` (new)**
+Goal: Framework / Chromebook EC via /dev/cros_ec.
+Steps: EC_CMD_PWM_GET_FAN_RPM, EC_CMD_PWM_SET_FAN_DUTY, EC_CMD_THERMAL_GET_THRESHOLD. Detect via EC_CMD_HELLO.
+DoD: enumerates on Framework fixture; no-op elsewhere.
+
+**P2-CROSEC-02 | CROSEC | P2-CROSEC-01 | `internal/hal/crosec/**`**
+Goal: ThinkPad (thinkpad_acpi), Dell (dell-smm-hwmon), HP (hp-wmi).
+DoD: each vendor gated by file-existence; union backend.
+
+**P2-PWMSYS-01 | PWMSYS | P1-HAL-01 | `internal/hal/pwmsys/**` (new)**
+Goal: ARM SBC PWM via /sys/class/pwm/pwmchipN/pwmN.
+DoD: enumerates on Raspberry Pi 5 fixture.
+
+**P2-ASAHI-01 | ASAHI | P1-HAL-01 | `internal/hal/asahi/**` (new)**
+Goal: Apple Silicon Asahi backend.
+Steps: detect /proc/device-tree/compatible for apple,t800[23] or apple,m1; role-classification layer atop hwmon.
+DoD: detection gated; no-op elsewhere.
+
+**P2-USB-BASE | USBBASE | P1-HAL-01 | `go.mod`, `internal/hal/usbbase/**` (new)**
+Goal: shared USB HID primitives.
+DoD: LIQUID-01 rebased on this; no duplication.
+
+### Phase 3 — Install & module subsystem
+
+**P3-MODPROBE-01 | MODPROBE | P1-MOD-02 | `deploy/ventd-modprobe@.service` (new), `cmd/ventd-modprobe/main.go` (new), `deploy/ventd.service`**
+Goal: runtime module loading via capability-scoped oneshot.
+Steps: (1) new binary takes module from argv, validates against go:embed allowlist, invokes init_module with CAP_SYS_MODULE. (2) template unit with CapabilityBoundingSet=CAP_SYS_MODULE, NoNewPrivileges, ProtectSystem=strict. (3) daemon gets `LoadModuleViaService(name)` via dbus StartUnit.
+DoD: main daemon zero-capability preserved; new unit transient.
+
+**P3-UDEV-01 | UDEV | P1-FP-01 | `deploy/90-ventd-hwmon.rules`, `deploy/90-ventd-gpus.rules` (new)**
+Goal: generalise udev for GPU/PWMsysfs/liquid.
+DoD: rules parse with `udevadm verify`; no world-writable.
+
+**P3-INSTALL-01 | INSTALL | P3-MODPROBE-01 | `scripts/install.sh`**
+Goal: installer invokes modprobe oneshot.
+DoD: shellcheck clean; idempotent.
+
+**P3-INSTALL-02 | INSTALL | P3-INSTALL-01 | `scripts/install.sh`**
+Goal: detect fancontrol/thinkfan/CoolerControl; refuse or coexist.
+DoD: --dry-run behaviour visible.
+
+**P3-RECOVER-01 | RECOVER | P1-HAL-01 | `cmd/ventd-recover/main.go` (new)**
+Goal: zero-allocation recover binary.
+Steps: walk /sys/class/hwmon/hwmon*/pwm*_enable, write 1, close. Imports: syscall only.
+DoD: binary ≤ 8 KB amd64 stripped; no allocs in main (gcflags=-m verified).
+
+### Phase 4 — Control algorithm
+
+**P4-PI-01 | CTRL | P1-HOT-01 | `internal/curve/pi.go` (new), `internal/controller/controller.go`, `internal/config/config.go`**
+Goal: PI curve with anti-windup.
+Steps: `PICurve{Setpoint, Kp, Ki, FeedForward, IntegralClamp}`; per-channel integral in runtime state; schema migration; docs/config.md update.
+DoD: pi curve evaluates cleanly; saturation clamps integral.
+
+**P4-PI-02 | CTRL | P4-PI-01 | `internal/calibrate/autotune.go` (new)**
+Goal: Ziegler-Nichols relay autotune.
+Steps: drive between min*1.2 and max*0.8; measure Tu, Ku; Kp=0.8Ku, Ki=0.9Ku/Tu; store in calibration.
+DoD: POST /api/calibrate/autotune returns gains.
+
+**P4-MPC-01 | CTRL | P4-PI-01 | `internal/curve/mpc.go` (new), `go.mod`**
+Goal: learned thermal model + receding-horizon MPC.
+Steps: online RLS MISO ARX per fan, 30-min window; horizon 10s, step 1s; QP solver (gonum/optimize or hand-rolled 10-var active-set); PI fallback on residual.
+DoD: gated by control.mode: mpc; fallback works; models persist /var/lib/ventd/models/.
+
+**P4-HYST-01 | CTRL | P1-HOT-01 | `internal/controller/controller.go`**
+Goal: banded hysteresis (quiet/normal/boost).
+DoD: transitions in structured log; single-scalar hyst still accepted via migration.
+
+**P4-DITHER-01 | CTRL | P1-HOT-01 | `internal/controller/controller.go`, `internal/config/config.go`**
+Goal: per-curve dither_pct 0-5 for sync'd fans.
+DoD: dithered PWM differs across fans on same curve.
+
+### Phase 5 — Calibration & profile capture
+
+**P5-LIVECAL-01 | LIVECAL | P4-PI-01 | `internal/calibrate/live.go` (new)**
+Goal: opportunistic in-use calibration.
+Steps: detect natural cooldowns with dT/dt < -0.2°C/s; nudge one fan, two PWM samples, record RPM; fill curve over hours.
+DoD: completes over simulated 4-hour trace without audible ramps.
+
+**P5-HEALTH-01 | HEALTH | P5-LIVECAL-01 | `internal/monitor/health.go` (new)**
+Goal: drift detection vs calibrated curve.
+DoD: anomaly in /api/status; structured event.
+
+**P5-PROF-01 | PROF | P1-FP-01 | `internal/hwdb/capture.go` (new)**
+Goal: local anonymised profile capture (no network, no PR).
+DoD: file written to /var/lib/ventd/profiles-pending/ with correct perms; anonymisation applied.
+
+**P5-PROF-02 | PROF | P5-PROF-01 | `internal/hwdb/capture.go`**
+Goal: anonymisation guards.
+Steps: strip SMBIOS UUID/serial/MAC; redact entropy > 3 bits unless known identifier.
+DoD: 100-sample fuzz corpus shows zero PII leakage.
+
+### Phase 6 — Cross-platform
+
+**P6-WIN-01 | WIN | P1-HAL-01 | `internal/hal/windows/**` (new), `.goreleaser.yml`**
+Goal: Windows via WMI temps + vendor SDK/ACPI fans.
+Steps: root\WMI MSAcpi_ThermalZoneTemperature; MSI.CentralServer COM or documented ACPI methods; no WinRing0. Build tag windows.
+DoD: GOOS=windows go build succeeds; Win11 VM enumerates temps.
+
+**P6-WIN-02 | WIN | P6-WIN-01 | `packaging/windows/ventd.wxs` (new)**
+Goal: MSI + Windows Service.
+DoD: msi artefact; service Running after install.
+
+**P6-MAC-01 | MAC | P1-HAL-01 | `internal/hal/macos/**` (new)**
+Goal: macOS IOKit SMC via purego dlopen of IOKit.framework.
+Steps: SMC keys F0Ac/F0Mn/F0Mx/F0Sf/F0Tg, temps TC0P/TG0P.
+DoD: GOOS=darwin go build succeeds on Intel + Apple Silicon.
+
+**P6-MAC-02 | MAC | P6-MAC-01 | `packaging/macos/**` (new)**
+Goal: signed pkg + LaunchDaemon + notarisation.
+DoD: pkg passes spctl --assess.
+
+**P6-BSD-01 | BSD | P1-HAL-01 | `internal/hal/freebsd/**` (new)**
+Goal: FreeBSD hw.sensors + superio.
+DoD: GOOS=freebsd go build succeeds.
+
+**P6-OBSD-01 | OBSD | P1-HAL-01 | `internal/hal/openbsd/**` (new)**
+Goal: OpenBSD hw.sensors sysctl.
+DoD: GOOS=openbsd go build succeeds.
+
+**P6-ILLUMOS-01 | ILLUMOS | P2-IPMI-01 | `internal/hal/illumos/**` (new)**
+Goal: illumos IPMI + fmtopo.
+DoD: GOOS=illumos go build succeeds.
+
+**P6-ANDROID-01 | ANDROID | P1-HAL-01 | `internal/hal/android/**` (new)**
+Goal: /sys/class/thermal read; root-gated writes.
+DoD: GOOS=linux GOARCH=arm64 with android tag succeeds.
+
+### Phase 7 — Advanced sensing
+
+**P7-ACOUSTIC-01 | ACOUSTIC | P5-HEALTH-01 | `internal/acoustic/**` (new), `go.mod`**
+Goal: per-fan per-PWM acoustic baseline during calibration.
+Steps: ALSA via x/sys/unix; FFT via `github.com/mjibson/go-dsp/fft`; extract blade-pass fundamental + 3 harmonics.
+DoD: baselines in /var/lib/ventd/acoustic/.
+
+**P7-ACOUSTIC-02 | ACOUSTIC | P7-ACOUSTIC-01 | `internal/acoustic/**`**
+Goal: runtime bearing-wear anomaly via sub-harmonic at blade-pass/2.
+DoD: synthetic audio with injected sub-harmonic triggers metric.
+
+**P7-FLOW-01 | FLOW | P2-LIQUID-01 | `internal/hal/liquid/**`**
+Goal: expose flow-rate + coolant-temp.
+DoD: visible in dashboard; referenceable in mix/pi curves.
+
+**P7-COORD-01 | COORD | P4-MPC-01 | `internal/thermal/coord.go` (new)**
+Goal: publish thermal headroom to /run/ventd/headroom.
+DoD: tuned integration example in docs/integrations/tuned.md.
+
+### Phase 8 — Observability & fleet
+
+**P8-METRICS-01 | METRICS | P1-HAL-01 | `internal/web/metrics.go` (new), `go.mod`**
+Goal: opt-in Prometheus /metrics.
+DoD: endpoint responds; metrics documented.
+
+**P8-OTEL-01 | OTEL | P1-HAL-01 | `internal/telemetry/otel.go` (new)**
+Goal: OTel traces for control loop + calibration.
+DoD: OTLP export if configured; sampler default 0.
+
+**P8-HISTORY-01 | HISTORY | P1-HAL-01 | `internal/monitor/history.go` (new), `internal/web/history.go` (new)**
+Goal: 30-min in-process ring + GET /api/history.
+DoD: JSON returns; memory cap respected.
+
+**P8-CLI-01 | CLI | P1-HAL-01 | `cmd/ventdctl/main.go` (new)**
+Goal: CLI over unix socket.
+Steps: subcommands list, get, set, calibrate, profile, apply, diff.
+DoD: --help on each; exit codes documented.
+
+**P8-FLEET-01 | FLEET | P8-CLI-01 | `internal/fleet/**` (new), `go.mod`**
+Goal: mDNS + gossip via memberlist.
+DoD: two nodes discover within 10s.
+
+**P8-FLEET-02 | FLEET | P8-FLEET-01 | `internal/fleet/**`, `internal/web/ui/**`**
+Goal: fleet view in UI.
+DoD: sidebar lists nodes; click opens their URL.
+
+### Phase 9 — UX & pre-OS
+
+**P9-WIZARD-01 | WIZARD | P5-PROF-01 | `internal/web/ui/**`**
+Goal: zero-click wizard — all fields pre-answered from profile match.
+DoD: one click after password on profile-matched system.
+
+**P9-I18N-01 | I18N | P9-WIZARD-01 | `internal/web/ui/**`**
+Goal: locale infra + en/de/fr/es/ja/zh-CN.
+DoD: Accept-Language honoured with override.
+
+**P9-EXPR-01 | EXPR | P4-PI-01 | `internal/curve/expr.go` (new), `go.mod`**
+Goal: kind: expr using expr-lang/expr.
+DoD: bounded eval (10ms CPU, 1KB mem); no I/O; fuzz corpus rejects malicious.
+
+**P9-UEFI-01 | UEFI | P4-PI-01 | `packaging/uefi/**` (new)**
+Goal: signed UEFI DXE stub pre-programs Super I/O at POST.
+Steps: Zig no_std or EDK2 UEFI Application; var name VentdFanCurveV1; boot-service-only; user-key signed.
+DoD: reproducible build; SHIM-compatible signature.
+
+### Phase 10 — Release supply chain
+
+**P10-SBOM-01 | SUPPLY | P0-01 | `.goreleaser.yml`**
+CycloneDX + SPDX SBOMs on every release. DoD: both artifacts present.
+
+**P10-SIGN-01 | SUPPLY | P0-01 | `.goreleaser.yml`, `.github/workflows/release.yml`**
+Cosign keyless + SLSA L3 provenance. DoD: cosign verify-blob succeeds.
+
+**P10-REPRO-01 | SUPPLY | P10-SIGN-01 | `.goreleaser.yml`, `Makefile`**
+Reproducible builds. DoD: rebuild-and-diff action green.
+
+**P10-PERMPOL-01 | SUPPLY | P0-01 | `internal/web/security.go`**
+Permissions-Policy header + ETag on embedded UI. DoD: headers visible.
+
+---
+
+## 9 · Public roadmap (source for P0-02)
+
+> **ventd 1.0 arc.** Cross-platform first: the single fan-control daemon for Linux, Windows, macOS, BSD. Every fan type: hwmon, GPU, IPMI, USB AIOs, laptop EC, ARM SBC PWM. Learning control: a per-machine thermal model quietens fans by predicting load. Curated profiles: first boot is zero-touch on any hardware already seen. Acoustic health: detect bearing failures from sound alone. One static binary, zero capabilities, 2-second guaranteed safe exit.
+
+---
+
+## 10 · Decision heuristics
+
+1. Prefer tasks on tracks with no in-flight work (fan out).
+2. Prefer tasks whose merge unblocks most descendants (critical path).
+3. Prefer smaller allowlists first when (1)+(2) tie.
+4. Never assign two in-flight tasks sharing an allowlist file.
+5. Never advance a phase while Phase-N task is in_flight or review; advancement is a manual gate the developer flips after §15 checkpoint.
+
+---
+
+## 11 · Review artifact format
+
+`.cowork/reviews/<review-id>.md`:
+```
+# Review <review-id>
+Task: <task-id>
+PR: <url>
+Verdict: accept | revise | reject
+Checklist:
+  R1: ✅ / ❌ <note>
+  R2: ...
+Notes:
+  <free text>
+```
+
+---
+
+## 12 · Escalation
+
+Append to `.cowork/ESCALATIONS.md` on cowork/state. Stop relevant track (or loop).
+
+Triggers: 3 same-row revise failures; infra CI failures; unauthorised dep bumps; schema-breaking API/config; security-sensitive paths beyond task scope; TEST-TOUCHED without note; phase's first PR; LICENSE/SECURITY.md/CODEOWNERS/deploy sandbox touches.
+
+Entry:
+```
+## <ISO-8601> <subject>
+Task: <task-id or —>
+PR: <url or —>
+Reason: <one paragraph>
+Recommended action: <RESUME | DROP | REWRITE | developer-choice>
+```
+
+Developer signals: `RESUME <task-id>` · `DROP <task-id>` · `REWRITE <task-id> <new-allowlist>`.
+
+---
+
+## 13 · Initial developer actions
+
+1. Create `cowork/state` off main; commit this masterplan.
+2. Create `ventd/hardware-profiles` skeleton (empty profiles.yaml, LICENSE, one-paragraph README). Blocks P5-PROF-01.
+3. Branch-protect ventd/ventd:main — require CI, linear history; Cowork bot admin-merge.
+4. Generate fine-grained PAT for both repos + actions:read, pull-requests:write, contents:write. Hand to Cowork.
+5. Configure MCP for (a) state branch commits (b) GitHub API PR ops.
+6. Decide where to surface ESCALATIONS.md (checking the repo is fine).
+7. MAX_PARALLEL=2.
+8. Tell Cowork: "Begin. Start from P0-01."
+
+---
+
+## 14 · What Cowork must never do
+
+- Merge outside §6 auto-merge rules.
+- Force-push. Skip CI. Edit code.
+- Reinterpret this masterplan (escalate).
+- Add tasks outside §8 (escalate).
+- Touch `.github/workflows/*` beyond allowlisted tasks (P3, P10).
+- Act on any repo beyond ventd/ventd and ventd/hardware-profiles.
+- Auto-merge LICENSE/SECURITY.md/CODEOWNERS/deploy sandbox edits.
+- Auto-merge the first PR of any new phase.
+- Run multiple tasks during Phase 0 or deploy/ventd.service edits.
+- Emit a CC prompt whose "What to do" contains "test".
+- Bump Go toolchain or add unauthorised dependencies.
+
+---
+
+## 15 · Solo-dev hygiene
+
+1. **Weekly `git log main` read.** Subject lines only. Anything odd → manual escalation.
+2. **Pinned HALT command.** Write `HALT` to `.cowork/SIGNALS` to pause the loop; replace with `RUN` to resume.
+3. **Monthly phase checkpoint.** End-of-phase behaviour-level review on real hardware before advancing. Nothing substitutes for it.
+
+---
+
+**End of document.** Cowork acknowledges by committing `.cowork/ACK.md` with the SHA-256 of this masterplan and ISO-8601 first-read timestamp, then operates §6 until §8 is exhausted or the developer issues `HALT`.

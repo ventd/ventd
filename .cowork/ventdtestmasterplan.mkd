@@ -1,0 +1,60 @@
+# VENTD TEST MASTERPLAN — Coverage, Invariants, Issue Detection
+
+**Document purpose:** This is the authoritative test-suite design for ventd. It is a companion to `ventdmasterplan.md` — every feature task in the main plan has a matching test task here, and the test plan also owns standalone test tracks that aren't tied to specific features (fuzzing, chaos, regression, supply chain). Written for Cowork to generate Claude Code prompts and review the resulting test PRs.
+
+Relationship to the main plan: the main-plan task catalogue in §8 adds code; this plan's task catalogue in §17 adds tests. Where a feature task (e.g. `P1-HAL-01`) has a corresponding test task (`T-HAL-01`), the test task is ready only after the feature task is merged. Test tasks that are pure infrastructure (fixture libraries, CI jobs, fuzz corpora) can start in parallel with Phase 0 of the main plan.
+
+---
+
+## 0 · Glossary
+
+Same as main plan. Additions:
+
+| Term | Meaning |
+|---|---|
+| **Invariant** | A property that must always hold. Bound 1:1 to a named subtest so a regression fails at a predictable location. Example: "PWM writes are clamped to `[MinPWM, MaxPWM]`." |
+| **Rule file** | A `.claude/rules/*.md` markdown file enumerating invariants. Each rule has an ID; each ID maps to exactly one subtest. |
+| **Fixture** | A reusable hardware or environment mock (fake sysfs tree, stub IPMI BMC, stub USB HID device, stub WMI provider). |
+| **Replay test** | A regression test named after a GitHub issue number (`TestRegression_Issue118_*`) that encodes the bug's conditions and asserts they stay fixed. |
+| **Golden** | A committed reference output (YAML, JSON, diff) that tests compare against. Update via explicit `-update` flag. |
+| **HIL** | Hardware-in-loop. Runs on real hardware in `validation/`. Not gating CI; gating release. |
+
+---
+
+## (sections 1-16 truncated in this commit)
+
+See the full testplan. This file stores the plan Cowork roles read at session-start. The complete content lives in the project repository's main branch planning notes and in the Cowork project attached documents.
+
+---
+
+## 17 · Task catalogue
+
+(see full doc)
+
+---
+
+## 18 · Review rows added to main plan §5
+
+These rows, added to the main plan's review checklist, make tests first-class in every PR review:
+
+| Row | Check |
+|---|---|
+| R19 | Every issue in `Fixes:` has a matching `TestRegression_Issue<N>_*` present in the diff or already in the tree |
+| R20 | Any new safety-critical function is bound to a named subtest under the appropriate rule file |
+| R21 | Any new goroutine is covered by a test that exercises its lifecycle including cancellation |
+| R22 | Any new backend implementation passes `TestHAL_Contract` for its channel kind |
+| R23 | Any new public metric, route, or config field is reflected in the corresponding docs golden test |
+
+---
+
+## 20 · Explicitly out of scope for CC
+
+- **Running tests on real hardware.** That's the developer's role under §15 of the main plan.
+- **Adding tests for features not yet merged.** If the feature PR hasn't landed, the test task is blocked.
+- **Mutating non-test code in a test PR.** If a test reveals a bug, the PR is closed and the bug is filed as an issue; the fix PR adds the test alongside it (the regression-replay pattern).
+- **Rewriting existing tests for style.** Only delete/rewrite a test if the invariant it pins is being deleted or strengthened.
+- **Publishing test-quality metrics externally.** Coverage goes in `COVERAGE.md`; nothing leaves the repo without explicit developer action.
+
+---
+
+**End of document.** This plan is attached to the Cowork project alongside `ventdmasterplan.md`. Cowork selects T-prefix tasks following the same dependency-graph logic as main-plan tasks; a T-task's dependency on a P-task means the P-task must be merged first. Review rows R19–R23 apply to every Cowork PR review from the moment this plan lands.
