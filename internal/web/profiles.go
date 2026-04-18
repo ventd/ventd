@@ -80,16 +80,17 @@ func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
+	// Set override flag before the cfg swap so a scheduler tick firing
+	// between the two operations sees override=true and suppresses its
+	// winner. Reversed order (original) had a race window (issue #289 concern 1).
+	s.schedState.markManualOverride()
 	next, err := s.applyProfile(req.Name)
 	if err != nil {
+		// Override was set speculatively; it will clear at the next
+		// scheduled transition, which is no worse than pre-refactor.
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Mark the switch as a manual override so the scheduler goroutine
-	// leaves it alone until the next scheduled transition clears the
-	// flag. Without this a schedule active "right now" would immediately
-	// undo the operator's pick on the next tick.
-	s.schedState.markManualOverride()
 
 	s.writeJSON(r, w, profileResponse{
 		Active:   next.ActiveProfile,
