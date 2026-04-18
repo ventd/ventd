@@ -90,3 +90,58 @@ Append-only. Every PR audited, every issue filed, every pattern noticed.
 - **Metrics after this session:** issues filed: 5 (#286, #287, #288, #289, #293). Real bugs caught: 2 (#289 concern 1 race + #293 keyspace collision — the collision is low-severity but real). Semantic-drift/doc-gap concerns: 3. Confirmed false-positives: 0. Backlog: 31/40.
 - **Observation on audit yield:** 5 audits → 5 issues, 40% hit rate (2 real bugs / 5 audited PRs). That's higher than I expected. Either the CC-session PRs are leakier than per-PR review catches, or I'm pattern-matching well on the concurrent-state code that dominates this phase. Either way, the deep-audit investment is paying off — confirms the prioritisation (safety-critical paths, goroutine-heavy features) is correct.
 - **Session end: no LESSONS.md edit this session.** The pattern-noticed from earlier (PR body CONCERNS → followup issue gap) still holds but hasn't accumulated enough evidence to justify a canonical rule yet. Re-evaluate next session.
+
+---
+
+## 2026-04-18 Session 2 continued — top-down architectural review + #260 audit
+**Context:** User asked for a top-down program review. Treated it as a read-through of cmd/ventd/main.go, controller, watchdog, HAL interface, hal/hwmon backend, and curve engine — not a PR sweep. Spent 11 tool calls on the architectural read. Followed with the deep audit of #260 (hot-loop perf) that had been queued.
+
+**Action taken:**
+
+**Architectural review findings (positive):**
+- The `atomic.Pointer[config.Config]` + per-tick `Load()` + `config.Save → atomic.Store` pattern is the right concurrency primitive. Every reader gets a consistent snapshot without mutexes.
+- Safety envelope is designed, not improvised: watchdog godoc enumerates what it covers (graceful exit, recovered panics) and what it doesn't (SIGKILL, kernel panic, power loss). Matching `RULE-WD-*` invariants are each bound to a specific subtest via tools/rulelint (though #287 showed the binding is syntactic, not semantic).
+- Defence in depth on PWM writes: `validate()` rejects min_pwm=0 && !allow_stop at load; controller refuses pwm==0 at write; watchdog restore writes orig or hardware-specific fallback. Three independent layers.
+- HAL abstraction is correctly shaped: 6-method interface, `Channel.Opaque any` carries backend-private state without leaking internals, capability bitset lets callers check before calling.
+- Hot-path optimisations in controller are numbered Opt-1 through Opt-6 with per-opt invariants documented. Good discipline.
+- First-boot story handles TLS auto-gen with loopback fallback, setup token published to tmpfs (never journald), `RequireTransportSecurity()` refuses plaintext on LAN.
+- Restart via `errRestart` → `syscall.Exec` through main() is clean — defers fire, fresh process comes up.
+
+**Architectural review findings (concerns):**
+1. `internal/web/server.go` is becoming a god-package. 53KB, 20+ fields on `Server`, five distinct subsystems. Factoring to sub-structs (`auth`, `panic`, `scheduler`, `history`) would help. Not urgent; compounding visibly in recent PRs.
+2. `mutateConfig` pattern is missing; every cfg mutation site has the same load-copy-mutate-Save-Store TOCTOU. Filed #296 as umbrella.
+3. Goroutine lifecycle inconsistent: `webSrv.Shutdown()` waits only on httpSrv, not on history sampler / scheduler / setup-token-expiry goroutines. Test leakage if tests don't cancel ctx.
+4. `SetSchedulerInterval` is exported production API despite being test-only — a misguided plugin could lock the scheduler into a 1-ns busy loop.
+5. `Linear.Evaluate` does `float64(c.MaxPWM-c.MinPWM)` — the subtraction runs in uint8 first. Safe given `validate()` enforces `MaxPWM >= MinPWM`, but any direct `cfg.Store` that bypasses validation would underflow. Defensive fix: `float64(int(c.MaxPWM) - int(c.MinPWM))`.
+6. `validate()` is 200+ lines and growing; next big feature will push past 500. Consider splitting into `validateSensors`/`validateCurves`/etc.
+7. The cross-namespace sensor+fan name collision (#293) is a symptom of the broader "independent keyspaces treated as unified downstream" pattern — may have more downstream consumers beyond sparklines.
+8. /run/ventd setup token file: dir is 0700 with no group, file is 0600. Correct for root-sudo access, but operators without sudo need special group setup.
+9. SSE handler does `s.buildStatus()` once per client per tick — N connected clients cause N hwmon sweeps. Fine at 1-2 clients, wasteful at 10. Shared-snapshot fanout would be better.
+10. Three "live state" mechanisms (hwdiag.Store, ReadyState, panicState) don't share an abstraction. Today a virtue (local, simple), tomorrow a refactor target if a "system status" unification is wanted.
+
+Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races across all config mutation paths` → @atlas. Umbrella issue covering concern 2. Six known instance sites; helper pattern proposed; deep-copy gotchas flagged; migration path outlined.
+
+**#260 audit (hot-loop perf):**
+- Pulled full diff. Read curveSig fingerprint, Opt-1 through Opt-6.
+- Verified Opt-1 map reuse is correct (no retained references across ticks).
+- Verified Opt-5 binary search correctness (sort.Search guards + strictly increasing invariant enforced by validate).
+- Verified Opt-6 sync.Pool pointer-to-slice pattern handles append-grow correctly, reentrant-safe for nested Mix, pool leak on panic is GC-tolerant.
+- Found two real concerns:
+  - **Opt-2 curveSig omits Points/Sources slice fields**: the PR comment promises "catches in-place mutations used in tests" but scalar fingerprinting misses slice mutations. Production is safe (always new pointers), tests are at risk if anyone mutates `live.Curves[0].Points[i]` in place without swapping.
+  - **Opt-4 maxRPM cache locks in 2000 RPM fallback on transient first-tick failure**: `hwmon.ReadFanMaxRPM` silently returns 2000 on any error; `c.maxRPMCached = true` persists that fallback for the daemon's lifetime. On GPUs with real `fan*_max` > 2000, a transient udev race at startup caps the fan at 40% capacity forever.
+- Filed **#298** `controller: Opt-2 curveSig misses Points/Sources + Opt-4 maxRPM cache locks in 2000 RPM fallback (#260)` → @atlas. Both concerns have concrete fixes proposed.
+
+**Not filed (considered and dropped for #260):**
+- Opt-1 "who retains the sensors map" — verified all current curve implementations consume synchronously. Interface contract isn't documented but is implicit. Worth a comment on `Curve.Evaluate` saying "MUST NOT retain" as hardening; not a bug.
+- Opt-6 `*vp = (*vp)[:0]` before Put is redundant with same reset at Get. Harmless belt-and-suspenders.
+
+**For other roles:**
+- @atlas: two new issues this extended session. #296 is the umbrella refactor; low-urgency but high-value (eliminates an entire bug class). #298 is two concrete controller nits; both ~10-line fixes. Neither blocks anything.
+- @mia: no close requests.
+
+**Followup:**
+- **Backlog: ~30 merged PRs still unaudited.** Next priority list unchanged from prior entry: #232 (warnIfUnconfined), #253 (web Permissions-Policy + ETag), #246 (hwdb fingerprint shadow-matching), #261 (persistModule atomic-rename), #233 (http→https sniff listener), #230 (handleSystemReboot container-refuse).
+- **Metrics after this session:** issues filed total: 7 (#286, #287, #288, #289, #293, #296, #298). Real bugs caught: 2 (#289 concern 1, #293). Semantic-drift/doc-gap/brittleness concerns: 5. Umbrella/refactor: 1 (#296). Confirmed false-positives: 0. Backlog: 30/40. Over <5 target by 6x.
+- **Cross-cutting observation from architectural review:** the program is well-architected. The weaknesses cluster in two places: (a) `internal/web` overgrowth as a god-package, and (b) missing `mutateConfig` helper causing repeated TOCTOU shape. Both are fixable with one focused refactor each. Neither is urgent. If they compound for another month of dev, the refactor cost rises steeply.
+- **Audit-yield trend:** 7 audits, 7 issues filed, ~43% hit rate on real-bug-or-concrete-concern-with-fix. Staying high. Confirms that the architectural read was worth the 11 tool calls — the #296 umbrella alone is net-positive vs. filing six separate race issues piecemeal.
+- **Session end: no LESSONS.md edit this session.** The "CONCERNS in PR bodies → followup issue" pattern still applies but hasn't been actioned on by Atlas yet; premature to codify.
