@@ -308,3 +308,60 @@ Search-first before filing saved a labour-of-Sisyphus replay of #187. The protoc
 
 1. All prior followups stand.
 2. When the LESSONS.md PR lands, ensure it covers both the worklog-first rule *and* the search-first rule. Separate concerns, same class of preventable duplication.
+
+---
+
+## 2026-04-18 Session 3 continuation — downtime batch 2 (state index, metrics template, staleness rehearsal, lesson PR)
+
+**Context:** Operator asked to "do all of them" — the five downtime candidates I offered at end of previous entry. Executed four (the fifth, "search-first hygiene," was already done and encoded in #297). Order: LESSONS PR proposal first (clearest deliverable), then state index, metrics template, staleness classification.
+
+**Actions taken:**
+
+1. **Drafted `.cowork/roles/mia/proposed-lesson-17.md`** — stages the proposed lesson #17 content for the ensemble-wide "worklog-first, search-first" protocol rules. Mia cannot inline-edit LESSONS.md (SYSTEM.md prohibits silent edits) and cannot author PRs (not in lane). Staging in-tree is the closest approximation.
+
+2. **Filed #297** as `role:atlas` handoff — asking Atlas to incorporate the staged lesson into LESSONS.md. Search-first confirmed no existing issue requests this. Body references the staged file, offers two dispatch routes (CC-dispatch or direct MCP edit), cites priority as low-medium.
+
+3. **Created `.cowork/roles/mia/STATE.md`** — navigable session index for the worklog. Rationale: worklog is now ~29KB; a fresh-context Mia must scroll 7 entries to know current state. STATE.md is editable (replaced session-end); worklog stays strictly append-only. Dual-track resolves the "append-only vs. scannable" tension cleanly. Contains: current metrics, session index, hot followups, active protocol rules, pointers to all staged files.
+
+4. **Created `.cowork/roles/mia/weekly-metrics-template.md`** — copy-paste scaffold for Monday rollups. Includes source queries for each metric (GitHub search syntax). First use: 2026-04-20. Template is live-editable; rollup entries committed to worklog each week are historical.
+
+5. **Created `.cowork/roles/mia/pre-ensemble-backlog-staleness.md`** — one-time classification of the 18 pre-ensemble open issues into ACTIVE (10) / BLOCKED-EXTERNAL (6) / PROBABLY-ABANDONED (3). Turns the eventual 30-day stale-scrub (first eligibility ~2026-05-16) into a fast verify-and-act instead of full-read-and-decide. Scheduled re-evaluation: quarterly or event-triggered.
+
+**Files added this batch:**
+
+- `.cowork/roles/mia/proposed-lesson-17.md` (6.3 KB, to be deleted after #297 lands)
+- `.cowork/roles/mia/STATE.md` (4.7 KB, live-editable)
+- `.cowork/roles/mia/weekly-metrics-template.md` (5.1 KB, live-editable)
+- `.cowork/roles/mia/pre-ensemble-backlog-staleness.md` (5.9 KB, quarterly-refresh)
+
+Total added: ~22 KB of Mia-lane coordination tooling. All on `cowork/state`, none touching production code or other roles' workspaces.
+
+**Pre-flight checks applied (self-imposed protocol):**
+
+- `search_issues` before filing #297 — returned 0 matches, clean.
+- Re-read of worklog before each commit — caught no prior commits of any of these four files.
+- SYSTEM.md lane check — all four files live under `.cowork/roles/mia/`, none touch `LESSONS.md`, SYSTEM.md, or another role's workspace.
+
+**For other roles:**
+
+- **@atlas** — #297 added to your queue. Priority: low-medium. `role:atlas` queue depth: **13 open** (prior 12 + #297).
+- **@cassidy** — no items.
+
+**Metrics update (session 3 grand total, final):**
+
+- Issues closed: 2 (#291, #292 as `duplicate`).
+- Issues filed: 4 (#290 live + 2 self-duplicates + #297 LESSONS incorporation).
+- Issues commented: 3 (#68, #291, #292).
+- Labels applied: 34 (unchanged from prior entry).
+- Files added to `cowork/state` (Mia workspace): 4 (STATE.md, weekly-metrics-template.md, pre-ensemble-backlog-staleness.md, proposed-lesson-17.md).
+- `role:atlas` queue depth: **13 open** (#235, #266, #268, #269, #271, #272, #274, #283, #286, #287, #288, #290, #297).
+- Milestone hygiene: unchanged (1 open, blocked on #68 human action).
+
+**Followup for next Mia session:**
+
+1. **First action, always:** `get_file_contents` on STATE.md. If the "Hot followups" section has anything new, handle it. Then re-read worklog only if needed for depth.
+2. When #297 lands, delete `.cowork/roles/mia/proposed-lesson-17.md`.
+3. Monday 2026-04-20: use `.cowork/roles/mia/weekly-metrics-template.md` for the first rollup.
+4. After v0.3.0 tags (whenever): close the v0.3.0 milestone (assuming #68 is cleared by then).
+
+**For future-me reading STATE.md first:** this session ended at a clean stopping point. Five downtime workstreams identified; four completed this batch; one (the "search-first hygiene" generalisation) already encoded in #297. Clock is reset. If the next operator prompt is ambiguous, default to reading STATE.md's "Hot followups" and acting on the highest-priority item there.
