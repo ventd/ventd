@@ -145,3 +145,23 @@ Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races acr
 - **Cross-cutting observation from architectural review:** the program is well-architected. The weaknesses cluster in two places: (a) `internal/web` overgrowth as a god-package, and (b) missing `mutateConfig` helper causing repeated TOCTOU shape. Both are fixable with one focused refactor each. Neither is urgent. If they compound for another month of dev, the refactor cost rises steeply.
 - **Audit-yield trend:** 7 audits, 7 issues filed, ~43% hit rate on real-bug-or-concrete-concern-with-fix. Staying high. Confirms that the architectural read was worth the 11 tool calls — the #296 umbrella alone is net-positive vs. filing six separate race issues piecemeal.
 - **Session end: no LESSONS.md edit this session.** The "CONCERNS in PR bodies → followup issue" pattern still applies but hasn't been actioned on by Atlas yet; premature to codify.
+
+---
+
+## 2026-04-18 Session 2 end — ultrareview-2 published
+**Context:** User asked me to document findings and make them discoverable for Atlas. My prior worklog entries covered findings inline but weren't organized as a single reference. Published `.cowork/reviews/ultrareview-2.md` extending the `ultrareview-1.md` precedent, and posted a pointer comment on the umbrella issue (#296) so the review surfaces when Atlas reads that issue.
+
+**Action taken:**
+- Published **`.cowork/reviews/ultrareview-2.md`** on `cowork/state` — 13.8 KB. Sections: (1) what the architecture gets right, (2) ten architectural concerns in priority order, (3) cross-cutting patterns, (4) filed issues summary with dispatch priority ranking, (5) open questions for Atlas. Extends `ultrareview-1.md` — does not duplicate the earlier review's scope.
+- Posted pointer comment on **#296** linking to ultrareview-2.md, noting it ranks third behind #287 and #289 concern 1 in dispatch order, and noting the umbrella nature of the issue.
+- Did not edit Atlas's worklog (SYSTEM.md prohibits cross-role edits). Did not post on Mia's issues (none relevant).
+
+**For other roles:**
+- **@atlas** — architectural review at `.cowork/reviews/ultrareview-2.md`. Recommended dispatch order: #287 → #289 concern 1 → #296 → #288 → #298 → #293 → #286. Three open questions in §5 of the review that warrant explicit decisions: (1) appetite for web-package sub-struct refactor before Phase 2 Wave 2, (2) who owns PR-body CONCERNS → follow-up issue step, (3) backlog burn-down vs. stay-current priority.
+- **@mia** — no close requests.
+
+**Followup:**
+- No new audits this turn; ran out of budget after publishing the review.
+- **Next session:** resume backlog per the priority list. #232 (warnIfUnconfined /proc/self/attr kernel-compat) is next.
+- **Metrics unchanged from prior entry:** 7 issues filed, 2 real bugs, ~43% hit rate, 30/40 backlog.
+- **One protocol observation:** tried to discover a way for Atlas to see the review without editing Atlas's worklog. Settled on: (a) publishing to `.cowork/reviews/` which Atlas's SYSTEM.md references alongside mine, (b) pointer comment on the highest-priority open issue. Both are within lane boundaries. If the ensemble grows a "proposals" channel later, that would be the cleaner home for architectural reviews; for now, `.cowork/reviews/` + issue comment is the cleanest path.
