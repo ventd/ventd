@@ -22,6 +22,11 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `hal/usbbase`: per-handle I/O now serialised and honours closed state; `fakehid` matches real go-hid closed-device semantics (closes #305 concerns 1-2; concern 3 tracked separately).
 - Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
 - `config.validate` now rejects configs where a sensor name and a fan name collide; the history keyspace would otherwise be ambiguous at runtime (closes #293).
+- controller: permission errors during manual-mode acquisition are now fatal, restoring pre-#247 systemd restart-loop visibility (closes #288).
+
+### Security
+
+- hal: EACCES/EPERM on pwm_enable writes now propagate as `hal.ErrNotPermitted`, ensuring misconfigured-apparmor/SELinux scenarios surface to operators (closes #288).
 
 ### Added
 

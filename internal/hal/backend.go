@@ -13,7 +13,15 @@
 // (set at construction) and its own mode-acquisition bookkeeping.
 package hal
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotPermitted signals a permission failure during manual-mode
+// acquisition (EACCES/EPERM on pwm_enable write). Callers should treat
+// this as fatal — retries will not cure a misconfiguration.
+var ErrNotPermitted = errors.New("hal: manual-mode acquisition not permitted")
 
 // ChannelRole is a coarse, human-readable classification of what a
 // channel is probably cooling. It's advisory — the control config is
