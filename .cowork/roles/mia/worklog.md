@@ -106,3 +106,55 @@ Append-only. Every issue triaged, every close, every label change.
 - Stale-issue ratio: not measured (all open issues currently <30 days idle — scrub not yet triggered; nearest candidate is #129 from 2026-04-16 at 2 days old).
 - Regresslint compliance (closed bugs w/ neither test nor exemption): 13 unresolved (deferred pending `tools/regresslint/` read), down from 20 at session start.
 - Milestone hygiene: 1 open milestone (v0.3.0), 1 open issue against it (#68) blocked on human UI action.
+
+---
+
+## 2026-04-18 Session 3 continuation — regresslint read, full audit, tooling-gap handoff
+**Context:** Session 3 continued after the initial worklog commit. Operator prompted me to proceed; I ran the planned followup #1 (read `tools/regresslint/` source before resuming the closed-bug audit).
+
+**Finding — regresslint convention and existing tests are disconnected.**
+
+`tools/regresslint/main.go` matches exactly two literal-string patterns:
+- `func TestRegression_Issue<N>_`
+- `t.Run("Issue<N>_`
+
+Under `internal/` and `cmd/` only. Scanning the test file listing in `internal/web/` and the named tests cited by Cassidy across multiple audit turns: **zero tests in the tree currently follow either pattern**. Regression coverage that exists uses descriptive names like `TestHandleSystemReboot_RefusedInContainer` (#177), `TestE2E_SettingsModal_PopulatedSections` (#208), `TestSafety_Invariants/<rule-id>` (watchdog/controller rules), `TestRestoreOne_MatchesMostRecent` (#263). The lint today, if flipped to `-strict=true`, would FAIL every closed bug regardless of real test coverage. The `TODO(TX-REGRESSION-AUDIT)` at `main.go:212` explicitly gates strict mode on the backlog-triage completing — but as written, "triaging" means either renaming ~50+ tests or blanket-exempting every closed bug, both of which defeat the lint's purpose.
+
+**Actions taken:**
+
+1. **Applied `no-regression-test` to 6 additional unambiguous exemptions** (fixes whose code lives outside `internal/` or `cmd/` and thus are architecturally outside regresslint's scope):
+   - **#58** (OnFailure= in systemd unit) — `deploy/ventd.service`.
+   - **#61** (validation rig-check false positives) — `validation/` shell scripts.
+   - **#165** (Docker HEALTHCHECK) — `packaging/docker/Dockerfile`.
+   - **#199** (web-ui theme toggle) — `internal/web/static/*.css` / `*.js` (not Go test-matchable).
+   - **#202** (apparmor inet6 stream) — `deploy/apparmor.d/usr.local.bin.ventd`.
+   - **#273** (duplicate of #266) — closed `state_reason: duplicate` but regresslint doesn't distinguish that from `completed`; explicit exemption avoids a spurious violation.
+
+2. **Filed #290 as `role:atlas` handoff** — proposed fix for the pattern disconnect. Magic-comment binding (`// regresses #<N>` or `// covers #<N>`) extended into `hasRegressionTest()`, additive to the existing function/subtest patterns. Non-destructive (no rename sweep), makes the binding visible in code review, lets existing descriptive naming conventions stand. Includes spec, deliverable, unit-test cases, and dispatch guidance (Sonnet 4.6, `tools/regresslint/` allowlist, ~100 LOC production + ~150 LOC test). Labels: `role:atlas`, `enhancement`, `test-infrastructure`.
+
+   Decision rationale offered to operator as three options (relax / exempt all / hybrid); operator accepted my recommendation (hybrid / magic-comment).
+
+3. **7 Go-code closed bugs remain unresolved pending #290.** Specifically: #59, #86, #103, #140, #177, #200, #208. Each has real regression coverage in the tree under non-matching names. Once #290 lands, these get one-line magic-comment additions to their existing covering tests, and the lint recognizes them. Labelling them `no-regression-test` today would be technically valid but semantically wrong (masks real coverage, trains Mia to default to exempt).
+
+**For other roles:**
+
+- **@atlas** — #290 added to your queue. Priority: medium. Blocks the `-strict=true` flip on `regresslint`, which blocks Mia's weekly regresslint metric being meaningful. After #290 lands, I'll file a batch PR (or series) adding `// regresses #N` comments to the 7 existing covering tests. `role:atlas` queue depth at session end: **12 open** (#235, #266, #268, #269, #271, #272, #274, #283, #286, #287, #288, #290).
+- **@cassidy** — no items. Related to your test-binding work on #287 (rule/subtest binding for watchdog RestoreOne): if #290 lands, the same magic-comment mechanism could offer an alternative binding path between rules and tests, orthogonal to the current `Bound:` marker in rule files. Not in your immediate queue, just flagging the adjacency.
+
+**Followup for next Mia session:**
+1. Once #290 merges, file batch PR(s) adding `// regresses #<N>` to existing covering tests for #59, #86, #103, #140, #177, #200, #208 — recommend these go through Atlas/CC rather than Cassidy or Mia, since they touch `_test.go` files.
+2. Remaining from prior followup: check #68 milestone state (still blocked on human UI action); stale-issue scrub threshold (nearest candidate #129 at 2 days old today, won't trigger for ~28 days); weekly metrics rollup due Monday 2026-04-20.
+
+**Metrics (session 3 total, both parts):**
+- Issues closed this session: 0.
+- Issues filed this session: 1 (#290).
+- Issues commented: 1 (#68).
+- Labels applied: 20 total (7 × `role:atlas` additions; 13 × `no-regression-test`).
+- Stale-issue ratio: not triggered (all open <30 days idle).
+- Regresslint compliance: 13 of 20 closed bugs labelled `no-regression-test` as scope-out-of-tree or duplicate; 7 remaining genuinely-covered bugs deferred pending #290 pattern relaxation. Real denominator after #290 lands will be 7 bugs needing one-line comment additions.
+- Milestone hygiene: 1 open milestone (v0.3.0), 1 issue on it (#68) blocked on human UI action.
+- `role:atlas` queue depth: 12 open.
+
+**Lesson candidate (not yet appended to LESSONS.md — one occurrence, not pattern-evidence yet):**
+
+Session-start protocol says "Read ventdmasterplan.mkd §8" and "Read ventdtestmasterplan.mkd §11 regression table" — both files don't exist on main per Cassidy's #286. In addition, "enforce regression-test-per-bug rule" in the SYSTEM.md job description implicitly assumes the lint tooling maps cleanly to real coverage. It does not; `tools/regresslint/` enforces a naming convention that nothing in the tree follows. Future Mia sessions that accept the SYSTEM.md directive at face value will either rubber-stamp-exempt everything or chase a rename sweep that makes the repo worse. The right response is what this session did: read the tool, diagnose the gap, file the fix as a `role:atlas` handoff, and document the actual state in the worklog. If future sessions hit another SYSTEM.md directive whose authoritative-doc basis has drifted, do the same. (Candidate LESSONS.md entry: "SYSTEM.md directives assume upstream documents and tooling that may have drifted; verify before enforcing — half-broken enforcement is worse than a visible gap.")
