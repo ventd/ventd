@@ -29,8 +29,8 @@ git show origin/cowork/state:.cowork/prompts/<TASK-ID>.md
 ```
 
 Read the prompt file in full. Everything you need — branch name,
-allowlist, model assignment, reporting contract, definition of done
-— is inside it. Do not deviate from any of those.
+allowlist, reporting contract, definition of done — is inside it.
+Do not deviate from any of those.
 
 ## Ground rules for every Cowork task
 
@@ -38,8 +38,12 @@ allowlist, model assignment, reporting contract, definition of done
 - Touch only files in the prompt's allowlist. If you must deviate,
   justify it inline in the PR body — Cowork's review will otherwise
   flag it as an R4 failure.
-- Obey the prompt's model assignment. If you are not running the
-  model the prompt asks for, stop and flag it to the user.
+- Whatever model is dispatching this session is acceptable. Do not
+  abort on model mismatch — Cowork's orchestration layer owns model
+  routing, and spawn-mcp's single-account setup means you may be
+  invoked on Sonnet for a task the masterplan nominally assigns to
+  Opus. Rely on the prompt's care-level paragraph and the definition
+  of done for rigor, not runtime identity checks.
 - Conventional commits for all commit messages.
 - `CGO_ENABLED=0` unless the task explicitly says otherwise.
 - Open a **draft PR** when done. Fill out the full reporting
