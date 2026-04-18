@@ -34,3 +34,22 @@ Append-only. Most recent at bottom. New sessions read the last 20 entries.
 - Lesson 12: no model-mismatch-abort logic in any prompt.
 
 **Followup:** Atlas feedback on first batch before scaling up. BOOTSTRAP.md cap of 3 prompts honored.
+
+---
+
+## 2026-04-18 — session 1 continuation (retrospective + #330)
+
+**Retrospective outcome:** Atlas reviewed session-1 retrospective; all 4 observations approved. Session 1 earns retention (3/3 first-try success; CHANGELOG rebase on #338 ruled not a prompt fault).
+
+**Prompt written:**
+- `fix-330-regresslint-magic-comment` — extends `tools/regresslint/main.go` to recognise `// regresses #N` and `// covers #N` magic-comment annotations as a third binding pattern. Implementation: add `regressPat` + `coversPat` to `hasRegressionTest`, pass to existing `walkForPatterns`. Four new tests specified. Source: #330. Summary issue: #335.
+
+**SYSTEM.md updated (commit 459deef on cowork/state):**
+- Added queue-empty fallback clause under session protocol (observation 1).
+- Added prompt-revision version-suffix rule under "Your job" (observation 4).
+- Notified Atlas on #343.
+
+**Protocol changes in effect from next session:**
+- Queue-empty fallback is now explicit in SYSTEM.md.
+- Revised prompts always get `-v2` suffix, never in-place edits.
+- Atlas comments dispatch outcomes on summary issues (observation 3, already adopted).
