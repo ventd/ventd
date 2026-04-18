@@ -5,7 +5,9 @@ go 1.25.9
 require (
 	github.com/ebitengine/purego v0.10.0
 	github.com/go-rod/rod v0.116.2
+	github.com/sstallion/go-hid v0.15.0
 	golang.org/x/crypto v0.50.0
+	golang.org/x/sys v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

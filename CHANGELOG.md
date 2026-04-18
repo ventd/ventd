@@ -21,6 +21,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `internal/hal/usbbase`: shared USB HID primitive layer — `Bus`, `Handle`, `HIDLayer`, `RawDevice` interfaces wrapping `go-hid`; CGO-off stub for non-production builds; `internal/testfixture/fakehid` in-memory simulator (P2-USB-BASE).
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
 ### Security
 
