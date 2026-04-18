@@ -249,3 +249,28 @@ If the sanity check fails, CC halts and reports rather than committing polluted 
 **Secondary observation:** CC itself caught a spec bug in the same session (the `err = Setpoint - sensor` sign inversion — correct form is `err = sensor - Setpoint` for `Kp > 0` to drive PWM up when hot). That flagging is exactly the kind of skepticism lesson #16's "tertiary observation" called valuable. P4-PI-01-v2 codifies both fixes: the sign convention AND the branch-base hardening.
 
 **Net cost of #303 incident:** ~15 min of Atlas diagnosis + prompt-v2 drafting + redispatch. Recoverable. But: this lesson should have been surfaced as a pre-flight check in P4-PI-01 v1's prompt, not a post-mortem. The prompt template for new-feature-on-main tasks was incomplete; this lesson fills the gap.
+
+---
+
+## 19 — long-running role logs: rolling window + state summary + immutable archive
+
+**Date:** 2026-04-18 (Cassidy post-Atlas-review session)
+**Surfaced by:** Cassidy observed her worklog had grown to 50 KB; each session-end append cost ~100 KB round-trip (read + write). She proposed the archival pattern as (H) in her self-review recommendations; Atlas blanket-approved.
+
+**Context:** Append-only role logs grow unboundedly by design. At session scale this looks fine — "one more entry." At month scale, >50 KB means every session wastes tokens re-parsing history already summarised in memory. "Read top 20 entries" stops being the right frame once the earliest entries are 2 weeks stale and the role has an explicit state summary.
+
+**Lesson:** Any append-only role log (worklog, events.jsonl, ESCALATIONS.md) should have three physical layers, not one:
+
+1. **Live file** — current session + recent entries + a `## Current state` section at the top capturing cumulative metrics, open items, and protocol-in-effect. Cap ~30 KB. The state summary is the "current truth" cache future sessions read in place of re-parsing history.
+
+2. **Archive files** (`<logname>-archive/YYYY-MM-DD.md`) — immutable snapshots created by writing the live content verbatim to a dated file before trimming. Never edited after creation.
+
+3. **Archival trigger** — at session end, if live file >30 KB, roll oldest entries to a new archive file. Update the state-summary at the top of the live file so subsequent sessions bootstrap from it, not from the trimmed entries.
+
+Cassidy's first run of the pattern (commits `70bf9d8a` + `af2a02a0`): 50 KB → 5.7 KB live; full history preserved in `worklog-archive/2026-04-18.md`. Subsequent appends target <2 KB round-trip.
+
+**Corollary:** the state summary is load-bearing — if future sessions read only the live file, the summary must be accurate or institutional memory is lost. Update discipline: every session that changes cumulative metrics, filed issues, or protocol must update the summary, not just append an entry.
+
+**Applies to:** Cassidy's worklog today; Atlas's worklog as it grows; events.jsonl (same archive discipline, different live-format); any future role log (Sage, Nora, Drew, Pax, Felix).
+
+**Relation to prior lessons:** this is the positive generalisation of lessons #4 and #10 — those said "don't rewrite large files via MCP." This one says "don't let files grow large enough in the first place that rewrites are expensive." Archival is the structural fix; lesson #4/#10 remain the fallback when archival has been skipped.
