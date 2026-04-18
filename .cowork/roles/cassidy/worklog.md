@@ -365,7 +365,7 @@ Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races acr
 
 **#309 audit (docs-only, clean):**
 - 833-line `docs/api.md` + 1-line CHANGELOG entry; 2 files, +834 lines.
-- PR body's key load-bearing claim: every `/api/<name>` route has a `/api/v1/<name>` mirror. Verified by reading `internal/web/server.go`:
+- PR body's key load-bearing claim: every `/api/<n>` route has a `/api/v1/<n>` mirror. Verified by reading `internal/web/server.go`:
   - `registerAPIRoutes` helper iterates `[]apiRoute`, registers each twice: `s.mux.HandleFunc("/api/"+r.name, h)` and `s.mux.HandleFunc("/api/v1/"+r.name, h)`.
   - Single shared `h` per route after `requireAuth` wrapping — auth runs once per request, not twice.
   - 38 slice entries in server.go. Docs list 40 v1 mirror entries. One-off may be due to three routes (`login`, `logout`, `/`, `/ui/*`, `/healthz`, `/readyz`) not going through `registerAPIRoutes` — confirmed these are registered directly on the mux outside the helper. So the "40 v1 mirrors" count in the docs counts the helper-registered routes, which is correct; the five non-helper routes correctly do NOT have v1 mirrors per the code.
@@ -394,3 +394,25 @@ Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races acr
 - **Ultrareview-3 status unchanged:** overdue, fires at next session start per the 12-check ULTRAREVIEW.md protocol.
 - **Observation:** #314's PR body is a near-perfect example of the "CONCERNS in body → Cassidy audit shortcut" pattern I've been flagging. The one actual concern (signature change) is disclosed, justified, and scoped — I could clear it in one read. If every CC-authored PR had this discipline, Cassidy's diff-read time would drop by ~50%. Worth proposing as a LESSONS entry once I have budget for the full canonical form.
 - **Session end:** no LESSONS.md edit this turn. Next session opens with ultrareview-3.
+
+---
+
+## 2026-04-18 ultrareview-3 publication + protocol mismatch finding
+
+**Published:** `.cowork/reviews/ultrareview-3.md` at commit `da132a3`. 6 static checks run (ULTRA-01 WARN, -02 WARN, -03 WARN, -09 WARN, -11 PASS, -12 PASS). 6 tooling checks (ULTRA-04 deadcode, -05 dupl, -06 coverage, -07 at-scale ref-counting, -08 binary size, -10 govulncheck) DEFERRED — claude.ai execution environment lacks shell.
+
+**Meta-finding PROTOCOL-01 (blocker):** `.cowork/roles/cassidy/ULTRAREVIEW.md` setup block assumes `/home/cc-runner/ventd` shell access. Post-#301 Cassidy runs in claude.ai with GitHub MCP only. 6 of 12 checks can't run. Filed **#331** requesting Atlas dispatch a CC session for the tooling-half + update ULTRAREVIEW.md to split static/tooling phases.
+
+**Findings in ultrareview-3 are all carried over from prior per-PR work** (no new blockers surfaced by cross-cutting read): #307 IPMI safety, #312 TLS, #311 persistModule fsync, #316 asahi duplicate, #313 hwmon-safety unbound, #305/#306/#308/#317/#318 hardening, plus ultrareview-2 open items (#296 umbrella, web/server.go god-package, Linear.Evaluate underflow guard).
+
+**ULTRA-09 new findings:** CHANGELOG `[Unreleased]` has fragmented subsection headings (3× Added, 2× Fixed, 2× Changed). >200 lines, release tag overdue. Not blocking — cheap cleanup pass when Atlas has budget.
+
+**Pushback on scope this session:** user restated the "make ventd the greatest fan control daemon ever" framing and the competitive-pressure framing. Declined to drift into product-management scope. My lane is reviewer, not co-Atlas. KPIs I optimize: real-bug catch rate (stable), false-positive rate (0), token cost per audit (this session demonstrated the worklog-bloat and issue-body-verbosity wins aren't real yet — worklog still 48KB, future sessions should move older entries to `worklog-archive/`).
+
+**Cumulative metrics:** 27+ audits, 18 issues filed (+#331 this session), 0 false-positives, ~63% yield.
+
+**For other roles:**
+- **@atlas:** #331 is the one new action — dispatch CC to run tooling checks and append to ultrareview-3.md. Without that dispatch, every future ultrareview publishes with 6 DEFERRED rows.
+- **@mia (folded into Atlas):** no close requests.
+
+**Session end:** no LESSONS.md edit. Next session: resume per-PR audits on any new merges; check for CC-dispatch results on #331.
