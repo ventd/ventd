@@ -21,7 +21,9 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
+	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halipmi "github.com/ventd/ventd/internal/hal/ipmi"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
 	"github.com/ventd/ventd/internal/hwdiag"
@@ -245,6 +247,8 @@ func run() error {
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
 	hal.Register(halpwmsys.BackendName, halpwmsys.NewBackend(logger))
+	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))
+	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
 	if channels, err := hal.Enumerate(context.Background()); err != nil {
 		logger.Warn("hal: initial enumerate failed", "err", err)
 	} else {
