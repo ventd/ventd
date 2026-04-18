@@ -11,18 +11,6 @@ import (
 	"github.com/ventd/ventd/internal/testfixture/fakecrosec"
 )
 
-// happyFake returns a Fake pre-wired with HELLO + RPM + duty handlers.
-func happyFake(t *testing.T) (*fakecrosec.Fake, *uint32, *uint32) {
-	t.Helper()
-	f := fakecrosec.New(t)
-	f.Handle(0x0001, fakecrosec.HelloHandler())
-
-	var rpm, duty uint32
-	f.Handle(0x0020, fakecrosec.RPMHandler(1800))
-	f.Handle(0x0024, fakecrosec.SetDutyHandler(func(p uint32) { atomic.StoreUint32(&duty, p) }))
-	return f, &rpm, &duty
-}
-
 // --- HELLO gate ---
 
 func TestEnumerate_HelloGateFails_EmptyResult(t *testing.T) {

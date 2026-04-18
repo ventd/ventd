@@ -50,7 +50,7 @@ const maxConsecutiveFailures = 5
 // CROS_EC_DEV_IOCXCMD = _IOWR(0xEC, 0, struct cros_ec_command)
 // struct cros_ec_command fixed part = 5 × uint32 = 20 bytes.
 // _IOWR(type, nr, size) = (3 << 30) | (size << 16) | (type << 8) | nr
-const ioctlCmd uintptr = (3 << 30) | (20 << 16) | (0xEC << 8) | 0
+const ioctlCmd uintptr = (3 << 30) | (20 << 16) | (0xEC << 8)
 
 // maxPayload is the data[] region size in our ioctl buffer.
 const maxPayload = 64
@@ -200,7 +200,7 @@ func (b *Backend) ioctlCall(cmd, ver uint32, out, in []byte) error {
 	if err != nil {
 		return fmt.Errorf("crosec: open %s: %w", b.devPath, err)
 	}
-	defer syscall.Close(fd)
+	defer func() { _ = syscall.Close(fd) }()
 
 	var buf ecBuf
 	buf.version = ver
