@@ -4,31 +4,21 @@ package fakesmc
 import (
 	"testing"
 
-	"github.com/ventd/ventd/testutil"
+	"github.com/ventd/ventd/internal/testfixture/base"
 )
 
-// Options holds configuration for fakesmc. Reserved for future use.
-type Options struct{}
-
-// Fake provides a mock SMC interface.
+// Fake provides a stub SMC interface.
 type Fake struct {
-	rec *testutil.CallRecorder
+	base.Base
 }
 
 // New returns a new Fake SMC.
-func New(t *testing.T, opts *Options) *Fake {
+func New(t *testing.T) *Fake {
 	t.Helper()
-	if opts == nil {
-		opts = &Options{}
-	}
-	_ = opts
-	t.Cleanup(func() {})
-	return &Fake{
-		rec: testutil.NewCallRecorder(),
-	}
+	return &Fake{Base: base.NewBase(t)}
 }
 
 // ReadSensor reads a sensor from SMC.
 func (f *Fake) ReadSensor() {
-	f.rec.Record("ReadSensor")
+	f.Rec.Record("ReadSensor")
 }

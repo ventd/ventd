@@ -4,31 +4,21 @@ package fakeuevent
 import (
 	"testing"
 
-	"github.com/ventd/ventd/testutil"
+	"github.com/ventd/ventd/internal/testfixture/base"
 )
 
-// Options holds configuration for fakeuevent. Reserved for future use.
-type Options struct{}
-
-// Fake provides a mock uevent interface.
+// Fake provides a stub uevent interface.
 type Fake struct {
-	rec *testutil.CallRecorder
+	base.Base
 }
 
 // New returns a new Fake uevent system.
-func New(t *testing.T, opts *Options) *Fake {
+func New(t *testing.T) *Fake {
 	t.Helper()
-	if opts == nil {
-		opts = &Options{}
-	}
-	_ = opts
-	t.Cleanup(func() {})
-	return &Fake{
-		rec: testutil.NewCallRecorder(),
-	}
+	return &Fake{Base: base.NewBase(t)}
 }
 
 // Watch watches for uevent changes.
 func (f *Fake) Watch() {
-	f.rec.Record("Watch")
+	f.Rec.Record("Watch")
 }
