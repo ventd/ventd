@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -78,6 +80,90 @@ func TestMissingReport_ContainsActionHint(t *testing.T) {
 	}
 	if !strings.Contains(out, "https://github.com/ventd/ventd/issues/99") {
 		t.Errorf("report missing issue link: %q", out)
+	}
+}
+
+// regresses #330
+func TestMagicComment_Regresses(t *testing.T) {
+	dir := t.TempDir()
+	internal := filepath.Join(dir, "internal")
+	if err := os.MkdirAll(internal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "package foo_test\n\nimport \"testing\"\n\n// regresses #123\nfunc TestFoo(t *testing.T) {}\n"
+	if err := os.WriteFile(filepath.Join(internal, "foo_test.go"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := hasRegressionTest(dir, 123)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Error("expected hasRegressionTest to return true for // regresses #123 comment")
+	}
+}
+
+// regresses #330
+func TestMagicComment_Covers(t *testing.T) {
+	dir := t.TempDir()
+	internal := filepath.Join(dir, "internal")
+	if err := os.MkdirAll(internal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "package foo_test\n\nimport \"testing\"\n\nfunc TestFoo(t *testing.T) {\n\t// covers #456\n}\n"
+	if err := os.WriteFile(filepath.Join(internal, "foo_test.go"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := hasRegressionTest(dir, 456)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Error("expected hasRegressionTest to return true for // covers #456 comment")
+	}
+}
+
+// regresses #330
+func TestMagicComment_BothInSameFile(t *testing.T) {
+	dir := t.TempDir()
+	internal := filepath.Join(dir, "internal")
+	if err := os.MkdirAll(internal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "package foo_test\n\nimport \"testing\"\n\n// regresses #123\nfunc TestFoo(t *testing.T) {\n\t// covers #456\n}\n"
+	if err := os.WriteFile(filepath.Join(internal, "foo_test.go"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, num := range []int{123, 456} {
+		found, err := hasRegressionTest(dir, num)
+		if err != nil {
+			t.Fatalf("issue %d: unexpected error: %v", num, err)
+		}
+		if !found {
+			t.Errorf("expected hasRegressionTest to return true for issue %d", num)
+		}
+	}
+}
+
+// regresses #330
+func TestMagicComment_MalformedIgnored(t *testing.T) {
+	dir := t.TempDir()
+	internal := filepath.Join(dir, "internal")
+	if err := os.MkdirAll(internal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "package foo_test\n\nimport \"testing\"\n\n// regresses #abc\nfunc TestFoo(t *testing.T) {}\n"
+	if err := os.WriteFile(filepath.Join(internal, "foo_test.go"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, num := range []int{1, 12, 123} {
+		found, err := hasRegressionTest(dir, num)
+		if err != nil {
+			t.Fatalf("issue %d: unexpected error: %v", num, err)
+		}
+		if found {
+			t.Errorf("expected hasRegressionTest to return false for // regresses #abc, issue %d", num)
+		}
 	}
 }
 

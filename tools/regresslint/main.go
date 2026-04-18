@@ -102,18 +102,21 @@ func fetchIssues(token string) ([]issue, error) {
 }
 
 // hasRegressionTest reports whether the repo rooted at root contains a
-// TestRegression_Issue<N>_* top-level function or a t.Run("Issue<N>_...")
-// literal anywhere under internal/ or cmd/.
+// TestRegression_Issue<N>_* top-level function, a t.Run("Issue<N>_...")
+// literal, or a // regresses #N / // covers #N magic comment anywhere
+// under internal/ or cmd/.
 func hasRegressionTest(root string, issueNum int) (bool, error) {
 	funcPat := fmt.Sprintf("func TestRegression_Issue%d_", issueNum)
 	tRunPat := fmt.Sprintf(`t.Run("Issue%d_`, issueNum)
+	regressPat := fmt.Sprintf("// regresses #%d", issueNum)
+	coversPat := fmt.Sprintf("// covers #%d", issueNum)
 
 	for _, dir := range []string{"internal", "cmd"} {
 		dirPath := filepath.Join(root, dir)
 		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 			continue
 		}
-		found, err := walkForPatterns(dirPath, funcPat, tRunPat)
+		found, err := walkForPatterns(dirPath, funcPat, tRunPat, regressPat, coversPat)
 		if err != nil {
 			return false, fmt.Errorf("walking %s: %w", dirPath, err)
 		}
