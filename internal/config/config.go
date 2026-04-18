@@ -875,6 +875,12 @@ func validate(cfg *Config) error {
 		fans[f.Name] = f
 	}
 
+	for name := range fans {
+		if _, clash := sensors[name]; clash {
+			return fmt.Errorf("config: %q is used as both a sensor name and a fan name; names must be unique across sensors and fans so history keyspace stays unambiguous", name)
+		}
+	}
+
 	curves := make(map[string]struct{}, len(cfg.Curves))
 	for i, c := range cfg.Curves {
 		if c.Name == "" {
