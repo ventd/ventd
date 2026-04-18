@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/curve"
@@ -362,6 +363,45 @@ func (s *stubPanic) IsPanicked(_ string) bool {
 		return false
 	}
 	return s.active
+}
+
+// TODO(issue #313): bind this invariant to hwmon-safety.md once rule format lands
+
+// TestController_ErrNotPermittedFatal regresses #288: a hal.ErrNotPermitted
+// returned by Write must cause Run() to return a non-nil error immediately
+// rather than loop-and-retry. The returned error must satisfy
+// errors.Is(err, hal.ErrNotPermitted) so callers can distinguish
+// permission failures from transient write failures.
+func TestController_ErrNotPermittedFatal(t *testing.T) {
+	ff := newFakeFan(t)
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+	c := New("cpu fan", "cpu_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+	// Inject a backend whose Write always returns hal.ErrNotPermitted.
+	c.backend = &fakeErrBackend{errs: []error{hal.ErrNotPermitted}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- c.Run(ctx, 20*time.Millisecond) }()
+
+	select {
+	case runErr := <-errCh:
+		if runErr == nil {
+			t.Fatal("Run returned nil on ErrNotPermitted; want non-nil fatal error")
+		}
+		if !errors.Is(runErr, hal.ErrNotPermitted) {
+			t.Errorf("Run returned %v; want errors.Is(..., hal.ErrNotPermitted) == true", runErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return within 2s after ErrNotPermitted; expected fatal propagation")
+	}
 }
 
 // Verify PICurve implements StatefulCurve at compile time.

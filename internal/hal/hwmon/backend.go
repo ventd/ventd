@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -294,6 +295,9 @@ func (b *Backend) ensureManualMode(st State) error {
 		b.logger.Info("controller: pwm_enable not supported by driver, writing PWM values directly",
 			"pwm_path", st.PWMPath)
 		return nil
+	}
+	if errors.Is(writeErr, os.ErrPermission) {
+		return fmt.Errorf("%w: %s", hal.ErrNotPermitted, writeErr)
 	}
 	return fmt.Errorf("hal/hwmon: take manual control %s: %w", st.PWMPath, writeErr)
 }

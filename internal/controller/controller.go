@@ -4,6 +4,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -139,6 +140,11 @@ type Controller struct {
 	// wasInPanic tracks whether the previous tick was yielded to panic mode.
 	// Used to detect the engagement transition and reset piState exactly once.
 	wasInPanic bool
+
+	// fatalErr carries a fatal error from tick() to Run(). Size-1 buffer
+	// so tick can signal without blocking; Run reads it in the next select
+	// iteration and returns the error so systemd's Restart=on-failure fires.
+	fatalErr chan error
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -183,6 +189,7 @@ func New(
 		smoothedBuf:   make(map[string]float64), // Opt-1
 		piState:       make(map[string]curve.PIState),
 		lastTickAt:    time.Now(),
+		fatalErr:      make(chan error, 1),
 	}
 	if fanType == "nvidia" {
 		c.backend = halnvml.NewBackend(c.logger)
@@ -193,6 +200,15 @@ func New(
 		o(c)
 	}
 	return c
+}
+
+// signalFatal sends err to fatalErr so Run returns on the next select
+// iteration. Non-blocking: if a fatal is already queued, the first one wins.
+func (c *Controller) signalFatal(err error) {
+	select {
+	case c.fatalErr <- err:
+	default:
+	}
 }
 
 // Run starts the control loop. It takes manual control of the PWM channel
@@ -235,6 +251,8 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 		case <-ctx.Done():
 			c.logger.Info("controller: context cancelled, stopping")
 			return nil
+		case fatalErr := <-c.fatalErr:
+			return fatalErr
 		case <-ticker.C:
 			c.tick()
 			// Signal liveness to anything observing the control loop
@@ -320,6 +338,12 @@ func (c *Controller) tick() {
 			return
 		}
 		if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
+			if errors.Is(writeErr, hal.ErrNotPermitted) {
+				c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
+					"channel", ch.ID, "err", writeErr)
+				c.signalFatal(writeErr)
+				return
+			}
 			c.logger.Error("controller: manual PWM write failed", "err", writeErr)
 		}
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
@@ -419,6 +443,12 @@ func (c *Controller) tick() {
 		return
 	}
 	if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
+		if errors.Is(writeErr, hal.ErrNotPermitted) {
+			c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
+				"channel", ch.ID, "err", writeErr)
+			c.signalFatal(writeErr)
+			return
+		}
 		c.logger.Warn("controller: PWM write failed, retrying",
 			"event", "write_retry",
 			"pwm_path", c.pwmPath, "fan", c.fanName, "err", writeErr)
