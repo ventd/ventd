@@ -22,6 +22,8 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `internal/hal/usbbase`: shared USB HID primitive layer — `Bus`, `Handle`, `HIDLayer`, `RawDevice` interfaces wrapping `go-hid`; CGO-off stub for non-production builds; `internal/testfixture/fakehid` in-memory simulator (P2-USB-BASE).
+- `internal/hal/crosec`: Chrome OS / Framework EC fan backend; reads RPM via `EC_CMD_PWM_GET_FAN_TARGET_RPM`, writes duty cycle via `EC_CMD_PWM_SET_FAN_DUTY`, restores auto mode via `EC_CMD_THERMAL_AUTO_FAN_CTRL`; gated on `/dev/cros_ec` presence and `EC_CMD_HELLO` success (P2-CROSEC-01).
+- `internal/hal/ipmi`: native IPMI backend via `/dev/ipmi0` ioctl (`IPMICTL_SEND_COMMAND` / `IPMICTL_RECEIVE_MSG_TRUNC`); no shell-out to ipmitool (P2-IPMI-01).  Implements fan-speed writes for Supermicro (`0x30/0x70`) and Dell (`0x30/0x30`); HPE returns a clear error (iLO Advanced required); unknown vendors are read-only.  DMI chassis gating prevents `/dev/ipmi0` access on non-server desktops.  SDR enumeration discovers fan channels at runtime; `Restore` hands each vendor back to firmware-auto.  Registered in the HAL registry alongside hwmon and nvml.
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
 ### Security
 
