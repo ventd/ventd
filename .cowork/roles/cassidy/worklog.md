@@ -200,3 +200,36 @@ Filed **#296** `web: introduce mutateConfig helper to eliminate TOCTOU races acr
 - **Metrics after this audit:** 8 audits total, 7 issues filed (no new issue this turn), ~37.5% hit rate on real-bug-or-concrete-concern. Slight drift from the 43% previous; absorbing one clean audit is exactly the variance expected. If hit rate stays above 30% over the next 5 audits the priority ranking is calibrated correctly; if it drops below 20%, I'm over-picking cold targets.
 - **Observation on audit discipline:** SYSTEM.md says "When a PR is clean, do not file an issue — just log the audit in your worklog. Silence is approval." This is my first clean audit this session. Explicit logging matters because otherwise future-Cassidy (or another reviewer) would see a gap in the audit record and re-audit #232 unnecessarily. The discipline of logging clean audits is orthogonal to the discipline of filing concerns, but no less important.
 - **Session end:** no LESSONS.md edit.
+
+---
+
+## 2026-04-18 Session 2 continued — close-requests + SYSTEM.md change awareness
+**Context:** Sweep for "anything else to do" turned up three items: (1) fixes merged for two of my filed issues, requiring `@mia` close requests; (2) PR #301 merged moving ultrareview ownership from Atlas to Cassidy while I was working — changes my SYSTEM.md and adds a 12-check ULTRAREVIEW.md protocol; (3) Phase 2 Wave 1 PRs #281/#282/#285 landed concurrently (USB HID base, crosec, IPMI).
+
+**Action taken:**
+
+**Close-requests (per SYSTEM.md: "comment `@mia closing: <reason>` and let her"):**
+- Commented on **#287** requesting close. PR #300 merged at 2026-04-18T10:08:26Z extends `TestWDSafety_Invariants/wd_restore_exit_touches_all_entries` with the RestoreOne leg as proposed. Subtest name unchanged so rulelint stays green. Rule-binding drift resolved.
+- Commented on **#289** marking it partial. PR #294 (merged 2026-04-18T07:41:46Z) fixed concern 1 only (scheduler↔override race — 2-line reorder in handleProfileActive as I proposed). Concerns 2 (restart clobber) and 3 (schedule-edit TOCTOU) remain open. Explicitly told Mia not to close; offered her the choice of (a) leaving open as status checkpoint or (b) splitting into new issues. Her call.
+
+**SYSTEM.md change awareness (PR #301):**
+- Human instructed Atlas: "Cassidy is posting ultrareview-2 we should make this Cassidy's role." Atlas dispatched CC to move ownership. Changes:
+  - `.cowork/prompts/ultrareview.md` **deleted** (previously Atlas-dispatched via spawn_cc)
+  - `.cowork/roles/cassidy/ULTRAREVIEW.md` **created** — 12-check audit protocol with explicit trigger conditions (≥10 PRs since last, phase boundary, or manual `role:cassidy` issue titled `ultrareview-N trigger`), 2-hour wall-clock budget, report structure with 12 sections (ULTRA-01 HAL contract coherence through ULTRA-12 docs drift).
+  - `.cowork/roles/cassidy/SYSTEM.md` — new job bullet #6 + new authoritative doc #8 pointer + ultrareview cadence metric.
+  - `.cowork/roles/DIRECTORY.md` + `README.md` — Cassidy's lane updated.
+  - `.cowork/LESSONS.md` — lesson #17 added documenting `spawn_cc("ultrareview")` deprecation.
+- My current in-session SYSTEM.md is **stale** — loaded when the project was first set up. Per PR #301 body, the human needs to re-paste the updated SYSTEM.md into the claude.ai project custom system prompt. That's their action, not mine. I've read the new ULTRAREVIEW.md directly so I know the protocol going forward.
+- **ultrareview-2.md (which I published earlier this session) does NOT conform to the new 12-check structure.** It was published under the old "informal architectural review" understanding. Not a problem in retrospect — it has useful content that informed #296 — but if someone audits conformance to the new protocol, ultrareview-2 is grandfathered as pre-protocol. ultrareview-3 onwards will follow the 12 checks.
+
+**Phase 2 Wave 1 PRs landed (#281/#282/#285):** Per #294's body, my prior scheduler fix unblocked CI for all three. These need audit. Not doing the diff audits this turn — out of budget — but adding to the priority list.
+
+**For other roles:**
+- **@mia** — two action items: (1) can close #287 (PR #300 merged, fix landed). (2) do NOT close #289 yet — concern 1 fixed by PR #294 but concerns 2 and 3 remain.
+- **@atlas** — the ultrareview ownership transition is complete (PR #301 merged). Next ultrareview trigger is `≥10 PRs merged since last` (ultrareview-2, commit 18b4c0e) OR `phase boundary` OR `role:cassidy issue titled "ultrareview-N trigger"`. I'll self-trigger when the ≥10 threshold hits; you no longer need to spawn_cc for this.
+
+**Followup:**
+- **Backlog: 32 merged PRs still unaudited** (was 29; +3 Wave 1 PRs landed: #281/#282/#285). New priority order: #253, #281 (USB HID — hidraw build-tag split, CGO semantics), #282 (crosec — ioctl ABI, fan-index gap), #285 (IPMI — DMI gating, vendor dispatch safety), #246, #261, #233, #230.
+- **Metrics after this session:** 8 audits, 7 issues filed, 1 fully closed (#287), 1 partially resolved (#289 concern 1). Real bugs caught now count as 3 if I include that concern 1 landed as a real fix (vs. being filed speculatively). Confirmed false-positives: still 0. Backlog: 32 merged unaudited.
+- **Session end:** no LESSONS.md edit. The "PR-body CONCERNS → followup issue" pattern I flagged earlier is partly resolved by the ULTRAREVIEW protocol (the 12-check structure includes ULTRA-09 CHANGELOG hygiene which cross-refs PR bodies), but not fully — the per-PR audit still depends on me reading PR bodies carefully. Worth an actual LESSONS entry once the ULTRAREVIEW cadence has run once or twice and the pattern is clearer.
+- **Next session:** confirm human updated the claude.ai project system prompt (my in-session Cassidy prompt will reload with the new SYSTEM.md next conversation start), then resume backlog at **#253** (web Permissions-Policy + ETag no-regression).
