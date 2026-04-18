@@ -324,6 +324,14 @@ type CurveConfig struct {
 	// default) passes raw readings through unchanged. Intended to damp
 	// noisy sensors that cause PWM jitter at steady state.
 	Smoothing Duration `yaml:"smoothing,omitempty" json:"smoothing,omitempty"`
+
+	// PI curve fields. Pointer types distinguish "not set" from "zero".
+	// validate() requires all five for kind="pi"; nil = missing field.
+	Setpoint      *float64 `yaml:"setpoint,omitempty" json:"setpoint,omitempty"`
+	Kp            *float64 `yaml:"kp,omitempty" json:"kp,omitempty"`
+	Ki            *float64 `yaml:"ki,omitempty" json:"ki,omitempty"`
+	FeedForward   *uint8   `yaml:"feed_forward,omitempty" json:"feed_forward,omitempty"`
+	IntegralClamp *float64 `yaml:"integral_clamp,omitempty" json:"integral_clamp,omitempty"`
 }
 
 // CurvePoint is one anchor in a multi-point curve. Temp is in the
@@ -921,6 +929,40 @@ func validate(cfg *Config) error {
 			}
 		case "fixed":
 			// Value defaults to 0; clamped by fan min_pwm at runtime
+		case "pi":
+			if c.Sensor == "" {
+				return fmt.Errorf("config: curve %q: sensor is required for pi curve", c.Name)
+			}
+			if _, ok := sensors[c.Sensor]; !ok {
+				return fmt.Errorf("config: curve %q: sensor %q is not defined", c.Name, c.Sensor)
+			}
+			if c.Setpoint == nil {
+				return fmt.Errorf("config: curve %q: setpoint is required for pi curve", c.Name)
+			}
+			if *c.Setpoint < 0 || *c.Setpoint > 120 {
+				return fmt.Errorf("config: curve %q: setpoint %.1f out of range [0, 120] °C", c.Name, *c.Setpoint)
+			}
+			if c.Kp == nil {
+				return fmt.Errorf("config: curve %q: kp is required for pi curve", c.Name)
+			}
+			if *c.Kp <= 0 || *c.Kp > 100 {
+				return fmt.Errorf("config: curve %q: kp %.4g out of range (0, 100]", c.Name, *c.Kp)
+			}
+			if c.Ki == nil {
+				return fmt.Errorf("config: curve %q: ki is required for pi curve", c.Name)
+			}
+			if *c.Ki < 0 || *c.Ki > 100 {
+				return fmt.Errorf("config: curve %q: ki %.4g out of range [0, 100]", c.Name, *c.Ki)
+			}
+			if c.FeedForward == nil {
+				return fmt.Errorf("config: curve %q: feed_forward is required for pi curve", c.Name)
+			}
+			if c.IntegralClamp == nil {
+				return fmt.Errorf("config: curve %q: integral_clamp is required for pi curve", c.Name)
+			}
+			if *c.IntegralClamp <= 0 || *c.IntegralClamp > 255 {
+				return fmt.Errorf("config: curve %q: integral_clamp %.4g out of range (0, 255]", c.Name, *c.IntegralClamp)
+			}
 		case "mix":
 			if c.Function == "" {
 				return fmt.Errorf("config: curve %q: function is required (want: max, min, average)", c.Name)
