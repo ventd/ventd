@@ -90,6 +90,22 @@ func TestWDSafety_Invariants(t *testing.T) {
 		if got := readTrimmed(t, enablePath2); got != strconv.Itoa(enable2) {
 			t.Errorf("pwm2_enable after Restore = %q, want %q", got, strconv.Itoa(enable2))
 		}
+
+		// RULE-WD-RESTORE-EXIT also covers RestoreOne (per #287 audit). Verify
+		// that after a successful Restore, a subsequent RestoreOne(pwm1)
+		// writes origEnable back without modifying the entries slice.
+		if err := os.WriteFile(enablePath1, []byte("2\n"), 0o600); err != nil {
+			t.Fatalf("perturb ch1 for RestoreOne leg: %v", err)
+		}
+		w.RestoreOne(pwm1)
+		if got := readTrimmed(t, enablePath1); got != strconv.Itoa(enable1) {
+			t.Errorf("RestoreOne(pwm1): pwm1_enable = %q, want %q",
+				got, strconv.Itoa(enable1))
+		}
+		if len(w.entries) != 2 {
+			t.Errorf("RestoreOne must not deregister: len(entries) = %d, want 2",
+				len(w.entries))
+		}
 	})
 
 	// ─── RULE-WD-RESTORE-PANIC ─────────────────────────────────────────
