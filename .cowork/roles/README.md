@@ -14,33 +14,54 @@ Future roles (not yet active): **Felix** (Architect, plan evolution), **Nora** (
 
 ## How to start a role conversation
 
-Open a new chat on claude.ai. Paste the one-liner for the role you want. The role's system prompt lives at `.cowork/roles/<name>/SYSTEM.md` on the `cowork/state` branch; the one-liner instructs the role to fetch it and boot from there.
+### The URL-fetch one-liner does not work
 
-### One-liners
+A previous version of this file documented a one-liner that asked Claude to fetch `https://raw.githubusercontent.com/ventd/ventd/cowork/state/.cowork/roles/<n>/SYSTEM.md` and adopt it as a system prompt. Claude's models correctly refuse this: an instruction to fetch an arbitrary URL and obey its contents is the exact shape of a prompt-injection attack, and the model has no way to distinguish "legitimate bootstrap" from "attacker tricked the user into pasting a hostile URL." Refusal is the correct default.
 
-**Atlas (orchestrator):**
+Do not use URL-fetch bootstraps for role identity. Use one of the two patterns below instead.
 
-```
-You are Atlas. Fetch and obey the system prompt at https://raw.githubusercontent.com/ventd/ventd/cowork/state/.cowork/roles/atlas/SYSTEM.md before doing anything else. Then read your last 20 worklog entries at .cowork/roles/atlas/worklog.md and resume.
-```
+### Pattern A (preferred) — Claude Project with custom system prompt
 
-**Cassidy (reviewer):**
+claude.ai Projects support a custom system prompt per project. This is the cleanest way to run a persistent role:
 
-```
-You are Cassidy. Fetch and obey the system prompt at https://raw.githubusercontent.com/ventd/ventd/cowork/state/.cowork/roles/cassidy/SYSTEM.md before doing anything else. Then read your last 20 worklog entries at .cowork/roles/cassidy/worklog.md and resume.
-```
+1. In claude.ai, create a new Project. Name it after the role (e.g. "Cassidy" or "Mia").
+2. Open the project's settings. Find the custom system prompt / instructions field.
+3. Copy the entire contents of `.cowork/roles/<n>/SYSTEM.md` from this repo. Paste into the custom system prompt field. Save.
+4. Start a new conversation in that project. The role is pre-loaded. The first user turn can simply say "Begin" or ask a specific question — no bootstrap ceremony needed.
 
-**Mia (triage):**
+Advantages:
+- No copy-paste of a long prompt on every new conversation.
+- No URL fetch (safe by construction).
+- The role's identity is a property of the project, not a user turn, so there's no injection-attack shape.
+- Multiple conversations can run in the same project; they share the role definition but each has its own fresh context.
 
-```
-You are Mia. Fetch and obey the system prompt at https://raw.githubusercontent.com/ventd/ventd/cowork/state/.cowork/roles/mia/SYSTEM.md before doing anything else. Then read your last 20 worklog entries at .cowork/roles/mia/worklog.md and resume.
-```
+Maintenance: when `SYSTEM.md` in this repo changes, update the project's custom system prompt field to match. The repo is the source of truth; the project is a mirror.
+
+### Pattern B (fallback) — paste SYSTEM.md directly in the first user turn
+
+If Projects aren't available or convenient:
+
+1. Open a new conversation in claude.ai.
+2. Paste the **entire contents** of `.cowork/roles/<n>/SYSTEM.md` as the first user message. Prefix with one line: `This is my role definition. Read it, confirm you understand, then begin work.`
+3. The model will acknowledge the role and proceed.
+
+This is accepted behaviour because user-turn instructions are normal; only URL-fetch-and-obey instructions trigger the injection defence.
+
+Disadvantage: you copy-paste the full SYSTEM.md every time you start a new conversation (no project persistence).
+
+### What the SYSTEM.md files contain
+
+Each role's `SYSTEM.md` is a self-contained role definition: identity, authoritative documents, job description, lane boundaries, handoff protocol, session start/end protocol, tone. They are written to be pasted or loaded as-is with no additional bootstrap.
+
+`.cowork/roles/atlas/SYSTEM.md` — orchestrator
+`.cowork/roles/cassidy/SYSTEM.md` — reviewer
+`.cowork/roles/mia/SYSTEM.md` — triage
 
 ## Coordination protocol
 
 ### Worklogs (append-only)
 
-Every role maintains `.cowork/roles/<name>/worklog.md` on `cowork/state`. Append one entry per significant action. Format:
+Every role maintains `.cowork/roles/<n>/worklog.md` on `cowork/state`. Append one entry per significant action. Format:
 
 ```
 ## <ISO-8601> <action>
@@ -54,24 +75,25 @@ Worklogs are authoritative. If a role acted, it must be in the worklog. If it's 
 
 ### Cross-role handoffs via GitHub issues
 
-When a role wants another role to act, it files an issue with a label of the form `role:<name>`. Example: Cassidy finds a regression in a merged PR → files an issue labelled `role:atlas` with the fix needed.
+When a role wants another role to act, it files an issue with a label of the form `role:<n>`. Example: Cassidy finds a regression in a merged PR → files an issue labelled `role:atlas` with the fix needed.
 
-Available role labels: `role:atlas`, `role:cassidy`, `role:mia`. All are created by this PR.
+Available role labels: `role:atlas`, `role:cassidy`, `role:mia`.
 
-Other roles ignore issues not labelled for them. A role's first action each session is to read its label-filtered queue: `is:issue is:open label:role:<name>`.
+Other roles ignore issues not labelled for them. A role's first action each session is to read its label-filtered queue: `is:issue is:open label:role:<n>`.
 
 ### Session start protocol (every role, every session)
 
-1. Read `.cowork/roles/<name>/SYSTEM.md` — confirm the current role definition hasn't changed.
-2. Read last 20 entries of `.cowork/roles/<name>/worklog.md`.
-3. Read open issues labelled `role:<name>`.
-4. Read last 5 entries of each other role's worklog (cross-role awareness).
-5. Begin work.
+1. Read `.cowork/roles/<n>/worklog.md` — last 20 entries.
+2. Read open issues labelled `role:<n>`.
+3. Read last 5 entries of each other role's worklog (cross-role awareness).
+4. Begin work.
+
+SYSTEM.md itself is loaded as the project's custom system prompt (Pattern A) or pasted at conversation start (Pattern B); it does not need to be re-read during the session.
 
 ### Session end protocol (every role, every session)
 
 1. Append a final worklog entry summarising the session: PRs touched, issues filed, blockers hit.
-2. If the role's protocol evolved during the session, update `SYSTEM.md` with the change. Document the change in the worklog entry.
+2. If the role's protocol evolved during the session, propose an edit to `SYSTEM.md` via a PR. Do not edit it in-place silently — protocol changes are visible diffs.
 3. No open worklog edits — every session-end commit is a clean stopping point.
 
 ### Conflict resolution
