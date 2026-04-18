@@ -1,6 +1,7 @@
 package fakehid_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -110,4 +111,54 @@ func TestDeviceHandle_SendFeatureReport(t *testing.T) {
 	if len(written) != 1 || written[0][0] != 0x01 || written[0][1] != 0xFF {
 		t.Errorf("Written after SendFeatureReport: got %v", written)
 	}
+}
+
+// TestFakehid_OpsAfterCloseReturnError regresses #305 concern 1: ops on a
+// closed DeviceHandle must return a non-nil error containing "closed".
+func TestFakehid_OpsAfterCloseReturnError(t *testing.T) {
+	h := fakehid.NewDeviceHandle()
+	if err := h.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	t.Run("Write", func(t *testing.T) {
+		_, err := h.Write([]byte{0x01})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "closed") {
+			t.Errorf("error %q does not contain 'closed'", err.Error())
+		}
+	})
+
+	t.Run("ReadWithTimeout", func(t *testing.T) {
+		_, err := h.ReadWithTimeout(make([]byte, 4), time.Second)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "closed") {
+			t.Errorf("error %q does not contain 'closed'", err.Error())
+		}
+	})
+
+	t.Run("GetFeatureReport", func(t *testing.T) {
+		buf := []byte{0x01, 0x00, 0x00}
+		_, err := h.GetFeatureReport(buf)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "closed") {
+			t.Errorf("error %q does not contain 'closed'", err.Error())
+		}
+	})
+
+	t.Run("SendFeatureReport", func(t *testing.T) {
+		_, err := h.SendFeatureReport([]byte{0x01, 0xFF})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "closed") {
+			t.Errorf("error %q does not contain 'closed'", err.Error())
+		}
+	})
 }
