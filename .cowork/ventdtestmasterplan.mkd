@@ -21,15 +21,713 @@ Same as main plan. Additions:
 
 ---
 
-## (sections 1-16 truncated in this commit)
+## 1 · Test architecture — the layering model
 
-See the full testplan. This file stores the plan Cowork roles read at session-start. The complete content lives in the project repository's main branch planning notes and in the Cowork project attached documents.
+Ventd tests live in five tiers. A PR that adds a feature lands tests in the tiers that apply; tiers below it must already be green.
+
+```
+  Tier 5 — Release validation (HIL, cross-OS smoke)       validation/
+           Manual, pre-release only.
+  Tier 4 — End-to-end (browser, full daemon)              internal/web/e2e_*
+           go-rod headless Chromium. Gates PRs via e2e.yml.
+  Tier 3 — Integration (multi-package, fixtures)          internal/*/integration_*
+           Fake sysfs, fake IPMI, fake HID. Gates PRs.
+  Tier 2 — Unit + property + fuzz                         internal/*/<pkg>_test.go
+           Fast. Runs on every test invocation. Gates PRs.
+  Tier 1 — Static analysis                                vet, lint, staticcheck, vulncheck
+           Runs before tests.
+```
+
+Rules:
+
+- A feature cannot regress a tier it previously passed. If Tier 4 was green and now fails, the feature PR is rejected regardless of Tier 2 status.
+- New tiers never appear. If a test doesn't fit a tier, escalate.
+- Each tier has a dedicated CI job; failure in any tier fails the PR.
+
+---
+
+## 2 · Invariant binding — generalise the hwmon-safety pattern
+
+Ventd already has one working invariant file (`.claude/rules/hwmon-safety.md`) bound 1:1 to `internal/controller/safety_test.go:TestSafety_Invariants`. This pattern is extended to every safety-critical surface.
+
+Rule files to own (each is a markdown file under `.claude/rules/`):
+
+| File | Owned by suite | Scope |
+|---|---|---|
+| `hwmon-safety.md` | `internal/controller/safety_test.go:TestSafety_Invariants` | PWM clamping, pwm_enable restore, stop-fan gates, panic mode (exists) |
+| `calibration-safety.md` | `internal/calibrate/safety_test.go:TestCalSafety_Invariants` | ZeroPWMSentinel, fingerprint fences, checkpoint atomicity, abort semantics |
+| `watchdog-safety.md` | `internal/watchdog/safety_test.go:TestWDSafety_Invariants` | Restore runs on every exit path, per-fan panic recovery, fallback to firmware-auto |
+| `hal-contract.md` | `internal/hal/contract_test.go:TestHAL_Contract` | Every backend obeys: Enumerate is idempotent, Read never writes, Write clamps, Restore is safe on unopened channels, Caps is stable |
+| `ipmi-safety.md` | `internal/hal/ipmi/safety_test.go` | ioctl timeout, retry backoff, no uncontrolled manual-mode entry, fallback to firmware auto on daemon exit |
+| `liquid-safety.md` | `internal/hal/liquid/safety_test.go` | USB disconnect mid-write never leaves pump below `pump_minimum`, reconnect re-arms safely |
+| `pi-stability.md` | `internal/curve/pi_safety_test.go` | Integral anti-windup bounded, gain bounds enforced, fallback on NaN |
+| `mpc-stability.md` | `internal/curve/mpc_safety_test.go` | Solver always returns feasible in ≤ 10 ms, residual fallback to PI, model persistence is atomic |
+| `acoustic-safety.md` | `internal/acoustic/safety_test.go` | Microphone capture never blocks the control loop, FFT bounded memory, false-positive rate capped |
+| `config-schema.md` | `internal/config/schema_test.go:TestSchema_Invariants` | Every config field has a validator; every validator has a rejecting fixture |
+| `web-security.md` | `internal/web/security_invariants_test.go` | CSRF, CSP, rate limit, TLS, path traversal, constant-time compare |
+
+Rule file format:
+
+```
+# <Scope> Invariants
+Each rule below is bound 1:1 to a subtest in <file>:<function>.
+Editing a rule requires editing the corresponding subtest in the
+same PR. Adding a rule requires landing the subtest in the same PR.
+
+## RULE-<ID>: <one-line invariant>
+<paragraph explaining the invariant, why it holds, what fails if it doesn't>
+Bound: <file>:<subtest_name>
+
+## RULE-<ID>: ...
+```
+
+Enforcement: a CI lint (T-META-01) parses every rule file, confirms every `Bound:` line points to a real subtest, and fails if any rule is unbound or any subtest exists without a rule.
+
+---
+
+## 3 · Fixture library
+
+Every backend gets a reusable fixture under `internal/testfixture/<backend>/`. Tests import them; they are not duplicated per-test.
+
+| Fixture | Package | Fakes | Consumers |
+|---|---|---|---|
+| `fakehwmon` | `internal/testfixture/fakehwmon` | `/sys/class/hwmon/hwmonN/` trees with configurable pwm/fan/temp/chip-name/pwm_enable | controller, calibrate, hwmon, monitor, setup, watchdog |
+| `fakeipmi` | `internal/testfixture/fakeipmi` | Stubbed `/dev/ipmi0` via named-pipe + ioctl table; returns canned sensor/SDR responses for Supermicro/Dell/HPE | hal/ipmi, watchdog (IPMI restore) |
+| `fakeliquid` | `internal/testfixture/fakeliquid` | USB HID mock with Corsair Commander Core / NZXT X3 / Lian Li UNI Hub protocols | hal/liquid |
+| `fakecrosec` | `internal/testfixture/fakecrosec` | `/dev/cros_ec` stub; implements EC_CMD_* responses | hal/crosec |
+| `fakepwmsys` | `internal/testfixture/fakepwmsys` | `/sys/class/pwm/pwmchipN/pwmN` tree | hal/pwmsys |
+| `fakenvml` | `internal/testfixture/fakenvml` | purego-loadable shim; returns canned NVML responses; gated by build tag | nvidia, monitor |
+| `fakewmi` | `internal/testfixture/fakewmi` | Stub Windows WMI provider via embedded JSON-fed fake | hal/windows (cross-compile build only) |
+| `fakesmc` | `internal/testfixture/fakesmc` | IOKit stub returning SMC key/value pairs | hal/macos (cross-compile build only) |
+| `fakemic` | `internal/testfixture/fakemic` | Signal-generator producing synthetic fan acoustics with configurable blade-pass + bearing defects | acoustic |
+| `fakedmi` | `internal/testfixture/fakedmi` | `/sys/class/dmi/id/*` tree, known board fingerprints (MSI MEG X570, Gigabyte X870E Aorus, ASUS Prime X670E, Supermicro X11, Dell PowerEdge R750, Framework 13/16, RPi 5, MacBook Pro 14 Asahi) | hwdb, setup, autoload |
+| `fakedbus` | `internal/testfixture/fakedbus` | Abstract-socket D-Bus endpoint returning StartUnit/StopUnit canned responses | modprobe, hal/ipmi, watchdog |
+| `fakeuevent` | `internal/testfixture/fakeuevent` | AF_NETLINK pair writing canned kernel messages | hwmon/watcher |
+| `faketime` | `internal/testfixture/faketime` | Monotonic clock override for deterministic timer tests | calibrate, controller, watchdog, acoustic |
+| `fakecfg` | `internal/testfixture/fakecfg` | Builder that yields known-good and known-bad configs for round-tripping | config, setup, web |
+
+Fixture rules:
+
+- Every fixture has a `New*(t *testing.T, opts *Options)` constructor that wires cleanup via `t.Cleanup()`.
+- Fixtures must be deterministic: no wallclock, no `rand.Float64()` without a seeded source, no real network.
+- Fixtures must be race-clean; `go test -race ./...` must pass with every fixture exercised.
+- No real hardware I/O. If a backend's logic is unreachable without real hardware, the untested path is documented in `COVERAGE.md` and covered in Tier 5 HIL only.
+
+---
+
+## 4 · Fuzzing & property-based tests
+
+Fuzz targets, each using Go native fuzzing (`f.Fuzz`):
+
+| Target | Package | Corpus seed | Invariant |
+|---|---|---|---|
+| `FuzzConfigParse` | internal/config | `testdata/fuzz/config_*` + every validation fixture | Parse never panics; parse-serialise-reparse is stable |
+| `FuzzYAMLMigrate` | internal/config | Every version of config.example.yaml across tags | Migrate always produces a valid current-schema config |
+| `FuzzIPMIResponse` | internal/hal/ipmi | Recorded BMC responses (Supermicro, Dell) + random bit-flips | Parse never panics; unknown fields logged not crashed |
+| `FuzzHIDReport` | internal/hal/liquid | Recorded reports from each supported device + random noise | Parse never panics; out-of-range values clamp |
+| `FuzzExprCurve` | internal/curve | Malicious expressions (infinite loops, huge allocs, nested refs) | Bounded eval; rejects cleanly |
+| `FuzzDMIFingerprint` | internal/hwdb | Synthesised DMI trees including UTF-8 and control chars | Match never panics; anonymiser strips PII |
+| `FuzzMpcModel` | internal/curve | Random ARX coefficients + synthetic thermal traces | Solver returns finite, feasible PWM in ≤ 10 ms |
+| `FuzzModulesAlias` | internal/hwmon | Real `/lib/modules/*/modules.alias` files + malformed | Parser reports expected modules without panic |
+| `FuzzChipName` | internal/config | Random chip-name strings including Unicode | EnrichChipName never crashes; idempotent |
+| `FuzzUeventFrame` | internal/hwmon | Real AF_NETLINK captures + truncated/padded variants | No panic; watcher stays responsive |
+| `FuzzSetupToken` | internal/web | Random byte strings for setup-token compare | Constant-time compare; no timing oracle (verify via `-count` histogram) |
+| `FuzzACPIParse` | internal/hal/windows | Synthesised ACPI table bytes (cross-compiled) | No panic |
+| `FuzzSMCKey` | internal/hal/macos | SMC key wire frames | No panic; unknown keys reported not crashed |
+
+Property tests (using `testing/quick` or `gopter`):
+
+| Property | Package | Claim |
+|---|---|---|
+| `PropCurveMonotonicNonDecreasing` | internal/curve | For `linear`/`points` curves, `tempA ≤ tempB ⇒ evaluate(tempA) ≤ evaluate(tempB)` |
+| `PropCurveClamped` | internal/curve | Output ∈ `[0, 100]` for every input |
+| `PropSmoothingConvergence` | internal/controller | EMA output converges to a constant input within `5·τ` |
+| `PropPIStability` | internal/curve | For any `(Kp, Ki)` within config bounds and step disturbance, integral bounded ≤ IntegralClamp |
+| `PropHysteresisNoFlutter` | internal/controller | Within deadband, output is identical across a sensor oscillation |
+| `PropMPCFeasibility` | internal/curve | Solver always returns a value within `[MinPWM, MaxPWM]`, even on degenerate models |
+| `PropDitherMean` | internal/controller | Sum of dither offsets across fans bound to same curve ≈ 0 over time |
+| `PropConfigRoundtrip` | internal/config | Parse(Serialise(c)) == c for every valid c |
+| `PropHWDBDeterministic` | internal/hwdb | Match(fp) is a pure function: same input → same output |
+
+Each fuzz target runs for `-fuzztime=10s` in CI on PR, and for `10m` nightly. Corpora are committed at `internal/*/testdata/fuzz/`. Nightly finds that trip a new crasher are committed as PRs to grow the corpus.
+
+---
+
+## 5 · Chaos / fault injection
+
+Fault-injection wrappers let tests simulate every realistic hardware failure. All injection is via a `faultfs.FS` interface that wraps the real or fake filesystem; the production code takes an `fs.FS`-like abstraction (already needed for the HAL abstraction in the main plan, so no extra wiring).
+
+| Injection | Where | Tests |
+|---|---|---|
+| EIO on first N writes, then success | fakehwmon | Controller retry path; watchdog fallback on repeated failure |
+| ETIMEDOUT on read | fakehwmon, fakeipmi | Controller skip-tick; calibration settle-timeout |
+| Partial write (short write) | fakehwmon | Controller detects torn write and retries |
+| ENOSPC on checkpoint | fakefile | Calibrate surfaces error without corrupting previous checkpoint |
+| Slow I/O (100ms latency) | faketime + fakehwmon | Hot loop doesn't stall past poll interval |
+| USB disconnect mid-frame | fakeliquid | Liquid backend pumps above `pump_minimum`; re-arms on reconnect |
+| BMC returns completion code 0xC3 (busy) | fakeipmi | Backend retries with exponential backoff, caps at 3 |
+| Kernel sends ENOBUFS on AF_NETLINK | fakeuevent | Watcher continues via fallback poll |
+| modprobe exits non-zero | fakemodprobe | Autoload surfaces error to diag without crashing |
+| Config file truncated mid-YAML | fakefile | Load error is clear; daemon falls back to last-good if applicable |
+| Setup token file missing | fakefile | Daemon regenerates token, logs clearly |
+| NVML dlopen returns nil | fakenvml | GPU features disabled silently; no panic |
+| OOM during MPC solve | `testing.AllocsPerRun` | Solver falls back to PI |
+| Clock skew during calibration | faketime | Calibration step times out correctly regardless of wallclock jumps |
+| `/sys` re-enumeration mid-tick (hwmon renumber) | fakehwmon | Controller re-resolves via ChipName; no fan stalled |
+
+Chaos suite sits at `internal/chaos/` and runs as a separate CI job (`chaos.yml`) to keep signal-to-noise high. Tier-3 level.
+
+---
+
+## 6 · Concurrency testing
+
+Every test package imports `go.uber.org/goleak`. `TestMain` wrappers assert zero goroutine leaks.
+
+Race-specific suites:
+
+| Suite | Verifies |
+|---|---|
+| `TestRace_ConfigHotReload` | SIGHUP mid-tick doesn't torn-read config; atomic.Pointer swap ordering |
+| `TestRace_CalibrateVsController` | Calibration starts, controller yields, calibration finishes, controller resumes without double-writing PWM |
+| `TestRace_PanicVsTick` | Panic button engages mid-tick; controller respects panic gate within 1 tick |
+| `TestRace_WatchdogRestore` | Restore concurrent with tick; last write is deterministic |
+| `TestRace_WebSSEBroadcast` | 100 SSE subscribers; buildStatus called once per cadence, not N times |
+| `TestRace_HotplugDuringCalibrate` | uevent fires mid-calibration; calibration fingerprint-check prevents cross-contamination |
+| `TestRace_FleetGossip` | 10 nodes gossip concurrently; membership converges within 10s (sim clock) |
+
+All run under `-race`. Alpine lane's `-race` skip is lifted for pure-Go packages (only external-cgo-dep packages are exempt).
+
+Deadlock detection: `TestDeadlock_*` suites run under `-timeout=30s` and a `runtime/deadlock` build-tag variant that converts `sync.Mutex` to `deadlock.Mutex` for diagnosis. Not gating CI; runs nightly.
+
+---
+
+## 7 · Benchmarks
+
+Benchmarks run in a dedicated CI job (`bench.yml`) with `benchstat` comparing PR vs base. Regressions > 10 % fail the job.
+
+| Benchmark | Package | Asserts |
+|---|---|---|
+| `BenchmarkTick_5Fans_10Sensors` | internal/controller | < 50 µs per tick, zero alloc |
+| `BenchmarkTick_30Fans_50Sensors` | internal/controller | < 500 µs per tick |
+| `BenchmarkCurveLinear` | internal/curve | < 100 ns, 0 alloc |
+| `BenchmarkCurvePointsBinarySearch` | internal/curve | < 200 ns, 0 alloc |
+| `BenchmarkCurveMix_10Sources` | internal/curve | < 2 µs, 0 alloc (via sync.Pool) |
+| `BenchmarkMPCSolve` | internal/curve | < 10 ms, < 32 KB alloc |
+| `BenchmarkPIEvaluate` | internal/curve | < 500 ns |
+| `BenchmarkConfigLoad` | internal/config | < 5 ms for realistic config |
+| `BenchmarkHWMonEnumerate_50Devices` | internal/hwmon | < 20 ms |
+| `BenchmarkModulesAliasParse` | internal/hwmon | < 50 ms for kernel's default alias file |
+| `BenchmarkSSEBroadcast_100Subscribers` | internal/web | Scales O(1) in producer, not O(N) |
+| `BenchmarkFFT_48kHz_1s` | internal/acoustic | < 50 ms on amd64 |
+| `BenchmarkMetricsScrape` | internal/web | < 5 ms for full metric set |
+| `BenchmarkBuildStatus` | internal/web | < 2 ms with 30 fans |
+
+Baselines committed at `docs/benchmarks.md`; updated in the same PR as the regression or improvement.
+
+---
+
+## 8 · Integration tests
+
+Integration = multi-package, wired via `main.Run(...)` with fixtures for hardware and network.
+
+| Test | Scope |
+|---|---|
+| `TestIntegration_HappyPath_DesktopSuperIO` | Full daemon with fakehwmon simulating MSI MEG X570; controller converges; web serves /api/status |
+| `TestIntegration_HappyPath_Server` | fakeipmi; daemon enumerates IPMI channels; writes via the socket-activated sidecar mock |
+| `TestIntegration_HappyPath_Laptop` | fakecrosec Framework 13 fixture; single fan with EC curve |
+| `TestIntegration_HappyPath_AIO` | fakeliquid Commander Core; pump + 3 fans; pump_minimum enforced |
+| `TestIntegration_HappyPath_GPU` | fakenvml RTX 4090; GPU fan write path |
+| `TestIntegration_HappyPath_MixedPlatform` | hwmon + NVML + liquid simultaneously |
+| `TestIntegration_SetupWizard` | First-boot: no config → setup token → wizard → applied config → controller running |
+| `TestIntegration_SIGHUPReload` | Config edit + SIGHUP; running controllers pick up new curves without restart |
+| `TestIntegration_SIGTERMGraceful` | Signal triggers watchdog restore within 2 s |
+| `TestIntegration_SIGKILLRecovery` | `ventd-recover` oneshot completes within 2 s |
+| `TestIntegration_Hotplug_FanAdd` | Uevent adds pwm4; watcher notices; UI lists it |
+| `TestIntegration_Hotplug_FanRemove` | Uevent removes pwm4; controller stops goroutine; no leak |
+| `TestIntegration_HwmonRenumber` | Reboot scenario: hwmon5 becomes hwmon3; ChipName re-anchors |
+| `TestIntegration_CalibrationCrashResume` | Kill mid-calibration; restart; resume from checkpoint |
+| `TestIntegration_PanicButton` | POST /api/panic; all fans hit MaxPWM; server-owned timer restores after TTL |
+| `TestIntegration_ProfileImport` | Fingerprint match in hardware-profiles DB; wizard zero-click |
+| `TestIntegration_FleetDiscover` | Two daemons on test LAN; mDNS discovers; /api/fleet/status returns both |
+| `TestIntegration_MPCFallback` | MPC model residual exceeds threshold; falls back to PI without PWM glitch |
+
+Each integration test runs in < 10 s wallclock via faketime. CI budget: integration suite completes in < 2 minutes.
+
+---
+
+## 9 · End-to-end (browser) tests
+
+Extend `internal/web/e2e_test.go` (go-rod) with these scenarios:
+
+| Scenario | Asserts |
+|---|---|
+| `E2E_FirstBoot_TokenFlow` | Setup token entry → password set → dashboard loads |
+| `E2E_WizardZeroClick` | Profile-matched system: single "Apply" |
+| `E2E_FanEdit_DragPoints` | Drag a point on the curve editor; value updates in API |
+| `E2E_ApplyDiffModal` | Edit config; modal shows diff; accept applies; reject discards |
+| `E2E_PanicButton_CountdownVisible` | Panic engaged; UI shows countdown; auto-restore at 0 |
+| `E2E_SSE_Stream` | Open dashboard; sensor readings update every 2s without polling fallback |
+| `E2E_SSE_Failover` | Kill SSE connection; client falls back to polling |
+| `E2E_Settings_SystemStatus` | Settings → System Status; all endpoints return |
+| `E2E_Settings_Watchdog_CountdownPing` | Watchdog section reflects sd_notify state |
+| `E2E_Theme_DarkMode` | Toggle theme; localStorage persists; reload retains |
+| `E2E_Accessibility_Keyboard` | Full wizard traversal via Tab/Enter only |
+| `E2E_Accessibility_ARIALive` | Status region announces changes |
+| `E2E_Mobile_Drawer` | Viewport < 768px; sidebar is a drawer; hamburger toggles |
+| `E2E_i18n_LanguageSwitch` | Set Accept-Language=de; UI renders German strings |
+| `E2E_CSP_NoInlineViolations` | Browser console has zero CSP violations |
+
+CI runs E2E with headless Chromium + Firefox (rod supports both). Flake budget: retries ≤ 2; persistent flakes escalate.
+
+---
+
+## 10 · Hardware-in-loop (Tier 5)
+
+`validation/` already has fresh-VM smoke + rig-check tiers. Extend:
+
+| Script | Runs on | Gates |
+|---|---|---|
+| `validation/fresh-vm-smoke.sh` | Incus containers (Ubuntu/Debian/Fedora/Arch) | existing |
+| `validation/cross-platform-smoke.sh` (new) | QEMU: FreeBSD, OpenBSD + VMware Fusion Workstation for Windows/macOS snapshots | Daemon starts; `/api/ping` 200 |
+| `validation/rig-check-desktop.sh` (extend) | Developer's desktop with real Super I/O | All 12 hwmon-safety invariants verified against real hardware |
+| `validation/rig-check-server.sh` (new) | Any BMC/IPMI-equipped box (borrow if absent) | IPMI enumerate + write + graceful restore |
+| `validation/rig-check-aio.sh` (new) | Box with Corsair / NZXT / Lian Li AIO | Liquid backend full lifecycle; pump safety |
+| `validation/rig-check-laptop.sh` (new) | Framework 13 / ThinkPad / Dell laptop | EC backend read/write; no EC lockout |
+| `validation/rig-check-sbc.sh` (new) | Raspberry Pi 5 + one generic ARM NAS | PWM sysfs enumeration + write |
+| `validation/rig-check-asahi.sh` (new) | Mac Mini M2 running Asahi | Detection + monitoring (fan-write gated per Asahi upstream) |
+| `validation/rig-check-mac.sh` (new) | Intel Mac + Apple Silicon Mac | SMC read/write |
+| `validation/rig-check-acoustic.sh` (new) | Rig with a USB mic | Baseline capture + synthetic anomaly injection |
+
+Each rig-check emits a markdown log; logs accumulate in `validation/` as evidence for release. A release tag is blocked until every rig-check for the targeted hardware classes has a green log dated after the release branch was cut.
+
+---
+
+## 11 · Regression / issue replay
+
+Every closed GitHub issue that represented a real bug gets a replay test. Naming: `TestRegression_Issue<N>_<short_slug>`.
+
+The pattern:
+
+1. Reproduce the exact conditions of the bug (fixture, input, sequence).
+2. Assert the correct behaviour.
+3. Commit the test in the same PR that fixes the issue; the test must fail before the fix and pass after.
+
+A CI lint (T-META-02) scans for every closed issue with `type: bug` and verifies `grep -r "Issue<N>_" internal/ cmd/` returns a hit. Issues labeled `no-regression-test` are exempt with an explanation in the issue.
+
+Seed this backlog with the bugs already referenced in `COVERAGE.md` and `CHANGELOG.md`:
+
+| Issue | Replay test |
+|---|---|
+| #86 | `TestRegression_Issue86_HwmonRenumberColdBoot` — cold-boot udev race |
+| #103 | `TestRegression_Issue103_HwmonStartupRetry` — ErrHwmonDeviceNotReady retry loop |
+| #115 | `TestRegression_Issue115_AllowStopGate` — pwm=0 requires allow_stop (covered) |
+| #116 | `TestRegression_Issue116_RestoreOnCtxCancel` — restore runs on context cancel (covered) |
+| #118 | `TestRegression_Issue118_SafetyInvariantCoverage` — meta-test: every rule bound |
+| #124 | `TestRegression_Issue124_AllowStopCtxCancel` — combined gate (covered) |
+| #131 | `TestRegression_Issue131_ManagerRootInjection` — sysfs/procfs root extraction (covered) |
+| #132 | `TestRegression_Issue132_CalibrateManagerInterface` — setup manager vs calibrate.Manager |
+| #133 | `TestRegression_Issue133_WizardHandlers` — wizard HTTP handler coverage |
+| #163 | `TestRegression_Issue163_ManagerRootSysfs` — manager root injection (covered) |
+| #197 | `TestRegression_Issue197_PopulatedSettings` — settings modal SSE populated |
+| #202 | `TestRegression_Issue202_AppArmorDebian13` — parse-only under Debian trixie (covered via apparmor-parse-debian13 CI lane) |
+| #203 | `TestRegression_Issue203_ColorScheme` — browser dark-mode override fight |
+| #204 | `TestRegression_Issue204_AppArmorParseFailure` — deploy fix on Debian 13 |
+| #205 | `TestRegression_Issue205_NonLinuxContributors` — docs-only, exempt |
+| #207 | `TestRegression_Issue207_HTTPSURL_CRLFSelfHeal` — install script CRLF self-heal |
+| #209 | `TestRegression_Issue209_HwmonDebugTelemetry` — /api/debug/hwmon shape |
+| #212 | `TestRegression_Issue212_PanicButton` — server-owned restore timer |
+| #213 | `TestRegression_Issue213_SystemdUnitComment` — docs-only, exempt |
+| #214 | `TestRegression_Issue214_ProfileDropdownChange` — fires `change` not `click` |
+| #217 | `TestRegression_Issue217_SettingsModalWaitGate` — e2e wait-gate stability |
+| #219 | `TestRegression_Issue219_AppArmorArm64` — matrix row |
+| #220 | `TestRegression_Issue220_WizardChipExplainer` — calibration chip-name UI |
+| #221 | `TestRegression_Issue221_HysteresisSmoothing` — per-curve hysteresis + EMA |
+| #222 | `TestRegression_Issue222_MultiPointCurves` — interactive editor invariants |
+| #224 | `TestRegression_Issue224_CurveSimulationPreview` — live projections |
+| #226 | `TestRegression_Issue226_PWMPercentMigration` — legacy 0-255 → 0-100 |
+
+Future issues: the PR-template in `.github/PULL_REQUEST_TEMPLATE.md` gets a required checkbox "Regression test referenced: `TestRegression_Issue<N>_*`". Cowork's review checklist adds row R19: "Regression test present for every issue in PR's `Fixes:` list."
+
+---
+
+## 12 · Observability & metrics tests
+
+| Test | Asserts |
+|---|---|
+| `TestMetrics_Shape` | Every metric from `P8-METRICS-01` has name/help/labels matching the committed `docs/metrics.md`. Schema drift fails. |
+| `TestMetrics_NoHighCardinality` | No label with more than 1000 distinct values observed over a synthetic 24-hour run |
+| `TestOTel_TraceStructure` | Every controller tick emits one span with expected attributes |
+| `TestHistory_Ring_Correctness` | 30-minute ring: oldest eviction, sorted order, memory cap |
+| `TestHistory_ConcurrentWriter` | Write at 10 Hz, read at 1 Hz; race-clean |
+| `TestStructuredLog_JSONShape` | Every `slog` call emits valid JSON; no interpolated strings in messages |
+| `TestAlerts_Drift` | Injected 20% drift triggers `ventd_fan_anomaly{kind="drift"}` within the rolling window |
+| `TestAlerts_Bearing` | Injected sub-harmonic triggers `ventd_fan_anomaly{kind="bearing"}` |
+
+---
+
+## 13 · Security tests
+
+| Test | Package | Asserts |
+|---|---|---|
+| `TestSec_PathTraversal_HwmonWrite` | config | `../` + `%2e%2e` + absolute-symlink rejected |
+| `TestSec_CSRFOrigin` | web | Cross-origin POST/PUT/DELETE rejected |
+| `TestSec_CSP_NoUnsafeInline` | web | Response header contains strict CSP |
+| `TestSec_HSTS_Present` | web | HSTS present on TLS only |
+| `TestSec_PermissionsPolicy` | web | Header present; denies unused features |
+| `TestSec_ConstantTimeTokenCompare` | web | Timing histogram difference ≤ 1σ between correct and wrong tokens over N=10k trials |
+| `TestSec_RateLimitPerIP` | web | 6th attempt in 15 minutes is 429; cooldown honoured |
+| `TestSec_RateLimit_Proxy_XFF` | web | XFF walk right-to-left; trusted CIDRs only |
+| `TestSec_SelfSignedCert_SANs` | web | Every local IP + hostname.local + localhost in SANs |
+| `TestSec_TLS_TLS12Min` | web | TLS ≤ 1.1 handshake rejected |
+| `TestSec_SetupToken_OneShot` | web | Second use of the same token is 403 |
+| `TestSec_SessionCookie_HttpOnly_Secure_SameSite` | web | Flags set per config |
+| `TestSec_YAMLBombs` | config | Alias bomb, anchor bomb, huge-doc → rejected; no OOM |
+| `TestSec_UDEVRule_NoWorldWritable` | deploy | All installed rules scoped to `ventd` group |
+| `TestSec_SystemdUnit_ZeroCaps` | deploy | `CapabilityBoundingSet=` empty in main unit |
+| `TestSec_BinaryHasNoCGO` | cmd | `go version -m ventd` shows no cgo |
+| `TestSec_BinaryFullRelro` | cmd | `readelf -d ventd` shows BIND_NOW, NX, RELRO |
+| `TestSec_ModprobeAllowlist` | ventd-modprobe | Only allowlisted modules accepted; fuzz for bypass |
+| `TestSec_ExprCurve_Sandbox` | curve | No `os`, `io`, `net` reachable from expression |
+
+---
+
+## 14 · Supply-chain tests
+
+Run in `release.yml` and gate tags.
+
+| Test | Asserts |
+|---|---|
+| `SupplyChain_SBOM_Valid` | `cyclonedx-cli validate` on the SBOM |
+| `SupplyChain_SBOM_NoCVE_Critical` | `govulncheck` returns no CRITICAL against SBOM |
+| `SupplyChain_Cosign_VerifyBlob` | Every released artefact verifies |
+| `SupplyChain_SLSA_Provenance` | Generated provenance validates against slsa-verifier |
+| `SupplyChain_Reproducible_Rebuild` | Rebuild the same tag twice; SHA256 identical |
+| `SupplyChain_Docker_Rootless` | Container image `USER` ≠ 0 |
+| `SupplyChain_Checksums_Match` | `checksums.txt` present and SHA-256s valid |
+
+---
+
+## 15 · Documentation & example tests
+
+| Test | Asserts |
+|---|---|
+| `TestDocs_ConfigExampleParses` | `config.example.yaml` loads cleanly via `config.Parse` |
+| `TestDocs_ConfigReferenceExhaustive` | Every YAML field used in code appears in `docs/config.md`; the reverse too |
+| `TestDocs_RoadmapReferencesValidPhases` | `docs/roadmap.md` phase names match masterplan |
+| `TestDocs_APIRefMatchesRoutes` | Every route registered in `server.go` is documented in `docs/api.md` (added by a Phase-10 doc task) |
+| `TestDocs_MetricsRefMatches` | `docs/metrics.md` matches code-registered metrics |
+| `TestDocs_Changelog_Unreleased` | Every merged PR since last tag has an entry under `## Unreleased` |
+| `TestDocs_ExamplesCompile` | Any Go fences in docs compile (via `go-extract-markdown` or hand-rolled) |
+
+---
+
+## 16 · CI matrix — what runs when
+
+Extend the current matrix (`ci.yml`, `e2e.yml`, `docker.yml`, `govulncheck.yml`):
+
+### Per-PR, blocking
+
+- `build-and-test-ubuntu` — amd64, glibc, race
+- `build-and-test-ubuntu-arm64` — native arm64, race
+- `build-and-test-fedora-41` — dnf, race
+- `build-and-test-arch` — pacman, race
+- `build-and-test-alpine-3.20` — musl, race (race lifted per §6 for pure-Go packages)
+- `e2e-chromium` — go-rod on headless Chromium
+- `e2e-firefox` — go-rod on Firefox
+- `integration-linux` — Tier 3 integration suite
+- `chaos-linux` — Tier 3 chaos-injection suite
+- `fuzz-smoke` — every fuzz target for 10s
+- `bench-regression` — benchstat vs base; fail on > 10 % regression
+- `static-analysis` — go vet, golangci-lint, staticcheck, gofmt, govulncheck
+- `security-tests` — the §13 suite
+- `meta-lint` — every rule has a subtest; every PR references a regression test for each `Fixes:` issue
+- `shellcheck` — scripts/ + deploy/
+- `nix-drift` — unchanged
+- `apparmor-parse-debian13` — unchanged
+
+### Nightly
+
+- `fuzz-long` — every fuzz target for 10m
+- `deadlock-probe` — deadlock-mutex variant
+- `cross-compile-smoke` — Windows/macOS/FreeBSD/OpenBSD/illumos/Android build + unit tests
+- `bench-trend` — commit baseline to `docs/benchmarks.md`
+- `govulncheck-deep` — full module graph
+
+### Release-gating
+
+- `supply-chain` — §14 suite
+- `rig-check-*` — developer runs the §10 scripts; logs committed
+- `reproducibility-rebuild` — SHA256 match
+
+### PR annotation, non-blocking
+
+- `coverage-report` — per-package coverage delta as a PR comment
+- `test-time-budget` — top 20 slowest tests; alert on growth
 
 ---
 
 ## 17 · Task catalogue
 
-(see full doc)
+Every task here has an ID beginning with `T-` and a `Depends on` column referencing the main masterplan. Format matches main plan §8.
+
+### Phase T0 — Foundation
+
+**T0-INFRA-01 | INFRA | — | `internal/testfixture/**` (new skeletons), `testutil/` (new)**
+Goal: land the fixture library skeleton with no implementation yet — just stable import paths and interfaces.
+DoD: packages compile, each exports `New(t, opts)` returning a stub that records calls.
+
+**T0-INFRA-02 | INFRA | T0-INFRA-01 | `internal/testfixture/fakehwmon/**`**
+Goal: implement fakehwmon with the features listed in §3.
+DoD: used by at least 3 existing tests; replaces ad-hoc `t.TempDir()` duplication.
+
+**T0-INFRA-03 | INFRA | T0-INFRA-01 | `internal/testfixture/faketime/**`**
+Goal: fakeclock with advance/wait semantics and goroutine-safe guarantees.
+DoD: used by calibrate tests.
+
+**T0-META-01 | META | — | `.github/workflows/meta-lint.yml` (new), `tools/rulelint/**` (new)**
+Goal: CI lint that asserts rule-to-subtest binding for every `.claude/rules/*.md`.
+DoD: introducing an orphan rule or subtest fails the job.
+
+**T0-META-02 | META | — | `.github/workflows/meta-lint.yml`, `tools/regresslint/**` (new)**
+Goal: assert every closed bug issue has a regression test OR is labeled `no-regression-test`.
+DoD: backlog audit committed as issue comments.
+
+**T0-META-03 | META | — | `.github/PULL_REQUEST_TEMPLATE.md`**
+Goal: PR template with required "Regression test for: #N" line per `Fixes:` entry.
+DoD: template lands; Cowork review row R19 added to main plan.
+
+### Phase T1 — Tier-promotion for current backends
+
+**T-HAL-01 | HAL | P1-HAL-01 | `internal/hal/contract_test.go` (new), `.claude/rules/hal-contract.md` (new)**
+Goal: establish the HAL contract as an invariant file bound to a table-driven test that runs against every registered backend.
+DoD: running `go test -run TestHAL_Contract ./internal/hal/...` exercises hwmon + nvml backends; every new backend PR must add a row.
+
+**T-CAL-01 | CAL | P1-HAL-02 | `internal/calibrate/safety_test.go`, `.claude/rules/calibration-safety.md`**
+Goal: introduce `TestCalSafety_Invariants` mirroring the controller's safety suite.
+DoD: existing ZeroPWMSentinel tests bound as subtests; 6 new invariants added (checkpoint atomicity, fingerprint fence, abort semantics, resume idempotency, pump sentinel, zero-during-stop-sweep).
+
+**T-WD-01 | WD | P1-HAL-01 | `internal/watchdog/safety_test.go` (new), `.claude/rules/watchdog-safety.md` (new)**
+Goal: bring watchdog coverage from 23% to >80% via rule-bound invariants.
+DoD: 7 invariants covered (restore on panic, restore on SIGTERM, restore on ctx cancel, per-fan panic recovery, fallback on missing pwm_enable, NVIDIA reset path, rpm_target writes maxRPM).
+
+**T-HOT-01 | HOT | P1-HOT-01 | `internal/controller/bench_test.go` (new)**
+Goal: benchmarks + alloc assertions for the post-optimisation hot loop.
+DoD: `BenchmarkTick_5Fans_10Sensors` and `BenchmarkTick_30Fans_50Sensors` meet the §7 budgets.
+
+**T-FP-01 | FP | P1-FP-01 | `internal/hwdb/match_test.go`, `internal/testfixture/fakedmi/**`**
+Goal: table-driven tests for 18+ board fingerprints.
+DoD: every row maps to a known-match outcome.
+
+**T-HWMON-01 | HWMON | P1-MOD-01 | `internal/hwmon/modalias_test.go` (new)**
+Goal: test modules.alias + modules.builtin-modinfo parser with real kernel samples.
+DoD: corpus includes Ubuntu 24.04, Fedora 41, Arch, Alpine kernels.
+
+**T-HWMON-02 | HWMON | P1-MOD-02 | `internal/hwmon/persist_test.go` (new)**
+Goal: append-not-overwrite tests for persistModule.
+DoD: existing-file merge + dedup + atomic-rename all covered.
+
+### Phase T2 — New backend coverage
+
+**T-IPMI-01 | IPMI | P2-IPMI-01 | `internal/hal/ipmi/**_test.go`, `internal/testfixture/fakeipmi/**`, `.claude/rules/ipmi-safety.md`**
+Goal: full unit + integration coverage for IPMI backend.
+DoD: happy path + BMC-busy retry + vendor-specific protocol matrix + fallback on daemon exit.
+
+**T-IPMI-02 | IPMI | P2-IPMI-02 | `internal/hal/ipmi/socket_test.go`**
+Goal: verify socket-activated sidecar model: main unit zero-cap, sidecar one-cap.
+DoD: systemd-run-based integration passes under containerised test.
+
+**T-LIQUID-01 | LIQUID | P2-LIQUID-01 | `internal/hal/liquid/**_test.go`, `internal/testfixture/fakeliquid/**`, `.claude/rules/liquid-safety.md`**
+Goal: per-device protocol test for Commander Core, Kraken X3, UNI Hub.
+DoD: USB disconnect + reconnect + pump_minimum enforcement verified.
+
+**T-LIQUID-02 | LIQUID | P2-LIQUID-02 | extends above**
+Goal: extend to Aqua Computer + EK + AORUS families.
+DoD: each device has at least discover/read tests.
+
+**T-CROSEC-01 | CROSEC | P2-CROSEC-01 | `internal/hal/crosec/**_test.go`, `internal/testfixture/fakecrosec/**`**
+Goal: Framework laptop EC coverage.
+DoD: EC_CMD_HELLO gating + read/write + lockout handling.
+
+**T-CROSEC-02 | CROSEC | P2-CROSEC-02 | extends above**
+Goal: ThinkPad/Dell/HP vendor wrappers.
+DoD: file-existence gates verified with missing-path tests.
+
+**T-PWMSYS-01 | PWMSYS | P2-PWMSYS-01 | `internal/hal/pwmsys/**_test.go`, `internal/testfixture/fakepwmsys/**`**
+Goal: sysfs PWM subsystem coverage.
+DoD: Raspberry Pi 5 fixture + writeable channel lifecycle.
+
+**T-ASAHI-01 | ASAHI | P2-ASAHI-01 | `internal/hal/asahi/**_test.go`**
+Goal: detection gate + role classification on top of hwmon.
+DoD: non-Apple systems return empty.
+
+### Phase T3 — Install & module subsystem
+
+**T-MODPROBE-01 | MODPROBE | P3-MODPROBE-01 | `cmd/ventd-modprobe/**_test.go`, `internal/testfixture/fakedbus/**`**
+Goal: allowlist enforcement + syscall path.
+DoD: bypass attempts rejected; logged events verified.
+
+**T-UDEV-01 | UDEV | P3-UDEV-01 | `deploy/rules_test.go` (new), shellcheck of rule generator**
+Goal: parse every rule with `udevadm verify` under a test harness.
+DoD: failure introduces a known bad rule in a fixture and asserts error.
+
+**T-INSTALL-01 | INSTALL | P3-INSTALL-01 | `scripts/install.test.sh` (new, bats or POSIX)**
+Goal: install script behaviour under fakeroot.
+DoD: systemd-run path + fallback path covered; rerun is idempotent.
+
+**T-INSTALL-02 | INSTALL | P3-INSTALL-02 | extends above**
+Goal: coexistence detection.
+DoD: simulated active fancontrol triggers warning + exit 2 without --force.
+
+**T-RECOVER-01 | RECOVER | P3-RECOVER-01 | `cmd/ventd-recover/noalloc_test.go`**
+Goal: zero-alloc assertion.
+DoD: `testing.AllocsPerRun` returns 0; binary size ≤ 8 KB amd64.
+
+### Phase T4 — Control algorithm
+
+**T-PI-01 | PI | P4-PI-01 | `internal/curve/pi_test.go`, `.claude/rules/pi-stability.md`**
+Goal: PI correctness + anti-windup + NaN fallback.
+DoD: property tests `PropPIStability` pass; integral clamp enforced; gain bounds rejected out of range.
+
+**T-PI-02 | PI | P4-PI-02 | `internal/calibrate/autotune_test.go`**
+Goal: Ziegler-Nichols autotune on synthetic plant.
+DoD: autotune returns gains within 10% of analytic optimum on a known plant.
+
+**T-MPC-01 | MPC | P4-MPC-01 | `internal/curve/mpc_test.go`, `.claude/rules/mpc-stability.md`**
+Goal: MPC feasibility + residual fallback + model persistence atomicity.
+DoD: `PropMPCFeasibility` holds; injected divergent model triggers PI fallback without glitch.
+
+**T-HYST-01 | HYST | P4-HYST-01 | `internal/controller/hysteresis_test.go` (extend)**
+Goal: banded hysteresis state machine.
+DoD: `PropHysteresisNoFlutter` holds across 10k random sensor traces.
+
+**T-DITHER-01 | DITHER | P4-DITHER-01 | `internal/controller/dither_test.go` (new)**
+Goal: dither distribution + sync-break.
+DoD: `PropDitherMean` ≈ 0; adjacent fans have distinct instantaneous PWM.
+
+### Phase T5 — Calibration & profiles
+
+**T-LIVECAL-01 | LIVECAL | P5-LIVECAL-01 | `internal/calibrate/live_test.go`**
+Goal: live calibration converges on synthetic 4-hour trace.
+DoD: curve coverage ≥ 80% after simulated run; zero audible ramp events.
+
+**T-HEALTH-01 | HEALTH | P5-HEALTH-01 | `internal/monitor/health_test.go`**
+Goal: drift detection on synthetic traces.
+DoD: 15%/20%/25% drift all trigger; noise < 5% does not.
+
+**T-PROF-01 | PROF | P5-PROF-01 | `internal/hwdb/capture_test.go`**
+Goal: local profile capture + file permissions + anonymisation.
+DoD: 100-sample fuzz shows zero PII; file mode 0640; owner ventd.
+
+### Phase T6 — Cross-platform
+
+**T-WIN-01 | WIN | P6-WIN-01 | `internal/hal/windows/**_test.go`, `internal/testfixture/fakewmi/**`**
+Goal: WMI temp enumeration + ACPI fan write paths.
+DoD: `GOOS=windows go test ./...` green on Linux cross-compile with fake WMI.
+
+**T-WIN-02 | WIN | P6-WIN-02 | `packaging/windows/msi_test.ps1`**
+Goal: MSI structural test.
+DoD: Wix lint clean; service registration verified.
+
+**T-MAC-01 | MAC | P6-MAC-01 | `internal/hal/macos/**_test.go`, `internal/testfixture/fakesmc/**`**
+Goal: SMC key read/write via IOKit stub.
+DoD: `GOOS=darwin go test ./...` green on Linux cross-compile.
+
+**T-BSD-01 | BSD | P6-BSD-01 | `internal/hal/freebsd/**_test.go`**
+Goal: `hw.sensors` sysctl stub + superio write path.
+DoD: `GOOS=freebsd go test` green on Linux cross-compile.
+
+**T-OBSD-01 | OBSD | P6-OBSD-01 | similar**
+**T-ILLUMOS-01 | ILLUMOS | P6-ILLUMOS-01 | similar**
+**T-ANDROID-01 | ANDROID | P6-ANDROID-01 | similar**
+
+### Phase T7 — Advanced sensing
+
+**T-ACOUSTIC-01 | ACOUSTIC | P7-ACOUSTIC-01 | `internal/acoustic/**_test.go`, `internal/testfixture/fakemic/**`, `.claude/rules/acoustic-safety.md`**
+Goal: baseline capture + FFT bounds + non-blocking capture.
+DoD: synthetic 48kHz signal baselines in < 50ms; control loop tick never blocks on capture.
+
+**T-ACOUSTIC-02 | ACOUSTIC | P7-ACOUSTIC-02 | extends above**
+Goal: anomaly detection.
+DoD: injected sub-harmonic at blade-pass/2 triggers anomaly; clean bearing does not.
+
+**T-FLOW-01 | FLOW | P7-FLOW-01 | extends liquid tests**
+Goal: flow/coolant sensors surface in /api/status and referenceable in curves.
+
+**T-COORD-01 | COORD | P7-COORD-01 | `internal/thermal/coord_test.go`**
+Goal: headroom file write atomicity + content.
+
+### Phase T8 — Observability
+
+**T-METRICS-01 | METRICS | P8-METRICS-01 | `internal/web/metrics_test.go`, `docs/metrics.md`**
+Goal: metric-shape golden test + cardinality guard.
+DoD: adding a metric requires updating the golden.
+
+**T-OTEL-01 | OTEL | P8-OTEL-01 | `internal/telemetry/otel_test.go`**
+Goal: trace structure + sampler default.
+DoD: spans emitted; no traces without explicit config.
+
+**T-HISTORY-01 | HISTORY | P8-HISTORY-01 | `internal/monitor/history_test.go`**
+Goal: ring-buffer correctness + concurrent writer.
+DoD: `TestRace_History` green.
+
+**T-CLI-01 | CLI | P8-CLI-01 | `cmd/ventdctl/**_test.go`**
+Goal: every subcommand exercised against a local daemon.
+DoD: exit codes and --help text verified by golden.
+
+**T-FLEET-01 | FLEET | P8-FLEET-01 | `internal/fleet/**_test.go`**
+Goal: mDNS discovery in a test-LAN namespace.
+DoD: two daemons converge within 10s simulated.
+
+**T-FLEET-02 | FLEET | P8-FLEET-02 | `internal/web/e2e/fleet_test.go`**
+Goal: fleet view in UI; clicking opens target URL.
+
+### Phase T9 — UX
+
+**T-WIZARD-01 | WIZARD | P9-WIZARD-01 | extends e2e**
+Goal: zero-click flow on profile-matched fixture.
+
+**T-I18N-01 | I18N | P9-I18N-01 | extends e2e**
+Goal: Accept-Language drives UI; override persists.
+
+**T-EXPR-01 | EXPR | P9-EXPR-01 | `internal/curve/expr_test.go`**
+Goal: sandbox + fuzz + bounded eval.
+DoD: `FuzzExprCurve` passes; no `os`/`io`/`net` reachable.
+
+**T-UEFI-01 | UEFI | P9-UEFI-01 | `packaging/uefi/test/**`**
+Goal: DXE stub boots in OVMF; variable read path verified.
+DoD: qemu+OVMF test harness logs correct PWM programming.
+
+### Phase T10 — Supply chain
+
+**T-SUPPLY-01 | SUPPLY | P10-SBOM-01 | `.github/workflows/supply-chain.yml` (new)**
+Goal: SBOM validate + no critical CVE.
+DoD: `cyclonedx-cli validate` + `govulncheck` both green at tag.
+
+**T-SUPPLY-02 | SUPPLY | P10-SIGN-01 | extends above**
+Goal: cosign keyless verify + SLSA verifier.
+
+**T-SUPPLY-03 | SUPPLY | P10-REPRO-01 | `.github/workflows/reproducibility.yml`**
+Goal: rebuild-and-diff.
+DoD: action runs on every tag; passes on every release.
+
+### Phase TX — Standing coverage tasks (always on, never done)
+
+These are evergreen. Cowork re-emits them on a cadence rather than as one-time tasks.
+
+**TX-COVERAGE-CRAWL | META | — | `COVERAGE.md`**
+Every two weeks: re-measure coverage, update `COVERAGE.md`, open issues for packages that regressed > 2%.
+
+**TX-FUZZ-CORPUS-GROW | META | — | `internal/*/testdata/fuzz/`**
+Weekly: run all fuzz targets for 1 h; commit any new crashers as corpus entries (auto-PR).
+
+**TX-REGRESSION-AUDIT | META | — | `.github/ISSUE_TEMPLATE/**`**
+Monthly: audit closed issues without regression tests; open PRs adding the tests.
+
+**TX-BENCH-TREND | META | — | `docs/benchmarks.md`**
+Weekly: record benchmark baselines; trend-report as a GitHub Discussion post.
+
+**TX-HIL-SCHEDULE | META | — | `validation/`**
+Before each release: confirm all applicable rig-check logs exist dated after release-branch cut.
 
 ---
 
@@ -44,6 +742,22 @@ These rows, added to the main plan's review checklist, make tests first-class in
 | R21 | Any new goroutine is covered by a test that exercises its lifecycle including cancellation |
 | R22 | Any new backend implementation passes `TestHAL_Contract` for its channel kind |
 | R23 | Any new public metric, route, or config field is reflected in the corresponding docs golden test |
+
+---
+
+## 19 · Prioritisation — what lands first
+
+Solo-dev reality: not every task here runs. The critical path, in order:
+
+1. **T0-INFRA-01, T0-INFRA-02, T0-INFRA-03** — fixture library foundation. Nothing after this shortens without it.
+2. **T0-META-01, T0-META-02, T0-META-03** — lint that enforces the pattern across time. Cheap to build, hugely leveraged.
+3. **T-WD-01** — watchdog is at 23% coverage and is safety-critical. Do this before anything else new lands.
+4. **T-CAL-01** — extend calibrate safety-invariant binding.
+5. **T-HAL-01** — lock the contract as the HAL lands; otherwise every backend drifts.
+6. **T-HOT-01** — bench + alloc assertions on the optimised hot loop prevent silent regressions.
+7. **T-IPMI-01, T-LIQUID-01** — new backends without tests become legacy fast.
+8. **TX-COVERAGE-CRAWL** — start the cadence.
+9. Everything else in dependency order behind main-plan feature merges.
 
 ---
 
