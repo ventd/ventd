@@ -113,18 +113,21 @@ All four clean.
 
 ## PR
 
-Open READY (not draft). Title: `fix(hal): ErrNotPermitted sentinel restores fatal-on-permission for manual-mode (closes #288)`
+**Open as DRAFT.** Do NOT promote to ready-for-review. This is a safety-critical path (internal/controller/, internal/hal/); new protocol has Cassidy audit the draft diff within 24h before Atlas promotes and merges. If Cassidy files blocking concerns, you'll be revised; if no blockers arrive within 24h, Atlas promotes and merges.
+
+Title: `fix(hal): ErrNotPermitted sentinel restores fatal-on-permission for manual-mode (closes #288)`
 
 PR body must include:
 - Fixes #288
 - BRANCH_CLEANLINESS: `git log --oneline origin/main..HEAD` + `git diff --stat origin/main..HEAD | tail -1`
-- CHANGELOG entry under BOTH `### Fixed` AND `### Security` (this is safety-posture restoration):
+- **Risk class: safety-critical** (state this explicitly in the body so Atlas's (B) gate triggers correctly)
+- CHANGELOG entry under BOTH `### Fixed` AND `### Security`:
   - `### Fixed`: `controller: permission errors during manual-mode acquisition are now fatal, restoring pre-#247 systemd restart-loop visibility (closes #288)`
   - `### Security`: `hal: EACCES/EPERM on pwm_enable writes now propagate as hal.ErrNotPermitted, ensuring misconfigured-apparmor/SELinux scenarios surface to operators (closes #288)`
 
 ## Constraints
 
-- Atlas merges. Do NOT merge.
+- Atlas merges. Do NOT merge. Do NOT promote to ready-for-review.
 - Safety-critical path. Preserve ALL existing retry semantics for non-permission errors.
 - Do NOT modify watchdog.Restore behaviour. The fatal return from Run() will let the existing shutdown path fire Restore normally.
 - Single commit.
@@ -133,7 +136,7 @@ PR body must include:
 ## Reporting
 
 - STATUS: done | blocked
-- PR URL
+- PR URL (draft)
 - `go test -race -count=1 ./internal/controller/... ./internal/hal/...` tail
 - Lines changed per file
 - CONCERNS if any fields of Controller struct were added (mention so Cassidy can audit)

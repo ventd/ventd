@@ -160,9 +160,11 @@ Report the per-op numbers in the PR body. Expected: ~100ns per tick overhead for
 
 ## PR
 
-Open READY (not draft). Title: `fix(controller): curveSig covers Points/Sources; maxRPM retries on 2000 fallback (closes #298)`
+**Open as DRAFT.** Safety-critical path (internal/controller/). Atlas's (B) gate protocol applies.
 
-PR body: Fixes #298, BRANCH_CLEANLINESS block, CHANGELOG entry under `### Fixed`:
+Title: `fix(controller): curveSig covers Points/Sources; maxRPM retries on 2000 fallback (closes #298)`
+
+PR body: Fixes #298, BRANCH_CLEANLINESS block, **Risk class: hardening** (not safety-critical in the strict sense — this is additive cache invalidation, no safety semantic change — but still benefits from (B) audit because controller.go). CHANGELOG entry under `### Fixed`:
 
 > `controller: curveSig fingerprint now covers Points and Sources slice contents, eliminating stale-anchor cache hits on in-place mutations; maxRPM cache re-reads when the sentinel 2000 RPM fallback was captured from a transient sysfs failure (closes #298)`
 
@@ -170,7 +172,7 @@ Include BENCH output in PR body.
 
 ## Constraints
 
-- Atlas merges. Do NOT merge.
+- Atlas merges. Do NOT merge. Do NOT promote to ready-for-review.
 - Do NOT alter the broader hot-loop alloc optimisations from #260 — this is additive hardening.
 - Do NOT change the 2000 fallback constant itself — only the cache semantics around it.
 - Single commit.
@@ -179,7 +181,7 @@ Include BENCH output in PR body.
 ## Reporting
 
 - STATUS: done | blocked
-- PR URL
+- PR URL (draft)
 - `go test -race -count=1 ./internal/controller/...` tail
 - Bench output (hot-loop tick cost before/after)
 - Lines changed

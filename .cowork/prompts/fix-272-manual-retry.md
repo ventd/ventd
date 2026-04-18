@@ -74,6 +74,8 @@ if manualPWM != nil {
 }
 ```
 
+IMPORTANT: After #288's ErrNotPermitted fatal-check lands, both call sites will need the ErrNotPermitted check placed BEFORE the writeWithRetry call — permission errors shouldn't retry. If #288 has merged by the time you read this, add that check at both sites. If #288 is still a draft, leave a `// TODO(#288): ErrNotPermitted priority check here` comment above each writeWithRetry call.
+
 Preserve all existing pre-write / post-write logic at both sites. The helper ONLY replaces the write+retry+RestoreOne dance.
 
 ### Regression test
@@ -112,15 +114,17 @@ All four clean.
 
 ## PR
 
-Open READY (not draft). Title: `fix(controller): apply retry+RestoreOne to manual-mode write path via writeWithRetry helper (closes #272)`
+**Open as DRAFT.** Safety-critical path (internal/controller/). Atlas's (B) gate protocol: Cassidy audits within 24h, Atlas promotes + merges at T+24h if no blockers filed.
 
-PR body: Fixes #272, BRANCH_CLEANLINESS block, CHANGELOG entry under `### Fixed`:
+Title: `fix(controller): apply retry+RestoreOne to manual-mode write path via writeWithRetry helper (closes #272)`
+
+PR body: Fixes #272, BRANCH_CLEANLINESS block, **Risk class: safety-critical**, CHANGELOG entry under `### Fixed`:
 
 > `controller: manual-mode PWM writes now use the same retry+RestoreOne pattern as curve writes, via a new writeWithRetry helper that both sites share (closes #272)`
 
 ## Constraints
 
-- Atlas merges. Do NOT merge.
+- Atlas merges. Do NOT merge. Do NOT promote to ready-for-review.
 - Do NOT change retry timing (50ms) or retry count (1) — preserve #263's tuning.
 - Do NOT refactor `tick()` beyond extracting the helper; the rest of the function stays identical.
 - Single commit.
@@ -129,7 +133,7 @@ PR body: Fixes #272, BRANCH_CLEANLINESS block, CHANGELOG entry under `### Fixed`
 ## Reporting
 
 - STATUS: done | blocked
-- PR URL
+- PR URL (draft)
 - `go test -race -count=1 ./internal/controller/...` tail
 - Lines changed
 - CONCERNS if the existing curve-path retry implementation diverged from the helper pattern in any way (e.g., different retry-count, different log shape) — report so Cassidy can audit for drift
