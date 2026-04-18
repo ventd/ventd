@@ -1,0 +1,104 @@
+name: drew-audit
+# Drew post-release audit gates — workflow_dispatch only.
+# Gate 1 (govulncheck) is real; Gates 2-4 are stubs until Phase 10 lands.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag or ref to audit (empty = HEAD)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  drew-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.tag || github.sha }}
+          fetch-tags: true
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.25.x'
+
+      - name: gate1 — govulncheck
+        id: gate1
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          govulncheck -json ./... > govuln.json 2>&1 || true
+          python3 - << 'PY'
+          import json, os, sys
+          osv_sev, findings = {}, []
+          try:
+              for line in open('govuln.json'):
+                  try: obj = json.loads(line)
+                  except Exception: continue
+                  msg = obj.get('message', {})
+                  if 'osv' in msg:
+                      o = msg['osv']
+                      s = ((o.get('database_specific') or {}).get('severity') or 'UNKNOWN').upper()
+                      osv_sev[o.get('id', '')] = s
+                  elif 'finding' in msg:
+                      findings.append(msg['finding'].get('osv', ''))
+          except Exception as e:
+              print(f'parse error: {e}', file=sys.stderr)
+          counts = {}
+          for oid in findings:
+              s = osv_sev.get(oid, 'UNKNOWN')
+              counts[s] = counts.get(s, 0) + 1
+          total = sum(counts.values())
+          crit, high = counts.get('CRITICAL', 0), counts.get('HIGH', 0)
+          verdict = 'FAIL' if crit else 'WARN' if high else ('FAIL' if total else 'PASS')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('## Gate 1 — govulncheck\n\n')
+              if total == 0:
+                  f.write('**PASS** — no reachable vulnerabilities.\n\n')
+              else:
+                  f.write('| severity | count |\n|----------|-------|\n')
+                  for s in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'):
+                      if counts.get(s): f.write(f'| {s} | {counts[s]} |\n')
+                  f.write(f'\n**{verdict}** — {total} reachable vuln(s).\n\n')
+          out = os.environ.get('GITHUB_OUTPUT', '')
+          if out:
+              open(out, 'a').write(f'verdict={verdict}\n')
+          if crit:
+              print('::error::govulncheck: CRITICAL vulnerability — failing job')
+              sys.exit(1)
+          elif high:
+              print('::warning::govulncheck: HIGH vulnerability found')
+          PY
+
+      - name: gate2 — SBOM validate (stub)
+        run: |
+          echo '[SKIP: P10-SBOM-01 not landed — gate activates when #322 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gate3 — cosign verify (stub)
+        run: |
+          echo '[SKIP: P10-SIGN-01 not landed — gate activates when #323 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gate4 — repro-build diff (stub)
+        run: |
+          echo '[SKIP: P10-REPRO-01 not landed — gate activates when #324 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: overall summary
+        if: always()
+        env:
+          G1: ${{ steps.gate1.outputs.verdict }}
+        run: |
+          v="${G1:-FAIL}"
+          if [ "$v" = FAIL ]; then ov=FAIL; elif [ "$v" = WARN ]; then ov=PARTIAL; else ov=PASS; fi
+          {
+            printf '\n---\n\n## Overall verdict: %s\n\n' "$ov"
+            echo '| gate | status |'
+            echo '|------|--------|'
+            printf '| Gate 1 — govulncheck | %s (real) |\n' "$v"
+            echo '| Gate 2 — SBOM validate | SKIP (stub) |'
+            echo '| Gate 3 — cosign verify | SKIP (stub) |'
+            echo '| Gate 4 — repro-build diff | SKIP (stub) |'
+          } >> "$GITHUB_STEP_SUMMARY"
