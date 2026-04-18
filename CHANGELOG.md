@@ -18,6 +18,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat(controller): symmetric retry+RestoreOne on PWM write failure — retries once at 50ms, triggers per-fan restore on second failure (#P1-HOT-02)
 - security: Permissions-Policy header and ETag caching on embedded UI (#P10-PERMPOL-01)
 - refactor: FanBackend interface (#P1-HAL-01)
 - docs: add public roadmap (#P0-02)

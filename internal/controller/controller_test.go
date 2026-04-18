@@ -2,14 +2,19 @@ package controller
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/watchdog"
 )
 
 func TestParseNvidiaIndex(t *testing.T) {
@@ -157,3 +162,85 @@ func TestReadAllSensors_NvidiaPathInvariant(t *testing.T) {
 		})
 	}
 }
+
+// TestTick_WriteRetryAndRestoreOnDoubleFailure asserts the full retry+restore
+// path: two consecutive Write failures trigger (a) a write_retry WARN on the
+// first failure, (b) a write_failed_restore_triggered ERROR on the second, and
+// (c) exactly two Write calls total — one initial plus one retry.
+//
+// The watchdog is seeded with origEnable=2 for the fan path; after the tick,
+// the enable file must read "2" (RestoreOne fired and wrote the origEnable back).
+func TestTick_WriteRetryAndRestoreOnDoubleFailure(t *testing.T) {
+	ff := newFakeFan(t) // pwm_enable=2
+
+	cfg := &config.Config{
+		Sensors: []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
+		Fans: []config.Fan{{
+			Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
+			MinPWM: 40, MaxPWM: 200,
+		}},
+		Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 100}},
+		Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve"}},
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	wd := watchdog.New(logger)
+	wd.Register(ff.pwmPath, "hwmon") // origEnable=2 captured at registration
+
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+	c := New("cpu fan", "cpu_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+	// Inject a fake backend whose first two Writes fail.
+	writeErr := errors.New("sysfs write failed")
+	fb := &fakeErrBackend{errs: []error{writeErr, writeErr}}
+	c.backend = fb
+
+	// Simulate daemon taking manual control (enable=1) so RestoreOne's write
+	// of origEnable=2 is observable as a change.
+	if err := os.WriteFile(ff.enablePath, []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("perturb enable: %v", err)
+	}
+
+	c.tick()
+
+	// RestoreOne must have fired: enable file restored to the captured origEnable (2).
+	if got := readIntFile(t, ff.enablePath); got != 2 {
+		t.Errorf("pwm_enable after double-fail tick = %d, want 2 (RestoreOne must have fired)", got)
+	}
+
+	// Structured event must appear in logs.
+	logs := logBuf.String()
+	if !strings.Contains(logs, "write_failed_restore_triggered") {
+		t.Errorf("expected write_failed_restore_triggered event in logs, got: %s", logs)
+	}
+
+	// Write called exactly twice: initial attempt + one retry.
+	if fb.writeCalls != 2 {
+		t.Errorf("Write called %d times, want 2 (initial + one retry)", fb.writeCalls)
+	}
+}
+
+// fakeErrBackend is a hal.FanBackend whose Write returns pre-configured errors
+// for the first N calls, then succeeds. Other methods are no-ops.
+type fakeErrBackend struct {
+	writeCalls int
+	errs       []error
+}
+
+func (b *fakeErrBackend) Enumerate(_ context.Context) ([]hal.Channel, error) {
+	return nil, nil
+}
+func (b *fakeErrBackend) Read(_ hal.Channel) (hal.Reading, error) { return hal.Reading{}, nil }
+func (b *fakeErrBackend) Write(_ hal.Channel, _ uint8) error {
+	i := b.writeCalls
+	b.writeCalls++
+	if i < len(b.errs) {
+		return b.errs[i]
+	}
+	return nil
+}
+func (b *fakeErrBackend) Restore(_ hal.Channel) error { return nil }
+func (b *fakeErrBackend) Close() error                { return nil }
+func (b *fakeErrBackend) Name() string                { return "fake" }
