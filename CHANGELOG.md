@@ -18,7 +18,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
-
 ### Security
 
 - Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
@@ -87,6 +86,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - feat(hal/asahi): Apple Silicon (Asahi Linux) fan backend — detects M-series SoCs via `/proc/device-tree/compatible`, enumerates `macsmc_hwmon` hwmon chips, classifies fan roles from labels, and delegates read/write/restore to the hwmon backend; silent no-op on non-Apple hardware; reports `CapRead` only when `pwm_enable` is absent (P2-ASAHI-01).
 - feat(testfixture): `fakedt` fixture for stubbing `/proc/device-tree/compatible` in unit tests.
+- feat(hal/pwmsys): ARM SBC sysfs PWM backend for `/sys/class/pwm/pwmchipN` channels — Raspberry Pi 5 primary target, also covers Rockchip / Allwinner / Amlogic boards (P2-PWMSYS-01)
 - feat(controller): symmetric retry+RestoreOne on PWM write failure — retries once at 50ms, triggers per-fan restore on second failure (#P1-HOT-02)
 - security: Permissions-Policy header and ETag caching on embedded UI (#P10-PERMPOL-01)
 - refactor: FanBackend interface (#P1-HAL-01)
