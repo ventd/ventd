@@ -51,12 +51,6 @@ My SYSTEM.md `v0.3.0` assessment: content is coherent for the label ("v0.3 strea
 - @cassidy — once #320 lands, please audit the diff for content loss beyond the three targeted spawn-mcp bullets. The PR body will carry a pre/post bullet count but a diff-read confirmation would help close the loop cleanly.
 - @cassidy — once #322 lands, Drew will audit the SBOM artifacts themselves (schema validation, govulncheck output); no diff audit needed from you unless workflow-security concerns surface.
 
-**Next-session queued items** (not filed this session — budget, not urgency):
-- GHSA disclosure policy: ventd patched 17 reachable Go stdlib CVEs in the 1.25.0 → 1.25.9 bump. No corresponding GitHub Security Advisories exist on `ventd/ventd` for the reachable subset. Downstream consumers tracking advisories on the repo (not pkg.go.dev/vulndb) see only a terse CHANGELOG line. Propose filing per-CVE GHSAs referenced against v0.3.0 as the "fixed in" release.
-- `scripts/pre-release-check.sh` automation: SYSTEM.md's pre-release checklist (CI green on tag candidate SHA, CHANGELOG entries match merged PRs, no open release-blockers, SBOM/cosign/repro gates once Phase 10 lands) should be a single-command script that runs against any candidate SHA. Direct leverage for Drew.
-- Release notes prose pass: #320 consolidates the Keep-a-Changelog *structure*; a separate pass should write operator-facing prose ("what you'll see in your logs", "what might break for you on upgrade") at the top of the v0.3.0 entry before tag cut.
-- First weekly supply-chain audit rollup (govulncheck on main, go.mod diff since v0.2.0, CI workflow security diffs). Will run next session and post at the top of the next worklog entry per SYSTEM.md metric-tracking.
-
 **Metrics (first recording):**
 - Days since last release tag: **2** (v0.2.0 cut 2026-04-16; target < 14 during active phases; well within window)
 - Phase 10 P-tasks complete: **1/4** (P10-PERMPOL-01; three dispatchable now, filed as #322/#323/#324)
@@ -64,4 +58,24 @@ My SYSTEM.md `v0.3.0` assessment: content is coherent for the label ("v0.3 strea
 - Reproducible-build delta: **not applicable** (P10-REPRO-01 not yet landed)
 - `role:atlas` issues filed by Drew dispatched within 48h: **0/5 filed so far; measurement starts now**
 
-**Followup:** #320, #322, #323, #324, #325 filed. Awaiting Atlas dispatch on #320 and #322. #181 owner assignment pending.
+**Followup:** #320, #322, #323, #324, #325 filed. Awaiting Atlas dispatch on #320 and #322.
+
+---
+
+## 2026-04-18 — session continuation: #181 coordination + next-session queue filed
+
+**Context:** operator directed token-economy mode ("optimise on token usage starting NOW"); asked me to file #181 coordination and continue autonomously on the queued items from the previous entry.
+
+**Action taken:** filed three more `role:atlas` issues (total 8 this day).
+
+6. **#326 — coordinate owner for #181.** Not a dispatch prompt — an ownership ask. #181 is UI work; I have no prompt material beyond the reference to `/sessions/*/mnt/files/session_E_*.md` in the issue body. Atlas scopes, assigns, or flags scope-drop to v0.3.1.
+7. **#327 — dispatch SUPPLY-GHSA-01.** Enumerate the full 17-CVE set closed by the 1.25.0 → 1.25.9 bump, draft one consolidated GHSA body at `docs/security/advisories/ghsa-v0.3.0-go-stdlib.md`, document the one-GHSA-per-security-release policy in `docs/supply-chain.md`. Maintainer files the advisory on GitHub (CC cannot via MCP).
+8. **#328 — dispatch RELEASE-CHECK-01.** `scripts/pre-release-check.sh <sha>` runs the SYSTEM.md pre-release checklist as one command: clean tree, CI green on the SHA, CHANGELOG `[Unreleased]` non-empty + bullet-to-PR-count sanity, zero open `release-blocker` labels, govulncheck CRITICAL=0, build+test clean, plus Phase 10 gates (SBOM/cosign/repro) as they land. Replaces manual walk-through every release.
+
+**Queue state after this session:** everything currently dispatchable is dispatched. Remaining Drew work is gated on landings (SIGN, REPRO, release-notes-prose after #320 lands) or is recurring Drew work that doesn't need an issue (weekly audits).
+
+**Next session opens with:** poll live PR state via `search_issues(updated:>=<last-call>)` + `list_pull_requests(state=open)`. If #320 has landed, file release-notes-prose dispatch. If #322 has landed, flip #323 HOLD to ready. If #325 has landed with a red gate, file the underlying runtime-fix dispatch. Run the first weekly supply-chain audit rollup and post at the top of that session's worklog entry.
+
+**Token economy notes:** two worklog rewrites this session (~9KB each) is LESSONS #10 pattern. Next session: batch all worklog appends into a single end-of-session rewrite, not per-action. Issue bodies are the authoritative record; worklog is summary.
+
+**Followup:** #320, #322, #323, #324, #325, #326, #327, #328 filed; all `role:atlas`. No other action pending from Drew this session.
