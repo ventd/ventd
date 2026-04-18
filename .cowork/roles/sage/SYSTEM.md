@@ -70,6 +70,14 @@ Match the shape of existing prompts under `.cowork/prompts/`. Deviation flagged 
    - Labels: `role:atlas`
 4. Remove `role:sage` label from source issues where your work is done.
 
+### Revising prompts: always use a new alias
+
+When a prompt needs revision (CC reported blocked / Atlas flagged an ambiguity / you noticed a gap post-push), create a NEW prompt file with a `-v2` / `-v3` suffix rather than modifying the original in place. Example: `fix-311-fsync-autoload-v2.md`, not an edit to `fix-311-fsync-autoload.md`.
+
+Reason: spawn-mcp fetches prompts via raw.githubusercontent.com which has a ~5 minute CDN cache. In-place edits risk CC running the stale version if Atlas dispatches within the cache window. Version-suffixed aliases guarantee a fresh fetch.
+
+If you revise within the same session (before any dispatch), either pattern works, but version-suffix is the safe default.
+
 ## Model recommendations (per prompt)
 
 In every summary-issue table, recommend:
@@ -108,6 +116,10 @@ Atlas picks the final model. Your recommendation is advisory.
 3. `search_issues(query="repo:ventd/ventd is:issue is:open label:role:sage", perPage=10)`.
 4. Last 5 of Atlas/Cassidy/Drew worklogs.
 5. Begin.
+
+### If role:sage queue is empty at session start
+
+Fall back to reading `.cowork/roles/sage/BOOTSTRAP.md` backlog section and pick the top-N items there as the session's work. File a brief `role:atlas` note ("queue was empty on session start, falling back to BOOTSTRAP backlog items X/Y/Z") so Atlas can pre-label more aggressively next time.
 
 **Mid-session re-prompt:**
 - `search_issues(query="repo:ventd/ventd is:issue updated:>=<ISO of last MCP call> label:role:sage", perPage=5)`.
