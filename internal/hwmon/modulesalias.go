@@ -2,8 +2,6 @@ package hwmon
 
 import (
 	"bufio"
-	"bytes"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -44,37 +42,6 @@ func parseModulesAlias(r io.Reader) (map[string][]string, error) {
 		result[module] = append(result[module], pattern)
 	}
 	return result, scanner.Err()
-}
-
-// parseModulesBuiltinModinfo parses a modules.builtin-modinfo reader and returns
-// map[module]map[key]value. Records are NUL-separated, each in the form "module.key=value".
-// Malformed records are logged and skipped.
-func parseModulesBuiltinModinfo(r io.Reader) (map[string]map[string]string, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("read modules.builtin-modinfo: %w", err)
-	}
-	result := make(map[string]map[string]string)
-	for _, record := range bytes.Split(data, []byte{0}) {
-		s := strings.TrimSpace(string(record))
-		if s == "" {
-			continue
-		}
-		dotIdx := strings.IndexByte(s, '.')
-		eqIdx := strings.IndexByte(s, '=')
-		if dotIdx < 0 || eqIdx < 0 || dotIdx > eqIdx {
-			slog.Warn("modules.builtin-modinfo: skipping malformed record", "record", s)
-			continue
-		}
-		module := s[:dotIdx]
-		key := s[dotIdx+1 : eqIdx]
-		value := s[eqIdx+1:]
-		if result[module] == nil {
-			result[module] = make(map[string]string)
-		}
-		result[module][key] = value
-	}
-	return result, nil
 }
 
 // loadModulesAlias reads and parses the modules.alias file from root.

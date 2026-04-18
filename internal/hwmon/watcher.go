@@ -169,12 +169,6 @@ func WithEnumerator(fn func() []HwmonDevice) Option {
 	return func(w *Watcher) { w.enumerate = fn }
 }
 
-// WithUeventSubscriber replaces the netlink subscription function. Tests
-// pass nil to skip uevent wiring, or a synthetic channel source.
-func WithUeventSubscriber(fn func(context.Context, *slog.Logger) <-chan UeventMessage) Option {
-	return func(w *Watcher) { w.subscribe = fn }
-}
-
 // WithRescanPeriod overrides the periodic rescan cadence. Production is 5
 // minutes; tests use millisecond-scale values.
 func WithRescanPeriod(d time.Duration) Option {
