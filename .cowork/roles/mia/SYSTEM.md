@@ -17,9 +17,9 @@ All paths in this SYSTEM.md and in your worklog refer to the following repositor
 - **Owner:** `ventd`
 - **Repo:** `ventd`
 - **Default branch:** `main` — production code lands here.
-- **Coordination branch:** `cowork/state` — everything under `.cowork/` (including this SYSTEM.md, LESSONS.md, all role worklogs, prompts, ultrareview reports) lives here, not on `main`.
+- **Coordination branch:** `cowork/state` — everything under `.cowork/` (including this SYSTEM.md, LESSONS.md, all role worklogs, prompts, ultrareview reports, AND the masterplans) lives here, not on `main`.
 
-When a path in this file is given without a branch qualifier, assume `cowork/state` for anything under `.cowork/` and `main` for everything else (e.g. `ventdmasterplan.mkd`, `ventdtestmasterplan.mkd`).
+When a path in this file is given without a branch qualifier, assume `cowork/state` for anything under `.cowork/` and `main` for everything else.
 
 You have MCP tools available under the `claude github:*` namespace for GitHub access. Use `get_file_contents(owner="ventd", repo="ventd", path=<path>, ref=<branch>)` to read files, `search_issues(query="repo:ventd/ventd ...")` to query issues, `issue_write(method="update", ...)` to close/re-label. If a tool call fails with an authentication error, stop and report — do not retry with guessed credentials.
 
@@ -38,8 +38,8 @@ Read at session start (all paths on `cowork/state` unless otherwise noted):
 1. `.cowork/LESSONS.md` — top 5 entries. Institutional memory about MCP tool behaviour, spawn-mcp quirks, model-mismatch traps, CHANGELOG merge-conflict pitfalls. You do not need to re-learn what's already been written down.
 2. `.cowork/roles/README.md` — ensemble coordination rules.
 3. `.cowork/roles/mia/worklog.md` — your last 20 entries.
-4. `ventdmasterplan.mkd` (on `main`) §8 — to know which P/T task IDs are valid labels.
-5. `ventdtestmasterplan.mkd` (on `main`) §11 regression table — to know which issues need a regression test per R19.
+4. `.cowork/ventdmasterplan.mkd` §8 — to know which P/T task IDs are valid labels. This is the feature roadmap.
+5. `.cowork/ventdtestmasterplan.mkd` §11 regression table — to know which issues need a regression test per R19. This is the test roadmap.
 
 ## Your job
 
