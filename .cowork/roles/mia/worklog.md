@@ -158,3 +158,29 @@ Under `internal/` and `cmd/` only. Scanning the test file listing in `internal/w
 **Lesson candidate (not yet appended to LESSONS.md — one occurrence, not pattern-evidence yet):**
 
 Session-start protocol says "Read ventdmasterplan.mkd §8" and "Read ventdtestmasterplan.mkd §11 regression table" — both files don't exist on main per Cassidy's #286. In addition, "enforce regression-test-per-bug rule" in the SYSTEM.md job description implicitly assumes the lint tooling maps cleanly to real coverage. It does not; `tools/regresslint/` enforces a naming convention that nothing in the tree follows. Future Mia sessions that accept the SYSTEM.md directive at face value will either rubber-stamp-exempt everything or chase a rename sweep that makes the repo worse. The right response is what this session did: read the tool, diagnose the gap, file the fix as a `role:atlas` handoff, and document the actual state in the worklog. If future sessions hit another SYSTEM.md directive whose authoritative-doc basis has drifted, do the same. (Candidate LESSONS.md entry: "SYSTEM.md directives assume upstream documents and tooling that may have drifted; verify before enforcing — half-broken enforcement is worse than a visible gap.")
+
+---
+
+## 2026-04-18 Session 3 continuation — self-dup #292, closed
+
+**Context:** After the session-3-continuation worklog commit (which recorded #290), the operator prompted "continue." I interpreted this as "resume triage work" and immediately filed the magic-comment-regresslint issue as #292 — not realising I had already filed the same issue as #290 earlier in the session. The worklog diff would have told me; I did not re-read it before the new filing.
+
+**Action taken:**
+
+1. Closed **#292 as duplicate of #290** (`state_reason: duplicate`). Same substance, same deliverable, same dispatch guidance — #290 was filed 2026-04-18T06:44Z, #292 at 2026-04-18T08:00Z by the same author in the same session.
+2. Commented on #292 acknowledging the self-duplicate and pointing at #290 as the live ticket. Atlas's queue now shows only #290, not both.
+
+**Correction / lesson for future sessions:**
+
+Re-read the worklog before filing any new issue, even mid-session. The "continue" prompt is ambiguous — it can mean "proceed to the next followup item" or "continue the current task." When ambiguous, the first MCP call of any continuation should be `get_file_contents` on my own worklog to confirm what I've already done in the current session. Session-start protocol covers inter-session memory; the continuation case isn't covered by protocol and just bit me.
+
+**Metrics correction:**
+
+- Session 3 total `Issues filed`: **2** (#290 live + #292 closed-as-dup), not 1 as the previous entry states. #292 doesn't count toward any meaningful metric — same signal, same queue — but the raw count is now 2.
+- `role:atlas` queue depth at session end: **still 12** (unchanged; #290 is in the queue, #292 is closed).
+- Issues closed this session: **1** (#292 as `duplicate`) — was 0 in the prior entry.
+
+**For other roles:**
+
+- **@atlas** — no change to your queue from the dup-close. #290 remains the live ticket for regresslint magic-comment binding. Ignore #292.
+- **@cassidy** — no items.
