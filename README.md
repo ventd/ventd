@@ -28,12 +28,24 @@ One static binary, one install command, one URL. Hardware detection, calibration
 
 ## Features
 
-- **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes. Motherboard Super I/O, BMC/IPMI, AIO pumps, NVIDIA GPUs (runtime-loaded NVML), AMD GPUs.
-- **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI.
+- **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
+- **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI.
 - **Automatic safety.** Restores `pwm_enable` to its pre-daemon state on every software exit path — `SIGTERM`, `SIGINT`, panic, `SIGKILL`, OOM kill, watchdog timeout — within two seconds. See [docs/safety.md](docs/safety.md) for the full model.
 - **Automatic hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
 - **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
 - **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
+
+## What's coming
+
+Ventd is under active development. The [roadmap](docs/roadmap.md) covers the full plan; near-term highlights:
+
+- **More fan hardware** — IPMI (server BMCs), USB AIO pumps (Corsair, NZXT, Lian Li), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi.
+- **Learning control** — PI controller with autotune; optional MPC (model-predictive control) that learns your machine's thermal behaviour and runs fans quieter than any curve can.
+- **Cross-platform** — Windows, macOS (Intel + Apple Silicon), FreeBSD, OpenBSD, illumos, Android.
+- **Acoustic health** — detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
+- **Curated profile database** — first-boot zero-click on hardware ventd has seen before.
+
+Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware database) is complete as of April 2026. Phase 2 (the multi-backend portfolio above) is underway.
 
 ## Install
 
