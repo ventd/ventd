@@ -365,3 +365,44 @@ Total added: ~22 KB of Mia-lane coordination tooling. All on `cowork/state`, non
 4. After v0.3.0 tags (whenever): close the v0.3.0 milestone (assuming #68 is cleared by then).
 
 **For future-me reading STATE.md first:** this session ended at a clean stopping point. Five downtime workstreams identified; four completed this batch; one (the "search-first hygiene" generalisation) already encoded in #297. Clock is reset. If the next operator prompt is ambiguous, default to reading STATE.md's "Hot followups" and acting on the highest-priority item there.
+
+---
+
+## 2026-04-18 Session 3.6 — mid-day refresh, filed #304
+
+**Context:** Operator asked "anything you can be working on?" Applied the STATE-first protocol from session 3.5 — read STATE.md first. STATE.md was ~4 hours stale. Re-checked the queue via `search_issues updated:>=2026-04-18T07:59Z` (after my last commit): five updated issues surfaced including **#290 closed `completed`** via PR #299 merged 10:08 UTC.
+
+The magic-comment regresslint binding I'd filed as #290 is now live. PR #299's body explicitly listed retroactive annotation as an out-of-scope follow-up. That's STATE.md hot-followup #3 and it just became actionable.
+
+Also surfaced:
+- **#287 closed** — Cassidy's watchdog RestoreOne binding fix merged.
+- **#289 closed** — Cassidy's scheduler race fix merged.
+- **#296 opened** — Cassidy filed mutateConfig TOCTOU umbrella (`role:atlas`).
+- **#302 opened** — Atlas filed ultrareview-2 trigger (`role:cassidy`). 11 PRs merged since ultrareview-1.
+
+**Actions taken:**
+
+1. **Filed #304 as `role:atlas`**: "regresslint: retroactive `// regresses #N` annotations on 7 existing covering tests (follow-up sweep from #290/#299)". Per-issue annotation map for #59, #86, #103, #140, #177, #200, #208 with expected test file and suggested covering test (from issue-body reading, not diff-audit). CC-dispatchable, Sonnet 4.6, `internal/` + `cmd/` allowlist. Search-first confirmed no existing issue requests this (two searches: "regresses magic comment retroactive" and "retroactive regression annotation" both returned 0).
+
+2. **Updated `.cowork/roles/mia/STATE.md`** — refreshed metrics, session index, hot followups, recent-activity section. Previous STATE.md snapshot was from 07:59 UTC; new snapshot is 11:57 UTC and reflects all five intervening issue/PR changes.
+
+**For other roles:**
+
+- **@atlas** — one item added (#304). `role:atlas` queue depth: **11 open** (prior 13, minus #287/#289/#290 merged/closed, plus #296 Cassidy-filed, plus #304 Mia-filed). Specific list: #235, #266, #268, #269, #271, #272, #274, #283, #288, #296, #297, #304. Note #286 appears to have closed as well — verify via your own queue read.
+- **@cassidy** — **#302 is in your queue** (ultrareview-2 trigger filed by Atlas). This was filed ~4 hours ago; if you haven't started, this is your cue.
+
+**Metric updates (reflected in STATE.md too):**
+
+- Issues filed today by Mia: **6** (prior 5 + #304).
+- `role:atlas` queue depth: **11 open** (net decrease of 2 from end of session 3.5: +#296 +#304 −#287 −#289 −#290; also #286 seems closed).
+- `role:cassidy` queue depth: **1 open** (#302).
+
+**Lesson reinforcement:**
+
+This session demonstrates the STATE-first protocol paid off immediately. Reading STATE.md first took one MCP call; that read surfaced "#290 merged" which unblocked #304's filing. Without that read, I'd have either (a) re-proposed #290 for the fourth time (cross-context self-dup pattern), or (b) given up on regresslint work entirely because STATE.md's stale copy said #290 was still open and blocking. The cost of one MCP call saved a much worse outcome. Lesson #17 candidate continues to earn its place.
+
+**Followup for next Mia invocation:**
+
+1. STATE-first, always. It works.
+2. When #304 lands: file a separate `role:atlas` issue for the strict-mode flip decision on regresslint (the `TODO(TX-REGRESSION-AUDIT)` at `tools/regresslint/main.go:212`).
+3. All prior followups stand; nothing urgent before Monday's metrics rollup.
