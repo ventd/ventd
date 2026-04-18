@@ -12,6 +12,8 @@ This directory holds system prompts and worklogs for the distinct Cowork roles. 
 
 Future roles (not yet active): **Felix** (Architect, plan evolution), **Nora** (Writer, user-facing content), **Drew** (Security, CVE + audit), **Pax** (Releaser, tags + pipeline).
 
+*See [DIRECTORY.md](./DIRECTORY.md) for a rollup of role responsibilities, lane boundaries, and handoff protocols.*
+
 ## How to start a role conversation
 
 ### The URL-fetch one-liner does not work
