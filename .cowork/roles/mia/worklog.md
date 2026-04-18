@@ -184,3 +184,59 @@ Re-read the worklog before filing any new issue, even mid-session. The "continue
 
 - **@atlas** — no change to your queue from the dup-close. #290 remains the live ticket for regresslint magic-comment binding. Ignore #292.
 - **@cassidy** — no items.
+
+---
+
+## 2026-04-18 Session 3 continuation — self-dup #291 (third occurrence, promoting to LESSONS candidate)
+
+**Context:** Yet another continuation. After the #292-self-dup correction committed, context cleared again, and yet another Mia invocation ran the same audit-read → magic-comment-proposal path without first reading the worklog. Filed the proposal as #291. Before committing a worklog entry, re-read the worklog and found both the #290 live ticket and the #292 self-dup correction. #291 is a *second* self-duplicate of the same proposal within the same session.
+
+**Timeline of the issue filings for the regresslint magic-comment proposal, all filed 2026-04-18:**
+
+| Issue | Created   | Status       | Cause |
+|-------|-----------|--------------|-------|
+| #290  | 06:44 UTC | open (live)  | Original filing, in context after reading `tools/regresslint/main.go` |
+| #292  | 08:00 UTC | closed (dup) | Context cleared after #290 worklog commit; re-did audit, re-filed |
+| #291  | 08:xx UTC | closed (dup) | Context cleared after #292 self-dup commit; re-did audit, re-filed again |
+
+The issue numbers are out of order (291 < 292) because #291 was filed in a later Mia invocation than #292 — GitHub just assigned the next free integer each time, not a chronological one. Don't let that mislead future readers.
+
+**Action taken:**
+
+1. Closed **#291 as duplicate of #290** (`state_reason: duplicate`).
+2. Commented on #291 noting the repeat failure mode and citing #292 as the prior self-dup.
+3. Promoted the lesson-candidate from "not yet warranting LESSONS.md" (one occurrence) to "pattern-evidence, promote immediately" (three invocations did the same thing in one day, each blind to the last).
+
+**Lesson for LESSONS.md (candidate text, will propose via small PR next session):**
+
+> **Lesson N: cross-context self-duplication — worklog-first, not memory-first.**
+>
+> **Symptom:** the Mia role (and plausibly any role with an append-only worklog + context-cleared re-invocations) re-does work in each new invocation because the conversation history doesn't persist but the worklog does. In session 3, three consecutive Mia invocations each filed the same magic-comment regresslint proposal (#290, #292, #291) without realising the prior invocations had already done it. Each subsequent filing burned ~3 MCP calls to re-read regresslint, build the proposal, file the issue, then close it as a self-dup.
+>
+> **Root cause:** no protocol step forces the re-invocation to re-read the worklog before taking any append-only action. Session-start protocol (SYSTEM.md) covers *new* sessions but not *continuations* of a session whose context has cleared. The operator prompt "continue" is ambiguous and doesn't force the re-read.
+>
+> **Fix / protocol addition:** the first MCP call of any role invocation — whether session-start or continuation — must be `get_file_contents` on `.cowork/roles/<role>/worklog.md`. Every time. No exceptions. Only after that read may the role take issue-filing, issue-closing, label-application, or milestone-editing actions. This applies even if the operator prompt is "continue" or has no context suggesting the worklog matters. Cheap (one MCP call). Catches the failure mode immediately.
+>
+> **Generalisation:** the same applies to any append-only coordination artifact that outlives the conversation — LESSONS.md, ESCALATIONS.md, events.jsonl. In all cases, trust the committed file over in-memory context.
+>
+> **Why this isn't covered by lesson #10 (file content hallucination):** lesson #10 is about *writes* — don't write a placeholder, write the literal intended content. This lesson is about *actions prerequisite to writes* — don't take any action based on the assumption that what's in memory reflects what's committed. Lesson #10 fires when you're about to call `create_or_update_file`; this lesson fires much earlier, at the first action of any invocation.
+
+**Metrics correction (session 3 running total, now accurate):**
+
+- Issues filed: **3** (#290 live + #291 and #292 both closed as self-duplicates).
+- Issues closed: **2** (#291, #292 — both `duplicate`).
+- Net new issues added to Atlas's queue: **1** (#290 only).
+- Issues commented: **3** (#68, #291, #292).
+- Labels applied: 20 total (7 × `role:atlas` additions; 13 × `no-regression-test`) — unchanged by the self-dup corrections.
+- `role:atlas` queue depth: **12 open**, unchanged across all self-dup cycles.
+
+**For other roles:**
+
+- **@atlas** — still only #290 in your queue for the regresslint magic-comment fix. Ignore #291 and #292.
+- **@cassidy** — no items. This is Mia-internal hygiene; your audit lane is unaffected.
+
+**Followup for next Mia session (including continuations):**
+
+1. **First action of any Mia invocation, always:** read this worklog before doing anything else. If the worklog shows work already done in today's session that matches what you were about to do, stop and close-as-duplicate instead of re-filing.
+2. Propose the lesson above to LESSONS.md via a small PR. Don't inline-edit LESSONS.md here (SYSTEM.md prohibits silent mid-session edits).
+3. Check #68 milestone state, stale-issue scrub threshold, weekly metrics rollup — all unchanged from prior followups.
