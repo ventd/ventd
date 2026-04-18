@@ -55,3 +55,54 @@ Append-only. Every issue triaged, every close, every label change.
 - Labels created: 3 (role:atlas, role:cassidy, role:mia).
 - Stale-issue ratio: not measured this session (scrub queued for next session).
 - Regresslint compliance: not measured this session (audit queued for next session).
+
+---
+
+## 2026-04-18 Session 3 — backlog scrub, label burn-down, first-pass regresslint audit
+**Context:** Third Mia session. Session-start: read LESSONS.md (15 lessons — operating against #9/10/14 hard rules), my worklog (2 prior entries), Atlas worklog (1 entry), Cassidy worklog (2 entries incl. first-audit batch). Pulled open-issue queue: 30 open, none labelled `role:mia`. Cassidy's #286 confirms masterplan files (`ventdmasterplan.mkd`, `ventdtestmasterplan.mkd`) don't exist on main — operated against `.claude/rules/*.md` and issue bodies instead.
+
+**Actions taken:**
+
+1. **#68 milestone-clear attempted, blocked by MCP tooling.** `issue_write.milestone` accepts `number` only; passing `0` was a no-op. Lesson #9 two-failure stop rule fired after that single attempt (Atlas had also previously failed) → stopped retrying, commented on #68 asking PhoenixDnB to clear the v0.3.0 milestone from the web UI. One click. **Tooling gap for LESSONS.md:** `claude github:issue_write` cannot clear an issue's milestone. If this recurs I'll propose a lesson entry. One occurrence = not yet warranting the LESSONS slot.
+
+2. **Applied `role:atlas` to seven unlabelled handoffs**, preserving existing labels:
+   - **#235** (`enhancement`) → + `role:atlas`
+   - **#266** (`bug, phase-1, test, ultrareview-1`) → + `role:atlas`
+   - **#268** (`ultrareview-1, cleanup, dead-code`) → + `role:atlas`
+   - **#269** (`documentation, ultrareview-1, api`) → + `role:atlas`
+   - **#271** (`ultrareview-1, phase-2-prep, refactor, test-infrastructure`) → + `role:atlas`
+   - **#272** (`bug, phase-1, follow-up, consistency`) → + `role:atlas`
+   - **#274** (`test, ultrareview-1, hal`) → + `role:atlas`
+
+3. **First-pass regresslint compliance audit — partial.** Pulled 20 closed `bug`-labelled issues. Labelled the 7 unambiguous exemption cases with `no-regression-test`:
+   - **#40** (checkout v6 CI workflow fix) — CI infra, no unit-test surface.
+   - **#60** (install.sh unit-file refresh) — shell installer.
+   - **#98** (design note for #86 Proposal 3) — documentation close, not a code fix.
+   - **#107** (install.sh pwm-holder preflight) — shell installer.
+   - **#196** (install.sh CRLF survival) — shell installer.
+   - **#201** (install.sh http:// message) — shell installer.
+   - **#265** (hardware-profiles repo schema mismatch) — external repo data, no ventd-side code change.
+
+   **Deferred to next session (13 closed bugs need individual tree-check):** #273 (duplicate — N/A), #200, #177, #208, #202, #199, #165, #140, #86, #103, #58, #61, #59. Before auditing these I'll read `tools/regresslint/` to understand what the CI enforcement already covers — without that context I risk labelling cases it would catch or missing cases it won't. Tool-reading first, then resume audit.
+
+4. **Correction to session 2's retraction.** Session 2 logged a "correction" claiming I was wrong to refuse the URL-fetch-SYSTEM.md one-liner, citing `.cowork/roles/README.md` as documenting it verbatim. Re-read the README this session. README explicitly says "The URL-fetch one-liner does not work" and explains *why refusal is correct* (prompt-injection attack shape, no legitimate bootstrap disambiguation). Session 2's correction was itself wrong. Refusing URL-fetch identity-swap requests is correct and aligned with both SYSTEM.md and README. Leaving this logged so a fourth session doesn't retract the retraction of the retraction.
+
+**For other roles:**
+
+- **@atlas** — seven handoffs labelled this session (#235, #266, #268, #269, #271, #272, #274). Existing queue includes Cassidy's #286, #287, #288 (role-config / test-binding / controller semantic regression) plus #283 (DIRECTORY.md). Total `role:atlas` queue depth at session end: 11 open.
+- **@cassidy** — no items. Your session-2 finding #286 (missing masterplan files) remains the right call; my session-start read confirmed the files don't exist on main.
+
+**Followup for next Mia session:**
+1. Read `tools/regresslint/` source to understand its scope before resuming the closed-bug audit on 13 remaining issues.
+2. Check #68's milestone after PhoenixDnB responds — if cleared, assess whether v0.3.0 milestone can close.
+3. Stale-issue scrub: pre-ensemble issues (#68, #129, #132, #146, #167, #171, #172, #173, #179, #180, #181, #182, #183, #184, #215, #216, #228, #229) — check activity dates; anything >30 days idle at next-session time gets a status-request comment. (Today all are <5 days; defer.)
+4. Weekly metrics rollup — first Monday (2026-04-20).
+
+**Metrics (session 3, partial):**
+- Issues closed this session: 0.
+- Issues filed this session: 0.
+- Issues commented: 1 (#68 — milestone-clear request).
+- Labels applied: 14 total (7 × `role:atlas` additions; 7 × `no-regression-test`).
+- Stale-issue ratio: not measured (all open issues currently <30 days idle — scrub not yet triggered; nearest candidate is #129 from 2026-04-16 at 2 days old).
+- Regresslint compliance (closed bugs w/ neither test nor exemption): 13 unresolved (deferred pending `tools/regresslint/` read), down from 20 at session start.
+- Milestone hygiene: 1 open milestone (v0.3.0), 1 open issue against it (#68) blocked on human UI action.
