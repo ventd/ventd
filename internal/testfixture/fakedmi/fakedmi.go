@@ -4,31 +4,21 @@ package fakedmi
 import (
 	"testing"
 
-	"github.com/ventd/ventd/testutil"
+	"github.com/ventd/ventd/internal/testfixture/base"
 )
 
-// Options holds configuration for fakedmi. Reserved for future use.
-type Options struct{}
-
-// Fake provides a mock DMI interface.
+// Fake provides a stub DMI interface.
 type Fake struct {
-	rec *testutil.CallRecorder
+	base.Base
 }
 
 // New returns a new Fake DMI.
-func New(t *testing.T, opts *Options) *Fake {
+func New(t *testing.T) *Fake {
 	t.Helper()
-	if opts == nil {
-		opts = &Options{}
-	}
-	_ = opts
-	t.Cleanup(func() {})
-	return &Fake{
-		rec: testutil.NewCallRecorder(),
-	}
+	return &Fake{Base: base.NewBase(t)}
 }
 
 // Read reads from DMI.
 func (f *Fake) Read() {
-	f.rec.Record("Read")
+	f.Rec.Record("Read")
 }

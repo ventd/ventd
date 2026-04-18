@@ -4,31 +4,21 @@ package fakeliquid
 import (
 	"testing"
 
-	"github.com/ventd/ventd/testutil"
+	"github.com/ventd/ventd/internal/testfixture/base"
 )
 
-// Options holds configuration for fakeliquid. Reserved for future use.
-type Options struct{}
-
-// Fake provides a mock liquid cooling monitor.
+// Fake provides a stub liquid cooling monitor.
 type Fake struct {
-	rec *testutil.CallRecorder
+	base.Base
 }
 
 // New returns a new Fake liquid cooler.
-func New(t *testing.T, opts *Options) *Fake {
+func New(t *testing.T) *Fake {
 	t.Helper()
-	if opts == nil {
-		opts = &Options{}
-	}
-	_ = opts
-	t.Cleanup(func() {})
-	return &Fake{
-		rec: testutil.NewCallRecorder(),
-	}
+	return &Fake{Base: base.NewBase(t)}
 }
 
 // Pump controls the pump.
 func (f *Fake) Pump() {
-	f.rec.Record("Pump")
+	f.Rec.Record("Pump")
 }

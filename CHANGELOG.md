@@ -35,6 +35,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- test: extract `testfixture.Base` to de-duplicate 10 stub fixtures (#271)
 - test(watchdog): RULE-WD-RESTORE-EXIT subtest now exercises RestoreOne in addition to Restore (fixes #287)
 - `spawn-mcp` now invokes the Claude Code CLI in non-interactive print
   mode (`claude --dangerously-skip-permissions -p < prompt.md`) rather
