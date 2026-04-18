@@ -99,6 +99,20 @@ curves:
     function: max
     sources: [case_linear, gpu_linear]
 
+  # PI curve example — drives cpu_fan toward 65°C using proportional-integral
+  # control. Useful when the sensor has thermal lag and you want convergence
+  # rather than a static lookup. Uncomment and bind a fan in controls to use.
+  # Tune kp/ki manually or wait for the P4-PI-02 autotune feature.
+  #
+  # - name: cpu_pi
+  #   type: pi
+  #   sensor: cpu_package
+  #   setpoint: 65.0        # °C target — fan converges here
+  #   kp: 2.5               # PWM per °C above setpoint
+  #   ki: 0.1               # PWM per (°C · second) — integrates steady-state error
+  #   feed_forward: 80      # baseline PWM at setpoint (~31%)
+  #   integral_clamp: 100   # max |integral| in PWM units; hard anti-windup bound
+
 controls:
   - fan: cpu_fan
     curve: cpu_linear
