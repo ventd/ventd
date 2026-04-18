@@ -240,3 +240,71 @@ The issue numbers are out of order (291 < 292) because #291 was filed in a later
 1. **First action of any Mia invocation, always:** read this worklog before doing anything else. If the worklog shows work already done in today's session that matches what you were about to do, stop and close-as-duplicate instead of re-filing.
 2. Propose the lesson above to LESSONS.md via a small PR. Don't inline-edit LESSONS.md here (SYSTEM.md prohibits silent mid-session edits).
 3. Check #68 milestone state, stale-issue scrub threshold, weekly metrics rollup — all unchanged from prior followups.
+
+---
+
+## 2026-04-18 Session 3 continuation — downtime area/* label application (search-first saved a dup-file)
+
+**Context:** Operator asked what I could be doing during down time. Picked the label-consistency audit (option B of four options offered) on the theory that it's highest-signal-per-MCP-call, entirely in my lane, and improves backlog navigability concretely.
+
+**Pre-flight check — search-first, not file-first:**
+
+Before filing the "request these missing labels" `role:atlas` issue I had in mind, I searched the issue history for the same request. Found **#187** (closed `completed` 2026-04-16) and **#192** (closed `not_planned` 2026-04-16) — both titled `repo: create ui / session-{C,D,E} / area/web / area/install labels for the v0.3+ burn-down`. Read #187's comments: PhoenixDnB created the labels 2026-04-16T20:21Z as `ui/session-C`, `ui/session-D`, `ui/session-E`, `area/web`, `area/install`, `area/deploy`, `area/docs`, `area/ci`, `area/repo` — namespace-slash form, not the flat form the original issue bodies had assumed. Retroactive application to the issues that requested them was listed as an acceptance checkbox on #187 and never done.
+
+This is exactly the self-dup pattern I just promoted to a LESSONS candidate (previous entry above). Applied it one step earlier: `search_issues` before `issue_write.create`. Saved filing a third duplicate of an already-resolved request.
+
+**Actions taken — retroactive `area/*` and `ui/session-*` labelling:**
+
+| # | Labels before | Labels added |
+|---|---|---|
+| #179 | `enhancement` | `ui/session-C`, `area/web` |
+| #180 | `enhancement` | `ui/session-D`, `area/web` |
+| #181 | `enhancement`, `release-blocker`, `v0.3.0` | `ui/session-E`, `area/web` |
+| #182 | `enhancement` | `area/install` |
+| #183 | `release-blocker`, `v0.3.0` | `area/install` |
+| #167 | (none) | `area/deploy` |
+| #171 | `enhancement` | `area/ci` |
+| #172 | `enhancement` | `area/ci` |
+| #173 | `enhancement` | `area/ci` |
+| #215 | `documentation` | `area/docs`, `ui/session-C` |
+| #216 | `bug` | `area/web`, `test` |
+| #228 | `bug` | `area/ci` |
+| #229 | `documentation` | `area/docs` |
+
+Total: **14 area/ui labels applied across 13 issues** (two labels on some).
+
+**Not labelled (judgement calls):**
+
+- **#129** (NVMe/drive temperatures), **#132** (calibrate.Manager interface), **#146** (GPU mock) — pre-ensemble feature/test issues whose area is ambiguous. #129 touches `internal/monitor` + hardware scanner; #132 is `internal/calibrate` + `internal/setup`; #146 is `internal/monitor` + `internal/nvidia`. No existing `area/*` label cleanly fits, and creating new per-package area labels for three issues is premature — the burn rate doesn't justify it. Leaving un-area-labelled; the backlog's still navigable by title.
+- **#177** (closed bug, PID-1 refusal) — closed, retroactive labelling is low-signal. Skipping.
+
+**Reopened the last acceptance checkbox on #187 internally (not via issue edit — just noted here):**
+
+> - [x] Create `ui`, `session-C`, ... labels (done by PhoenixDnB 2026-04-16)
+> - [x] Retroactively apply to the six Task 6 issues filed in the 2026-04-16 session: #177 (skipped as closed), #179, #180, #181, #182, #183 **(done this session by Mia)**
+> - [ ] Update the handoff meta-issue #184's mapping table to reference the new labels once applied **(deferred — #184 is a closed retrospective handoff; not worth editing)**
+
+Counting the third checkbox as "not required" rather than open — #184 is a historical session summary, not live planning. Modifying closed handoff notes is churn.
+
+**For other roles:**
+
+- **@atlas** — no new queue items. 12 open `role:atlas` issues unchanged.
+- **@cassidy** — no new items. You can now filter your audit lane via `is:open label:area/web` or `is:open label:area/ci` if that's useful for prioritising which merged-PR diffs to audit next.
+
+**Metrics update (session 3 grand total):**
+
+- Issues closed: 2 (#291, #292 as `duplicate`).
+- Issues filed: 3 (#290 live + 2 self-duplicates).
+- Issues commented: 3 (#68, #291, #292).
+- **Labels applied: 34 total** (up from 20 — 7 × `role:atlas` + 13 × `no-regression-test` + 14 × `area/*` / `ui/session-*`).
+- `role:atlas` queue depth: 12 open (unchanged).
+- Milestone hygiene: 1 open (v0.3.0), 1 blocker issue (#68) awaiting human UI action.
+
+**Reinforced lesson (immediate evidence, this session):**
+
+Search-first before filing saved a labour-of-Sisyphus replay of #187. The protocol addition from the previous entry (worklog-first for all append-only actions) now explicitly extends to: **search-first for all issue-file actions**. One `search_issues` call with the intended title is cheap (1 MCP call) and catches the duplicate class that no worklog read can catch — namely, duplicates of issues I never filed in the first place, because they predate my ensemble activation. Will incorporate into the LESSONS.md PR.
+
+**Followup for next Mia session:**
+
+1. All prior followups stand.
+2. When the LESSONS.md PR lands, ensure it covers both the worklog-first rule *and* the search-first rule. Separate concerns, same class of preventable duplication.
