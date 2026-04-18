@@ -60,14 +60,14 @@ jobs:
           - name: build-and-test-fedora
             distro: fedora-41
             runs-on: ubuntu-24.04
-            container: "fedora:41"
+            container: "fedora@sha256:f1a3fab47bcb3c3ddf3135d5ee7ba8b7b25f2e809a47440936212a3a50957f3d" # fedora:41
             prereqs: "dnf install -y git gcc tar which"
             use-setup-go: true
             race: true
           - name: build-and-test-arch
             distro: arch
             runs-on: ubuntu-24.04
-            container: "archlinux:latest"
+            container: "archlinux@sha256:d0adc0bcc3bdfeacf9f30abd853c8d4d1dd40b6363e17cc158312a40423e063b" # archlinux:latest
             prereqs: "pacman -Sy --noconfirm git gcc tar which"
             use-setup-go: true
             race: true
@@ -82,7 +82,7 @@ jobs:
           - name: build-and-test-alpine
             distro: alpine-3.20
             runs-on: ubuntu-24.04
-            container: "alpine:3.20"
+            container: "alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc" # alpine:3.20
             prereqs: "apk add --no-cache bash ca-certificates curl git tar"
             use-setup-go: false
             race: false
@@ -91,7 +91,7 @@ jobs:
         if: matrix.prereqs != ''
         run: ${{ matrix.prereqs }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       # GitHub-hosted runners stage the workspace as a non-root user,
       # but our matrix containers run as root. `go build` reads VCS
@@ -141,7 +141,7 @@ jobs:
 
       - name: Set up Go (setup-go)
         if: matrix.use-setup-go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -150,8 +150,10 @@ jobs:
         if: ${{ !matrix.use-setup-go }}
         run: |
           GO_VERSION=1.25.0
+          GO_SHA256=2852af0cb20a13139b3448992e69b868e50ed0f8a1e5940ee1de9e19a123b613
           curl -fsSL -o /tmp/go.tgz \
             "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+          echo "${GO_SHA256}  /tmp/go.tgz" | sha256sum -c -
           tar -C /usr/local -xzf /tmp/go.tgz
           echo "/usr/local/go/bin" >> "$GITHUB_PATH"
 
@@ -186,8 +188,8 @@ jobs:
     name: golangci-lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -212,8 +214,8 @@ jobs:
         goos: [linux]
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: "1.25.x"
           cache: true
@@ -228,7 +230,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Lint shipped shell scripts (bash entry, POSIX hooks, init scripts)
         # SC1091 silenced — _ventd_account.sh is sourced via dynamic
         # path resolution that shellcheck can't follow statically.
@@ -288,7 +290,7 @@ jobs:
     name: nix-drift
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Assert nix module tracks deploy/ without drift
         run: bash packaging/nix/check-drift.sh
 
@@ -309,14 +311,14 @@ jobs:
   apparmor-parse-debian13:
     name: apparmor-parse-debian13
     runs-on: ubuntu-24.04
-    container: debian:trixie
+    container: "debian@sha256:3352c2e13876c8a5c5873ef20870e1939e73cb9a3c1aeba5e3e72172a85ce9ed" # debian:trixie
     steps:
       - name: Install apparmor-utils and git
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             apparmor-utils git ca-certificates
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Trust workspace dir
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Parse AppArmor profile
