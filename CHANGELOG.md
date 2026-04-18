@@ -15,6 +15,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `hwmon.parseModulesBuiltinModinfo` — unexported kernel module-info parser; had no production callers (only tests).
 - `hwmon.WithUeventSubscriber` — watcher option; the uevent subscriber is wired unconditionally by `NewWatcher` and never overridden outside the package.
 
+### Fixed
+
+- Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
+
 ### Added
 
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
