@@ -123,6 +123,9 @@ func (d *DeviceHandle) Close() error {
 func (d *DeviceHandle) GetFeatureReport(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: get_feature on closed device")
+	}
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -140,6 +143,9 @@ func (d *DeviceHandle) GetFeatureReport(p []byte) (int, error) {
 func (d *DeviceHandle) SendFeatureReport(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: send_feature on closed device")
+	}
 	cp := make([]byte, len(p))
 	copy(cp, p)
 	d.writeCapture = append(d.writeCapture, cp)
@@ -152,6 +158,9 @@ func (d *DeviceHandle) SendFeatureReport(p []byte) (int, error) {
 func (d *DeviceHandle) ReadWithTimeout(p []byte, _ time.Duration) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: read on closed device")
+	}
 	if len(d.readQueue) == 0 {
 		return 0, fmt.Errorf("fakehid: read queue empty")
 	}
@@ -166,6 +175,9 @@ func (d *DeviceHandle) ReadWithTimeout(p []byte, _ time.Duration) (int, error) {
 func (d *DeviceHandle) Write(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: write on closed device")
+	}
 	cp := make([]byte, len(p))
 	copy(cp, p)
 	d.writeCapture = append(d.writeCapture, cp)

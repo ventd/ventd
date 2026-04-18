@@ -2,6 +2,9 @@ package usbbase_test
 
 import (
 	"bytes"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -202,5 +205,44 @@ func TestSendFeature_Passthrough(t *testing.T) {
 	written := raw.Written()
 	if len(written) != 1 || !bytes.Equal(written[0], payload) {
 		t.Errorf("SendFeature: Written = %v, want %v", written, [][]byte{payload})
+	}
+}
+
+// TestHandle_ConcurrentWriteAndClose regresses #305 concern 2.
+// 10 goroutines racing Write and Close on the same Handle must collectively
+// account for every call: rawWrites + closedErrors == numGoroutines.
+// Run with go test -race.
+func TestHandle_ConcurrentWriteAndClose(t *testing.T) {
+	const numGoroutines = 10
+
+	bus, raw := newBusWithDevice("/dev/hidrawCC")
+	handle, err := bus.Open("/dev/hidrawCC")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	var (
+		wg           sync.WaitGroup
+		closedErrors atomic.Int64
+	)
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := handle.Write([]byte{0x01}); err != nil {
+				if strings.Contains(err.Error(), "closed") {
+					closedErrors.Add(1)
+				}
+			}
+		}()
+	}
+	_ = handle.Close()
+	wg.Wait()
+
+	rawWrites := int64(len(raw.Written()))
+	total := rawWrites + closedErrors.Load()
+	if total != numGoroutines {
+		t.Errorf("rawWrites(%d) + closedErrors(%d) = %d, want %d",
+			rawWrites, closedErrors.Load(), total, numGoroutines)
 	}
 }

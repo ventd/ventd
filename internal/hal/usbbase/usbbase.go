@@ -67,7 +67,10 @@ func (b *Bus) Open(path string) (*Handle, error) {
 	return &Handle{raw: raw}, nil
 }
 
-// Handle is an open USB HID device. All methods are safe for concurrent use.
+// Handle is an open USB HID device. All methods are safe for concurrent
+// use: per-handle I/O is serialised by an internal mutex. Callers should
+// still avoid holding their own lock across Handle method calls to prevent
+// lock ordering issues.
 type Handle struct {
 	mu     sync.Mutex
 	raw    RawDevice
@@ -88,6 +91,11 @@ func (h *Handle) Close() error {
 // GetFeature retrieves a feature report from the device. buf must be at least
 // 1 byte; buf[0] is overwritten with reportID before the call.
 func (h *Handle) GetFeature(reportID byte, buf []byte) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return 0, fmt.Errorf("usbbase: get_feature on closed handle")
+	}
 	if len(buf) == 0 {
 		return 0, fmt.Errorf("usbbase: GetFeature: buf must not be empty")
 	}
@@ -98,17 +106,32 @@ func (h *Handle) GetFeature(reportID byte, buf []byte) (int, error) {
 // SendFeature sends a feature report to the device. buf[0] must contain the
 // report ID.
 func (h *Handle) SendFeature(buf []byte) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return fmt.Errorf("usbbase: send_feature on closed handle")
+	}
 	_, err := h.raw.SendFeatureReport(buf)
 	return err
 }
 
 // Read reads an input report with the given timeout.
 func (h *Handle) Read(buf []byte, timeout time.Duration) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return 0, fmt.Errorf("usbbase: read on closed handle")
+	}
 	return h.raw.ReadWithTimeout(buf, timeout)
 }
 
 // Write sends an output report to the device.
 func (h *Handle) Write(buf []byte) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return fmt.Errorf("usbbase: write on closed handle")
+	}
 	_, err := h.raw.Write(buf)
 	return err
 }
