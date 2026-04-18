@@ -1,0 +1,7 @@
+version: 2
+deprecated: true
+see: .cowork/events.jsonl
+note: |
+  State is now event-sourced. Query GitHub (via MCP or gh CLI) for live
+  PR and CI state; tail events.jsonl for Cowork's decision history and
+  non-GitHub context (escalations, model assignments, revision counts).

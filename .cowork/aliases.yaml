@@ -1,0 +1,50 @@
+# Cowork aliases
+#
+# Short human-friendly names that resolve to task IDs. CC reads this
+# file via the protocol in CLAUDE.md (repo root on main) to turn a
+# pasted alias into a prompt file at .cowork/prompts/<TASK-ID>.md.
+#
+# Cowork regenerates this file on every dispatch / merge / revision.
+# Tasks that have merged are removed; pre-drafted tasks retain their
+# alias and gain a `blocked_on` note.
+
+version: 1
+aliases:
+  hal:
+    task: P1-HAL-01
+    model: claude-opus-4-7
+    status: dispatched
+    note: "Critical path — HAL interface refactor. Longest task; start this first if single-threaded."
+
+  fp:
+    task: P1-FP-01
+    model: claude-sonnet-4-6
+    status: dispatched
+    note: "Hardware fingerprint database — 18+ boards, exact→prefix→wildcard match."
+
+  hwdb:
+    task: P1-FP-01
+    alias_of: fp
+    note: "Same task; alternative name."
+
+  rulelint:
+    task: T0-META-01
+    model: claude-sonnet-4-6
+    status: dispatched
+    note: "CI lint: every rule file points to a real subtest."
+
+  regresslint:
+    task: T0-META-02
+    model: claude-sonnet-4-6
+    status: blocked
+    blocked_on: "rulelint (T0-META-01) merge — shared workflow file"
+    note: "CI lint: every closed bug has a regression test, or carries `no-regression-test` label."
+
+  permpol:
+    task: P10-PERMPOL-01
+    model: claude-sonnet-4-6
+    status: ready-queued
+    note: "Permissions-Policy header + ETag on embedded UI. Ready now; held for CC terminal capacity."
+
+# Merged aliases (kept briefly for audit; removed once stale):
+#   faketime → T0-INFRA-03 (PR #242 awaiting CI at time of this file write)

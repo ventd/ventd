@@ -6,6 +6,60 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
+  stdlib CVEs identified by govulncheck — including GO-2025-4012 (net/http),
+  GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
+  GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
+  reachable vulnerabilities.
+
+### Changed
+
+- `spawn-mcp` now invokes the Claude Code CLI in non-interactive print
+  mode (`claude --dangerously-skip-permissions -p < prompt.md`) rather
+  than piping the prompt as stdin into an interactive `claude`. The
+  previous pattern blocked on the first-run theme picker before the CLI
+  ever consumed stdin, which meant every dispatch under a fresh service
+  user deadlocked at 0% progress. Print mode bypasses the theme picker
+  and permission prompts by design. Belt-and-braces: `IS_DEMO=1` is set
+  at the unit level to skip onboarding on fresh installs, and
+  `CLAUDE_CODE_OAUTH_TOKEN` (generated once with `claude setup-token`)
+  is forwarded from `/etc/spawn-mcp/env` so a fresh service user with
+  no interactive login can still authenticate. Each session's stdout
+  and stderr now land in `/var/log/spawn-mcp/sessions/<session>.log`
+  with an exit-code marker, and `tail_session` prefers this persistent
+  log over tmux capture-pane so failures survive pane scroll-back.
+  `.cowork/LESSONS.md` lesson #9 covers the root cause: the #251
+  user-collapse refactor was merged without running one spawn_cc()
+  round-trip post-deploy.
+- `spawn-mcp.service` drops `ProtectHome=read-only`. The service runs
+  as `cc-runner` and `claude` legitimately needs to read and write
+  `/home/cc-runner/.claude/` for session state, cache, and auth
+  tokens. Since the service IS `cc-runner`, there was no user boundary
+  to enforce; `ProtectHome=read-only` was only blocking the service
+  from writing its own home. This directive was inherited from the
+  pre-collapse hardening set and should have been dropped in #251.
+
+- `spawn-mcp` now runs as the same user as the Claude Code sessions it
+  launches (`cc-runner`). The previous two-user split had spawn-mcp
+  running as its own system user and handing each prompt file off to
+  `cc-runner` via `chown`/`chmod` plus a `sudo -u cc-runner tmux ...`
+  hop. Each failure in that pipeline ratcheted capability grants on the
+  unit — first `CAP_CHOWN`, then `CAP_FOWNER`, then `NoNewPrivileges=no`,
+  then the full SETUID/SETGID/AUDIT_WRITE/DAC_READ_SEARCH set — to
+  paper over a boundary that was already ornamental, because spawn-mcp
+  held sudo rights to become cc-runner. Collapsing to a single user
+  lets the service run with an empty ambient + bounding cap set,
+  `NoNewPrivileges=yes`, and no sudoers fragment at all. Prompt files
+  land 0600 in `/tmp/spawn-mcp/` natively. The `SPAWN_MCP_AS_USER`
+  environment variable and all `sudo -u` subprocess prefixes are gone.
+  `.cowork/LESSONS.md` lesson #6 (infra-coherence failures) is the
+  class. Operators still attach from their own shell with
+  `sudo -u cc-runner tmux attach -t cc-...`, since reaching another
+  user's tmux server from a different login shell is a shell-side
+  concern, not a service-side privilege escalation.
+
 ### Fixed
 
 - fix(hwmon): `persistModule` now merges (append + dedup + sort) into `/etc/modules-load.d/ventd.conf` instead of overwriting, so running `--probe-modules` twice on a dual-chip board keeps both detected modules (P1-MOD-02)
