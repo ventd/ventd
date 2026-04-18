@@ -20,6 +20,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/hal"
+	halasahi "github.com/ventd/ventd/internal/hal/asahi"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwdiag"
@@ -239,6 +240,7 @@ func run() error {
 	// hal.Resolve can drive Phase 2 features (IPMI / liquidctl / cros_ec
 	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
 	// a single source of truth.
+	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
 	if channels, err := hal.Enumerate(context.Background()); err != nil {
