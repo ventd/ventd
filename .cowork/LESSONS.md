@@ -211,3 +211,41 @@ work. No `spawn_cc("ultrareview")` — that path is deprecated.
 **Corollary:** `.cowork/prompts/ultrareview.md` has moved to
 `.cowork/roles/cassidy/ULTRAREVIEW.md` and is no longer a valid
 spawn-mcp alias.
+
+---
+
+## 18 — CC branch-base is not guaranteed; hardcode the checkout
+
+**Date:** 2026-04-18 (S6, #303 incident)
+**Surfaced by:** P4-PI-01 v1 opened PR #303 with 138 files changed / 132 commits. Production code (PICurve, tests, controller wiring) was correct, but the branch was cut from a stale `main` SHA while the worktree carried `cowork/state` contents, so every `.cowork/*` file appeared as "added" in the diff. `mergeable_state: dirty`; unmergeable without spraying 126 docs files onto `main`.
+
+**Root cause:** spawn-mcp's CC worktree at `/home/cc-runner/ventd` defaults to whatever HEAD was when the previous session exited. Multiple sessions working across `main` and `cowork/state` leave the tree in indeterminate state. Prompts that just say "branch: `claude/<task>`" inherit wherever HEAD happens to be.
+
+**Fix applied** — three concrete changes baked into all future CC prompts targeting `main`:
+
+(1) **Mandatory branch-base preamble.** Every prompt opens with:
+
+```bash
+cd /home/cc-runner/ventd
+git fetch origin main
+git checkout -B claude/<branch-name> origin/main
+# Sanity check: main must not contain cowork/state prompts
+test ! -f .cowork/prompts/<this-task>.md && echo "OK: working tree is main" || {
+    echo "ERROR: working tree contains cowork/state files. Abort."
+    exit 1
+}
+```
+
+If the sanity check fails, CC halts and reports rather than committing polluted history.
+
+(2) **BRANCH_CLEANLINESS reporting section.** Prompts require CC to paste `git log --oneline origin/main..HEAD` and `git diff --stat origin/main..HEAD | tail -1` in the PR body. One-glance verification that the branch is a minimal delta. Over ~3 commits or over ~15 files = branch base is wrong; reject.
+
+(3) **Hard allowlist enforcement.** Prompts explicitly forbid touching `.cowork/`, `.claude/`, `.github/`, `deploy/` unless the task specifies otherwise. Belt-and-suspenders against the same incident pattern.
+
+**Template available:** `.cowork/prompts/P4-PI-01-v2.md` on cowork/state is the reference. Copy its preamble + BRANCH_CLEANLINESS section verbatim into any new prompt targeting `main`.
+
+**Handoff reducible to MCP:** spawn-mcp could run the `git fetch + checkout -B` step as part of `spawn_cc()` if the prompt declares a `base_branch` field in YAML frontmatter. Low-priority future fix; prompt-level preamble works today.
+
+**Secondary observation:** CC itself caught a spec bug in the same session (the `err = Setpoint - sensor` sign inversion — correct form is `err = sensor - Setpoint` for `Kp > 0` to drive PWM up when hot). That flagging is exactly the kind of skepticism lesson #16's "tertiary observation" called valuable. P4-PI-01-v2 codifies both fixes: the sign convention AND the branch-base hardening.
+
+**Net cost of #303 incident:** ~15 min of Atlas diagnosis + prompt-v2 drafting + redispatch. Recoverable. But: this lesson should have been surfaced as a pre-flight check in P4-PI-01 v1's prompt, not a post-mortem. The prompt template for new-feature-on-main tasks was incomplete; this lesson fills the gap.
