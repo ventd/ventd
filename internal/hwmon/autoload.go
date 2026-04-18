@@ -868,6 +868,10 @@ func mergeModuleLoadFile(path, newModule string) error {
 		_ = tmp.Close()
 		return fmt.Errorf("write %s: %w", tmpPath, err)
 	}
+	if err := tmp.Sync(); err != nil { // regresses #311: fsync data before rename
+		_ = tmp.Close()
+		return fmt.Errorf("sync %s: %w", tmpPath, err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close %s: %w", tmpPath, err)
 	}
@@ -876,6 +880,13 @@ func mergeModuleLoadFile(path, newModule string) error {
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("rename %s -> %s: %w", tmpPath, path, err)
+	}
+	// Best-effort: fsync parent directory to persist the rename metadata.
+	// Wrapped in open-succeeded check because some filesystems don't support
+	// dir fsync; failure here is not an error — the rename already happened.
+	if dirFile, err := os.Open(dir); err == nil { // regresses #311: parent dir fsync
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
 	}
 	ok = true
 	return nil
