@@ -332,6 +332,15 @@ func runDaemon(
 	// start and deregisters on normal exit, so a daemon crash mid-sweep
 	// still restores PWM via the daemon-exit Restore.
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
+	// Wire the HAL channel resolver so calibration sweeps drive fans via the
+	// backend abstraction instead of direct hwmon/NVML imports (P1-HAL-02).
+	cal.SetChannelResolver(func(ctx context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error) {
+		backendName := fan.Type
+		if backendName == "nvidia" {
+			backendName = halnvml.BackendName
+		}
+		return hal.Resolve(backendName + ":" + fan.PWMPath)
+	})
 
 	// Process-wide hardware-diagnostics store. Tier 5: every subsystem that
 	// detects a non-fatal condition (future calibration schema, missing
