@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/curve"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/watchdog"
 )
 
 func TestParseNvidiaIndex(t *testing.T) {
@@ -156,3 +159,124 @@ func TestReadAllSensors_NvidiaPathInvariant(t *testing.T) {
 		})
 	}
 }
+
+// makePICurveCfg builds a Config containing one sensor at tempPath, one fan
+// at pwmPath, one PI curve, and a Control binding them.
+func makePICurveCfg(ff fakeFan, fanName, curveName string, fanMin, fanMax uint8) *config.Config {
+	kp := 2.5
+	ki := 0.1
+	sp := 65.0
+	ic := 100.0
+	ffVal := uint8(80)
+	return &config.Config{
+		Sensors: []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
+		Fans: []config.Fan{{
+			Name: fanName, Type: "hwmon", PWMPath: ff.pwmPath,
+			MinPWM: fanMin, MaxPWM: fanMax,
+		}},
+		Curves: []config.CurveConfig{{
+			Name:          curveName,
+			Type:          "pi",
+			Sensor:        "cpu",
+			Setpoint:      &sp,
+			Kp:            &kp,
+			Ki:            &ki,
+			FeedForward:   &ffVal,
+			IntegralClamp: &ic,
+		}},
+		Controls: []config.Control{{Fan: fanName, Curve: curveName}},
+	}
+}
+
+// TestController_PICurve_IntegralPerChannel pins the per-channel isolation
+// invariant: two channels sharing the same CurveConfig type must maintain
+// independent integral state. A bug that keys piState by curve-pointer
+// instead of channel ID would cause both channels to share one integral.
+func TestController_PICurve_IntegralPerChannel(t *testing.T) {
+	ff1 := newFakeFan(t)
+	ff2 := newFakeFan(t)
+
+	// Channel 1 is hot (80°C), channel 2 is cold (50°C).
+	if err := os.WriteFile(ff1.tempPath, []byte("80000\n"), 0o600); err != nil {
+		t.Fatalf("write temp1: %v", err)
+	}
+	if err := os.WriteFile(ff2.tempPath, []byte("50000\n"), 0o600); err != nil {
+		t.Fatalf("write temp2: %v", err)
+	}
+
+	cfg1 := makePICurveCfg(ff1, "fan1", "pi_curve", 30, 255)
+	cfg2 := makePICurveCfg(ff2, "fan2", "pi_curve", 30, 255)
+
+	c1 := newTestController(t, ff1, cfg1, &stubCal{}, "fan1", "pi_curve")
+	c2 := newTestController(t, ff2, cfg2, &stubCal{}, "fan2", "pi_curve")
+
+	// Run several ticks so integrals can diverge.
+	for i := 0; i < 10; i++ {
+		c1.tick()
+		c2.tick()
+	}
+
+	i1 := c1.piState[ff1.pwmPath].Integral
+	i2 := c2.piState[ff2.pwmPath].Integral
+
+	// The hot channel must have a larger (more positive) integral.
+	if i1 <= i2 {
+		t.Errorf("channel integrals did not diverge: i1=%.2f, i2=%.2f; hot channel (i1) must be > cold (i2)", i1, i2)
+	}
+}
+
+// TestController_PIState_ResetOnPanic pins the panic-mode PI reset contract:
+// on panic engagement the integral is zeroed so the forced 100% PWM does not
+// wind up the integral. The state must still be zero after panic is released.
+func TestController_PIState_ResetOnPanic(t *testing.T) {
+	ff := newFakeFan(t)
+	if err := os.WriteFile(ff.tempPath, []byte("85000\n"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+
+	cfg := makePICurveCfg(ff, "fan1", "pi_curve", 30, 255)
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+
+	panicFlag := &stubPanic{}
+	c := New("fan1", "pi_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger,
+		WithPanicChecker(panicFlag))
+
+	// Run ticks to build up integral.
+	for i := 0; i < 10; i++ {
+		c.tick()
+	}
+	if c.piState[ff.pwmPath].Integral == 0 {
+		t.Fatal("expected non-zero integral after hot ticks, got 0")
+	}
+
+	// Engage panic mode — engagement resets piState.
+	panicFlag.active = true
+	c.tick() // tick detects engagement and resets piState
+
+	if c.piState[ff.pwmPath].Integral != 0 {
+		t.Errorf("piState.Integral = %.2f after panic engagement; want 0", c.piState[ff.pwmPath].Integral)
+	}
+
+	// Release panic — piState must still be zero (was reset on engagement
+	// and no updates happened while panicked).
+	panicFlag.active = false
+	if c.piState[ff.pwmPath].Integral != 0 {
+		t.Errorf("piState.Integral = %.2f after panic release; want 0", c.piState[ff.pwmPath].Integral)
+	}
+}
+
+// stubPanic is a test PanicChecker that returns a controllable flag.
+type stubPanic struct{ active bool }
+
+func (s *stubPanic) IsPanicked(_ string) bool {
+	if s == nil {
+		return false
+	}
+	return s.active
+}
+
+// Verify PICurve implements StatefulCurve at compile time.
+var _ curve.StatefulCurve = (*curve.PICurve)(nil)

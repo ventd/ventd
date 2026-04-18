@@ -63,6 +63,26 @@ type Controller struct {
 	lastTemp    float64 // curve's sensor reading at the moment of lastPWM
 	hasLastPWM  bool    // false until the first successful write
 	activeCurve string  // tracks curveCfg.Name to detect hot-reload swaps
+
+	// piState holds the per-channel PI integral state, keyed by channel ID
+	// (pwmPath). Each Controller manages one channel, so the map has at most
+	// one entry. A map allows clean purge on panic or curve-kind change.
+	//
+	// Lifecycle rules:
+	//   • Initialised to empty map in New().
+	//   • Cleared (delete) in initCurveStateIfNeeded on curve-name change.
+	//   • Cleared for all channels on panic-mode engagement.
+	//   • Deleted for a channel when its curve is non-PI (handles SIGHUP
+	//     reload that changes type from pi to something else).
+	piState map[string]curve.PIState
+
+	// lastTickAt is the wall-clock time at the end of the most recent tick.
+	// Used to compute the elapsed dt passed to EvaluateStateful each tick.
+	lastTickAt time.Time
+
+	// wasInPanic tracks whether the previous tick was yielded to panic mode.
+	// Used to detect the engagement transition and reset piState exactly once.
+	wasInPanic bool
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -95,14 +115,16 @@ func New(
 	opts ...Option,
 ) *Controller {
 	c := &Controller{
-		fanName:   fanName,
-		curveName: curveName,
-		pwmPath:   pwmPath,
-		fanType:   fanType,
-		cfg:       cfg,
-		wd:        wd,
-		cal:       cal,
-		logger:    logger.With("fan", fanName, "curve", curveName),
+		fanName:    fanName,
+		curveName:  curveName,
+		pwmPath:    pwmPath,
+		fanType:    fanType,
+		cfg:        cfg,
+		wd:         wd,
+		cal:        cal,
+		logger:     logger.With("fan", fanName, "curve", curveName),
+		piState:    make(map[string]curve.PIState),
+		lastTickAt: time.Now(),
 	}
 	for _, o := range opts {
 		o(c)
@@ -186,18 +208,34 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 // tick is one control iteration. Errors are logged and the tick is skipped;
 // the loop continues on the next interval.
 func (c *Controller) tick() {
+	// Capture wall-clock time for PI dt computation. lastTickAt is updated
+	// at the end of every tick (including yields) via defer so dt tracks
+	// actual elapsed time rather than only work-completing ticks.
+	now := time.Now()
+	dtSeconds := clampDT(now.Sub(c.lastTickAt))
+	defer func() { c.lastTickAt = now }()
+
 	// Yield the tick to the calibration goroutine — it owns the PWM channel.
 	if c.fanType != "nvidia" && c.cal.IsCalibrating(c.pwmPath) {
 		c.logger.Debug("controller: calibration in progress, skipping tick")
 		return
 	}
-	// Yield to an active panic — the panic handler has already written
-	// MaxPWM to this fan and we must not overwrite it with a curve-
-	// derived value until the flag clears.
-	if c.panic != nil && c.panic.IsPanicked(c.pwmPath) {
+
+	// Panic-mode gate. On the transition into panic (engagement), reset all
+	// PI integral state so the forced 100% PWM doesn't wind up the integral
+	// for the period the daemon is in emergency mode.
+	isPanicked := c.panic != nil && c.panic.IsPanicked(c.pwmPath)
+	if isPanicked {
+		if !c.wasInPanic {
+			c.wasInPanic = true
+			for k := range c.piState {
+				c.piState[k] = curve.PIState{}
+			}
+		}
 		c.logger.Debug("controller: panic active, skipping tick")
 		return
 	}
+	c.wasInPanic = false
 
 	live := c.cfg.Load()
 
@@ -282,7 +320,19 @@ func (c *Controller) tick() {
 		return
 	}
 
-	raw := crv.Evaluate(sensors)
+	var raw uint8
+	if sc, ok := crv.(curve.StatefulCurve); ok {
+		// PI (stateful) path: carry integral state across ticks.
+		prev := c.piState[c.pwmPath]
+		newPWM, newState := sc.EvaluateStateful(sensors, prev, dtSeconds)
+		c.piState[c.pwmPath] = newState.(curve.PIState)
+		raw = newPWM
+	} else {
+		// Stateless path: clean up any stale PI state from a prior config
+		// reload that changed this channel's curve from pi to non-pi.
+		delete(c.piState, c.pwmPath)
+		raw = crv.Evaluate(sensors)
+	}
 
 	// Clamp to the fan's configured PWM range. This is the hard safety layer:
 	// the fan config is authoritative — the curve cannot drive PWM outside it.
@@ -353,7 +403,7 @@ func (c *Controller) tick() {
 	)
 }
 
-// initCurveStateIfNeeded resets smoothing / hysteresis state when the
+// initCurveStateIfNeeded resets smoothing / hysteresis / PI state when the
 // bound curve name changes on hot-reload. A rename-in-place (same Name,
 // new params) retains the state — EMA converges quickly enough that
 // bridging the parameter change is preferable to a visible step.
@@ -366,6 +416,7 @@ func (c *Controller) initCurveStateIfNeeded(curveName string) {
 	c.hasLastPWM = false
 	c.lastPWM = 0
 	c.lastTemp = 0
+	delete(c.piState, c.pwmPath)
 }
 
 // applySmoothing applies a per-sensor EMA using α = poll / (smoothing + poll).
@@ -485,6 +536,16 @@ func buildCurve(cfg config.CurveConfig, allCurves []config.CurveConfig) (curve.C
 		}
 		return &curve.Mix{Sources: sources, Function: fn}, nil
 
+	case "pi":
+		return &curve.PICurve{
+			SensorName:    cfg.Sensor,
+			Setpoint:      *cfg.Setpoint,
+			Kp:            *cfg.Kp,
+			Ki:            *cfg.Ki,
+			FeedForward:   *cfg.FeedForward,
+			IntegralClamp: *cfg.IntegralClamp,
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown curve type %q", cfg.Type)
 	}
@@ -517,6 +578,20 @@ func parseNvidiaIndex(s string) (uint, error) {
 		return 0, fmt.Errorf("controller: parse nvidia GPU index from %q: %w", s, err)
 	}
 	return uint(v), nil
+}
+
+// clampDT converts a tick-to-tick duration to a bounded float64 dt in seconds.
+// Capped to [0.1s, 10.0s] so a paused/suspended daemon on resume does not
+// produce a massive Ki*err*dt integral kick.
+func clampDT(d time.Duration) float64 {
+	s := d.Seconds()
+	if s < 0.1 {
+		return 0.1
+	}
+	if s > 10.0 {
+		return 10.0
+	}
+	return s
 }
 
 func clamp(v, lo, hi uint8) uint8 {

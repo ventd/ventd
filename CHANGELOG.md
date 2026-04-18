@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- PI curve type (`type: pi`) with proportional-integral control, hard-bounded anti-windup (back-calculation), per-channel integral state persisted across ticks, and feed-forward baseline. P4-PI-01. Additive config change: existing configs are unaffected.
+
 ### Changed
 
 - `spawn-mcp` now invokes the Claude Code CLI in non-interactive print

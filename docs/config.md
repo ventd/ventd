@@ -137,6 +137,42 @@ PWM values are raw 0–255, the same units hwmon uses. If you want "30 %", write
 
 `sources` is a list of **curve names**, not sensor names.
 
+## PI curve
+
+A PI (proportional-integral) curve drives fan PWM toward a temperature setpoint using a feedback control law. Use this when sensors have significant thermal lag or when you want the fan to _converge_ on a temperature target rather than follow a static lookup table.
+
+```yaml
+curves:
+  cpu_pi:
+    kind: pi
+    sensor: CPU Temperature
+    setpoint: 65.0        # °C target
+    kp: 2.5               # PWM per °C above setpoint
+    ki: 0.1               # PWM per (°C · second)
+    feed_forward: 80      # baseline 0..255 PWM (~31% — the "at setpoint" duty)
+    integral_clamp: 100   # max |integral| in PWM units; hard anti-windup bound
+```
+
+**Control law:**
+
+```
+err      = sensor − setpoint           (positive when too hot)
+P        = kp × err
+I_new    = clamp(I_prev + ki × err × dt,  −integral_clamp,  +integral_clamp)
+output   = feed_forward + P + I_new
+pwm      = clamp(output, 0, 255)
+```
+
+**Anti-windup** uses back-calculation: if the tentative output would saturate the 0–255 range, the integral is rolled back to its pre-update value for that tick. This prevents integral accumulation while the actuator is at a rail.
+
+**Tuning guide:**
+1. Start with `ki: 0` and tune `kp` alone. Increase until you see mild oscillation in fan speed, then back off 30%.
+2. Add `ki` in small steps (0.05–0.2). Increase until the settling time is acceptable without overshoot of more than 2 °C. The upcoming autotune (P4-PI-02) is the preferred path for finding good gains.
+
+**Limitations:**
+- PI curves are **not** composable inside a `mix` curve in this release. Integral state would not survive the mix combine step meaningfully. P4-MPC-01 will revisit composability.
+- Web UI affordances are post-Phase 4; operators hand-edit YAML to use PI curves.
+
 ### `controls[]`
 
 Binds a fan to a curve. Every fan you want `ventd` to drive needs a `controls` entry; fans without one are left alone (other than the watchdog's `pwm_enable` restore on exit).
