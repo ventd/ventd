@@ -52,7 +52,8 @@ const maxConsecutiveFailures = 5
 // _IOWR(type, nr, size) = (3 << 30) | (size << 16) | (type << 8) | nr
 const ioctlCmd uintptr = (3 << 30) | (20 << 16) | (0xEC << 8)
 
-// maxPayload is the data[] region size in our ioctl buffer.
+// maxPayload caps the fixed-size data region in ecBuf. Raise if any EC
+// command added here needs larger payloads; current ceiling is 4 bytes.
 const maxPayload = 64
 
 // ecBuf matches the memory layout of struct cros_ec_command plus a fixed
@@ -159,6 +160,7 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		b.failures++
 		if b.failures >= maxConsecutiveFailures {
 			fails := b.failures
+			b.failures = 0 // reset so next burst gets a fresh 5-count window
 			b.mu.Unlock()
 			b.logger.Error("crosec: consecutive write failures, restoring EC auto mode",
 				"failures", fails, "channel", ch.ID)
