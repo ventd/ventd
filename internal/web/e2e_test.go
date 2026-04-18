@@ -1873,6 +1873,7 @@ func TestE2E_ApplyFlow_NoChangeSkipsModal(t *testing.T) {
 // against the real daemon harness which reports "unsupported" for
 // LSMs and "not active" for the watchdog — exactly what an operator
 // without systemd or SELinux would see.
+// regresses #208
 func TestE2E_SettingsModal_PopulatedSections(t *testing.T) {
 	h := newHarness(t)
 	defer h.cleanup()

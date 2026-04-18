@@ -28,6 +28,7 @@ func withFakeTLSFS(t *testing.T, fn func(certPath, keyPath string) ([]byte, []by
 // first-boot produced a keypair at <configDir>/tls.{crt,key}, a later
 // Save() stripped the fields, the v0.2.0 binary with
 // RequireTransportSecurity now refuses to start. Migrate repopulates.
+// regresses #59
 func TestMigrate_TLSBothPresent(t *testing.T) {
 	withFakeTLSFS(t, func(certPath, keyPath string) ([]byte, []byte, error) {
 		if certPath != "/etc/ventd/tls.crt" {

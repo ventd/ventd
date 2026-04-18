@@ -96,6 +96,7 @@ func TestReproLoadUnderUdevRace(t *testing.T) {
 	}
 }
 
+// regresses #103
 func TestLoadForStartup_FirstBootOnMissingFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "does-not-exist.yaml")

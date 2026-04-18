@@ -437,6 +437,7 @@ func TestResolveHwmonPaths_SymlinkedHwmonEntries(t *testing.T) {
 // attribute. ChipName alone can't disambiguate; the Sensor/Fan's
 // configured HwmonDevice (stable /sys/devices/... path) picks the
 // right hwmonN by EvalSymlinks equality.
+// regresses #86
 func TestResolveHwmonPaths_DisambiguateViaHwmonDevice(t *testing.T) {
 	root := t.TempDir()
 	classDir := filepath.Join(root, "class", "hwmon")

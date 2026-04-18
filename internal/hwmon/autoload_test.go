@@ -490,6 +490,7 @@ func makeFakeHwmon(t *testing.T, root, hwmon, chipName, modSymTarget string) str
 	return filepath.Join(dir, "pwm1")
 }
 
+// regresses #140
 func TestModuleFromPath(t *testing.T) {
 	tests := []struct {
 		name       string

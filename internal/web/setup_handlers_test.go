@@ -230,6 +230,7 @@ func TestHandleSystemReboot_NonPOST_RejectedAs405(t *testing.T) {
 // reboot) or silently no-op'ing. The handler is wired through a test
 // seam (Server.rebootBlocker) so this runs deterministically in CI
 // without needing to fake PID 1 or touch /.dockerenv.
+// regresses #177
 func TestHandleSystemReboot_RefusedInContainer(t *testing.T) {
 	srv, _, cancel := newHandlerHarness(t)
 	defer cancel()
