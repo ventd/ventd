@@ -89,6 +89,41 @@ func TestValidateRejectsBadRPMPath(t *testing.T) {
 	}
 }
 
+// regresses #293
+func TestValidate_RejectsSensorFanNameCollision(t *testing.T) {
+	cfg := &Config{
+		Version: CurrentVersion,
+		Sensors: []Sensor{
+			{Name: "cpu", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"},
+		},
+		Fans: []Fan{
+			{Name: "cpu", Type: "hwmon", PWMPath: "/sys/class/hwmon/hwmon0/pwm1", MinPWM: 10, MaxPWM: 255},
+		},
+	}
+	err := validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for sensor/fan name collision, got nil")
+	}
+	if !strings.Contains(err.Error(), "sensor name and a fan name") {
+		t.Fatalf("error %q missing expected substring %q", err.Error(), "sensor name and a fan name")
+	}
+}
+
+func TestValidate_AllowsDistinctSensorFanNames(t *testing.T) {
+	cfg := &Config{
+		Version: CurrentVersion,
+		Sensors: []Sensor{
+			{Name: "cpu_temp", Type: "hwmon", Path: "/sys/class/hwmon/hwmon0/temp1_input"},
+		},
+		Fans: []Fan{
+			{Name: "cpu_fan", Type: "hwmon", PWMPath: "/sys/class/hwmon/hwmon0/pwm1", MinPWM: 10, MaxPWM: 255},
+		},
+	}
+	if err := validate(cfg); err != nil {
+		t.Fatalf("distinct names should pass validation, got: %v", err)
+	}
+}
+
 // TestHwmonDynamicRebindDefaultsFalse pins the v0.3 escape-hatch default.
 // A config with no `hwmon:` key (i.e. every v0.2.x on-disk config) must
 // parse with Hwmon.DynamicRebind == false so the rebind path stays opt-
