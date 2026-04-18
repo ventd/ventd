@@ -727,9 +727,6 @@ func identifyDriverNeeds(boardVendor string, hwmonNames []string) []DriverNeed {
 	return needs
 }
 
-// FindPWMPaths is the exported accessor for findPWMPaths.
-func FindPWMPaths() []string { return findPWMPaths() }
-
 func findPWMPaths() []string {
 	matches, err := filepath.Glob("/sys/class/hwmon/hwmon*/pwm[0-9]*")
 	if err != nil {

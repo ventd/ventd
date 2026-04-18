@@ -6,6 +6,15 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- `hwmon.ReadTemp` — forwarding shim for `ReadValue`; had zero callers outside the package.
+- `hwmon.WritePWMSafe` and `hwmon.ErrPWMModeUnsafe` — mode-guard wrapper; calibration migrated to `hal.FanBackend.Write` in P1-HAL-02.
+- `hwmon.ReadFanMinRPM` — min-RPM reader; calibration uses an inline local copy.
+- `hwmon.FindPWMPaths` — exported accessor for the internal `findPWMPaths`; had zero callers.
+- `hwmon.parseModulesBuiltinModinfo` — unexported kernel module-info parser; had no production callers (only tests).
+- `hwmon.WithUeventSubscriber` — watcher option; the uevent subscriber is wired unconditionally by `NewWatcher` and never overridden outside the package.
+
 ### Added
 
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
