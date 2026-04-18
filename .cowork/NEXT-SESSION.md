@@ -1,65 +1,117 @@
-# Wake-up brief — S6 start (session end 2026-04-18 S5)
+# Wake-up brief — S7 start (session end 2026-04-18 S6)
 
-Read this first. ~3 min to act, then S6 can run.
+Read this first. ~3 min to act, then S7 can run.
 
-## Session S5 summary
+## Session S6 summary
 
-**9 PRs merged**: #251 spawn-mcp-user-collapse, #252 spawn-mcp-print-mode, #253 P10-PERMPOL-01, #254 T0-META-02, #255 T-WD-01, #256 settings-allowlist-fix, #257 P1-FP-02, #258 T-HAL-01, #259 P1-MOD-01.
+**11 PRs merged to main** this session: fix-278/279/284 Wave 1 backends, #277 rebase, #294 scheduler race fix, #295 hal/contract gate, #281 P2-USB-BASE, #282 P2-CROSEC-01, #285 P2-IPMI-01, #299 regresslint magic-comment (closes #290), #300 watchdog RestoreOne binding (closes #287).
 
-**Real masterplan/testplan progress**: 6 (everything except the 3 infra PRs).
+**1 PR merged to cowork/state**: #301 docs(roles): move ultrareview ownership Atlas → Cassidy.
 
-**Throughput**: 1.8 PR/hr across full session; 5.3 PR/hr in pure parallel-dispatch mode (60 min window). Parallel-dispatch pattern works; the tax to reach it consumed most of the session.
+**1 PR closed without merge**: #303 P4-PI-01 v1 — branch-base drift (138 files / 132 commits from stale main SHA). Production code was correct; re-dispatched as P4-PI-01-v2 with hardened `git fetch origin main && git checkout -B ... origin/main` preamble. See memory #30.
 
-**Ultrareview counter**: 6/10 real-task merges since last ultrareview. Next fire at 4 more real-task merges OR Phase 1 close. Phase 1 has P1-HOT-01 (in flight #260), P1-HOT-02, P1-MOD-02, P1-HAL-02 remaining. P1-HAL-02 blocks T-CAL-01. Likely ultrareview fires at Phase 1 boundary ~4-6 PRs from now.
+**Wave 1 Phase 2 closed.** Five backend tracks landed: USB-BASE, CROSEC, IPMI, ASAHI, PWMSYS, plus supporting rebases and test fixes.
 
-## Immediate action on wake
+**Ultrareview-2 triggered.** Issue #302 filed with `role:cassidy` label. 11 PRs since ultrareview-1. Cassidy picks up next time human opens her project conversation.
 
-**1. Merge #260.** It's open with CHANGELOG conflict. Prompt `.cowork/prompts/fix-260-rebase.md` is queued.
+## Immediate action on wake (S7)
+
+**1. Check P4-PI-01-v2 CC session status.**
 
 ```
-spawn_cc("fix-260-rebase")
+spawn-mcp:list_sessions
 ```
 
-Wait for completion (40 min buffering expected). Check `list_pull_requests state=open`. When #260 has 16/16 green CI, merge it.
+If `cc-P4-PI-01-v2-a710ec` still running: let it cook. Budget 60-90 min; dispatched at ~11:58 UTC 2026-04-18. Poll `search_pull_requests query:"repo:ventd/ventd is:pr is:open"` every 3-5 min.
 
-**2. Investigate lingering session.** `list_sessions` at session end showed `cc-hal2-682f5c` — unclear provenance. Either kill it or wait for it to emit a PR. Check `tail_session` first to diagnose.
+If session exited: check for PR. If PR opened, verify BRANCH_CLEANLINESS section shows `git log --oneline origin/main..HEAD` = ≤3 commits. If yes, review + merge. If history is still polluted, close + redispatch with tighter prompt.
 
-**3. P1-HAL-02 still not dispatched.** After clearing #260 and hal2-session, dispatch P1-HAL-02 (prompt at `.cowork/prompts/P1-HAL-02.md`, already model-mismatch-abort-free per lesson #12). CDN cache is cold now (7+ hours since edit).
+If session exited but NO PR was opened: investigate via `tail_session` (likely auth failure to PhoenixDnB/* if the worktree got confused, though P4-PI-01-v2 targets ventd/ventd so that shouldn't apply here).
 
-## Queue (Phase 1 remaining)
+**2. Queue Phase 4 remainder serially.**
 
-After #260 merges, these are the next dispatches. All non-overlapping allowlists, safe to parallel-dispatch in one turn (MAX_PARALLEL=4):
+After P4-PI-01-v2 merges, dispatch these in order (all touch `internal/controller/controller.go` so serial only):
+- `P4-HYST-01` — banded hysteresis. Prompt staged.
+- `P4-DITHER-01` — per-curve dither. Prompt staged.
 
-- `P1-HAL-02` — calibrate via hal.FanBackend. Prompt ready. Depends on P1-HAL-01 ✓.
-- `P1-HOT-02` — symmetric PWM write error handling. Allowlist: `internal/controller/controller.go`. **Conflicts with #260 #P1-HOT-01**; wait until #260 merges, then dispatch.
-- `P1-MOD-02` — append-not-overwrite in persistModule. Prompt not yet written. Depends on P1-MOD-01 ✓ (just merged #259).
-- `T-CAL-01` — calibrate safety invariants. Prompt not yet written. **Depends on P1-HAL-02 merge**.
-- `T-HOT-01` — bench + alloc assertions. Prompt not yet written. **Depends on P1-HOT-01 merge** (#260).
+**3. Dispatch Phase 6 in parallel** (disjoint allowlists, safe to fire all in one turn).
 
-Optimal sequencing: dispatch P1-HAL-02 and P1-MOD-02 (after writing its prompt) immediately after #260 merges. Once P1-HAL-02 merges, unblocks T-CAL-01. Once #260 merges, P1-HOT-02 + T-HOT-01 unblock.
+All four prompts staged on cowork/state. **BUT** — all v1 prompts use the stale "work in /home/cc-runner/ventd" pattern. Per memory #30, need to add the `git fetch && git checkout -B ... origin/main` preamble to each before dispatch, or the same #303 incident repeats.
 
-## Hot lessons to apply at start of S6
+Fastest path: stage v2 variants of each (`P6-WIN-01-v2.md`, `P6-MAC-01-v2.md`, etc.) with the branch-base hardening block copied from `P4-PI-01-v2.md`. ~5 min of `push_files` work.
 
-- **#11** parallel-dispatch pattern works. Fire all 4 slots in one turn when allowlists don't overlap.
-- **#12** never include model-mismatch-abort in prompts.
-- **#13** after editing a prompt on cowork/state, wait 5 min before re-dispatch OR rename the alias to dodge raw.githubusercontent.com CDN.
-- **#14** on update_pull_request_branch 422 conflict: dispatch fix-<PR>-rebase, never MCP-edit the CHANGELOG.
-- **#15** empty tail_session is not "stuck"; poll `list_pull_requests` instead. Use session time for prep work (next prompts, documentation).
+## Queue (Phases 4, 6, 8)
+
+**Phase 4** (serial, one at a time, each touches controller.go):
+- P4-PI-01 ← in flight (`cc-P4-PI-01-v2-a710ec`)
+- P4-HYST-01 — hysteresis, staged, serial after PI-01
+- P4-DITHER-01 — dither, staged, serial after HYST-01
+
+**Phase 6** (parallel-safe, disjoint allowlists):
+- P6-WIN-01 — WMI + ACPI, staged (needs v2 branch-base preamble)
+- P6-MAC-01 — purego IOKit SMC, staged (needs v2)
+- P6-BSD-01 — hw.sensors + superio, staged (needs v2)
+- P6-OBSD-01 — read-only sysctl, staged (needs v2)
+
+**Phase 8** (parallel-safe):
+- P8-METRICS-01 — Prometheus /metrics, staged (needs v2)
+- P8-HISTORY-01 — 30-min ring + /api/history, staged (needs v2)
+- P8-CLI-01 — ventdctl socket, staged (needs v2; deploy/ventd.service touch halves MAX_PARALLEL)
+
+**Atlas-queue quick wins still open**:
+- `fix-293-config-sensor-fan-collision` — prompt staged. Sonnet, ~15 min. Closes #293.
+
+## Hot lessons to apply at start of S7
+
+- **Memory #30 (new this session)**: Every CC prompt targeting main MUST include `git fetch origin main && git checkout -B claude/<branch> origin/main` preamble + abort-if-.cowork/prompts/ sanity check + BRANCH_CLEANLINESS reporting section. Template at `.cowork/prompts/P4-PI-01-v2.md`.
+- **Memory #18** parallel dispatch is the #1 throughput multiplier. Fire 4-6 concurrent slots per turn when allowlists don't overlap.
+- **Memory #19** ultrareview is Cassidy's lane; file `role:cassidy` trigger issue at 10-PR gate. Do NOT `spawn_cc("ultrareview")`.
+- **Memory #22** empty `tail_session` = running, not stuck. Poll GitHub every 3-5 min.
+- **Memory #28** TPM target 4 routine. Use `search_pull_requests` over `list_pull_requests` (100x payload difference).
+
+## Bridge project (deferred)
+
+**Human signed off on this chat with bridge in parked state.** Phase 1 MVP CC prompt staged; `PhoenixDnB/cowork-bridge` repo exists empty. Full resume checklist at `.cowork/BRIDGE-PHASE1-RESUME.md` on cowork/state.
+
+**Do not redispatch the bridge in S7 unless the human brings it up.** They explicitly said "we will come back to this, continue with ventd for now." The resume checklist is the authoritative handoff when they do.
 
 ## Ultrareview watch
 
-At 4 more real-task merges OR Phase 1 close: halt new dispatches, `spawn_cc("ultrareview")`, address blockers before resuming. Spec at `.cowork/ULTRAREVIEW.md`.
+- Issue #302 `ultrareview-2 trigger` is filed, `role:cassidy` labelled.
+- Cassidy executes next time human opens her claude.ai project conversation.
+- Human has ALREADY re-pasted Cassidy's SYSTEM.md per #301 merge (confirmed end of S6).
+- Next ultrareview-3 trigger fires at session merge count 21 (11 + 10 more).
+
+## Cassidy / Mia worklogs
+
+S6 did not update role worklogs (Atlas does not write to them — that's each role's session-end protocol). Atlas-filed issues for each role to pick up:
+- `role:cassidy`: #302 (ultrareview-2 trigger), plus whatever's already in her queue.
+- `role:atlas`: per search, #269, #271, #272, #288, #293 open; most queued fix-287/290 resolved this session.
+- `role:mia`: not audited this session; likely backlog cleanup needed.
+
+## Throughput S6
+
+- Merges: 11 to main, 1 to cowork/state = 12 total
+- Wall-clock: ~9 hours (session start ~03:00 UTC, end ~12:00 UTC including overnight)
+- Rate: ~1.2 PR/hr — below 5 PR/hr target due to:
+  1. Bridge research detour (~2h artifact)
+  2. Ultrareview ownership migration (~30 min)
+  3. Phase 2 Wave 1 rebase cascade (~1h serial)
+  4. #303 branch-base incident (~15 min diagnosis + redispatch)
+- Positive signal: parallel-dispatch windows held 4-5 PR/hr when running.
 
 ## Outstanding cleanup
 
-- `cc-hal2-682f5c` session of unknown provenance (investigate first turn).
-- `/var/log/spawn-mcp/sessions/cc-*.log` files accumulating on phoenix-desktop. No rotation. Not urgent.
-- PR #260 has a Cowork-authored CHANGELOG commit (`390c7ad8`) that the rebase will drop. Expected; fix-260-rebase prompt documents this.
+- `cc-P4-PI-01-v2-a710ec` session — check status first thing in S7.
+- All Phase 6 + Phase 8 prompts need v2 re-stages with branch-base hardening.
+- `fix-293-config-sensor-fan-collision` still staged, never dispatched.
+- Session merge count: 11 → tracking toward next ultrareview gate at 21.
 
-## Deferred items (not blocking S6, revisit later)
+## Session end state
 
-- spawn-mcp per-alias model selection (lesson #12 future fix).
-- spawn-mcp cache-bust on raw.githubusercontent.com fetch (lesson #13 future fix).
-- spawn-mcp line-buffered stdout (lesson #15 future fix).
-- All three deferred per memory #13/#14 stop rules — don't touch MCP infra mid-session.
-- `T-HAL-01` already merged as #258 despite being model-mismatch-tagged Opus 4.7 in the original prompt. Sonnet-compatible execution of safety-critical rule-file work is an empirical data point in favor of lesson #12's premise.
+- **In flight**: `cc-P4-PI-01-v2-a710ec` (1 session, ~60-90 min budget).
+- **Open PRs**: 0 at session end (everything merged or closed).
+- **HALT signal**: RUN (no pause).
+- **Memory at cap**: 30/30. Next replacement will have to evict another entry.
+
+S6 done. S7 starts by listing sessions, checking P4-PI-01-v2 state, and proceeding from there.
