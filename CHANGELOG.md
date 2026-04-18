@@ -6,6 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
+  stdlib CVEs identified by govulncheck — including GO-2025-4012 (net/http),
+  GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
+  GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
+  reachable vulnerabilities.
+
 ### Changed
 
 - `spawn-mcp` now invokes the Claude Code CLI in non-interactive print

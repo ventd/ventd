@@ -1,6 +1,6 @@
 module github.com/ventd/ventd
 
-go 1.25.0
+go 1.25.9
 
 require (
 	github.com/ebitengine/purego v0.10.0
