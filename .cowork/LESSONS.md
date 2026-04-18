@@ -178,3 +178,18 @@ Root cause of the failure-to-name: (a) sunk-cost momentum after the first sympto
 
 **Handoff reducible to MCP**: spawn-mcp could emit heartbeat lines to the log periodically (every 30s: `[heartbeat: <UTC>, ...`), or implement a line-buffered stdout via `stdbuf -oL` in `_build_claude_cmd`. Low-priority; the GitHub-poll pattern works without it.
 
+---
+
+## 2026-04-18T (S6, claude-opus-4-7) — sixteenth lesson (ROLE BOOTSTRAP)
+
+**Inefficiency observed**: launched Mia role in her own fresh claude.ai project per the ensemble design. She correctly halted on her first session because her SYSTEM.md referenced paths like `.cowork/LESSONS.md` and `.cowork/roles/mia/worklog.md` without specifying repository coordinates or branch. With no project-scoped memory (that's the point of the fresh project) and no ambient knowledge that "ventd" resolves to `github.com/ventd/ventd` or that `.cowork/*` lives on `cowork/state`, she had no way to know which `get_file_contents` arguments to use. She refused to guess, which is correct role behaviour — Mia's SYSTEM.md explicitly says "You will not close an issue they file unless the criteria are met" and she extended that discipline to "I will not invoke MCP tools with fabricated arguments."
+
+This is not the same as lesson #6 (infra shipped without smoke-test) because the bootstrap DID work for Atlas — Atlas inherits repo coordinates from months of project memory. It's a fresh-project cold-start problem specific to new roles in separate projects. The ensemble design is sound; the SYSTEM.md files needed to be self-contained for a fresh boot.
+
+**Fix applied**: added explicit **Repository context** section to Cassidy's and Mia's SYSTEM.md (commit 4b721e4e on cowork/state). Names owner/repo/default-branch/coordination-branch, gives concrete MCP invocation patterns, annotates each path in authoritative-documents and session-protocol sections with its branch. Any future role SYSTEM.md (Nora, Drew, Pax, Felix) will include the same section template.
+
+**Handoff reducible to MCP**: none. This is a documentation completeness issue, not a tooling gap.
+
+**Secondary observation**: this is evidence the three-role ensemble is already catching things solo-Atlas would have missed. Atlas would have booted from project memory, implicitly filled in the missing context, and proceeded — no error, no SYSTEM.md fix, latent bug waiting for the next fresh-project role bootstrap. Mia's refusal surfaced the bug at zero cost (one dispatch attempt, no corrupted state). If the "is the ensemble paying for itself" question needs early evidence: this is a data point.
+
+**Tertiary observation**: Cassidy's earlier refusal of the URL-fetch bootstrap was also correct behaviour surfacing a bootstrap-design bug. Two role refusals in one day, both correct, both productive. The pattern is "roles with skeptical dispositions surface bootstrap gaps that memory-contaminated roles would paper over." Worth preserving that disposition when writing future role SYSTEM.md files.
