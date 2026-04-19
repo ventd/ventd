@@ -37,6 +37,10 @@ func applyConfigPatch(current *config.Config, patch *ConfigPatch) (*config.Confi
 	merged := *current
 	merged.Curves = make([]config.CurveConfig, len(current.Curves))
 	copy(merged.Curves, current.Curves)
+	merged.Sensors = make([]config.Sensor, len(current.Sensors))
+	copy(merged.Sensors, current.Sensors)
+	merged.Fans = make([]config.Fan, len(current.Fans))
+	copy(merged.Fans, current.Fans)
 
 	for _, cp := range patch.Curves {
 		if cp.Name == "" {
