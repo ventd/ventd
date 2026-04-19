@@ -157,3 +157,19 @@ the correct and immediate fallback when the sensor glitches before the first
 valid reading settles.
 
 Bound: internal/controller/safety_test.go:sentinel/first_tick_no_lastPWM_restores_immediately
+
+## RULE-HWMON-SENTINEL-STATUS-BOUNDARY: sentinel values rejected at every serialization boundary, not only at the read source
+
+The nct6687 (and similar super-I/O chips) can transiently return 0xFFFF from
+registers in mid-latch. After scaling, these appear as 255.5°C (temp*_input),
+65535 RPM (fan*_input), or 65.535 V (in*_input). The filter must be applied at
+EVERY code path that reads hwmon values and serialises them into JSON or
+persists them to in-memory state — not only at the primary read source.
+
+Specifically, monitor.Scan() (which feeds GET /api/hardware) must call
+isSentinelMonitorVal and skip sentinel / implausible readings before
+appending them to the result slice. A reading suppressed at the scan boundary
+must not appear in the Device.Readings slice at all. Valid readings on the
+same chip must still appear.
+
+Bound: internal/monitor/monitor_test.go:TestRegression_Issue460v2_SentinelSuppressedAtScanBoundary
