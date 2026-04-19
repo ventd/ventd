@@ -14,7 +14,7 @@ import (
 // --- HELLO gate ---
 
 func TestEnumerate_HelloGateFails_EmptyResult(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.ErrorHandler(errors.New("hello refused")))
 
 	b := crosec.NewBackendForTest(nil, f.Send)
@@ -28,7 +28,7 @@ func TestEnumerate_HelloGateFails_EmptyResult(t *testing.T) {
 }
 
 func TestEnumerate_HelloBadMagic_EmptyResult(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	// Return a bad magic value.
 	f.Handle(0x0001, func(cmd, ver uint32, out []byte) ([]byte, error) {
 		resp := make([]byte, 4)
@@ -48,7 +48,7 @@ func TestEnumerate_HelloBadMagic_EmptyResult(t *testing.T) {
 
 func TestEnumerate_NoHandler_EmptyResult(t *testing.T) {
 	// Simulate no device: sender returns an error for every call.
-	f := fakecrosec.New(t) // no handlers registered
+	f := fakecrosec.New(t, nil) // no handlers registered
 
 	b := crosec.NewBackendForTest(nil, f.Send)
 	chs, err := b.Enumerate(context.Background())
@@ -63,7 +63,7 @@ func TestEnumerate_NoHandler_EmptyResult(t *testing.T) {
 // --- Happy-path Enumerate ---
 
 func TestEnumerate_HelloOK_OneChannel(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 
 	b := crosec.NewBackendForTest(nil, f.Send)
@@ -87,7 +87,7 @@ func TestEnumerate_HelloOK_OneChannel(t *testing.T) {
 // --- Happy-path Read ---
 
 func TestRead_ReturnsRPM(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 	f.Handle(0x0020, fakecrosec.RPMHandler(2400))
 
@@ -109,7 +109,7 @@ func TestRead_ReturnsRPM(t *testing.T) {
 }
 
 func TestRead_ECError_NotOK(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 	f.Handle(0x0020, fakecrosec.ErrorHandler(errors.New("EC transient error")))
 
@@ -130,7 +130,7 @@ func TestRead_ECError_NotOK(t *testing.T) {
 // --- Happy-path Write ---
 
 func TestWrite_ScalesPWMToPercent(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 
 	var gotPercent uint32
@@ -170,7 +170,7 @@ func TestWrite_ScalesPWMToPercent(t *testing.T) {
 // --- Restore hands back to auto ---
 
 func TestRestore_SendsAutoFanCtrl(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 
 	var restoreCalled int32
@@ -192,7 +192,7 @@ func TestRestore_SendsAutoFanCtrl(t *testing.T) {
 // --- Lockout handling ---
 
 func TestWrite_LockoutTriggersRestore(t *testing.T) {
-	f := fakecrosec.New(t)
+	f := fakecrosec.New(t, nil)
 	f.Handle(0x0001, fakecrosec.HelloHandler())
 
 	writeErr := errors.New("write refused")
