@@ -1,0 +1,44 @@
+# ventd fixture config for upgrade-path tests.
+#
+# ADMIN_HASH_PLACEHOLDER is replaced by harness.sh with a bcrypt hash of the
+# test password before the first ventd invocation. Do not edit manually.
+#
+# Hardware paths reference non-existent hwmon99 entries intentionally.
+# ventd treats missing sysfs paths as best-effort per RULE-HWMON-SYSFS-ENOENT,
+# so the daemon starts and serves the web UI without real hardware.
+
+poll_interval: 2s
+
+hwmon:
+  dynamic_rebind: true
+
+web:
+  listen: 127.0.0.1:19999
+  password_hash: "ADMIN_HASH_PLACEHOLDER"
+  session_ttl: 24h
+  secure_cookies: false
+
+sensors:
+  - name: cpu_temp
+    type: hwmon
+    path: /sys/class/hwmon/hwmon99/temp1_input
+
+fans:
+  - name: cpu_fan
+    type: hwmon
+    pwm_path: /sys/class/hwmon/hwmon99/pwm1
+    min_pwm: 30
+    max_pwm: 255
+
+curves:
+  - name: cpu_linear
+    type: linear
+    sensor: cpu_temp
+    min_temp: 40.0
+    max_temp: 80.0
+    min_pwm: 30
+    max_pwm: 255
+
+controls:
+  - fan: cpu_fan
+    curve: cpu_linear

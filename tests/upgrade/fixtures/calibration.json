@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "results": {
+    "/sys/class/hwmon/hwmon99/pwm1": {
+      "pwm_path": "/sys/class/hwmon/hwmon99/pwm1",
+      "start_pwm": 40,
+      "stop_pwm": 0,
+      "max_rpm": 1800,
+      "min_rpm": 600,
+      "curve": [
+        {"pwm": 40,  "rpm": 600},
+        {"pwm": 80,  "rpm": 900},
+        {"pwm": 128, "rpm": 1200},
+        {"pwm": 200, "rpm": 1550},
+        {"pwm": 255, "rpm": 1800}
+      ]
+    }
+  }
+}

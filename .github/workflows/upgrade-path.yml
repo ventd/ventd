@@ -1,0 +1,131 @@
+# upgrade-path.yml — automated v0.2.0 → v0.3.0 upgrade-path test.
+#
+# Covers the five acceptance gates from issue #183 across four distros.
+# Triggers when release-path files change (install scripts, packaging,
+# deploy assets) and on workflow_dispatch for manual runs.
+#
+# Each distro job is independent (fail-fast: false). Full logs are
+# uploaded as artifacts on failure so any gate regression is debuggable
+# without re-running locally.
+#
+# Systemd is not available inside Docker containers; inner-test.sh
+# starts ventd directly as a background process and documents this
+# variance. The five data-integrity gates (config, calibration, curves,
+# bcrypt hash, no wizard redirect) are fully exercised either way.
+
+name: upgrade-path
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.goreleaser.yml'
+      - 'scripts/install.sh'
+      - 'scripts/postinstall.sh'
+      - 'deploy/**'
+      - 'packaging/**'
+      - 'CHANGELOG.md'
+      - 'tests/upgrade/**'
+      - '.github/workflows/upgrade-path.yml'
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: 'Single distro to test (leave blank for all four)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the v0.3.0-candidate binary from the current branch. The four
+  # distro test jobs all consume this artifact so we build exactly once.
+  build-candidate:
+    name: build candidate binary
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Build static linux/amd64 binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-X main.version=v0.3.0-candidate -X main.commit=${{ github.sha }} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o /tmp/ventd-candidate \
+            ./cmd/ventd
+
+      - name: Sanity-check binary
+        run: |
+          file /tmp/ventd-candidate
+          /tmp/ventd-candidate --version || true
+
+      - name: Upload candidate binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ventd-candidate-linux-amd64
+          path: /tmp/ventd-candidate
+          retention-days: 1
+          if-no-files-found: error
+
+  # ── Upgrade-path test matrix ─────────────────────────────────────────────
+  upgrade-test:
+    name: upgrade ${{ matrix.distro }}
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    # fail-fast: false so a single distro failure does not mask others.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu:24.04
+            family: ubuntu
+          - distro: fedora:41
+            family: fedora
+          - distro: archlinux:latest
+            family: arch
+          - distro: alpine:3.20
+            family: alpine
+
+    # Skip a specific distro when workflow_dispatch narrows the matrix.
+    # The 'if' expression compares the input to the distro tag; an empty
+    # input (default) runs all four rows.
+    if: |
+      github.event.inputs.distro == '' ||
+      github.event.inputs.distro == matrix.distro
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download candidate binary
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ventd-candidate-linux-amd64
+          path: /tmp
+
+      - name: Make candidate executable
+        run: chmod +x /tmp/ventd-candidate
+
+      - name: Run upgrade harness — ${{ matrix.distro }}
+        env:
+          CANDIDATE_BINARY: /tmp/ventd-candidate
+        run: |
+          bash tests/upgrade/harness.sh "${{ matrix.distro }}" \
+            --candidate-binary /tmp/ventd-candidate \
+            --log-dir /tmp/upgrade-logs \
+            2>&1 | tee /tmp/upgrade-harness.log
+
+      # Upload full logs so gate failures are diagnosable without a local rerun.
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: upgrade-logs-${{ matrix.family }}-${{ github.run_id }}
+          path: |
+            /tmp/upgrade-logs/
+            /tmp/upgrade-harness.log
+          retention-days: 7
+          if-no-files-found: warn
