@@ -15,28 +15,91 @@
 let setupPollTimer = null;
 let setupLastInstallLogLen = 0;
 
+// ── Wizard state cache ────────────────────────────────────────────────────────
+// The wizard caches the last-known setup status in sessionStorage so that
+// on page reload the overlay can be rendered immediately (optimistic) while
+// the authoritative server round-trip is in-flight. Without a TTL the cache
+// would permanently surface a stale failure screen after a failed calibration
+// attempt even after the server has recovered.
+//
+// TTL: 60 s. Setup wizard state is transient; any failure older than 60 s
+// must not be shown as a first-class screen — the server state is authoritative.
+//
+// The cache key is 'ventd-wizard-state'; the legacy localStorage key
+// 'ventd-wizard-result' is cleared on any successful or no-longer-needed state
+// as a defensive measure against future regressions.
+
+const WIZARD_CACHE_KEY = 'ventd-wizard-state';
+const WIZARD_CACHE_TTL = 60_000; // 60 s
+
+function cacheWizardState(s) {
+  try {
+    sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify({ s, ts: Date.now() }));
+  } catch(_) {}
+}
+
+function readCachedWizardState() {
+  try {
+    const raw = sessionStorage.getItem(WIZARD_CACHE_KEY);
+    if (!raw) return null;
+    const { s, ts } = JSON.parse(raw);
+    if (Date.now() - ts > WIZARD_CACHE_TTL) {
+      sessionStorage.removeItem(WIZARD_CACHE_KEY);
+      return null; // expired — treat as no cache
+    }
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function clearWizardCache() {
+  try { sessionStorage.removeItem(WIZARD_CACHE_KEY); } catch(_) {}
+  try { localStorage.removeItem('ventd-wizard-result'); } catch(_) {} // legacy key guard
+}
+
+// ── checkSetup ────────────────────────────────────────────────────────────────
+
 async function checkSetup(){
+  // Optimistic: show cached state immediately so there is no blank-overlay
+  // flash on page reload while the API round-trip is in-flight.
+  const cached = readCachedWizardState();
+  if (cached && cached.needed && !cached.applied) {
+    document.getElementById('setup-overlay').classList.remove('hidden');
+    renderSetupProgress(cached);
+  }
+
+  // Authoritative: always re-validate against the server regardless of cache.
   try {
     const r = await fetch('/api/setup/status');
     const p = await r.json();
-    if(p.needed && !p.applied){
-      document.getElementById('setup-overlay').classList.remove('hidden');
-      if(p.running){
-        // Already running (e.g. page reload mid-setup) — attach poller.
-        document.getElementById('setup-phase-area').classList.remove('hidden');
-        renderSetupProgress(p);
-        if(!setupPollTimer) setupPollTimer = setInterval(pollSetupStatus, 800);
-      } else if(p.done){
-        renderSetupProgress(p);
-      } else {
-        // Auto-start the wizard — user never needs to click anything.
-        setupAutoStart();
-      }
+    if (!p.needed || p.applied) {
+      // Setup not needed or already applied — clear any stale wizard cache
+      // (including any cached failure state) and hide the overlay.
+      clearWizardCache();
+      document.getElementById('setup-overlay').classList.add('hidden');
+      return;
+    }
+    // Update cache with the fresh server state.
+    cacheWizardState(p);
+    document.getElementById('setup-overlay').classList.remove('hidden');
+    if (p.running) {
+      // Already running (e.g. page reload mid-setup) — attach poller.
+      document.getElementById('setup-phase-area').classList.remove('hidden');
+      renderSetupProgress(p);
+      if (!setupPollTimer) setupPollTimer = setInterval(pollSetupStatus, 800);
+    } else if (p.done) {
+      renderSetupProgress(p);
     } else {
+      // Auto-start the wizard — user never needs to click anything.
+      setupAutoStart();
+    }
+  } catch(e) {
+    // Network error: if we have a cached state keep showing it; otherwise
+    // hide the overlay so the user is not stuck on a blank wizard screen.
+    if (!cached) {
       document.getElementById('setup-overlay').classList.add('hidden');
     }
-  } catch(e){
-    document.getElementById('setup-overlay').classList.add('hidden');
   }
 }
 
@@ -53,6 +116,11 @@ async function pollSetupStatus(){
   try {
     const r = await fetch('/api/setup/status');
     const p = await r.json();
+    if (!p.needed || p.applied) {
+      clearWizardCache();
+    } else {
+      cacheWizardState(p);
+    }
     renderSetupProgress(p);
     if(p.done || p.reboot_needed || (p.error && !p.running)){
       clearInterval(setupPollTimer);
