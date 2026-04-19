@@ -114,12 +114,13 @@ func Init(logger *slog.Logger) error {
 		r, _, _ := purego.SyscallN(pInit_v2)
 		if rc := int32(r); rc != nvmlSuccess {
 			msg := nvmlErrorString(rc)
+			initErr := fmt.Errorf("%w: %s", ErrInitFailed, msg)
 			logInitFailedOnce.Do(func() {
 				logger.Warn("NVML init failed; GPU features disabled",
 					"err", msg,
-					"diagnostic", diagnoseNvmlDevice("/dev/nvidiactl"))
+					"diagnostic", diagnoseNvmlFailure(initErr))
 			})
-			return fmt.Errorf("%w: %s", ErrInitFailed, msg)
+			return initErr
 		}
 		ready = true
 		logInitialisedOnce.Do(func() {
@@ -554,7 +555,7 @@ func diagnoseNvmlDevice(ctlPath string) string {
 		}
 		return fmt.Sprintf("Cannot open %s: %v", ctlPath, err)
 	}
-	f.Close()
+	_ = f.Close() // readonly probe; error is ignorable
 	return "Device accessible but NVML still failed — driver in bad state; try `sudo nvidia-smi -pm 1`"
 }
 

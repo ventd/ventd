@@ -30,7 +30,7 @@ func TestRegression_Issue461_DiagnoseNvmlFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 		path := f.Name()
-		f.Close()
+		_ = f.Close() // temp file; Close error is ignorable
 		// chmod 0000 makes the file unreadable by any non-root process.
 		if err := os.Chmod(path, 0000); err != nil {
 			t.Fatal(err)
@@ -53,7 +53,7 @@ func TestRegression_Issue461_DiagnoseNvmlFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 		path := f.Name()
-		f.Close() // file is readable (default 0600)
+		_ = f.Close() // temp file; Close error is ignorable
 
 		got := diagnoseNvmlDevice(path)
 		if !strings.Contains(got, "accessible") {
