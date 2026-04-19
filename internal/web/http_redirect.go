@@ -2,12 +2,18 @@ package web
 
 import (
 	"bufio"
+	"html"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
 	"time"
+)
+
+const (
+	peekTimeout     = 500 * time.Millisecond // TLS ClientHello arrives within one RTT; 500ms is ~3× transatlantic
+	redirectTimeout = 5 * time.Second        // full HTTP read budget for the redirect body
 )
 
 // tlsSniffListener wraps an inner net.Listener and dispatches each
@@ -30,8 +36,7 @@ import (
 type tlsSniffListener struct {
 	inner      net.Listener
 	logger     *slog.Logger
-	listenAddr string        // host:port the listener was asked to bind; used for the redirect target
-	readLimit  time.Duration // cap the time spent reading a plaintext request before giving up
+	listenAddr string // host:port the listener was asked to bind; used for the redirect target
 }
 
 func newTLSSniffListener(inner net.Listener, listenAddr string, logger *slog.Logger) *tlsSniffListener {
@@ -39,7 +44,6 @@ func newTLSSniffListener(inner net.Listener, listenAddr string, logger *slog.Log
 		inner:      inner,
 		logger:     logger,
 		listenAddr: listenAddr,
-		readLimit:  5 * time.Second,
 	}
 }
 
@@ -54,7 +58,7 @@ func (l *tlsSniffListener) Accept() (net.Conn, error) {
 		// request from a mis-schemed browser, or garbage (port-scanner,
 		// misconfigured proxy, etc.) that we still handle gracefully.
 		var first [1]byte
-		_ = c.SetReadDeadline(time.Now().Add(l.readLimit))
+		_ = c.SetReadDeadline(time.Now().Add(peekTimeout))
 		n, readErr := io.ReadFull(c, first[:])
 		_ = c.SetReadDeadline(time.Time{})
 		if readErr != nil || n == 0 {
@@ -84,7 +88,7 @@ func (l *tlsSniffListener) Addr() net.Addr { return l.inner.Addr() }
 // so scanners don't get a useful response.
 func (l *tlsSniffListener) serveRedirect(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(l.readLimit))
+	_ = conn.SetDeadline(time.Now().Add(redirectTimeout))
 
 	req, err := http.ReadRequest(bufio.NewReader(conn))
 	if err != nil {
@@ -107,7 +111,8 @@ func (l *tlsSniffListener) serveRedirect(conn net.Conn) {
 	}
 	target := "https://" + host + req.URL.RequestURI()
 
-	body := `<!DOCTYPE html><html><body>Redirecting to <a href="` + target + `">` + target + `</a>…</body></html>` + "\n"
+	escapedTarget := html.EscapeString(target)
+	body := `<!DOCTYPE html><html><body>Redirecting to <a href="` + escapedTarget + `">` + escapedTarget + `</a>…</body></html>` + "\n"
 
 	resp := "HTTP/1.1 301 Moved Permanently\r\n" +
 		"Location: " + target + "\r\n" +
@@ -118,7 +123,7 @@ func (l *tlsSniffListener) serveRedirect(conn net.Conn) {
 		"\r\n" +
 		body
 
-	_ = conn.SetWriteDeadline(time.Now().Add(l.readLimit))
+	_ = conn.SetWriteDeadline(time.Now().Add(redirectTimeout))
 	_, _ = conn.Write([]byte(resp))
 
 	if l.logger != nil {
