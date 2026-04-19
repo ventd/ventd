@@ -339,3 +339,89 @@ func TestLoadForStartup_TimeoutZeroMeansNoRetry(t *testing.T) {
 		t.Errorf("Timeout=0 should not have retried; elapsed=%s", elapsed)
 	}
 }
+
+// TestRegression_Issue103_HwmonStartupRetry regresses #103.
+//
+// On cold boot, udev may not have finished enumerating the second Super-I/O
+// chip by the time the daemon starts. Before the fix, the daemon treated the
+// resulting ENOENT from EvalSymlinks as a missing-config signal and silently
+// entered first-boot mode, wiping the operator's setup-wizard state.
+//
+// The fix (248a0c8) makes LoadForStartup detect first-boot via os.Stat (no
+// ENOENT chain) and retry only on ErrHwmonDeviceNotReady. This test asserts
+// that the not-ready → ready transition completes via retry, not first-boot.
+func TestRegression_Issue103_HwmonStartupRetry(t *testing.T) { // regresses #103
+	tmpDir := t.TempDir()
+	root := t.TempDir()
+	classDir := filepath.Join(root, "class", "hwmon")
+	if err := os.MkdirAll(classDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// First chip already enumerated at startup — same chip name as the
+	// configured fan ("nct6687"), which is exactly the collision that makes
+	// hwmon_device disambiguation necessary.
+	firstChipHwmonDir := filepath.Join(root, "devices/platform/nct6683.2592/hwmon/hwmon5")
+	if err := os.MkdirAll(firstChipHwmonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(firstChipHwmonDir, "name"), []byte("nct6687\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(firstChipHwmonDir, filepath.Join(classDir, "hwmon5")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second chip (the one the config references) is not ready yet.
+	secondChipDevice := filepath.Join(root, "devices/platform/nct6687.2592")
+	secondChipHwmonDir := filepath.Join(secondChipDevice, "hwmon/hwmon6")
+
+	prev := SetHwmonDevicePathResolver(func(hwmonN string) (string, error) {
+		switch hwmonN {
+		case "hwmon5":
+			return filepath.EvalSymlinks(filepath.Join(root, "devices/platform/nct6683.2592"))
+		case "hwmon6":
+			return filepath.EvalSymlinks(secondChipDevice)
+		}
+		return "", errors.New("unknown hwmon " + hwmonN)
+	})
+	t.Cleanup(func() { SetHwmonDevicePathResolver(prev) })
+
+	prevFS := SetHwmonRootFS(os.DirFS(classDir))
+	t.Cleanup(func() { SetHwmonRootFS(prevFS) })
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, makeConfigYAMLWithHwmonDevice(
+		"/sys/class/hwmon/hwmon6/pwm1", "nct6687", secondChipDevice,
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate udev completing second-chip enumeration 60ms into the retry window.
+	go func() {
+		time.Sleep(60 * time.Millisecond)
+		if err := os.MkdirAll(secondChipHwmonDir, 0o755); err != nil {
+			return
+		}
+		if err := os.WriteFile(filepath.Join(secondChipHwmonDir, "name"), []byte("nct6687\n"), 0o644); err != nil {
+			return
+		}
+		_ = os.Symlink(secondChipHwmonDir, filepath.Join(classDir, "hwmon6"))
+	}()
+
+	cfg, firstBoot, err := LoadForStartup(cfgPath, StartupOptions{
+		Timeout:      500 * time.Millisecond,
+		PollInterval: 25 * time.Millisecond,
+	})
+
+	// Core regression assertion: must NOT enter first-boot mode.
+	if firstBoot {
+		t.Fatal("issue #103 regression: LoadForStartup signalled first-boot on a hwmon udev race — daemon would wipe operator config")
+	}
+	if err != nil {
+		t.Fatalf("LoadForStartup should have succeeded after retry; err=%v", err)
+	}
+	if cfg == nil {
+		t.Fatal("LoadForStartup returned nil cfg after successful retry")
+	}
+}
