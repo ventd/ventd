@@ -307,6 +307,14 @@ func runDaemon(
 	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh)
 }
 
+// configLoader is the function used to load a config from disk on each
+// in-process reload. Tests that exercise the first-boot → configured reload
+// branch substitute a stub here so they can inject a *config.Config with
+// temp-dir sysfs paths that would otherwise fail config.Parse's /sys prefix
+// guard. Must be set before the daemon goroutine starts; package-scoped so
+// tests in the same package can reach it without an export.
+var configLoader = config.Load
+
 // runDaemonInternal is the concrete daemon implementation with an injectable
 // restartCh. Production callers use runDaemon; tests call this directly via
 // runDaemonWithRestart to send reload signals.
@@ -520,7 +528,7 @@ func runDaemonInternal(
 		case sig := <-sigCh:
 			switch sig {
 			case syscall.SIGHUP:
-				newCfg, reloadErr := config.Load(configPath)
+				newCfg, reloadErr := configLoader(configPath)
 				if reloadErr != nil {
 					// Keep running with the current config — never crash on a bad reload.
 					logger.Error("config reload failed, keeping current config", "err", reloadErr)
@@ -570,7 +578,7 @@ func runDaemonInternal(
 		case <-restartCh:
 			// In-process config reload replaces the former re-exec path (#466).
 			// A failed reload is non-fatal: log and keep running with the current config.
-			newCfg, reloadErr := config.Load(configPath)
+			newCfg, reloadErr := configLoader(configPath)
 			if reloadErr != nil {
 				logger.Warn("config reload failed; keeping current config", "err", reloadErr)
 				continue
