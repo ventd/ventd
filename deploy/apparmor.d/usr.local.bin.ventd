@@ -55,8 +55,8 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /run/systemd/notify             rw,
 
   /proc/sys/kernel/random/uuid    r,
-  /proc/@{pid}/**                 r,
-  /proc/@{pid}/attr/current       rw,
+  /proc/[0-9]*/**                 r,
+  /proc/[0-9]*/attr/current       rw,
 
   network inet stream,
   network inet6 stream,
