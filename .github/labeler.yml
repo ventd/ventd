@@ -1,0 +1,42 @@
+area/controller:
+  - changed-files:
+    - any-glob-to-any-file: ['internal/controller/**']
+
+area/hal:
+  - changed-files:
+    - any-glob-to-any-file: ['internal/hal/**']
+
+area/calibrate:
+  - changed-files:
+    - any-glob-to-any-file: ['internal/calibrate/**']
+
+area/web:
+  - changed-files:
+    - any-glob-to-any-file: ['internal/web/**']
+
+area/ci:
+  - changed-files:
+    - any-glob-to-any-file: ['.github/workflows/**', '.github/labeler.yml']
+
+area/docs:
+  - changed-files:
+    - any-glob-to-any-file: ['docs/**', '*.md', '**/*.md']
+
+area/hwdb:
+  - changed-files:
+    - any-glob-to-any-file: ['internal/hwdb/**']
+
+area/deploy:
+  - changed-files:
+    - any-glob-to-any-file: ['deploy/**', 'packaging/**']
+
+area/cowork:
+  - changed-files:
+    - any-glob-to-any-file: ['.cowork/**']
+
+safety-critical:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'internal/controller/controller.go'
+      - 'internal/watchdog/**'
+      - 'internal/calibrate/calibrate.go'
