@@ -1,0 +1,17 @@
+# Drift detection thresholds for automated weekly reports.
+# Exceeding any threshold opens a drift:detected issue; CI is not blocked.
+
+# Fail if any package's coverage drops by more than this many percentage points.
+coverage_regression_pct: 2
+
+# Fail if the stripped binary grows more than this many KB without a SIZE-JUSTIFIED comment.
+binary_size_delta_kb: 100
+
+# Fail if duplicate LOC (dupl -t 75) grows by more than this many lines.
+dup_loc_increase: 50
+
+# Fail if unused/dead-code symbol count (golangci-lint unused,deadcode) grows by more than this.
+dead_code_count_increase: 5
+
+# Fail if go mod graph line count grows by more than this percentage.
+dep_graph_size_pct: 10
