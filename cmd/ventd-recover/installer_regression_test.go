@@ -35,7 +35,9 @@ func TestRegression_Issue484_InstallerRegistersRecoverUnit(t *testing.T) {
 	sbinDir := filepath.Join(scratch, "usr", "local", "sbin")
 	prefix := filepath.Join(scratch, "usr", "local", "bin")
 	etcDir := filepath.Join(scratch, "etc", "ventd")
-	for _, d := range []string{systemdDir, sbinDir, prefix, etcDir} {
+	stateDir := filepath.Join(scratch, "var", "lib", "ventd")
+	stateParent := filepath.Join(scratch, "var", "lib")
+	for _, d := range []string{systemdDir, sbinDir, prefix, etcDir, stateParent} {
 		if err := os.MkdirAll(d, 0755); err != nil {
 			t.Fatalf("mkdir %s: %v", d, err)
 		}
@@ -62,6 +64,7 @@ func TestRegression_Issue484_InstallerRegistersRecoverUnit(t *testing.T) {
 		"VENTD_SYSTEMD_DIR="+systemdDir,
 		"VENTD_SBIN_DIR="+sbinDir,
 		"VENTD_ETC_DIR="+etcDir,
+		"VENTD_STATE_DIR="+stateDir,
 		"VENTD_RECOVER_BIN="+stubRecover,
 	)
 	out, err := cmd.CombinedOutput()

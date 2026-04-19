@@ -49,10 +49,13 @@ VENTD_PREFIX="${VENTD_PREFIX:-/usr/local/bin}"
 VENTD_VERSION="${VENTD_VERSION:-}"
 
 # Path overrides (primarily for the install-unit-refresh fixture test under
-# validation/; defaults match the shipped layout).
+# validation/ and for the installer-registers-recover-unit regression test
+# at cmd/ventd-recover/installer_regression_test.go; defaults match the
+# shipped layout).
 VENTD_SYSTEMD_DIR="${VENTD_SYSTEMD_DIR:-/etc/systemd/system}"
 VENTD_ETC_DIR="${VENTD_ETC_DIR:-/etc/ventd}"
 VENTD_SBIN_DIR="${VENTD_SBIN_DIR:-/usr/local/sbin}"
+VENTD_STATE_DIR="${VENTD_STATE_DIR:-/var/lib/ventd}"
 
 # Test-mode short-circuits. When set to "1", destructive operations
 # against the running system (systemctl, udevadm, account creation,
@@ -1070,17 +1073,17 @@ if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
     done
 fi
 
-# Persist the token to /var/lib/ventd/setup-token so it survives a reboot.
+# Persist the token to $VENTD_STATE_DIR/setup-token so it survives a reboot.
 # The daemon writes only to the tmpfs /run/ventd/setup-token; the persistent
 # copy is made here while install.sh still holds root. Mode 0600 / owned
 # ventd:ventd matches the tmpfs file's access model. Token cleanup after the
 # wizard completes is tracked as a daemon-side followup (#182).
 if [[ -n "$SETUP_TOKEN" && "$VENTD_TEST_MODE" != "1" ]]; then
-    install -d -m 0755 /var/lib/ventd
-    chown ventd:ventd /var/lib/ventd
-    printf '%s' "$SETUP_TOKEN" > /var/lib/ventd/setup-token
-    chmod 0600 /var/lib/ventd/setup-token
-    chown ventd:ventd /var/lib/ventd/setup-token
+    install -d -m 0750 "$VENTD_STATE_DIR"
+    chown ventd:ventd "$VENTD_STATE_DIR"
+    printf '%s' "$SETUP_TOKEN" > "$VENTD_STATE_DIR/setup-token"
+    chmod 0600 "$VENTD_STATE_DIR/setup-token"
+    chown ventd:ventd "$VENTD_STATE_DIR/setup-token"
 fi
 
 # Visually distinct completion block. Box-drawn so the URL + token don't
