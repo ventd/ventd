@@ -304,7 +304,7 @@ func runDaemon(
 	sigCh <-chan os.Signal,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, logger, setupToken, sigCh, restartCh)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh)
 }
 
 // runDaemonInternal is the concrete daemon implementation with an injectable
@@ -314,6 +314,7 @@ func runDaemonInternal(
 	parentCtx context.Context,
 	cfg *config.Config,
 	configPath string,
+	authPath string,
 	logger *slog.Logger,
 	setupToken string,
 	sigCh <-chan os.Signal,

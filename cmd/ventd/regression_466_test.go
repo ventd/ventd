@@ -58,7 +58,7 @@ func TestRegression_Issue466_NoSelfRestart(t *testing.T) {
 	restartCh := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemonInternal(ctx, cfg, cfgPath, logger, "", nil, restartCh)
+		done <- runDaemonInternal(ctx, cfg, cfgPath, "", logger, "", nil, restartCh)
 	}()
 
 	// Wait for at least one controller tick so we know the daemon is live.
@@ -140,7 +140,7 @@ func TestRegression_Issue466_ReloadFailureIsNonFatal(t *testing.T) {
 	restartCh := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemonInternal(ctx, cfg, cfgPath, logger, "", nil, restartCh)
+		done <- runDaemonInternal(ctx, cfg, cfgPath, "", logger, "", nil, restartCh)
 	}()
 
 	// Wait for the controller to start (daemon is running normally).
