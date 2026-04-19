@@ -63,7 +63,7 @@ func loadEvents() ([]Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", eventsPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var events []Event
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -127,13 +127,13 @@ func cmdMerged(args []string) error {
 		return enc.Encode(rows)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tTASK\tPR\tSHA\tBY\tDESCRIPTION")
+	_, _ = fmt.Fprintln(w, "TIME\tTASK\tPR\tSHA\tBY\tDESCRIPTION")
 	for _, r := range rows {
 		pr := ""
 		if r.PR != 0 {
 			pr = fmt.Sprintf("#%d", r.PR)
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%.8s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%.8s\t%s\t%s\n",
 			r.TS.Format("2006-01-02 15:04"), r.Task, pr, r.SHA, r.By, trunc(r.Text, 60))
 	}
 	return w.Flush()
@@ -185,18 +185,18 @@ func cmdTPM(args []string) error {
 		return enc.Encode(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "PR\t#%d\n", *pr)
-	fmt.Fprintf(w, "events in log\t%d\n", len(matched))
+	_, _ = fmt.Fprintf(w, "PR\t#%d\n", *pr)
+	_, _ = fmt.Fprintf(w, "events in log\t%d\n", len(matched))
 	if len(matched) == 0 {
 		_ = w.Flush()
 		fmt.Println("(no events found; raw tool-call data requires session logs)")
 		return nil
 	}
-	fmt.Fprintln(w, "KIND\tTASK\tTS\tDETAIL")
+	_, _ = fmt.Fprintln(w, "KIND\tTASK\tTS\tDETAIL")
 	for _, m := range matched {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Kind, m.Task, m.TS, trunc(m.Detail, 60))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Kind, m.Task, m.TS, trunc(m.Detail, 60))
 	}
-	fmt.Fprintln(w, "\nnote\traw tool-call counts require session logs; event_count is lifecycle proxy")
+	_, _ = fmt.Fprintln(w, "\nnote\traw tool-call counts require session logs; event_count is lifecycle proxy")
 	return w.Flush()
 }
 
