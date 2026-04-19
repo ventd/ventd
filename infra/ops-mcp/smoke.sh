@@ -38,12 +38,17 @@ echo "  container up and networked"
 
 # ---------------------------------------------------------------------------
 _section "Installing dependencies"
-# NOTE: no || true silencer — apt failures must abort smoke.
+# --no-install-recommends keeps us out of build-essential/gcc/cpp which
+# python3-pip Recommends for sdist compilation — MCP SDK ships wheels so
+# we don't need a compiler. This cuts install time from ~60s to ~10s.
+# Also: no || true silencer — apt failures must abort smoke.
 incus exec "$CONTAINER" -- bash -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip sudo systemd util-linux
+  apt-get install -y -qq --no-install-recommends \
+    python3 python3-venv python3-pip \
+    sudo systemd util-linux iproute2 curl ca-certificates
 '
 
 # ---------------------------------------------------------------------------
