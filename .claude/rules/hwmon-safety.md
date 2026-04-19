@@ -144,3 +144,16 @@ risk; firmware auto is safer than any daemon-chosen value under those
 conditions.
 
 Bound: internal/controller/safety_test.go:sentinel/prolonged_invalid_triggers_restore
+
+## RULE-HWMON-SENTINEL-FIRST-TICK-IMMEDIATE-RESTORE: sentinel on the first tick before any valid reading calls watchdog.RestoreOne immediately
+
+When the sentinel gate fires on the very first tick after daemon startup
+(hasLastPWM is false -- no successful write has ever completed for this
+channel), the controller MUST call watchdog.RestoreOne(pwmPath) immediately
+rather than entering the 30s carry-forward window. With no last-known-good
+PWM to carry forward, the 30s window would leave the fan in an operationally
+ambiguous state at whatever duty cycle the firmware left it. Firmware auto is
+the correct and immediate fallback when the sensor glitches before the first
+valid reading settles.
+
+Bound: internal/controller/safety_test.go:sentinel/first_tick_no_lastPWM_restores_immediately

@@ -511,6 +511,45 @@ func TestSafety_Invariants(t *testing.T) {
 		}
 	})
 
+	// ---------- Rule: sentinel on first tick (no lastPWM) → immediate RestoreOne ----------
+
+	t.Run("sentinel/first_tick_no_lastPWM_restores_immediately", func(t *testing.T) {
+		// Cold-boot scenario: sensor chip returns 0xFFFF sentinel before it
+		// settles. The controller has never completed a successful tick so
+		// hasLastPWM is false. The sentinel gate must call RestoreOne
+		// immediately rather than sitting on an unknown PWM for 30s.
+		//
+		// Assert: after a single tick against a sentinel-valued temp file,
+		// pwm_enable is restored to its pre-ventd value (2 = auto).
+		ff := newFakeFan(t) // pwm_enable preset to "2"
+		// Seed sentinel temperature immediately — simulates chip not settled.
+		if err := os.WriteFile(ff.tempPath, []byte("255500\n"), 0o600); err != nil {
+			t.Fatalf("seed sentinel: %v", err)
+		}
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+
+		logger := silentLogger()
+		wd := watchdog.New(logger)
+		wd.Register(ff.pwmPath, "hwmon") // captures origEnable=2
+
+		cfgPtr := &atomic.Pointer[config.Config]{}
+		cfgPtr.Store(cfg)
+		c := New("cpu fan", "cpu_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+		// Fresh controller — hasLastPWM must be false.
+		if c.hasLastPWM {
+			t.Fatal("precondition: hasLastPWM must be false before first tick")
+		}
+
+		// Single tick against sentinel sensor.
+		c.tick()
+
+		// RestoreOne must have fired: pwm_enable restored to 2 (firmware auto).
+		if got := readIntFile(t, ff.enablePath); got != 2 {
+			t.Errorf("pwm_enable after sentinel first-tick = %d, want 2 (RestoreOne fired immediately)", got)
+		}
+	})
+
 	t.Run("hwmon_index_instability/resolve_by_device_path", func(t *testing.T) {
 		// hwmonX indices are volatile across reboots. The daemon stores
 		// stable device paths and re-resolves at startup via
