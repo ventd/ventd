@@ -849,7 +849,10 @@ install_apparmor_profile() {
     apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || parser_rc=$?
     if [[ $parser_rc -eq 0 ]]; then
         echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded)"
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd"
+        echo "    AppArmor profile loaded in COMPLAIN mode for compatibility."
+        echo "    Denials are logged to dmesg/journalctl-k but not enforced."
+        echo "    See deploy/apparmor.d/README.md to switch to enforce after validation."
+        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd mode=complain"
     else
         echo "  ! AppArmor profile installed but parser refused to load it"
         echo "    (run \`apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd\` for details)"
