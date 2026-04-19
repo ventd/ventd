@@ -702,6 +702,9 @@ document.addEventListener('click', (e) => {
       selectCurveByName(el.dataset.name);
       break;
     // ── curve editor group ──
+    case 'apply-curve':
+      applyCurvePatch();
+      break;
     case 'delete-curve':
       deleteCurve();
       break;

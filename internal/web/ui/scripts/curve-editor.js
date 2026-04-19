@@ -11,7 +11,13 @@
 // load time because scripts are deferred — the document element is
 // always present by then.
 
-function selectCurve(i){ selIdx=i; renderCurveCards(); renderEditor(); }
+function selectCurve(i){
+  selIdx=i;
+  curveDirtyPatch={};
+  clearCurveApplyError();
+  renderCurveCards();
+  renderEditor();
+}
 
 function renderEditor(){
   const el=document.getElementById('curve-editor');
@@ -81,7 +87,11 @@ function renderLinearEditor(el,c){
       '<div class="fg"></div>'+
       renderProjections()+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
+    '<div class="editor-actions">'+
+      '<button id="btn-curve-apply" data-action="apply-curve">Apply</button>'+
+      '<button class="danger" data-action="delete-curve">Delete</button>'+
+    '</div>'+
+    '<div id="curve-apply-error" class="apply-status apply-status-err" hidden></div>'+
   '</div>';
   drawSVG(c);
   refreshProjections(c);
@@ -109,7 +119,9 @@ function durationToSec(v){
 // serializes via omitempty so the YAML stays clean.
 function updDurationSec(f, sec){
   if(selIdx<0 || isNaN(sec) || sec < 0) return;
-  cfg.curves[selIdx][f] = sec > 0 ? (sec + 's') : '';
+  const val = sec > 0 ? (sec + 's') : '';
+  cfg.curves[selIdx][f] = val;
+  curveDirtyPatch[f] = val;
   markDirty();
   renderCurveCards();
 }
@@ -143,7 +155,11 @@ function renderPointsEditor(el,c){
       '<div class="fg"></div>'+
       renderProjections()+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
+    '<div class="editor-actions">'+
+      '<button id="btn-curve-apply" data-action="apply-curve">Apply</button>'+
+      '<button class="danger" data-action="delete-curve">Delete</button>'+
+    '</div>'+
+    '<div id="curve-apply-error" class="apply-status apply-status-err" hidden></div>'+
   '</div>';
   drawSVG(c);
   refreshProjections(c);
@@ -162,7 +178,11 @@ function renderFixedEditor(el,c){
           '<span class="pct">'+pct+'%</span>'+
         '</div></div>'+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
+    '<div class="editor-actions">'+
+      '<button id="btn-curve-apply" data-action="apply-curve">Apply</button>'+
+      '<button class="danger" data-action="delete-curve">Delete</button>'+
+    '</div>'+
+    '<div id="curve-apply-error" class="apply-status apply-status-err" hidden></div>'+
   '</div>';
 }
 
@@ -183,7 +203,11 @@ function renderMixEditor(el,c){
       '<div class="fg"><label>Function</label><select data-action="upd-field" data-field="function">'+fOpts+'</select></div>'+
       '<div class="fg"><label>Sources (min 2)</label><div class="source-list" id="mix-sources">'+srcs+'</div></div>'+
     '</div>'+
-    '<div class="editor-actions"><button class="danger" data-action="delete-curve">Delete</button></div>'+
+    '<div class="editor-actions">'+
+      '<button id="btn-curve-apply" data-action="apply-curve">Apply</button>'+
+      '<button class="danger" data-action="delete-curve">Delete</button>'+
+    '</div>'+
+    '<div id="curve-apply-error" class="apply-status apply-status-err" hidden></div>'+
   '</div>';
 }
 
@@ -309,11 +333,20 @@ function curveOutputAtTemp(c, tempC){
 
 function updField(f,v){
   if(selIdx<0) return;
-  cfg.curves[selIdx][f]=v; markDirty(); renderEditor(); renderCurveCards();
+  cfg.curves[selIdx][f]=v;
+  curveDirtyPatch[f]=v;
+  markDirty(); renderEditor(); renderCurveCards();
 }
 function updPctField(f,pct){
   if(selIdx<0 || isNaN(pct)) return;
-  cfg.curves[selIdx][f]=pct2p(pct); markDirty(); renderEditor(); renderCurveCards();
+  cfg.curves[selIdx][f]=pct2p(pct);
+  // Track the canonical _pct key for the PATCH body so the server receives
+  // the percent form rather than the raw 0-255 value. Without this, the
+  // server's MigrateCurvePWMFields sees raw/pct disagreement and _pct wins,
+  // silently reverting the user's edit (#483).
+  const patchKey = f === 'min_pwm' ? 'min_pwm_pct' : (f === 'max_pwm' ? 'max_pwm_pct' : f);
+  curveDirtyPatch[patchKey]=pct;
+  markDirty(); renderEditor(); renderCurveCards();
 }
 function updFixedPct(pct){
   if(selIdx<0) return;
@@ -446,9 +479,13 @@ function onDrag(e){
   if(dragging==='min'){
     c.min_temp=Math.min(x2v(pt.x),c.max_temp-1);
     c.min_pwm=y2p(pt.y);
+    curveDirtyPatch.min_temp=c.min_temp;
+    curveDirtyPatch.min_pwm_pct=p2pct(c.min_pwm);
   } else {
     c.max_temp=Math.max(x2v(pt.x),c.min_temp+1);
     c.max_pwm=y2p(pt.y);
+    curveDirtyPatch.max_temp=c.max_temp;
+    curveDirtyPatch.max_pwm_pct=p2pct(c.max_pwm);
   }
   markDirty(); drawSVG(c); renderCurveCards();
   const mt=document.getElementById('f-mint'),Mt=document.getElementById('f-maxt');
@@ -879,4 +916,16 @@ async function fetchHistoryMax(sensorName){
   } catch(_){
     return null;
   }
+}
+
+// ── Curve-level Apply (PATCH) error display ──
+
+function showCurveApplyError(msg){
+  const el = document.getElementById('curve-apply-error');
+  if(el){ el.textContent = msg; el.hidden = false; }
+}
+
+function clearCurveApplyError(){
+  const el = document.getElementById('curve-apply-error');
+  if(el){ el.textContent = ''; el.hidden = true; }
 }
