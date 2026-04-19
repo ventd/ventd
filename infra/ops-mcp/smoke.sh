@@ -3,11 +3,11 @@
 #
 # Runs on the host (phoenix-desktop or any Linux box with Incus).
 # Creates a disposable Ubuntu 24.04 container, installs ops-mcp inside it,
-# exercises all 4 tools + OAuth endpoints, checks the audit log, and verifies
+# exercises all tools + OAuth endpoints, checks the audit log, and verifies
 # allowlist rejection. Destroys the container on exit.
 #
 # Usage:
-#   bash .cowork/tools/ops-mcp/smoke.sh
+#   bash infra/ops-mcp/smoke.sh
 #
 # Exit code: 0 = all assertions passed, 1 = at least one failure.
 
@@ -24,9 +24,11 @@ _pass() { echo "  pass: $*"; ((PASS++)) || true; }
 _fail() { echo "  FAIL: $*"; ((FAIL++)) || true; }
 _section() { echo; echo "=== $* ==="; }
 
+# shellcheck disable=SC2317  # called via trap EXIT — not unreachable
 cleanup() {
   echo
   echo "Destroying container $CONTAINER ..."
+  # shellcheck disable=SC2317
   incus delete --force "$CONTAINER" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -136,10 +138,10 @@ _section "Starting ops-mcp server"
 # .env in a readable directory. Default CWD is /root (700 root:root) which
 # ops-mcp cannot stat into → PermissionError: '.env'. Production systemd
 # unit sets WorkingDirectory=/opt/ops-mcp which accomplishes the same.
+# shellcheck disable=SC2016  # $(…) inside single-quoted bash are intentional for container context
 incus exec "$CONTAINER" --cwd /opt/ops-mcp -- bash -c '
   set -a; source /etc/ops-mcp-env; set +a
   install -o ops-mcp -g ops-mcp -m 644 /dev/null /var/log/ops-mcp/server.log
-  # chdir before detaching so the backgrounded process inherits CWD=/opt/ops-mcp
   cd /opt/ops-mcp
   nohup runuser -u ops-mcp -- /opt/ops-mcp/venv/bin/python /opt/ops-mcp/server.py \
     >> /var/log/ops-mcp/server.log 2>&1 &
@@ -150,8 +152,9 @@ sleep 3
 
 # Always-print diagnostics so failure modes are visible
 echo "--- process check ---"
-if incus exec "$CONTAINER" -- bash -c 'kill -0 $(cat /tmp/ops-mcp.pid) 2>/dev/null'; then
-  echo "  process alive (pid: $(incus exec "$CONTAINER" -- cat /tmp/ops-mcp.pid))"
+OPS_PID=$(incus exec "$CONTAINER" -- cat /tmp/ops-mcp.pid 2>/dev/null || echo "")
+if [ -n "$OPS_PID" ] && incus exec "$CONTAINER" -- kill -0 "$OPS_PID" 2>/dev/null; then
+  echo "  process alive (pid: $OPS_PID)"
 else
   echo "  process DIED"
 fi
@@ -241,33 +244,33 @@ results = []
 for svc in ["spawn-mcp", "ops-mcp", "cloudflared",
             "actions.runner.ventd-ventd.runner1.service"]:
     if _is_allowlisted(svc):
-        results.append(("pass", f"allowlist: {svc} accepted"))
+        results.append(("pass", "allowlist: %s accepted" % svc))
     else:
-        results.append(("FAIL", f"allowlist: {svc} should be accepted"))
+        results.append(("FAIL", "allowlist: %s should be accepted" % svc))
 
 for svc in ["sshd", "nginx", "actions.runner.other.runner.service"]:
     if not _is_allowlisted(svc):
-        results.append(("pass", f"allowlist rejection: {svc} correctly blocked"))
+        results.append(("pass", "allowlist rejection: %s correctly blocked" % svc))
     else:
-        results.append(("FAIL", f"allowlist: {svc} should be blocked"))
+        results.append(("FAIL", "allowlist: %s should be blocked" % svc))
 
 try:
     r = systemctl_status("ops-mcp")
-    assert "active" in r, f"missing 'active' key: {r}"
+    assert "active" in r, "missing active key: %s" % r
     assert "substate" in r
     assert "main_pid" in r
     assert "started_at" in r
     assert "restart_count" in r
-    results.append(("pass", f"systemctl_status returned structured dict: active={r['active']}"))
+    results.append(("pass", "systemctl_status returned structured dict: active=%s" % r["active"]))
 except Exception as e:
-    results.append(("FAIL", f"systemctl_status raised: {e}"))
+    results.append(("FAIL", "systemctl_status raised: %s" % e))
 
 try:
     r = systemctl_list_failed()
-    assert "services" in r, f"missing 'services' key: {r}"
-    results.append(("pass", f"systemctl_list_failed returned list (len={len(r['services'])})"))
+    assert "services" in r, "missing services key: %s" % r
+    results.append(("pass", "systemctl_list_failed returned list (len=%d)" % len(r["services"])))
 except Exception as e:
-    results.append(("FAIL", f"systemctl_list_failed raised: {e}"))
+    results.append(("FAIL", "systemctl_list_failed raised: %s" % e))
 
 try:
     r = journalctl("ops-mcp", lines=10)
@@ -275,14 +278,14 @@ try:
     assert "truncated" in r
     results.append(("pass", "journalctl returned logs dict"))
 except Exception as e:
-    results.append(("FAIL", f"journalctl raised: {e}"))
+    results.append(("FAIL", "journalctl raised: %s" % e))
 
 try:
     from server import systemctl_restart
     systemctl_restart("sshd")
     results.append(("FAIL", "systemctl_restart(sshd) should have raised ValueError"))
 except ValueError as e:
-    results.append(("pass", f"systemctl_restart rejection: {e}"))
+    results.append(("pass", "systemctl_restart rejection: %s" % e))
 
 try:
     with open(AUDIT_LOG) as f:
@@ -290,13 +293,13 @@ try:
     assert len(lines) > 0, "audit log is empty"
     last = json.loads(lines[-1])
     assert "ts" in last, "audit entry missing ts"
-    results.append(("pass", f"audit log has {len(lines)} entries; last kind={last.get('kind')}"))
+    results.append(("pass", "audit log has %d entries; last kind=%s" % (len(lines), last.get("kind"))))
 except Exception as e:
-    results.append(("FAIL", f"audit log check: {e}"))
+    results.append(("FAIL", "audit log check: %s" % e))
 
 fail_count = 0
 for status, msg in results:
-    print(f"  {status}: {msg}")
+    print("  %s: %s" % (status, msg))
     if status == "FAIL":
         fail_count += 1
 sys.exit(fail_count)
@@ -304,6 +307,200 @@ PYEOF
 '
 
 TOOL_RC=$?
+
+# ---------------------------------------------------------------------------
+_section "A8: New tools — fixture-based smoke via direct Python import"
+NOW_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+incus exec "$CONTAINER" --cwd /opt/ops-mcp -- bash -c "
+set -a; source /etc/ops-mcp-env; set +a
+
+# Synthetic fixtures for filesystem-dependent tools
+mkdir -p /var/log/spawn-mcp/sessions /tmp/spawn-mcp /tmp/smoke-fixtures
+
+cat > /var/log/spawn-mcp/audit.jsonl <<EOF
+{\"kind\": \"tool_call\", \"ts\": \"${NOW_ISO}\", \"tool\": \"journalctl\"}
+{\"kind\": \"reject\",    \"ts\": \"${NOW_ISO}\", \"tool\": \"systemctl_restart\"}
+EOF
+
+cat > /var/log/spawn-mcp/sessions/test-session.log <<EOF
+2024-01-01 00:00:00 ops-mcp started
+spawn-mcp: claude exited rc=0
+EOF
+
+touch /tmp/spawn-mcp/old-prompt.txt
+touch /tmp/spawn-mcp/new-prompt.txt
+touch -t 202001010000 /tmp/spawn-mcp/old-prompt.txt
+" || _die "fixture creation failed"
+
+incus exec "$CONTAINER" --cwd /opt/ops-mcp -- bash -c '
+set -a; source /etc/ops-mcp-env; set +a
+export OPS_MCP_SPAWN_LOG_DIR=/var/log/spawn-mcp
+export OPS_MCP_SPAWN_TMPFS_DIR=/tmp/spawn-mcp
+export OPS_MCP_GHRUNNER_DIAG_DIR=/tmp/smoke-fixtures/ghrunner-diag
+/opt/ops-mcp/venv/bin/python - <<'"'"'PYEOF'"'"'
+import sys, os, json, asyncio, time
+sys.path.insert(0, "/opt/ops-mcp")
+os.chdir("/opt/ops-mcp")
+os.environ.update({
+    "OPS_MCP_LOG": "DEBUG",
+    "OPS_MCP_AUDIT": "/var/log/ops-mcp/audit.jsonl",
+    "OPS_MCP_HOST": "127.0.0.1",
+    "OPS_MCP_PORT": "8892",
+    "OPS_MCP_SPAWN_LOG_DIR": "/var/log/spawn-mcp",
+    "OPS_MCP_SPAWN_TMPFS_DIR": "/tmp/spawn-mcp",
+    "OPS_MCP_GHRUNNER_DIAG_DIR": "/tmp/smoke-fixtures/ghrunner-diag",
+})
+import server
+
+results = []
+
+# --- disk_free ---
+try:
+    r = server.disk_free("/")
+    assert r["total_bytes"] > 0, "total_bytes zero: %s" % r
+    assert "free_bytes" in r
+    total = r["total_bytes"]
+    free = r["free_bytes"]
+    results.append(("pass", "disk_free: total=%d free=%d" % (total, free)))
+except Exception as e:
+    results.append(("FAIL", "disk_free: %s" % e))
+
+# --- disk_free rejection ---
+try:
+    server.disk_free("/no/such/path")
+    results.append(("FAIL", "disk_free: expected ValueError for missing path"))
+except ValueError as e:
+    results.append(("pass", "disk_free rejects bad path: %s" % e))
+
+# --- hwmon_snapshot ---
+try:
+    r = server.hwmon_snapshot()
+    assert "chips" in r, "missing chips key"
+    n = len(r["chips"])
+    results.append(("pass", "hwmon_snapshot: %d chips" % n))
+except Exception as e:
+    results.append(("FAIL", "hwmon_snapshot: %s" % e))
+
+# --- cc_log_find (fixture) ---
+try:
+    r = server.cc_log_find("test-session")
+    assert r["exit_code"] == 0, "wrong exit_code: %s" % r
+    assert r["size_bytes"] > 0
+    ec = r["exit_code"]
+    results.append(("pass", "cc_log_find: exit_code=%s" % ec))
+except Exception as e:
+    results.append(("FAIL", "cc_log_find: %s" % e))
+
+# --- cc_log_find path traversal rejection ---
+try:
+    server.cc_log_find("../etc/passwd")
+    results.append(("FAIL", "cc_log_find: expected ValueError for traversal"))
+except ValueError:
+    results.append(("pass", "cc_log_find rejects path traversal"))
+
+# --- cc_audit_log (fixture) ---
+try:
+    r = server.cc_audit_log("1 hour ago")
+    assert "events" in r
+    n = len(r["events"])
+    assert n == 2, "expected 2 events, got %d" % n
+    results.append(("pass", "cc_audit_log: %d events" % n))
+except Exception as e:
+    results.append(("FAIL", "cc_audit_log: %s" % e))
+
+# --- cc_audit_log kind filter ---
+try:
+    r = server.cc_audit_log("1 hour ago", kind_filter=["reject"])
+    n = len(r["events"])
+    assert n == 1, "expected 1 reject event, got %d" % n
+    results.append(("pass", "cc_audit_log kind_filter works"))
+except Exception as e:
+    results.append(("FAIL", "cc_audit_log kind_filter: %s" % e))
+
+# --- tmpfs_clear_cc_prompts ---
+try:
+    r = server.tmpfs_clear_cc_prompts(age_min=60)
+    assert "removed_files" in r
+    assert "kept_files" in r
+    nr = len(r["removed_files"])
+    nk = len(r["kept_files"])
+    results.append(("pass", "tmpfs_clear: removed=%d kept=%d" % (nr, nk)))
+except Exception as e:
+    results.append(("FAIL", "tmpfs_clear_cc_prompts: %s" % e))
+
+# --- install_script_dry_run (no install.sh in container — expect error, not crash) ---
+try:
+    r = server.install_script_dry_run("ubuntu-24.04")
+    assert "actions" in r
+    assert "errors" in r
+    na = len(r["actions"])
+    ne = len(r["errors"])
+    results.append(("pass", "install_script_dry_run: %d actions, %d errors" % (na, ne)))
+except Exception as e:
+    results.append(("FAIL", "install_script_dry_run: %s" % e))
+
+# --- allowlist rejections for new tools ---
+try:
+    asyncio.run(server.apparmor_profile_validate("/home/user/profile"))
+    results.append(("FAIL", "apparmor_profile_validate: expected allowlist rejection"))
+except ValueError as e:
+    results.append(("pass", "apparmor_profile_validate allowlist rejection: %s" % e))
+
+try:
+    asyncio.run(server.binary_size_measure("/usr/bin/python3"))
+    results.append(("FAIL", "binary_size_measure: expected allowlist rejection"))
+except ValueError as e:
+    results.append(("pass", "binary_size_measure allowlist rejection: %s" % e))
+
+try:
+    asyncio.run(server.incus_smoke_cleanup("production-db"))
+    results.append(("FAIL", "incus_smoke_cleanup: expected name guard rejection"))
+except ValueError as e:
+    results.append(("pass", "incus_smoke_cleanup name guard: %s" % e))
+
+# --- _parse_since ---
+now = time.time()
+got = server._parse_since("1 hour ago")
+if abs(got - (now - 3600)) < 10:
+    results.append(("pass", "_parse_since: 1 hour ago"))
+else:
+    results.append(("FAIL", "_parse_since: unexpected value %s" % got))
+
+# --- new tool allowlist rejections ---
+try:
+    asyncio.run(server.systemctl_status_fixed("sshd"))
+    results.append(("FAIL", "systemctl_status_fixed: expected rejection"))
+except ValueError as e:
+    results.append(("pass", "systemctl_status_fixed rejection: %s" % e))
+
+try:
+    asyncio.run(server.systemctl_restart_scoped("nginx"))
+    results.append(("FAIL", "systemctl_restart_scoped: expected rejection"))
+except ValueError as e:
+    results.append(("pass", "systemctl_restart_scoped rejection: %s" % e))
+
+try:
+    asyncio.run(server.tunnel_current_url("badservice"))
+    results.append(("FAIL", "tunnel_current_url: expected rejection"))
+except ValueError as e:
+    results.append(("pass", "tunnel_current_url rejection: %s" % e))
+
+try:
+    asyncio.run(server.journal_grep_ventd("1 hour ago", "[invalid"))
+    results.append(("FAIL", "journal_grep_ventd: expected invalid pattern error"))
+except ValueError as e:
+    results.append(("pass", "journal_grep_ventd rejects bad regex: %s" % e))
+
+fail_count = 0
+for status, msg in results:
+    print("  %s: %s" % (status, msg))
+    if status == "FAIL":
+        fail_count += 1
+sys.exit(fail_count)
+PYEOF
+'
+
+NEW_TOOL_RC=$?
 
 # ---------------------------------------------------------------------------
 _section "A10: Audit log visible on host (via incus exec)"
@@ -321,6 +518,9 @@ fi
 _section "Results"
 if [ "${TOOL_RC:-1}" -ne 0 ]; then
   _fail "tool/allowlist tests had failures (rc=$TOOL_RC)"
+fi
+if [ "${NEW_TOOL_RC:-1}" -ne 0 ]; then
+  _fail "new tool smoke tests had failures (rc=$NEW_TOOL_RC)"
 fi
 
 echo

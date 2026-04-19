@@ -15,9 +15,9 @@ Restart=on-failure
 RestartSec=5
 
 # Hardening.
-# NoNewPrivileges=no is required: the service runs sudo -n /bin/systemctl
-# and sudo -n /bin/journalctl; those are SUID binaries that need to
-# transition to UID 0. With NoNewPrivileges=yes the SUID bit is ignored.
+# NoNewPrivileges=no is required: the service runs sudo -n /bin/systemctl,
+# sudo -n /bin/journalctl, sudo -n /bin/dmesg, sudo -n /usr/sbin/apparmor_parser
+# which are SUID binaries. With NoNewPrivileges=yes the SUID bit is ignored.
 # All other hardening directives are applied.
 NoNewPrivileges=no
 ProtectSystem=strict
@@ -25,6 +25,13 @@ ProtectSystem=strict
 # cross-session visibility problems in similar MCP services. The service
 # does not write to /tmp; its only writes are the audit log under /var/log.
 ReadWritePaths=/var/log/ops-mcp /var/lib/ops-mcp
+# Filesystem paths accessed read-only by diagnostic tools.
+ReadOnlyPaths=/sys/class/hwmon \
+              /var/log/spawn-mcp \
+              /tmp/spawn-mcp \
+              /opt/ghrunner \
+              /etc/ops-mcp \
+              /etc/apparmor.d
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
@@ -36,7 +43,7 @@ RestrictRealtime=yes
 SystemCallArchitectures=native
 # Empty bounding set. sudo acquires UID 0 via the SUID bit (not via
 # capability promotion), so an empty bounding set does not prevent the
-# sudo→systemctl/journalctl hand-off from working. The subprocess runs
+# sudo→systemctl/journalctl/dmesg hand-off from working. The subprocess runs
 # as root UID but inherits no capabilities — sufficient for D-Bus systemctl
 # and journal reads.
 CapabilityBoundingSet=

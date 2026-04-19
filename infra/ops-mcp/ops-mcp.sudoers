@@ -15,6 +15,8 @@ ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cloudflared
 ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cowork-bridge
 ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart ops-mcp
 ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart ops-mcp-tunnel
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cowork-mcp
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cowork-mcp-tunnel
 # GitHub Actions runner units — wildcard on the runner name segment only.
 ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart actions.runner.ventd-ventd.*.service
 
@@ -26,7 +28,13 @@ ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl show *
 # systemctl --failed: we pass --no-pager --output=json; wildcard covers
 # those positional args. Output is filtered in Python to allowlisted units.
 ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl --failed *
+# systemctl list-units: used by runner_health to enumerate runner services.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl list-units *
 # journalctl: we pass -u <service> -n <n> -p <priority> --no-pager
 # --output=short-iso; allow all journalctl invocations since the Python
 # allowlist already enforces which service can be queried.
 ops-mcp ALL=(ALL) NOPASSWD: /bin/journalctl
+# dmesg: needed by dmesg_grep_apparmor to read kernel ring buffer.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/dmesg
+# apparmor_parser: needed by apparmor_profile_validate (--Qfile = dry-run parse).
+ops-mcp ALL=(ALL) NOPASSWD: /usr/sbin/apparmor_parser

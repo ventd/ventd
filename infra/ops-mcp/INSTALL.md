@@ -30,8 +30,8 @@ sudo install -d -o ops-mcp -g ops-mcp -m 755 /var/log/ops-mcp
 sudo install -d -o ops-mcp -g ops-mcp -m 755 /var/lib/ops-mcp
 
 sudo install -o ops-mcp -g ops-mcp -m 644 \
-    .cowork/tools/ops-mcp/server.py \
-    .cowork/tools/ops-mcp/pyproject.toml \
+    infra/ops-mcp/server.py \
+    infra/ops-mcp/pyproject.toml \
     /opt/ops-mcp/
 
 sudo -u ops-mcp python3.11 -m venv /opt/ops-mcp/venv
@@ -55,7 +55,7 @@ sudo chown root:ops-mcp /etc/ops-mcp/env
 ## 4. Install sudoers fragment
 
 ```bash
-sudo install -m 440 .cowork/tools/ops-mcp/ops-mcp.sudoers /etc/sudoers.d/ops-mcp
+sudo install -m 440 infra/ops-mcp/ops-mcp.sudoers /etc/sudoers.d/ops-mcp
 # Validate before the next step — visudo will catch syntax errors.
 sudo visudo -cf /etc/sudoers.d/ops-mcp
 ```
@@ -70,17 +70,25 @@ Expected output includes NOPASSWD entries for `/bin/systemctl restart <each
 allowlisted service>`, `/bin/systemctl show *`, `/bin/systemctl --failed *`,
 and `/bin/journalctl`.
 
-## 5. Install systemd units
+## 5. Install logrotate
 
 ```bash
-sudo cp .cowork/tools/ops-mcp/ops-mcp.service /etc/systemd/system/
-sudo cp .cowork/tools/ops-mcp/ops-mcp-tunnel.service /etc/systemd/system/
+sudo install -m 644 infra/ops-mcp/logrotate.d/ops-mcp /etc/logrotate.d/ops-mcp
+```
+
+The audit log rotates weekly, keeps 12 weeks, and compresses old files.
+
+## 6. Install systemd units
+
+```bash
+sudo cp infra/ops-mcp/ops-mcp.service /etc/systemd/system/
+sudo cp infra/ops-mcp/ops-mcp-tunnel.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ops-mcp.service
 sudo systemctl enable --now ops-mcp-tunnel.service
 ```
 
-## 6. Verify
+## 7. Verify
 
 ```bash
 sudo systemctl status ops-mcp.service
@@ -99,15 +107,15 @@ sudo grep -E '^(Uid|Gid|CapEff|NoNewPrivs):' /proc/$pid/status
 Expected: `Uid`/`Gid` = ops-mcp's numeric id, `CapEff: 0000000000000000`.
 `NoNewPrivs` will be `0` (we need NoNewPrivileges=no for sudo SUID).
 
-## 7. Wire into Atlas
+## 8. Wire into Atlas
 
 1. Settings → Connectors → Add custom connector.
 2. Name: `ops-mcp`.
-3. URL: the trycloudflare hostname from step 6.
+3. URL: the trycloudflare hostname from step 7.
 4. Auth: OAuth.
 5. Test: `systemctl_status("spawn-mcp")` should return `{"active": true, ...}`.
 
-## 8. Test allowlist rejection
+## 9. Test allowlist rejection
 
 ```bash
 # Should return a ValueError (rejected, not a crash):
@@ -123,7 +131,7 @@ except ValueError as e:
 EOF
 ```
 
-## 9. Operational checks
+## 10. Operational checks
 
 - Audit log: `sudo tail -f /var/log/ops-mcp/audit.jsonl`
 - Service restart: `sudo systemctl restart ops-mcp.service`
