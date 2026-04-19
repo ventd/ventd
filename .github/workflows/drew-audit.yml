@@ -1,6 +1,6 @@
 name: drew-audit
 # Drew post-release audit gates — workflow_dispatch only.
-# Gate 1 (govulncheck) is real; Gates 2-4 are stubs until Phase 10 lands.
+# Gate 1 (govulncheck) is real; Gates 2/3/4 activate when Phase 10 artifacts land.
 
 on:
   workflow_dispatch:
@@ -74,31 +74,164 @@ jobs:
               print('::warning::govulncheck: HIGH vulnerability found')
           PY
 
-      - name: gate2 — SBOM validate (stub)
+      ### Gate 2 — SBOM validate
+      - name: gate2 — SBOM validate
+        id: gate2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
-          echo '[SKIP: P10-SBOM-01 not landed — gate activates when #322 merges]' >> "$GITHUB_STEP_SUMMARY"
+          printf '## Gate 2 — SBOM validate\n\n' >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$TAG" ] || \
+             ! gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo '[SKIP: not a published release]' >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=SKIP' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p artifacts
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern "*.cdx.json" --pattern "*.spdx.json" \
+            --pattern "ventd_*.tar.gz" --pattern "ventd-recover_*.tar.gz" \
+            --pattern "*.tar.gz.sig" --pattern "*.tar.gz.pem" \
+            --dir artifacts/ 2>/dev/null || true
+          CDX=$(find artifacts/ -name "*.cdx.json" 2>/dev/null | wc -l)
+          SPDX=$(find artifacts/ -name "*.spdx.json" 2>/dev/null | wc -l)
+          if [ "$CDX" -eq 0 ] && [ "$SPDX" -eq 0 ]; then
+            echo '[SKIP: tag predates P10-SBOM-01 — no SBOM assets in release]' >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=SKIP' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FAIL=0
+          printf '| file | check | result |\n|------|-------|--------|\n' >> "$GITHUB_STEP_SUMMARY"
+          for f in artifacts/*.cdx.json; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            bom_fmt=$(jq -r '.bomFormat // "null"' "$f")
+            spec_ver=$(jq -r '.specVersion // "0"' "$f")
+            spec_minor=$(echo "$spec_ver" | cut -d. -f2 | tr -dc '0-9')
+            comp_cnt=$(jq '.components | length' "$f" 2>/dev/null || echo 0)
+            if [ "$bom_fmt" = "CycloneDX" ] && [ "${spec_minor:-0}" -ge 5 ] && [ "$comp_cnt" -gt 0 ]; then
+              printf '| %s | CycloneDX %s, %s components | PASS |\n' \
+                "$base" "$spec_ver" "$comp_cnt" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| %s | bomFormat=%s specVersion=%s components=%s | FAIL |\n' \
+                "$base" "$bom_fmt" "$spec_ver" "$comp_cnt" >> "$GITHUB_STEP_SUMMARY"
+              FAIL=1
+            fi
+          done
+          for f in artifacts/*.spdx.json; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            spdx_ver=$(jq -r '.spdxVersion // "null"' "$f")
+            pkg_cnt=$(jq '.packages | length' "$f" 2>/dev/null || echo 0)
+            if echo "$spdx_ver" | grep -q '^SPDX-' && [ "$pkg_cnt" -gt 0 ]; then
+              printf '| %s | %s, %s packages | PASS |\n' \
+                "$base" "$spdx_ver" "$pkg_cnt" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| %s | spdxVersion=%s packages=%s | FAIL |\n' \
+                "$base" "$spdx_ver" "$pkg_cnt" >> "$GITHUB_STEP_SUMMARY"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then VERDICT=FAIL; else VERDICT=PASS; fi
+          printf '\n**%s**\n\n' "$VERDICT" >> "$GITHUB_STEP_SUMMARY"
+          echo "verdict=${VERDICT}" >> "$GITHUB_OUTPUT"
 
-      - name: gate3 — cosign verify (stub)
-        run: |
-          echo '[SKIP: P10-SIGN-01 not landed — gate activates when #323 merges]' >> "$GITHUB_STEP_SUMMARY"
+      ### Gate 3 — cosign verify
+      - name: gate3 — install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
-      - name: gate4 — repro-build diff (stub)
+      - name: gate3 — cosign verify
+        id: gate3
         run: |
-          echo '[SKIP: P10-REPRO-01 not landed — gate activates when #324 merges]' >> "$GITHUB_STEP_SUMMARY"
+          printf '## Gate 3 — cosign verify\n\n' >> "$GITHUB_STEP_SUMMARY"
+          SIG_COUNT=$(find artifacts/ -name "*.tar.gz.sig" 2>/dev/null | wc -l)
+          if [ "$SIG_COUNT" -eq 0 ]; then
+            echo '[SKIP: tag predates P10-SIGN-01 — no .sig assets in release]' >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=SKIP' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          FAIL=0
+          IDENTITY_RE='^https://github\.com/ventd/ventd/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$'
+          OIDC_ISSUER='https://token.actions.githubusercontent.com'
+          printf '| artifact | result |\n|----------|--------|\n' >> "$GITHUB_STEP_SUMMARY"
+          for archive in artifacts/ventd_*linux*.tar.gz artifacts/ventd-recover_*linux*.tar.gz; do
+            [ -f "$archive" ] || continue
+            sig="${archive}.sig"; pem="${archive}.pem"
+            if [ ! -f "$sig" ] || [ ! -f "$pem" ]; then continue; fi
+            base=$(basename "$archive")
+            if RESULT=$(cosign verify-blob \
+                --certificate="$pem" \
+                --signature="$sig" \
+                --certificate-identity-regexp="$IDENTITY_RE" \
+                --certificate-oidc-issuer="$OIDC_ISSUER" \
+                "$archive" 2>&1); then
+              printf '| %s | Verified OK |\n' "$base" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| %s | FAIL: %s |\n' "$base" "$(echo "$RESULT" | head -1)" >> "$GITHUB_STEP_SUMMARY"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then VERDICT=FAIL; else VERDICT=PASS; fi
+          printf '\n**%s**\n\n' "$VERDICT" >> "$GITHUB_STEP_SUMMARY"
+          echo "verdict=${VERDICT}" >> "$GITHUB_OUTPUT"
+
+      ### Gate 4 — repro-build diff
+      - name: gate4 — repro-build diff
+        id: gate4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          printf '## Gate 4 — repro-build diff\n\n' >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$TAG" ]; then
+            echo '[SKIP: no tag provided]' >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=SKIP' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HEAD_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+          RUNS=$(gh api \
+            "/repos/${{ github.repository }}/actions/workflows/verify-reproducible.yml/runs" \
+            --jq '.workflow_runs // []' 2>/dev/null || echo "[]")
+          RUN=$(echo "$RUNS" | jq --arg sha "$HEAD_SHA" \
+            '[.[] | select(.head_sha == $sha)] | sort_by(.run_number) | last // empty')
+          if [ -z "$RUN" ] || [ "$RUN" = "null" ] || [ "$RUN" = "" ]; then
+            echo '[SKIP: tag predates P10-REPRO-01 or verify-reproducible.yml has not yet run]' >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=SKIP' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CONCLUSION=$(echo "$RUN" | jq -r '.conclusion // "unknown"')
+          RUN_URL=$(echo "$RUN" | jq -r '.html_url // ""')
+          if [ "$CONCLUSION" = "success" ]; then
+            printf '**PASS** — reproducible build verified. [Run](%s)\n\n' "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
+          else
+            printf "**FAIL** — verify-reproducible.yml concluded: \`%s\`. [Run](%s)\n\n" \
+              "$CONCLUSION" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+            echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: overall summary
         if: always()
         env:
           G1: ${{ steps.gate1.outputs.verdict }}
+          G2: ${{ steps.gate2.outputs.verdict }}
+          G3: ${{ steps.gate3.outputs.verdict }}
+          G4: ${{ steps.gate4.outputs.verdict }}
         run: |
-          v="${G1:-FAIL}"
-          if [ "$v" = FAIL ]; then ov=FAIL; elif [ "$v" = WARN ]; then ov=PARTIAL; else ov=PASS; fi
+          rank() { case "$1" in FAIL) echo 4;; WARN) echo 3;; PASS) echo 2;; *) echo 1;; esac; }
+          g1="${G1:-FAIL}"; g2="${G2:-SKIP}"; g3="${G3:-SKIP}"; g4="${G4:-SKIP}"
+          ov="PASS"
+          for v in "$g1" "$g2" "$g3" "$g4"; do
+            [ "$(rank "$v")" -gt "$(rank "$ov")" ] && ov="$v"
+          done
+          [ "$ov" = "WARN" ] && ov="PARTIAL"
           {
             printf '\n---\n\n## Overall verdict: %s\n\n' "$ov"
             echo '| gate | status |'
             echo '|------|--------|'
-            printf '| Gate 1 — govulncheck | %s (real) |\n' "$v"
-            echo '| Gate 2 — SBOM validate | SKIP (stub) |'
-            echo '| Gate 3 — cosign verify | SKIP (stub) |'
-            echo '| Gate 4 — repro-build diff | SKIP (stub) |'
+            printf '| Gate 1 — govulncheck | %s |\n' "$g1"
+            printf '| Gate 2 — SBOM validate | %s |\n' "$g2"
+            printf '| Gate 3 — cosign verify | %s |\n' "$g3"
+            printf '| Gate 4 — repro-build diff | %s |\n' "$g4"
           } >> "$GITHUB_STEP_SUMMARY"
