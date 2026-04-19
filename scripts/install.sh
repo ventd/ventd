@@ -984,6 +984,19 @@ if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
     done
 fi
 
+# Persist the token to /var/lib/ventd/setup-token so it survives a reboot.
+# The daemon writes only to the tmpfs /run/ventd/setup-token; the persistent
+# copy is made here while install.sh still holds root. Mode 0600 / owned
+# ventd:ventd matches the tmpfs file's access model. Token cleanup after the
+# wizard completes is tracked as a daemon-side followup (#182).
+if [[ -n "$SETUP_TOKEN" && "$VENTD_TEST_MODE" != "1" ]]; then
+    install -d -m 0755 /var/lib/ventd
+    chown ventd:ventd /var/lib/ventd
+    printf '%s' "$SETUP_TOKEN" > /var/lib/ventd/setup-token
+    chmod 0600 /var/lib/ventd/setup-token
+    chown ventd:ventd /var/lib/ventd/setup-token
+fi
+
 # Visually distinct completion block. Box-drawn so the URL + token don't
 # disappear into the scrollback of a noisy apt-get / dnf / pacman run.
 # The characters below are Unicode box-drawing; they render correctly on
@@ -1007,8 +1020,9 @@ if [[ -n "$SETUP_TOKEN" ]]; then
 ║                                                                    ║
 ║         ${SETUP_TOKEN}
 ║                                                                    ║
-║       (single-use, 15-minute expiry; recover later with            ║
-║        \`sudo cat /run/ventd/setup-token\`)                          ║
+║       (single-use, 15-minute expiry; recover later:                ║
+║        persistent: \`sudo cat /var/lib/ventd/setup-token\`           ║
+║        same-boot:  \`sudo cat /run/ventd/setup-token\`)              ║
 ║                                                                    ║
 ║    3. Set a password. That's it — no more terminal work required.  ║
 ║                                                                    ║
@@ -1027,8 +1041,9 @@ else
 ║         ${WEB_URL}
 ║                                                                    ║
 ║    (if this is a fresh install and you don't see a login prompt    ║
-║     but a setup wizard instead, the setup token is readable via    ║
-║     \`sudo cat /run/ventd/setup-token\`)                             ║
+║     but a setup wizard instead, the setup token is readable via:   ║
+║     \`sudo cat /var/lib/ventd/setup-token\` — persists across boots  ║
+║     \`sudo cat /run/ventd/setup-token\`    — same boot only)         ║
 ║                                                                    ║
 ╚════════════════════════════════════════════════════════════════════╝
 
