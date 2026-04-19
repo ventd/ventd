@@ -10,11 +10,6 @@
 #   bash .cowork/tools/ops-mcp/smoke.sh
 #
 # Exit code: 0 = all assertions passed, 1 = at least one failure.
-#
-# Requirements on the host:
-#   - incus (or lxd) CLI and daemon running
-#   - Internet access (to pull ubuntu:24.04 image and install packages)
-#   - The ops-mcp source tree present at CWD or the path in OPS_MCP_SRC
 
 set -euo pipefail
 
@@ -37,22 +32,37 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 _section "Launching Incus container: $CONTAINER"
 incus launch images:ubuntu/24.04 "$CONTAINER"
-# Wait for network
 sleep 3
 incus exec "$CONTAINER" -- bash -c 'until ping -c1 8.8.8.8 &>/dev/null; do sleep 1; done'
 echo "  container up and networked"
 
 # ---------------------------------------------------------------------------
 _section "Installing dependencies"
+# NOTE: no || true silencer — apt failures must abort smoke.
 incus exec "$CONTAINER" -- bash -c '
+  set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip sudo systemd 2>/dev/null || true
+  apt-get install -y -qq python3 python3-venv python3-pip sudo systemd util-linux
 '
+
+# ---------------------------------------------------------------------------
+_section "Verifying tool availability"
+for tool in python3 runuser sudo visudo ss curl; do
+  if incus exec "$CONTAINER" -- bash -c "command -v $tool >/dev/null"; then
+    _pass "$tool present"
+  else
+    _fail "$tool MISSING — apt-get did not install it"
+    echo "--- apt log (last 40 lines) ---"
+    incus exec "$CONTAINER" -- bash -c 'tail -40 /var/log/apt/term.log 2>/dev/null || echo no_apt_log' || true
+    exit 1
+  fi
+done
 
 # ---------------------------------------------------------------------------
 _section "Creating ops-mcp system user"
 incus exec "$CONTAINER" -- useradd --system --no-create-home --shell /usr/sbin/nologin ops-mcp
+incus exec "$CONTAINER" -- id ops-mcp && _pass "ops-mcp user created" || { _fail "ops-mcp user missing after useradd"; exit 1; }
 
 # ---------------------------------------------------------------------------
 _section "Copying source into container"
@@ -61,14 +71,18 @@ tar czf "$TMPTAR" -C "$(dirname "$OPS_MCP_SRC")" "$(basename "$OPS_MCP_SRC")"
 incus file push "$TMPTAR" "$CONTAINER/tmp/ops-mcp-src.tar.gz"
 rm -f "$TMPTAR"
 incus exec "$CONTAINER" -- bash -c '
+  set -e
   mkdir -p /opt/ops-mcp
   tar xzf /tmp/ops-mcp-src.tar.gz -C /opt/ops-mcp --strip-components=1
   chown -R ops-mcp:ops-mcp /opt/ops-mcp
+  ls -la /opt/ops-mcp/server.py >/dev/null || { echo "server.py missing after extract"; exit 1; }
 '
+_pass "source tree extracted"
 
 # ---------------------------------------------------------------------------
 _section "Creating directories and env file"
 incus exec "$CONTAINER" -- bash -c '
+  set -e
   install -d -o ops-mcp -g ops-mcp -m 755 /var/log/ops-mcp /var/lib/ops-mcp
   cat > /etc/ops-mcp-env <<EOF
 OPS_MCP_LOG=DEBUG
@@ -78,21 +92,25 @@ OPS_MCP_PORT=8892
 EOF
   chmod 640 /etc/ops-mcp-env
   chown root:ops-mcp /etc/ops-mcp-env
+  test -d /var/log/ops-mcp || { echo "/var/log/ops-mcp missing"; exit 1; }
 '
+_pass "dirs + env file present"
 
 # ---------------------------------------------------------------------------
 _section "Installing Python venv and mcp"
 incus exec "$CONTAINER" -- bash -c '
+  set -e
   python3 -m venv /opt/ops-mcp/venv
   /opt/ops-mcp/venv/bin/pip install --quiet "mcp>=1.3.0"
+  test -x /opt/ops-mcp/venv/bin/python || { echo "venv python missing"; exit 1; }
 '
+_pass "venv + mcp installed"
 
 # ---------------------------------------------------------------------------
 _section "Installing sudoers fragment"
 incus file push "$OPS_MCP_SRC/ops-mcp.sudoers" "$CONTAINER/etc/sudoers.d/ops-mcp"
 incus exec "$CONTAINER" -- chmod 440 /etc/sudoers.d/ops-mcp
-incus exec "$CONTAINER" -- visudo -cf /etc/sudoers.d/ops-mcp
-if [ $? -eq 0 ]; then
+if incus exec "$CONTAINER" -- visudo -cf /etc/sudoers.d/ops-mcp; then
   _pass "sudoers fragment validates"
 else
   _fail "sudoers fragment has syntax errors"
@@ -100,21 +118,38 @@ fi
 
 # ---------------------------------------------------------------------------
 _section "Starting ops-mcp server"
+# Use runuser (util-linux, always present) instead of sudo -u. runuser doesn't
+# need sudoers config and doesn't require a TTY. This makes the smoke robust
+# against minimal images that ship without full sudo setup.
 incus exec "$CONTAINER" -- bash -c '
+  set -e
   set -a; source /etc/ops-mcp-env; set +a
-  sudo -u ops-mcp /opt/ops-mcp/venv/bin/python /opt/ops-mcp/server.py \
-    > /var/log/ops-mcp/server.log 2>&1 &
+  # Create the log file owned by ops-mcp so the child can write to it.
+  install -o ops-mcp -g ops-mcp -m 644 /dev/null /var/log/ops-mcp/server.log
+  # Start server detached. setsid + nohup survive the bash -c exit.
+  nohup runuser -u ops-mcp -- /opt/ops-mcp/venv/bin/python /opt/ops-mcp/server.py \
+    >> /var/log/ops-mcp/server.log 2>&1 &
   echo $! > /tmp/ops-mcp.pid
+  sleep 1
+  # Verify the process is still alive after 1s (fast crash detection)
+  if ! kill -0 "$(cat /tmp/ops-mcp.pid)" 2>/dev/null; then
+    echo "server process died within 1s"
+    exit 1
+  fi
 '
 sleep 3
 
-# Verify it is listening
-if incus exec "$CONTAINER" -- bash -c 'ss -tlnp | grep -q 8892'; then
+# Dump what we see regardless of outcome
+echo "--- server.log tail ---"
+incus exec "$CONTAINER" -- tail -30 /var/log/ops-mcp/server.log 2>&1 || true
+echo "--- listening sockets ---"
+incus exec "$CONTAINER" -- ss -tlnp 2>&1 | head -10 || true
+echo "--- end diagnostics ---"
+
+if incus exec "$CONTAINER" -- bash -c 'ss -tlnp 2>/dev/null | grep -q ":8892 "'; then
   _pass "server listening on 127.0.0.1:8892"
 else
-  _fail "server not listening on 8892"
-  echo "--- server log ---"
-  incus exec "$CONTAINER" -- cat /var/log/ops-mcp/server.log || true
+  _fail "server not listening on 8892 (see diagnostics above)"
   exit 1
 fi
 
@@ -163,8 +198,6 @@ fi
 
 # ---------------------------------------------------------------------------
 _section "A4-A7: Tool calls via direct Python import"
-# We call the Python functions directly (not via MCP HTTP) to test the
-# tool logic, allowlist, and audit log without implementing MCP protocol.
 incus exec "$CONTAINER" -- bash -c '
 set -a; source /etc/ops-mcp-env; set +a
 /opt/ops-mcp/venv/bin/python - <<'"'"'PYEOF'"'"'
@@ -185,7 +218,6 @@ from server import (
 
 results = []
 
-# A4: allowlist check
 for svc in ["spawn-mcp", "ops-mcp", "cloudflared",
             "actions.runner.ventd-ventd.runner1.service"]:
     if _is_allowlisted(svc):
@@ -199,8 +231,6 @@ for svc in ["sshd", "nginx", "actions.runner.other.runner.service"]:
     else:
         results.append(("FAIL", f"allowlist: {svc} should be blocked"))
 
-# A5: systemctl_status on ops-mcp (may be inactive in container, but
-# the call must not crash and must return the expected keys)
 try:
     r = systemctl_status("ops-mcp")
     assert "active" in r, f"missing 'active' key: {r}"
@@ -212,7 +242,6 @@ try:
 except Exception as e:
     results.append(("FAIL", f"systemctl_status raised: {e}"))
 
-# A6: systemctl_list_failed must not crash
 try:
     r = systemctl_list_failed()
     assert "services" in r, f"missing 'services' key: {r}"
@@ -220,7 +249,6 @@ try:
 except Exception as e:
     results.append(("FAIL", f"systemctl_list_failed raised: {e}"))
 
-# A7: journalctl on ops-mcp
 try:
     r = journalctl("ops-mcp", lines=10)
     assert "logs" in r
@@ -229,7 +257,6 @@ try:
 except Exception as e:
     results.append(("FAIL", f"journalctl raised: {e}"))
 
-# A8: allowlist rejection raises ValueError
 try:
     from server import systemctl_restart
     systemctl_restart("sshd")
@@ -237,7 +264,6 @@ try:
 except ValueError as e:
     results.append(("pass", f"systemctl_restart rejection: {e}"))
 
-# A9: audit log grew
 try:
     with open(AUDIT_LOG) as f:
         lines = f.readlines()
@@ -248,7 +274,6 @@ try:
 except Exception as e:
     results.append(("FAIL", f"audit log check: {e}"))
 
-# Print results
 fail_count = 0
 for status, msg in results:
     print(f"  {status}: {msg}")
