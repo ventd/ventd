@@ -36,6 +36,9 @@ time via .github/workflows/release-changelog.yml.
 
 ### Fixed
 
+- `calibrate.Manager.save()`: replace `os.WriteFile` with an explicit open/write/fsync/close/rename sequence and add a parent-directory fsync after the rename; previously neither the file contents nor the directory entry were guaranteed durable across a power loss during a sweep checkpoint (closes #376).
+- `config.writeFileSync()`: add parent-directory fsync after the atomic rename so the directory entry for every config save is durable, not just the file contents (closes #378).
+- `web.writeFile()` (selfsigned.go): add parent-directory fsync after the atomic rename, matching the durability posture of the config writer (closes #365).
 - `hal/ipmi`: `Restore` now returns an error on non-zero BMC completion code instead of logging a warning and silently returning nil, so the watchdog and controller correctly see failed restores (closes #307 concern 1).
 - `hal/ipmi`: Supermicro zone field hard-coded to 0 (CPU zone) instead of the incorrect `sensorNumber/16` heuristic; dynamic zone discovery deferred to a future probe (closes #307 concern 2).
 - `hal/ipmi`: `sendRecv` now bounds-checks `dataLen` against `len(respBuf)` before slicing, preventing a panic on malformed BMC responses (closes #307 concern 3).

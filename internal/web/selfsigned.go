@@ -177,5 +177,9 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("tls: rename %s to %s: %w", tmp, path, err)
 	}
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync() // best-effort; some filesystems don't support this
+		_ = dir.Close()
+	}
 	return nil
 }
