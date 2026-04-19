@@ -9,8 +9,9 @@
 //
 // # Resolution order
 //
-// Match(fp) walks the embedded profile list three times, stopping at the
-// first successful stage. Within a stage, the first matching profile wins:
+// Match(fp) runs the stage sweep twice: first over verified profiles only,
+// then (only if nothing matched) over unverified profiles. Within a pass,
+// it stops at the first successful stage:
 //
 //  1. Exact: every non-empty field in Profile.Match is equal (case-
 //     insensitive) to the corresponding field in fp.
@@ -22,7 +23,9 @@
 //     signal blanket proposals.
 //
 // This ordering means a profile that names a specific board overrides a
-// vendor-only wildcard. Callers receive the most specific match available.
+// vendor-only wildcard, and a verified profile always wins over an
+// unverified one regardless of file order. Callers receive the most
+// specific, most trusted match available.
 package hwdb
 
 import (
@@ -84,26 +87,55 @@ func Load() ([]Profile, error) {
 
 // Match resolves fp against the merged database (embedded + any remote
 // profiles loaded via RefreshFromRemote). See the package doc for the
-// exact > prefix > wildcard resolution order. Returns ErrNoMatch (not
-// nil profile, nil error) when no entry matches.
+// exact > prefix > wildcard resolution order.
+//
+// Verified profiles are always preferred: the pipeline runs first over
+// profiles where Unverified is false, then (only if nothing matched) over
+// profiles where Unverified is true. An unverified profile early in the
+// YAML therefore cannot shadow a verified one that appears later.
+//
+// Within a stage, the first matching profile wins. Authors adding a profile
+// that overlaps an existing entry MUST place the more-specific profile first.
+// This applies most to prefix matches — if two profiles both prefix-match a
+// fingerprint's board_name, file order determines the winner.
+//
+// Returns ErrNoMatch (not nil profile, nil error) when no entry matches.
 func Match(fp HardwareFingerprint) (*Profile, error) {
 	profiles, err := mergedProfiles()
 	if err != nil {
 		return nil, err
 	}
 	needle := lowerFP(fp)
+
+	// First pass: verified profiles only.
+	if p := walkStages(profiles, needle, func(p *Profile) bool { return !p.Unverified }); p != nil {
+		return p, nil
+	}
+	// Second pass: unverified profiles as fallback.
+	if p := walkStages(profiles, needle, func(p *Profile) bool { return p.Unverified }); p != nil {
+		return p, nil
+	}
+	return nil, ErrNoMatch
+}
+
+// walkStages runs the exact → prefix → wildcard stage sweep over profiles,
+// skipping entries where filter returns false. Returns the first match or nil.
+func walkStages(profiles []Profile, needle HardwareFingerprint, filter func(*Profile) bool) *Profile {
 	for stage := 0; stage < 3; stage++ {
 		for i := range profiles {
+			if !filter(&profiles[i]) {
+				continue
+			}
 			m := lowerFP(profiles[i].Match)
 			if isZeroFP(m) {
 				continue
 			}
 			if matchStage(m, needle, stage) {
-				return &profiles[i], nil
+				return &profiles[i]
 			}
 		}
 	}
-	return nil, ErrNoMatch
+	return nil
 }
 
 // matchStage returns true if every non-empty field in m relates to the

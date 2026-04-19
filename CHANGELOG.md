@@ -20,7 +20,7 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `hal/ipmi`: `Restore` now returns an error on non-zero BMC completion code instead of logging a warning and silently returning nil, so the watchdog and controller correctly see failed restores (closes #307 concern 1).
 - `hal/ipmi`: Supermicro zone field hard-coded to 0 (CPU zone) instead of the incorrect `sensorNumber/16` heuristic; dynamic zone discovery deferred to a future probe (closes #307 concern 2).
 - `hal/ipmi`: `sendRecv` now bounds-checks `dataLen` against `len(respBuf)` before slicing, preventing a panic on malformed BMC responses (closes #307 concern 3).
-
+- `hwdb.Match`: verified profiles now beat unverified ones regardless of file order; the pipeline runs verified-only first, then falls back to unverified, so a community-submitted unverified entry can no longer shadow a manufacturer-verified profile that appears later in the YAML (closes #308).
 - `mergeModuleLoadFile` now calls `tmp.Sync()` before close and fsyncs the parent directory after rename, preventing a zero-byte `/etc/modules-load.d/ventd.conf` after a kernel panic or power loss between rename and the next disk sync (closes #311).
 - `hal/crosec`: reset `failures` counter to zero when the `maxConsecutiveFailures` threshold triggers `Restore`, preventing repeated `Restore` calls and log spam on a persistently broken EC (closes #306).
 - `hal/usbbase`: per-handle I/O now serialised and honours closed state; `fakehid` matches real go-hid closed-device semantics (closes #305 concerns 1-2; concern 3 tracked separately).
