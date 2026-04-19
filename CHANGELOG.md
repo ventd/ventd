@@ -15,20 +15,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `hwmon.parseModulesBuiltinModinfo` — unexported kernel module-info parser; had no production callers (only tests).
 - `hwmon.WithUeventSubscriber` — watcher option; the uevent subscriber is wired unconditionally by `NewWatcher` and never overridden outside the package.
 
-### Fixed
-
-- `mergeModuleLoadFile` now calls `tmp.Sync()` before close and fsyncs the parent directory after rename, preventing a zero-byte `/etc/modules-load.d/ventd.conf` after a kernel panic or power loss between rename and the next disk sync (closes #311).
-- `hal/crosec`: reset `failures` counter to zero when the `maxConsecutiveFailures` threshold triggers `Restore`, preventing repeated `Restore` calls and log spam on a persistently broken EC (closes #306).
-- `hal/usbbase`: per-handle I/O now serialised and honours closed state; `fakehid` matches real go-hid closed-device semantics (closes #305 concerns 1-2; concern 3 tracked separately).
-- Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
-- `config.validate` now rejects configs where a sensor name and a fan name collide; the history keyspace would otherwise be ambiguous at runtime (closes #293).
-- controller: permission errors during manual-mode acquisition are now fatal, restoring pre-#247 systemd restart-loop visibility (closes #288).
-- controller: add `TestController_ErrNotPermittedFatal_ManualMode` regression test for manual-PWM `ErrNotPermitted` fatal path (closes #347).
-
-### Security
-
-- hal: EACCES/EPERM on pwm_enable writes now propagate as `hal.ErrNotPermitted`, ensuring misconfigured-apparmor/SELinux scenarios surface to operators (closes #288).
-
 ### Added
 
 - `tools/regresslint`: recognise `// regresses #N` and `// covers #N` magic-comment annotations as a third binding pattern alongside `TestRegression_Issue<N>_*` and `t.Run("Issue<N>_..."` (closes #330). Re-dispatching the #304 annotation sweep is unblocked once this merges.
@@ -38,81 +24,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `internal/hal/crosec`: Chrome OS / Framework EC fan backend; reads RPM via `EC_CMD_PWM_GET_FAN_TARGET_RPM`, writes duty cycle via `EC_CMD_PWM_SET_FAN_DUTY`, restores auto mode via `EC_CMD_THERMAL_AUTO_FAN_CTRL`; gated on `/dev/cros_ec` presence and `EC_CMD_HELLO` success (P2-CROSEC-01).
 - `internal/hal/ipmi`: native IPMI backend via `/dev/ipmi0` ioctl (`IPMICTL_SEND_COMMAND` / `IPMICTL_RECEIVE_MSG_TRUNC`); no shell-out to ipmitool (P2-IPMI-01).  Implements fan-speed writes for Supermicro (`0x30/0x70`) and Dell (`0x30/0x30`); HPE returns a clear error (iLO Advanced required); unknown vendors are read-only.  DMI chassis gating prevents `/dev/ipmi0` access on non-server desktops.  SDR enumeration discovers fan channels at runtime; `Restore` hands each vendor back to firmware-auto.  Registered in the HAL registry alongside hwmon and nvml.
 - `internal/hal`: 13 unit tests for the registry layer (`Register`, `Backend`, `Reset`, `Enumerate`, `Resolve`) with race-detector coverage; package coverage 0% → 93% (closes #267).
-
-### Security
-
-- supply-chain: SHA-pinned all GitHub Actions; digest-pinned CI container images; hash-verified Alpine Go toolchain download (SUPPLY-CI-HYGIENE-01)
-
-- Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
-  stdlib CVEs identified by govulncheck — including GO-2025-4012 (net/http),
-  GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
-  GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
-  reachable vulnerabilities.
-
-### Infrastructure
-
-- release: drew-audit.yml workflow automates Drew's post-tag audit gates (govulncheck real; SBOM/cosign/repro stubs until Phase 10 lands) (#DREW-AUDIT-01)
-
-### Changed
-
-- test: extract `testfixture.Base` to de-duplicate 10 stub fixtures (#271)
-- test(watchdog): RULE-WD-RESTORE-EXIT subtest now exercises RestoreOne in addition to Restore (fixes #287)
-- `spawn-mcp` now invokes the Claude Code CLI in non-interactive print
-  mode (`claude --dangerously-skip-permissions -p < prompt.md`) rather
-  than piping the prompt as stdin into an interactive `claude`. The
-  previous pattern blocked on the first-run theme picker before the CLI
-  ever consumed stdin, which meant every dispatch under a fresh service
-  user deadlocked at 0% progress. Print mode bypasses the theme picker
-  and permission prompts by design. Belt-and-braces: `IS_DEMO=1` is set
-  at the unit level to skip onboarding on fresh installs, and
-  `CLAUDE_CODE_OAUTH_TOKEN` (generated once with `claude setup-token`)
-  is forwarded from `/etc/spawn-mcp/env` so a fresh service user with
-  no interactive login can still authenticate. Each session's stdout
-  and stderr now land in `/var/log/spawn-mcp/sessions/<session>.log`
-  with an exit-code marker, and `tail_session` prefers this persistent
-  log over tmux capture-pane so failures survive pane scroll-back.
-  `.cowork/LESSONS.md` lesson #9 covers the root cause: the #251
-  user-collapse refactor was merged without running one spawn_cc()
-  round-trip post-deploy.
-- `spawn-mcp.service` drops `ProtectHome=read-only`. The service runs
-  as `cc-runner` and `claude` legitimately needs to read and write
-  `/home/cc-runner/.claude/` for session state, cache, and auth
-  tokens. Since the service IS `cc-runner`, there was no user boundary
-  to enforce; `ProtectHome=read-only` was only blocking the service
-  from writing its own home. This directive was inherited from the
-  pre-collapse hardening set and should have been dropped in #251.
-
-- `spawn-mcp` now runs as the same user as the Claude Code sessions it
-  launches (`cc-runner`). The previous two-user split had spawn-mcp
-  running as its own system user and handing each prompt file off to
-  `cc-runner` via `chown`/`chmod` plus a `sudo -u cc-runner tmux ...`
-  hop. Each failure in that pipeline ratcheted capability grants on the
-  unit — first `CAP_CHOWN`, then `CAP_FOWNER`, then `NoNewPrivileges=no`,
-  then the full SETUID/SETGID/AUDIT_WRITE/DAC_READ_SEARCH set — to
-  paper over a boundary that was already ornamental, because spawn-mcp
-  held sudo rights to become cc-runner. Collapsing to a single user
-  lets the service run with an empty ambient + bounding cap set,
-  `NoNewPrivileges=yes`, and no sudoers fragment at all. Prompt files
-  land 0600 in `/tmp/spawn-mcp/` natively. The `SPAWN_MCP_AS_USER`
-  environment variable and all `sudo -u` subprocess prefixes are gone.
-  `.cowork/LESSONS.md` lesson #6 (infra-coherence failures) is the
-  class. Operators still attach from their own shell with
-  `sudo -u cc-runner tmux attach -t cc-...`, since reaching another
-  user's tmux server from a different login shell is a shell-side
-  concern, not a service-side privilege escalation.
-
-### Fixed
-
-- fix(hwmon): `persistModule` now merges (append + dedup + sort) into `/etc/modules-load.d/ventd.conf` instead of overwriting, so running `--probe-modules` twice on a dual-chip board keeps both detected modules (P1-MOD-02)
-
-### Changed
-
-- refactor: calibration subsystem drives fans via `hal.FanBackend` — eliminates direct `internal/hwmon` and `internal/nvidia` imports from `internal/calibrate` (#P1-HAL-02)
-- perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
-- perf(controller): eliminate per-tick allocations in the hot loop — preallocate sensor/smoothed maps, cache compiled curve graph, one-shot config snapshot, cache fan*_max for rpm_target fans, binary-search Points curve, pool Mix.Evaluate vals slice (P1-HOT-01)
-
-### Added
-
 - feat(hal/asahi): Apple Silicon (Asahi Linux) fan backend — detects M-series SoCs via `/proc/device-tree/compatible`, enumerates `macsmc_hwmon` hwmon chips, classifies fan roles from labels, and delegates read/write/restore to the hwmon backend; silent no-op on non-Apple hardware; reports `CapRead` only when `pwm_enable` is absent (P2-ASAHI-01).
 - feat(testfixture): `fakedt` fixture for stubbing `/proc/device-tree/compatible` in unit tests.
 - feat(hal/pwmsys): ARM SBC sysfs PWM backend for `/sys/class/pwm/pwmchipN` channels — Raspberry Pi 5 primary target, also covers Rockchip / Allwinner / Amlogic boards (P2-PWMSYS-01)
@@ -129,13 +40,33 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - ci: regression-test-per-closed-bug lint (#T0-META-02)
 - test(hal): contract test T-HAL-01 binds backend invariants to .claude/rules/hal-contract.md
 - feat: opt-in remote hwdb refresh with SHA-256 pin via `--refresh-hwdb` flag (#P1-FP-02)
+- `/healthz` and `/readyz` unauthenticated probes for orchestrators (#155).
+- `/api/version` and `/api/v1/version` return version / commit / buildDate / go runtime (#155).
+- Every `/api/*` route is now also served under `/api/v1/*` — v1 is the stable contract (#155).
+- `--version` and `--version --json` flags on the binary (#155).
+- GitHub issue templates (bug / feature / regression / security) and PR template (#150, #154).
+- Top-level `Makefile` with `build`, `test`, `cover`, `lint`, `e2e`,
+  `safety-run`, `issue-review`, `test-issue-logger` targets (#154).
+- `scripts/cc-issue-logger.test.sh` self-test harness for the filing library (#152).
 
-### Tests
+### Changed
 
-- test: bind internal/watchdog safety invariants (#T-WD-01)
+- test: extract `testfixture.Base` to de-duplicate 10 stub fixtures (#271)
+- test(watchdog): RULE-WD-RESTORE-EXIT subtest now exercises RestoreOne in addition to Restore (fixes #287)
+- refactor: calibration subsystem drives fans via `hal.FanBackend` — eliminates direct `internal/hwmon` and `internal/nvidia` imports from `internal/calibrate` (#P1-HAL-02)
+- perf: drop `modinfo` shellouts in hwmon autoload; parse `modules.alias` directly for zero subprocess overhead on module enumeration (#P1-MOD-01)
+- perf(controller): eliminate per-tick allocations in the hot loop — preallocate sensor/smoothed maps, cache compiled curve graph, one-shot config snapshot, cache fan*_max for rpm_target fans, binary-search Points curve, pool Mix.Evaluate vals slice (P1-HOT-01)
 
 ### Fixed
 
+- `mergeModuleLoadFile` now calls `tmp.Sync()` before close and fsyncs the parent directory after rename, preventing a zero-byte `/etc/modules-load.d/ventd.conf` after a kernel panic or power loss between rename and the next disk sync (closes #311).
+- `hal/crosec`: reset `failures` counter to zero when the `maxConsecutiveFailures` threshold triggers `Restore`, preventing repeated `Restore` calls and log spam on a persistently broken EC (closes #306).
+- `hal/usbbase`: per-handle I/O now serialised and honours closed state; `fakehid` matches real go-hid closed-device semantics (closes #305 concerns 1-2; concern 3 tracked separately).
+- Scheduler↔manual-override race in `handleProfileActive`: override flag is now set before the config swap, closing the window where a scheduler tick could clobber an operator's profile pick (closes #289 concern 1).
+- `config.validate` now rejects configs where a sensor name and a fan name collide; the history keyspace would otherwise be ambiguous at runtime (closes #293).
+- controller: permission errors during manual-mode acquisition are now fatal, restoring pre-#247 systemd restart-loop visibility (closes #288).
+- controller: add `TestController_ErrNotPermittedFatal_ManualMode` regression test for manual-PWM `ErrNotPermitted` fatal path (closes #347).
+- fix(hwmon): `persistModule` now merges (append + dedup + sort) into `/etc/modules-load.d/ventd.conf` instead of overwriting, so running `--probe-modules` twice on a dual-chip board keeps both detected modules (P1-MOD-02)
 - `handleSystemReboot` now refuses with `409 Conflict` and a human-readable
   body when ventd detects it is running inside a container (PID 1,
   `/.dockerenv` present, or `systemd-detect-virt --container` reports non-`none`).
@@ -168,6 +99,61 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   user-hostile "client sent an HTTP request to an HTTPS server" error.
   TLS ClientHello packets (first byte `0x16`) pass through untouched via
   a peekedConn wrapper. No new port binding; no new capability. Closes #200.
+- `config.Empty()` and `config.Default()` now initialise slice-typed fields
+  with empty slices rather than nil — previous nil marshalled to JSON `null`
+  and crashed the web UI (#151).
+- `scripts/cc-issue-logger.sh` `race_count` subshell no longer emits `"0\n0"`
+  when grep finds zero matches (#152).
+- Default issue-filing labels no longer reference the non-existent `v0.3.0`
+  label — unlabelled by default, caller passes labels explicitly (#152).
+- `moduleFromPath` recognises `nct6683` and `nct6687*` chip names (#153).
+- `sdDriverRe` now matches the `Driver \`x' (should be inserted):` variant
+  emitted by sensors-detect when a driver is available but not loaded (#153).
+
+### Security
+
+- hal: EACCES/EPERM on pwm_enable writes now propagate as `hal.ErrNotPermitted`, ensuring misconfigured-apparmor/SELinux scenarios surface to operators (closes #288).
+- supply-chain: SHA-pinned all GitHub Actions; digest-pinned CI container images; hash-verified Alpine Go toolchain download (SUPPLY-CI-HYGIENE-01)
+
+- Bumped Go toolchain from `go1.25.0` to `go1.25.9`, closing 17 reachable
+  stdlib CVEs identified by govulncheck — including GO-2025-4012 (net/http),
+  GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
+  GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
+  reachable vulnerabilities.
+- supply-chain: security advisory policy + GHSA drafted for v0.3.0 stdlib CVE set (#SUPPLY-GHSA-01)
+
+### Tests
+
+- test: bind internal/watchdog safety invariants (#T-WD-01)
+- `internal/controller/safety_test.go` binds every rule in
+  `.claude/rules/hwmon-safety.md` to a named subtest. Controller
+  statement coverage: 12.0 % → 88.0 %. All 12 safety subtests pass
+  under `-race`. (#118, #124)
+- `internal/setup/manager_roots_test.go` covers the six hardware-
+  discovery methods (`discoverCPUTempSensor`, `discoverAMDGPUTemp`,
+  `discoverHwmonControls`, `readCPUModel`, `readCPUVendor`,
+  `readRAPLTDPW`, `gatherProfile`) against fixture trees under
+  `t.TempDir()`. Replaces four `#131` `t.Skip` placeholders with 33
+  table-driven subcases. Closes #131. (#163)
+
+### Infrastructure
+
+- release: pre-release-check.yml workflow automates pre-tag gates (govulncheck / CHANGELOG / release-blocker / build+test; Phase 10 stubs) (#RELEASE-CHECK-01)
+- release: drew-audit.yml workflow automates Drew's post-tag audit gates (govulncheck real; SBOM/cosign/repro stubs until Phase 10 lands) (#DREW-AUDIT-01)
+- CI `build-and-test` expanded to a four-distro matrix (Ubuntu 24.04,
+  Fedora 41, Arch, Alpine 3.20) and all four rows are required on
+  `main`. Alpine builds with `CGO_ENABLED=0` and skips `-race` to
+  preserve the libc-only binary guarantee; race coverage comes from
+  the other three rows. Satisfies the CI matrix acceptance gate in
+  the v0.3.0 plan. (#114)
+- New `.github/workflows/docker.yml` builds `packaging/docker/Dockerfile`
+  on every push to `main` and PR touching `packaging/docker/**`,
+  `deploy/**`, or `scripts/**`. Three jobs: `build amd64` (exports
+  the image as an artifact), `build arm64` (QEMU emulation,
+  `continue-on-error: true` until the cross-build flake rate is
+  characterised), `smoke amd64` (loads the artifact, runs the
+  container detached, polls `/api/ping` for up to 30 s, dumps logs
+  on failure). No registry push. (#162, closes #144)
 
 ### Added — Phase 3 Control Depth (Session D, v0.3 stream)
 
@@ -349,19 +335,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   layer owns the hwmon-safety rule 4 invariant on its own. (#116,
   #124)
 
-### Tests
-
-- `internal/controller/safety_test.go` binds every rule in
-  `.claude/rules/hwmon-safety.md` to a named subtest. Controller
-  statement coverage: 12.0 % → 88.0 %. All 12 safety subtests pass
-  under `-race`. (#118, #124)
-- `internal/setup/manager_roots_test.go` covers the six hardware-
-  discovery methods (`discoverCPUTempSensor`, `discoverAMDGPUTemp`,
-  `discoverHwmonControls`, `readCPUModel`, `readCPUVendor`,
-  `readRAPLTDPW`, `gatherProfile`) against fixture trees under
-  `t.TempDir()`. Replaces four `#131` `t.Skip` placeholders with 33
-  table-driven subcases. Closes #131. (#163)
-
 ### Changed — test seams
 
 - `setup.Manager` gains `hwmonRoot`, `procRoot`, and `powercapRoot`
@@ -371,23 +344,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pattern already used by `hwmonpkg.EnumerateDevices(root)` and
   `config.SetHwmonRootFS`. Unblocks #132 (calibrate.Manager interface)
   and #133 (wizard state-machine tests). (#163)
-
-### Infrastructure
-
-- CI `build-and-test` expanded to a four-distro matrix (Ubuntu 24.04,
-  Fedora 41, Arch, Alpine 3.20) and all four rows are required on
-  `main`. Alpine builds with `CGO_ENABLED=0` and skips `-race` to
-  preserve the libc-only binary guarantee; race coverage comes from
-  the other three rows. Satisfies the CI matrix acceptance gate in
-  the v0.3.0 plan. (#114)
-- New `.github/workflows/docker.yml` builds `packaging/docker/Dockerfile`
-  on every push to `main` and PR touching `packaging/docker/**`,
-  `deploy/**`, or `scripts/**`. Three jobs: `build amd64` (exports
-  the image as an artifact), `build arm64` (QEMU emulation,
-  `continue-on-error: true` until the cross-build flake rate is
-  characterised), `smoke amd64` (loads the artifact, runs the
-  container detached, polls `/api/ping` for up to 30 s, dumps logs
-  on failure). No registry push. (#162, closes #144)
 
 ### Changed — Docker packaging
 
@@ -401,30 +357,6 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   into both `build.args` and the runtime `user:` line, so a single
   `VENTD_GID=...` env var aligns the image group and the process
   gid. (#162, closes #143)
-
-### Added
-
-- `/healthz` and `/readyz` unauthenticated probes for orchestrators (#155).
-- `/api/version` and `/api/v1/version` return version / commit / buildDate / go runtime (#155).
-- Every `/api/*` route is now also served under `/api/v1/*` — v1 is the stable contract (#155).
-- `--version` and `--version --json` flags on the binary (#155).
-- GitHub issue templates (bug / feature / regression / security) and PR template (#150, #154).
-- Top-level `Makefile` with `build`, `test`, `cover`, `lint`, `e2e`,
-  `safety-run`, `issue-review`, `test-issue-logger` targets (#154).
-- `scripts/cc-issue-logger.test.sh` self-test harness for the filing library (#152).
-
-### Fixed
-
-- `config.Empty()` and `config.Default()` now initialise slice-typed fields
-  with empty slices rather than nil — previous nil marshalled to JSON `null`
-  and crashed the web UI (#151).
-- `scripts/cc-issue-logger.sh` `race_count` subshell no longer emits `"0\n0"`
-  when grep finds zero matches (#152).
-- Default issue-filing labels no longer reference the non-existent `v0.3.0`
-  label — unlabelled by default, caller passes labels explicitly (#152).
-- `moduleFromPath` recognises `nct6683` and `nct6687*` chip names (#153).
-- `sdDriverRe` now matches the `Driver \`x' (should be inserted):` variant
-  emitted by sensors-detect when a driver is available but not loaded (#153).
 
 ## [v0.2.0] — 2026-04-16
 
