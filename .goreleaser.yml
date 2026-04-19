@@ -113,6 +113,19 @@ sboms:
     cmd: syft
     args: ["${artifact}", "--output", "spdx-json=${document}"]
 
+signs:
+  - cmd: cosign
+    artifacts: all
+    output: true
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--output-signature=${artifact}.sig"
+      - "--output-certificate=${artifact}.pem"
+      - "--yes"
+      - "${artifact}"
+
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256

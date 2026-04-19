@@ -105,12 +105,87 @@ print('SPDX 2.3 OK —', len(d.get('packages', [])), 'packages')
 
 ---
 
-## Signing (TODO — P10-SIGN-01)
+## Signing (P10-SIGN-01)
 
-<!-- TODO(P10-SIGN-01): document cosign verify command once signing is wired up -->
+Every release artifact (archives, SBOMs, checksum file) is signed with
+[cosign](https://github.com/sigstore/cosign) keyless signing using the
+Sigstore public-good instance.  No long-lived key material is used — the
+signature is tied to the GitHub Actions OIDC identity of the release
+workflow.
 
-Artifact signing via cosign is planned for P10-SIGN-01.  Until that lands,
-verify the SHA-256 checksum in `checksums.txt` on each release.
+For each artifact `<file>`, the release publishes:
+
+- `<file>.sig` — the cosign signature (base64-encoded)
+- `<file>.pem` — the Fulcio-issued certificate chain containing the OIDC
+  identity
+
+### Verifying a release artifact with cosign
+
+```sh
+cosign verify-blob \
+  --certificate=<file>.pem \
+  --signature=<file>.sig \
+  --certificate-identity-regexp='^https://github\.com/ventd/ventd/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+  <file>
+```
+
+**Expected output:**
+
+```
+Verified OK
+```
+
+The certificate identity embedded in the Fulcio certificate is:
+```
+https://github.com/ventd/ventd/.github/workflows/release.yml@refs/tags/v<version>
+```
+
+### cosign pin
+
+`sigstore/cosign-installer` **v4.1.1** (SHA `cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003`)
+is pinned in `.github/workflows/release.yml`.
+
+---
+
+## SLSA Level 3 Provenance (P10-SIGN-01)
+
+Every release includes a SLSA Level 3 provenance attestation, generated
+by the [slsa-framework/slsa-github-generator](https://github.com/slsa-framework/slsa-github-generator)
+reusable workflow.  The provenance file is uploaded as a release asset:
+
+```
+ventd-provenance.intoto.jsonl
+```
+
+### Verifying SLSA provenance
+
+```sh
+slsa-verifier verify-artifact <file> \
+  --provenance-path ventd-provenance.intoto.jsonl \
+  --source-uri github.com/ventd/ventd \
+  --source-tag v<version>
+```
+
+**Expected output:**
+
+```
+Verified SLSA provenance
+```
+
+### slsa-github-generator pin
+
+`slsa-framework/slsa-github-generator` **v2.1.0**
+(SHA `361859811395a7dfc81e24fb4dfe843a59715a40`) is pinned in
+`.github/workflows/release.yml`.
+
+### Dry-run limitation
+
+Cosign keyless signing and SLSA provenance generation both require a
+GitHub Actions OIDC token issued by `token.actions.githubusercontent.com`.
+They cannot be exercised in local snapshot builds (`goreleaser release
+--snapshot`).  Run `goreleaser release --snapshot --skip=sign` to produce
+unsigned snapshots for local testing.
 
 ---
 
@@ -119,12 +194,9 @@ verify the SHA-256 checksum in `checksums.txt` on each release.
 | Control | Status | Target |
 |---------|--------|--------|
 | SBOM generation (syft) | **done** (P10-SBOM-01) | — |
-| Release binary signing (`cosign`) | planned | P10-SIGN-01 |
+| Release binary signing (`cosign`) | **done** (P10-SIGN-01) | — |
+| SLSA Level 3 provenance | **done** (P10-SIGN-01) | — |
 | Reproducible builds (build stamp) | planned | P10-REPRO-01 |
-| SLSA provenance attestation | planned | Phase 10 |
-
-The `drew-audit.yml` post-tag workflow has placeholder steps for signing and
-repro-build; they will become real checks once the corresponding tasks land.
 
 ---
 
