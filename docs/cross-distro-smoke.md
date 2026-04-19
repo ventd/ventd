@@ -197,3 +197,68 @@ PROXMOX_DRY_RUN=1 ./scripts/cross-distro-smoke.sh
 
 This is what's exercised from CC terminals that don't have API access,
 and what CI can run to catch regressions in the script itself.
+
+## Per-distro template prep
+
+Templates are built (or rebuilt) via the
+`.github/workflows/pve-template-prep.yml` workflow, which runs on the
+`phoenix-desktop` self-hosted runner and reaches Proxmox over the `pve`
+SSH alias (`gharunner`, NOPASSWD-scoped sudo allowlist).
+
+### Triggering the workflow
+
+Use `gh workflow run` from any machine with repo write access:
+
+```bash
+# Build a single distro
+gh workflow run pve-template-prep.yml -f distro=arch
+gh workflow run pve-template-prep.yml -f distro=void
+gh workflow run pve-template-prep.yml -f distro=alpine
+
+# Rebuild all three at once
+gh workflow run pve-template-prep.yml -f distro=all
+```
+
+The workflow also accepts the GitHub API `workflow_dispatch` event
+directly:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $GH_TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/ventd/ventd/actions/workflows/pve-template-prep.yml/dispatches" \
+  -d '{"ref":"main","inputs":{"distro":"alpine"}}'
+```
+
+### Per-distro boot-and-install paths
+
+| distro | VMID | approach | source |
+|--------|------|----------|--------|
+| arch | 9103 | image-swap | Official Arch Linux x86\_64 cloud image (`geo.mirror.pkgbuild.com`) |
+| void-glibc | 9105 | bootstrap-from-installer | `virt-builder void-glibc-x86_64` + xbps `qemu-ga`/`openssh` |
+| alpine-3.19 | 9106 | image-swap | Alpine 3.19 nocloud BIOS cloud-init QCOW2 (`dl-cdn.alpinelinux.org`) |
+
+**Arch** — the official cloud image ships with cloud-init and
+qemu-guest-agent pre-installed. The workflow downloads it, resizes to
+10 GiB, imports into `local-lvm`, wires the cloud-init drive, and calls
+`qm template`. This replaces the broken VMID 9103 template (#171).
+
+**Void glibc** — Void has no official cloud image. `virt-builder`
+bootstraps a bootable 10 GiB QCOW2 using the `void-glibc-x86_64`
+template, installs `qemu-ga` and `openssh` via xbps, enables the
+corresponding runit services, then `virt-sysprep` generalises the image
+before it is imported into Proxmox (#172).  If the template name differs
+in the installed virt-builder version, check with
+`sudo virt-builder --list | grep -i void` on pve before running.
+
+**Alpine 3.19** — Alpine provides official BIOS cloud-init QCOW2 images.
+The workflow downloads the nocloud variant, resizes to 4 GiB, and
+imports it directly into Proxmox without customisation — cloud-init
+handles the rest at clone time (#173).
+
+### Sudo scope negative-control
+
+Every run includes a negative-control step that asserts the gharunner
+sudo allowlist does **not** permit `bash`. If the step fails, the
+allowlist has been widened beyond its intended scope — investigate before
+proceeding with any template builds.
