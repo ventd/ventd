@@ -172,6 +172,7 @@ type runState struct {
 	current  uint8
 	errMsg   string
 	cancel   context.CancelFunc // fired by Abort; nil until Start/RunSync wires it
+	done     chan struct{}      // closed by run() after m.save() completes
 }
 
 // Manager owns all calibration state. One instance per daemon.
@@ -257,7 +258,7 @@ func (m *Manager) Start(fan *config.Fan) error {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	rs = &runState{cancel: cancel}
+	rs = &runState{cancel: cancel, done: make(chan struct{})}
 	m.runs[fan.PWMPath] = rs
 	m.mu.Unlock()
 
@@ -288,7 +289,8 @@ func (m *Manager) AllStatus() []Status {
 // Abort cancels an in-flight calibration for pwmPath if one exists. Idempotent:
 // safe to call when no calibration is running, or to call repeatedly. The
 // runSync defer restores the fan's PWM via the existing safety path; this
-// method only fires the context.
+// method fires the context and then blocks until the goroutine has completed
+// its final persist (calibration.json is on disk when Abort returns).
 func (m *Manager) Abort(pwmPath string) {
 	m.mu.Lock()
 	rs, ok := m.runs[pwmPath]
@@ -298,9 +300,13 @@ func (m *Manager) Abort(pwmPath string) {
 	}
 	rs.mu.Lock()
 	cancel := rs.cancel
+	done := rs.done
 	rs.mu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if done != nil {
+		<-done
 	}
 }
 
@@ -383,6 +389,7 @@ func (m *Manager) run(ctx context.Context, fan *config.Fan, rs *runState) {
 		"fan_type", result.FanType,
 	)
 	m.save()
+	close(rs.done)
 }
 
 // RunSync runs calibration synchronously and returns the result. Intended for
@@ -1220,7 +1227,7 @@ func atomicWriteBytes(path string, b []byte) error {
 		return fmt.Errorf("create tmp: %w", err)
 	}
 	// Always remove tmp on exit; no-op if Rename already moved the file.
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 
 	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
