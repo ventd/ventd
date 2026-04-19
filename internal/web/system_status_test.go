@@ -81,6 +81,8 @@ func TestSystemRecovery_CacheAndMissingSystemctl(t *testing.T) {
 
 	t.Run("caches within ttl — one shell-out per window", func(t *testing.T) {
 		calls := 0
+		// Pretend both binary and unit file are present so we reach systemctl.
+		recoveryCache.statFn = func(string) error { return nil }
 		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
 		recoveryCache.runCmd = func(name string, args ...string) error {
 			calls++
@@ -100,12 +102,108 @@ func TestSystemRecovery_CacheAndMissingSystemctl(t *testing.T) {
 
 	t.Run("stale cache re-queries", func(t *testing.T) {
 		calls := 0
+		recoveryCache.statFn = func(string) error { return nil }
 		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
 		recoveryCache.runCmd = func(string, ...string) error { calls++; return nil }
 		recoveryCache.at = time.Now().Add(-time.Minute) // force stale
 		recoveryCache.snapshot()
 		if calls != 2 {
 			t.Errorf("expected 2 calls on stale cache, got %d", calls)
+		}
+	})
+}
+
+// TestWebStatus_CrashRecoveryDetection verifies the three-component
+// check introduced in fix-484: "installed" is true only when the
+// recovery binary AND unit file both exist AND the unit is enabled.
+// Each missing component should flip installed to false independently.
+func TestWebStatus_CrashRecoveryDetection(t *testing.T) {
+	restoreCache := saveRecoveryCache()
+	defer restoreCache()
+
+	errMissing := os.ErrNotExist
+
+	t.Run("all present → installed=true", func(t *testing.T) {
+		recoveryCache.statFn = func(string) error { return nil } // both files exist
+		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
+		recoveryCache.runCmd = func(_ string, args ...string) error { return nil } // is-enabled=0
+		recoveryCache.at = time.Time{}
+		snap := recoveryCache.snapshot()
+		if !snap.Installed {
+			t.Errorf("all present: Installed=%v want true", snap.Installed)
+		}
+	})
+
+	t.Run("binary missing → installed=false", func(t *testing.T) {
+		call := 0
+		recoveryCache.statFn = func(path string) error {
+			call++
+			if call == 1 {
+				return errMissing // binary missing
+			}
+			return nil // unit file present
+		}
+		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
+		recoveryCache.runCmd = func(string, ...string) error {
+			t.Fatal("systemctl must not be called when binary is absent")
+			return nil
+		}
+		recoveryCache.at = time.Time{}
+		snap := recoveryCache.snapshot()
+		if snap.Installed {
+			t.Errorf("binary missing: Installed=%v want false", snap.Installed)
+		}
+	})
+
+	t.Run("unit file missing → installed=false", func(t *testing.T) {
+		call := 0
+		recoveryCache.statFn = func(path string) error {
+			call++
+			if call == 1 {
+				return nil // binary present
+			}
+			return errMissing // unit file missing
+		}
+		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
+		recoveryCache.runCmd = func(string, ...string) error {
+			t.Fatal("systemctl must not be called when unit file is absent")
+			return nil
+		}
+		recoveryCache.at = time.Time{}
+		snap := recoveryCache.snapshot()
+		if snap.Installed {
+			t.Errorf("unit file missing: Installed=%v want false", snap.Installed)
+		}
+	})
+
+	t.Run("unit not enabled → installed=false", func(t *testing.T) {
+		recoveryCache.statFn = func(string) error { return nil } // both files exist
+		recoveryCache.lookPath = func(string) (string, error) { return "/bin/systemctl", nil }
+		recoveryCache.runCmd = func(_ string, args ...string) error {
+			// is-enabled returns non-zero (disabled), is-active irrelevant
+			if len(args) > 0 && args[0] == "is-enabled" {
+				return errors.New("disabled")
+			}
+			return nil
+		}
+		recoveryCache.at = time.Time{}
+		snap := recoveryCache.snapshot()
+		if snap.Installed {
+			t.Errorf("unit disabled: Installed=%v want false", snap.Installed)
+		}
+	})
+
+	t.Run("no systemctl on host → installed=false", func(t *testing.T) {
+		recoveryCache.statFn = func(string) error { return nil } // files present
+		recoveryCache.lookPath = func(string) (string, error) { return "", errors.New("not found") }
+		recoveryCache.runCmd = func(string, ...string) error {
+			t.Fatal("runCmd must not be called when systemctl is absent")
+			return nil
+		}
+		recoveryCache.at = time.Time{}
+		snap := recoveryCache.snapshot()
+		if snap.Installed {
+			t.Errorf("no systemctl: Installed=%v want false", snap.Installed)
 		}
 	})
 }
@@ -288,10 +386,11 @@ func newSysStatusServer(t *testing.T) *Server {
 // fields rather than the whole struct so `go vet`'s copylocks check
 // doesn't fire on the embedded sync.Mutex.
 func saveRecoveryCache() func() {
-	lookPath, runCmd, ttl, at, snap := recoveryCache.lookPath, recoveryCache.runCmd, recoveryCache.ttl, recoveryCache.at, recoveryCache.snap
+	statFn, lookPath, runCmd, ttl, at, snap := recoveryCache.statFn, recoveryCache.lookPath, recoveryCache.runCmd, recoveryCache.ttl, recoveryCache.at, recoveryCache.snap
 	return func() {
 		recoveryCache.mu.Lock()
 		defer recoveryCache.mu.Unlock()
+		recoveryCache.statFn = statFn
 		recoveryCache.lookPath = lookPath
 		recoveryCache.runCmd = runCmd
 		recoveryCache.ttl = ttl
