@@ -221,6 +221,28 @@ func detectVendorFromString(vendor string) string {
 	}
 }
 
+// ── Option ───────────────────────────────────────────────────────────────────
+
+// Option configures a Backend at construction time. Production callers use
+// zero options; test harnesses pass WithDevicePath/WithSendRecv to redirect
+// I/O to a fixture.
+type Option func(*Backend)
+
+// WithDevicePath overrides the default device path ("/dev/ipmi0").
+// Intended for test fixtures that open a tmpfile or socket-pair.
+func WithDevicePath(p string) Option {
+	return func(b *Backend) { b.device = p }
+}
+
+// WithSendRecv replaces the default ioctl-based transport with a
+// fixture-provided function. When set, the backend calls fn(req, resp)
+// instead of issuing IPMICTL_SEND_COMMAND / IPMICTL_RECEIVE_MSG_TRUNC.
+// req encodes [netfn, cmd, data...]; resp is a 128-byte buffer the fixture
+// fills with [completionCode, payload...].
+func WithSendRecv(fn func(req, resp []byte) error) Option {
+	return func(b *Backend) { b.sendRecv = fn }
+}
+
 // ── Backend ──────────────────────────────────────────────────────────────────
 
 // Backend is the IPMI implementation of hal.FanBackend.
@@ -235,12 +257,14 @@ type Backend struct {
 	fd int        // -1 = closed; guarded by mu for open/close
 
 	msgSeq atomic.Int64 // per-request sequence number
+
+	sendRecv func(req, resp []byte) error // nil = ioctl path; non-nil = test override
 }
 
 // NewBackend constructs an IPMI backend. The device defaults to /dev/ipmi0.
 // DMI is read at construction; /dev/ipmi0 is not opened until Enumerate
 // confirms a server chassis.
-func NewBackend(logger *slog.Logger) *Backend {
+func NewBackend(logger *slog.Logger, opts ...Option) *Backend {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -249,6 +273,9 @@ func NewBackend(logger *slog.Logger) *Backend {
 		logger:  logger,
 		readDMI: readDMIFromSysfs,
 		fd:      -1,
+	}
+	for _, opt := range opts {
+		opt(b)
 	}
 	b.dmi = b.readDMI()
 	b.vendor = detectVendorFromString(b.dmi.sysVendor)
@@ -259,24 +286,26 @@ func NewBackend(logger *slog.Logger) *Backend {
 // NewBackendForTest in export_test.go.
 func (b *Backend) withDMI(info dmiInfo) *Backend {
 	return &Backend{
-		device:  b.device,
-		logger:  b.logger,
-		readDMI: b.readDMI,
-		dmi:     info,
-		vendor:  detectVendorFromString(info.sysVendor),
-		fd:      -1,
+		device:   b.device,
+		logger:   b.logger,
+		readDMI:  b.readDMI,
+		dmi:      info,
+		vendor:   detectVendorFromString(info.sysVendor),
+		fd:       -1,
+		sendRecv: b.sendRecv,
 	}
 }
 
 // withVendor returns a copy of b with the vendor overridden; used by tests.
 func (b *Backend) withVendor(vendor string) *Backend {
 	return &Backend{
-		device:  b.device,
-		logger:  b.logger,
-		readDMI: b.readDMI,
-		dmi:     b.dmi,
-		vendor:  vendor,
-		fd:      -1,
+		device:   b.device,
+		logger:   b.logger,
+		readDMI:  b.readDMI,
+		dmi:      b.dmi,
+		vendor:   vendor,
+		fd:       -1,
+		sendRecv: b.sendRecv,
 	}
 }
 
@@ -324,7 +353,7 @@ func (b *Backend) Read(ch hal.Channel) (hal.Reading, error) {
 		return hal.Reading{}, err
 	}
 
-	cc, resp, err := b.sendRecv(netFnSensor, cmdGetSensorReading, []byte{st.SensorNumber})
+	cc, resp, err := b.ioctlSendRecv(netFnSensor, cmdGetSensorReading, []byte{st.SensorNumber})
 	if err != nil {
 		return hal.Reading{OK: false}, nil
 	}
@@ -353,7 +382,7 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 
 	switch b.vendor {
 	case vendorSupermicro:
-		cc, _, err := b.sendRecv(netFnOEM, cmdSMFanWrite, []byte{0x66, 0x01, st.Zone, pct})
+		cc, _, err := b.ioctlSendRecv(netFnOEM, cmdSMFanWrite, []byte{0x66, 0x01, st.Zone, pct})
 		if err != nil {
 			return fmt.Errorf("ipmi: supermicro fan write: %w", err)
 		}
@@ -363,7 +392,7 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		return nil
 
 	case vendorDell:
-		cc, _, err := b.sendRecv(netFnOEM, cmdDellFan, []byte{0x02, 0xff, pct})
+		cc, _, err := b.ioctlSendRecv(netFnOEM, cmdDellFan, []byte{0x02, 0xff, pct})
 		if err != nil {
 			return fmt.Errorf("ipmi: dell fan write: %w", err)
 		}
@@ -388,7 +417,7 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 func (b *Backend) Restore(ch hal.Channel) error {
 	switch b.vendor {
 	case vendorSupermicro:
-		cc, _, err := b.sendRecv(netFnOEM, cmdSMSetMode, []byte{0x00})
+		cc, _, err := b.ioctlSendRecv(netFnOEM, cmdSMSetMode, []byte{0x00})
 		if err != nil {
 			b.logger.Error("ipmi: supermicro fan mode restore failed", "err", err)
 			return err
@@ -400,7 +429,7 @@ func (b *Backend) Restore(ch hal.Channel) error {
 		return nil
 
 	case vendorDell:
-		cc, _, err := b.sendRecv(netFnOEM, cmdDellFan, []byte{0x01, 0x01})
+		cc, _, err := b.ioctlSendRecv(netFnOEM, cmdDellFan, []byte{0x01, 0x01})
 		if err != nil {
 			b.logger.Error("ipmi: dell fan control restore failed", "err", err)
 			return err
@@ -419,6 +448,9 @@ func (b *Backend) Restore(ch hal.Channel) error {
 // ── device open ──────────────────────────────────────────────────────────────
 
 func (b *Backend) openOnce() error {
+	if b.sendRecv != nil {
+		return nil // fixture mode: no real device needed
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.fd >= 0 {
@@ -434,16 +466,32 @@ func (b *Backend) openOnce() error {
 
 // ── ioctl send / receive ─────────────────────────────────────────────────────
 
-// sendRecv sends one IPMI request and receives the response.
+// ioctlSendRecv sends one IPMI request and receives the response.
 // The entire send-poll-receive sequence is serialised under b.mu so that
 // concurrent callers (e.g. two goroutines calling Enumerate) do not interleave
 // requests and responses.
 //
+// When b.sendRecv is non-nil (test fixture mode), the ioctl path is skipped
+// and the fixture function is called instead.
+//
 // Returns (completionCode, responsePayload, error).
 // completionCode 0x00 means success; the caller is responsible for checking it.
-func (b *Backend) sendRecv(netfn, cmd uint8, reqData []byte) (byte, []byte, error) {
+func (b *Backend) ioctlSendRecv(netfn, cmd uint8, reqData []byte) (byte, []byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Test-injected hook: bypasses device fd and ioctl entirely.
+	if b.sendRecv != nil {
+		req := make([]byte, 2+len(reqData))
+		req[0] = netfn
+		req[1] = cmd
+		copy(req[2:], reqData)
+		resp := make([]byte, 128)
+		if err := b.sendRecv(req, resp); err != nil {
+			return 0, nil, err
+		}
+		return resp[0], resp[1:], nil
+	}
 
 	fd := b.fd
 	if fd < 0 {
@@ -544,7 +592,7 @@ func (b *Backend) sendRecv(netfn, cmd uint8, reqData []byte) (byte, []byte, erro
 // Called with b.mu NOT held; each sendRecv call acquires it individually.
 func (b *Backend) enumerateSDR() ([]hal.Channel, error) {
 	// Reserve SDR repository for a consistent enumeration snapshot.
-	cc, resp, err := b.sendRecv(netFnStorage, cmdReserveSDRRepository, nil)
+	cc, resp, err := b.ioctlSendRecv(netFnStorage, cmdReserveSDRRepository, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ipmi: reserve SDR: %w", err)
 	}
@@ -569,7 +617,7 @@ func (b *Backend) enumerateSDR() ([]hal.Channel, error) {
 			0xFF, // read all bytes
 		}
 
-		cc, resp, err := b.sendRecv(netFnStorage, cmdGetSDR, req)
+		cc, resp, err := b.ioctlSendRecv(netFnStorage, cmdGetSDR, req)
 		if err != nil {
 			b.logger.Warn("ipmi: get SDR error", "record_id", fmt.Sprintf("0x%04x", recordID), "err", err)
 			break
