@@ -75,6 +75,11 @@ SyslogIdentifier=ventd
 # restore CAP_DAC_OVERRIDE here. See deploy/README.md.
 User=ventd
 Group=ventd
+# Force explicit profile attachment by name. Without this, docker-default
+# can win the attachment race on hosts that have Docker installed, because
+# docker-default attaches to /usr/local/bin/* binaries. AppArmorProfile=
+# overrides the kernel's file-based matching and pins the ventd profile.
+AppArmorProfile=ventd
 # Defence-in-depth: grant the video group so NVML can open /dev/nvidiactl
 # on Ubuntu/Debian. systemd silently skips groups that don't exist on the
 # host, so this is safe on GPU-less machines.
@@ -98,7 +103,7 @@ PrivateTmp=yes
 # removes it on stop. Replaces the manual os.MkdirAll for the setup-token
 # directory and guarantees 0700 perms (the token must not be world-readable).
 RuntimeDirectory=ventd
-RuntimeDirectoryMode=0700
+RuntimeDirectoryMode=0750
 # systemd creates /etc/ventd before ExecStart (and before any namespace
 # setup) with the mode below, so the installer does not pre-create it and
 # a stop/rm -rf/start cycle no longer trips status=226/NAMESPACE from the
@@ -106,6 +111,9 @@ RuntimeDirectoryMode=0700
 # read access; "other" stays locked out.
 ConfigurationDirectory=ventd
 ConfigurationDirectoryMode=0750
+# Persistent state directory: calibration store, setup-token backup.
+StateDirectory=ventd
+StateDirectoryMode=0750
 # Enumerate every path ventd writes to.
 #   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
 #   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)
