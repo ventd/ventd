@@ -1,125 +1,68 @@
 #include <tunables/global>
 
-# AppArmor profile for ventd.
-# Attaches to both /usr/local/bin/ventd (install.sh default)
-# and /usr/bin/ventd (distro packages: .deb, .rpm, AUR).
-#
-# Confines the daemon to the operations the README promises:
-# read /etc/ventd, walk /sys/class/hwmon, write pwm<N> and
-# pwm<N>_enable, bind the web UI port, talk to journald.
-#
-# Shipped in COMPLAIN mode for v0.3.x so denials are logged but
-# allowed while the path list is validated across hardware matrix.
-# See deploy/apparmor.d/README.md to switch to enforce mode.
-#
-# Install:
-#   sudo install -m 0644 deploy/apparmor.d/usr.local.bin.ventd \
-#                        /etc/apparmor.d/usr.local.bin.ventd
-#   sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd
-#
-# Verify:
-#   sudo aa-status | grep ventd
-#   sudo systemctl restart ventd
-#   sudo journalctl -k | grep -i 'ventd.*audit'   # complain-mode logs here
-#
-# If denials appear after switching to enforce mode:
-#   sudo aa-logprof
-# and stack the suggested rules below this profile.
-
-profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected,complain) {
+profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   #include <abstractions/base>
   #include <abstractions/nameservice>
 
-  # The binary itself.
   /usr/local/bin/ventd            mr,
   /usr/bin/ventd                  mr,
 
-  # Config + calibration store.
   /etc/ventd/                     r,
-  /etc/ventd/**                   r,
-  /etc/ventd/config.yaml          rw,
-  /etc/ventd/config.yaml.tmp      rw,
-  /etc/ventd/calibration.json     rw,
-  /etc/ventd/calibration.json.tmp rw,
-  # TLS cert/key — daemon writes atomically via *.tmp then rename.
-  # Both cert.pem (legacy) and tls.crt (current) names covered.
-  /etc/ventd/cert.pem             rw,
-  /etc/ventd/key.pem              rw,
-  /etc/ventd/tls.crt              rw,
-  /etc/ventd/tls.key              rw,
-  /etc/ventd/*.tmp                rw,
+  /etc/ventd/**                   rwk,
 
-  # Setup token at /run/ventd/setup-token (mode 0600).
-  /run/ventd/                     r,
-  /run/ventd/setup-token          rw,
+  /run/ventd/                     rw,
+  /run/ventd/**                   rwk,
 
-  # Hwmon: full read of the class tree, write only on pwm files. The
-  # udev rule grants DAC; AppArmor enforces MAC on top.
-  #
-  # NOTE: hwmonN directories are named hwmon0, hwmon1, …  — use hwmon*
-  # not hwmon so the pattern matches the kernel-assigned index suffix.
-  # AppArmor resolves symlinks, so both the /sys/class/hwmon symlink
-  # tree AND the underlying /sys/devices realpath must be listed.
+  /var/lib/ventd/                 rw,
+  /var/lib/ventd/**               rwk,
+
   /sys/class/hwmon/               r,
   /sys/class/hwmon/**             r,
   /sys/class/hwmon/**/pwm[0-9]*       rw,
   /sys/class/hwmon/**/pwm[0-9]*_enable rw,
-  # Realpath tree — covers PCI, USB, platform, and virtual devices.
-  /sys/devices/**/hwmon*/         r,
-  /sys/devices/**/hwmon*/**       r,
-  /sys/devices/**/hwmon*/**/pwm[0-9]*       rw,
-  /sys/devices/**/hwmon*/**/pwm[0-9]*_enable rw,
-  # Thermal zone sensors (e.g. /sys/devices/virtual/thermal/thermal_zone0/hwmon0/).
-  /sys/devices/virtual/thermal/** r,
-
-  # Fan-RPM target paths (pre-RDNA AMD GPUs use fan*_target instead of pwm*).
+  /sys/devices/**/hwmon/**            r,
+  /sys/devices/**/hwmon/**/pwm[0-9]*       rw,
+  /sys/devices/**/hwmon/**/pwm[0-9]*_enable rw,
   /sys/class/hwmon/**/fan[0-9]*_target  rw,
-  /sys/devices/**/hwmon*/**/fan[0-9]*_target rw,
+  /sys/devices/**/hwmon/**/fan[0-9]*_target rw,
 
-  # DMI for board-vendor detection.
+  /sys/class/pwm/                 r,
+  /sys/class/pwm/**               r,
+
+  /sys/class/thermal/             r,
+  /sys/class/thermal/**           r,
+
   /sys/class/dmi/id/              r,
   /sys/class/dmi/id/**            r,
 
-  # NVML for NVIDIA GPU metrics. Loaded at runtime via dlopen.
-  # /dev/nvidia* covers nvidia0, nvidiactl, nvidia-uvm, nvidia-uvm-tools.
   /usr/lib/libnvidia-ml.so.*      mr,
   /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.* mr,
   /usr/lib64/libnvidia-ml.so.*    mr,
   /dev/nvidia*                    rw,
+  /dev/nvidiactl                  rw,
+  /dev/nvidia-uvm                 rw,
+  /dev/nvidia-uvm-tools           rw,
+  /dev/nvidia-caps/               r,
+  /dev/nvidia-caps/**             rw,
+  /proc/driver/nvidia/            r,
+  /proc/driver/nvidia/**          r,
 
-  # systemd journal socket. The daemon's slog stderr is captured by
-  # journald via the unit's StandardError=journal.
+  /sys/devices/**/power_supply/   r,
+  /sys/devices/**/power_supply/** r,
+
   /run/systemd/journal/socket     rw,
   /run/systemd/journal/stdout     rw,
   /run/systemd/notify             rw,
 
-  # Process info — the daemon reads its own /proc entries for runtime
-  # diagnostics surfaced via the web UI.
-  /proc/cpuinfo                   r,
-  /proc/meminfo                   r,
   /proc/sys/kernel/random/uuid    r,
-  /proc/sys/kernel/osrelease      r,
-  owner /proc/[0-9]*/             r,
-  owner /proc/[0-9]*/**           r,
+  /proc/@{pid}/**                 r,
+  /proc/@{pid}/attr/current       rw,
 
-  # Network: bind 9999/tcp by default; INET, INET6, UNIX (journald),
-  # NETLINK (uevent watcher). The inet6 line is family-only (no stream
-  # qualifier) because apparmor_parser >=4.1 (Debian 13 trixie) rejects
-  # the two-token `network inet6 stream,` form with "syntax error,
-  # unexpected TOK_ID". The IPv6 codepath is the web listener — a TCP
-  # stream — so the lost qualifier is a small, deliberate trade. See #202.
   network inet stream,
-  network inet6,
-  network unix dgram,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
   network netlink raw,
 
-  # Capabilities. The unit drops capabilities entirely
-  # (CapabilityBoundingSet=); listing nothing here mirrors that. If a
-  # future change ever needs CAP_NET_BIND_SERVICE for a port < 1024,
-  # add it explicitly and re-justify in deploy/README.md.
-
-  # Defence in depth: explicitly deny home directories even though
-  # the default-deny model already blocks them.
-  deny /home/**                   rwklx,
-  deny /root/**                   rwklx,
+  capability net_bind_service,
 }

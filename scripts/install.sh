@@ -655,6 +655,15 @@ if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     chown -R ventd:ventd "$VENTD_ETC_DIR"
 fi
 
+# /var/lib/ventd — persistent state: calibration store, setup-token backup.
+# StateDirectory=ventd in the unit reasserts ownership/mode on every start;
+# this is belt-and-braces for the wipe-and-reinstall path.
+# /run/ventd is managed by RuntimeDirectory= and must NOT be pre-created here.
+install -d -m 0750 /var/lib/ventd
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    chown ventd:ventd /var/lib/ventd
+fi
+
 case "$INIT_SYSTEM" in
 
     systemd)
@@ -911,11 +920,16 @@ install_apparmor_profile() {
     local parser_rc=0
     apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || parser_rc=$?
     if [[ $parser_rc -eq 0 ]]; then
-        echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded)"
-        echo "    AppArmor profile loaded in COMPLAIN mode for compatibility."
-        echo "    Denials are logged to dmesg/journalctl-k but not enforced."
-        echo "    See deploy/apparmor.d/README.md to switch to enforce after validation."
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd mode=complain"
+        echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded, enforce mode)"
+        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd mode=enforce"
+        # On hosts with Docker installed, docker-default can win the AppArmor
+        # attachment race for /usr/local/bin/* binaries. Explicitly enforce the
+        # ventd profile so the unit's AppArmorProfile= directive has backing at
+        # load time, regardless of which profile the kernel matched first.
+        if systemctl is-active --quiet docker 2>/dev/null && command -v aa-enforce >/dev/null 2>&1; then
+            aa-enforce /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || true
+            echo "  ✓ ventd AppArmor profile enforced (docker detected, explicit enforcement applied)"
+        fi
     else
         echo "  ! AppArmor profile installed but parser refused to load it"
         echo "    (run \`apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd\` for details)"
@@ -1076,7 +1090,7 @@ fi
 # ventd:ventd matches the tmpfs file's access model. Token cleanup after the
 # wizard completes is tracked as a daemon-side followup (#182).
 if [[ -n "$SETUP_TOKEN" && "$VENTD_TEST_MODE" != "1" ]]; then
-    install -d -m 0755 /var/lib/ventd
+    install -d -m 0750 /var/lib/ventd
     chown ventd:ventd /var/lib/ventd
     printf '%s' "$SETUP_TOKEN" > /var/lib/ventd/setup-token
     chmod 0600 /var/lib/ventd/setup-token
