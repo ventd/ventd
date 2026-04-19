@@ -1,0 +1,18 @@
+[Unit]
+Description=cloudflared tunnel for ops-mcp
+# Wants+After — tunnel starts with ops-mcp but a restart of ops-mcp.service
+# MUST NOT cascade-restart the tunnel: that would rotate the trycloudflare
+# quick-tunnel hostname and break the claude.ai connector wiring.
+# Requires= would cascade; Wants= does not.
+After=ops-mcp.service
+Wants=ops-mcp.service
+
+[Service]
+Type=simple
+User=ops-mcp
+ExecStart=/usr/local/bin/cloudflared tunnel --url http://127.0.0.1:8892 --no-autoupdate
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# /etc/sudoers.d/ops-mcp
+#
+# Narrow NOPASSWD grants for the ops-mcp system user.
+# Deploy with:
+#   sudo install -m 440 ops-mcp.sudoers /etc/sudoers.d/ops-mcp
+#   sudo visudo -cf /etc/sudoers.d/ops-mcp   # validate before use
+#
+# Restart: each allowlisted service is listed explicitly so that a bug in
+# ops-mcp cannot restart arbitrary units.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart spawn-mcp
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart spawn-mcp-tunnel
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart github-mcp
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart github-mcp-tunnel
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cloudflared
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart cowork-bridge
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart ops-mcp
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart ops-mcp-tunnel
+# GitHub Actions runner units — wildcard on the runner name segment only.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl restart actions.runner.ventd-ventd.*.service
+
+# Read-only operations: argument restriction is intentionally broad here
+# because the Python allowlist enforces which services can be queried.
+# systemctl show: any args (caller always passes --property=... for a
+# specific allowlisted service that was already checked).
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl show *
+# systemctl --failed: we pass --no-pager --output=json; wildcard covers
+# those positional args. Output is filtered in Python to allowlisted units.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/systemctl --failed *
+# journalctl: we pass -u <service> -n <n> -p <priority> --no-pager
+# --output=short-iso; allow all journalctl invocations since the Python
+# allowlist already enforces which service can be queried.
+ops-mcp ALL=(ALL) NOPASSWD: /bin/journalctl
