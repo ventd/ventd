@@ -26,6 +26,7 @@ import (
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
 	setupmgr "github.com/ventd/ventd/internal/setup"
+	"github.com/ventd/ventd/internal/web/authpersist"
 )
 
 // SetupTokenTTL bounds how long the first-boot setup token stays valid.
@@ -57,6 +58,8 @@ func loginCooldownOrDefault(d time.Duration) time.Duration {
 type Server struct {
 	cfg            *atomic.Pointer[config.Config]
 	configPath     string
+	authPath       string
+	liveHash       atomic.Pointer[string] // current bcrypt hash; separate from config.yaml
 	logger         *slog.Logger
 	mux            *http.ServeMux
 	handler        http.Handler
@@ -134,9 +137,11 @@ type Server struct {
 	rebootBlocker func() string
 }
 
-// New constructs the web server. setupToken is the one-time first-boot token
-// printed to the terminal; pass "" if a password is already configured.
-func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
+// New constructs the web server. authPath is the path to auth.json; pass ""
+// to skip dedicated auth-file persistence (used in tests that set the hash
+// directly on the config pointer). setupToken is the one-time first-boot
+// token printed to the terminal; pass "" if a password is already configured.
+func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
 	live := cfg.Load()
 	if diag == nil {
 		diag = hwdiag.NewStore()
@@ -144,6 +149,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 	s := &Server{
 		cfg:            cfg,
 		configPath:     configPath,
+		authPath:       authPath,
 		logger:         logger,
 		mux:            http.NewServeMux(),
 		cal:            cal,
@@ -159,6 +165,20 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath str
 		history:        NewHistoryStore(defaultSSEInterval, historyDefaultWindow),
 		schedWake:      make(chan struct{}, 1),
 	}
+	// Initialise liveHash: auth.json takes precedence over the config hash.
+	// The config hash fallback keeps tests working (they set live.Web.PasswordHash
+	// directly on the atomic pointer rather than writing an auth.json).
+	var initialHash string
+	if authPath != "" {
+		if auth, loadErr := authpersist.Load(authPath); loadErr == nil && auth != nil {
+			initialHash = auth.Admin.BcryptHash
+		}
+	}
+	if initialHash == "" {
+		initialHash = live.Web.PasswordHash
+	}
+	s.liveHash.Store(&initialHash)
+
 	// Construct the http.Server at New-time rather than ListenAndServe-time
 	// so Shutdown() can safely be called from another goroutine without
 	// racing on the httpSrv field. Handler is immutable after New; Addr is
@@ -471,9 +491,8 @@ func (s *Server) handleAuthState(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	live := s.cfg.Load()
 	w.Header().Set("Cache-Control", "no-store")
-	s.writeJSON(r, w, map[string]bool{"first_boot": live.Web.PasswordHash == ""})
+	s.writeJSON(r, w, map[string]bool{"first_boot": s.authHashValue() == ""})
 }
 
 // computeUIEtags walks root and returns a map from request-relative path →
@@ -562,7 +581,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// use the /login endpoint as a zero-cost oracle for "is the daemon
 		// still in first-boot mode" — that probe moved to GET /api/auth/state
 		// which does not touch the rate limiter. See audit finding S2.
-		if live.Web.PasswordHash == "" {
+		if s.authHashValue() == "" {
 			if r.FormValue("setup_token") != "" {
 				s.handleFirstBootLogin(w, r, live, ipKey)
 				return
@@ -585,7 +604,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			s.writeJSON(r, w, map[string]string{"error": "password required"})
 			return
 		}
-		if !checkPassword(live.Web.PasswordHash, password) {
+		if !checkPassword(s.authHashValue(), password) {
 			locked := s.loginLim.recordFailure(ipKey)
 			if locked {
 				s.logger.Warn("web: login lockout", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", live.Web.LoginLockoutCooldown.Duration)
@@ -643,22 +662,34 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		return
 	}
 
-	// Persist password hash. Try a full config save first (works when the
-	// setup wizard has already generated a config with controls defined).
-	// Fall back to a minimal config file during pure first-boot.
-	live.Web.PasswordHash = hash
-	if len(live.Controls) > 0 {
-		if _, err := config.Save(live, s.configPath); err != nil {
-			s.logger.Error("web: failed to persist password hash", "err", err)
+	// Persist the password hash. When authPath is set (production) the hash
+	// goes exclusively to auth.json and never touches config.yaml, so no
+	// config-write path can accidentally overwrite it. The legacy path
+	// (authPath == "") is retained for test harnesses that pre-set the hash
+	// on the config atomic pointer and do not use auth.json.
+	if s.authPath != "" {
+		if err := s.storeAuthHash(hash); err != nil {
+			s.logger.Error("web: failed to persist password hash to auth.json", "err", err)
 			http.Error(w, "could not save password", http.StatusInternalServerError)
 			return
 		}
 	} else {
-		if err := s.writePasswordHash(hash); err != nil {
-			s.logger.Error("web: failed to persist password hash", "err", err)
-			http.Error(w, "could not save password", http.StatusInternalServerError)
-			return
+		// Legacy path: write to config.yaml (tests / no authPath).
+		live.Web.PasswordHash = hash
+		if len(live.Controls) > 0 {
+			if _, err := config.Save(live, s.configPath); err != nil {
+				s.logger.Error("web: failed to persist password hash", "err", err)
+				http.Error(w, "could not save password", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			if err := s.writePasswordHash(hash); err != nil {
+				s.logger.Error("web: failed to persist password hash", "err", err)
+				http.Error(w, "could not save password", http.StatusInternalServerError)
+				return
+			}
 		}
+		s.liveHash.Store(&hash)
 	}
 
 	// Invalidate the one-time setup token.
@@ -676,10 +707,42 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 }
 
 // writePasswordHash writes a minimal config file containing just the password
-// hash. Used during first boot before the setup wizard has generated a full
-// config. On the next daemon start the full config will be written by the wizard.
+// hash. Used only in the legacy code path (authPath == "") for backward
+// compatibility with tests. In production authPath is always set and auth
+// is written to auth.json via storeAuthHash.
 func (s *Server) writePasswordHash(hash string) error {
 	return config.SavePasswordHash(hash, s.configPath)
+}
+
+// authHashValue returns the current in-memory bcrypt hash.
+// It reads from s.liveHash first; if that is empty it falls back to
+// s.cfg.Load().Web.PasswordHash so tests that set the hash directly on the
+// config atomic pointer continue to work without an auth.json on disk.
+func (s *Server) authHashValue() string {
+	if p := s.liveHash.Load(); p != nil && *p != "" {
+		return *p
+	}
+	return s.cfg.Load().Web.PasswordHash
+}
+
+// storeAuthHash persists hash to auth.json (when s.authPath is non-empty)
+// and updates the in-memory liveHash pointer. It is the single write path
+// for admin credentials in production.
+func (s *Server) storeAuthHash(hash string) error {
+	if s.authPath != "" {
+		a := &authpersist.Auth{
+			Admin: authpersist.AdminCreds{
+				Username:   "admin",
+				BcryptHash: hash,
+				CreatedAt:  time.Now(),
+			},
+		}
+		if err := authpersist.Save(s.authPath, a); err != nil {
+			return err
+		}
+	}
+	s.liveHash.Store(&hash)
+	return nil
 }
 
 // handleLogout clears the session cookie and destroys the server-side session.
@@ -865,6 +928,9 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Auth credentials live in auth.json; never persist them via the config
+	// write path, even if the client sent a password_hash field.
+	incoming.Web.PasswordHash = ""
 
 	validated, err := config.Save(&incoming, s.configPath)
 	if err != nil {
@@ -1035,11 +1101,12 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Carry over the existing password hash so login still works after apply.
-	cfg.Web.PasswordHash = s.cfg.Load().Web.PasswordHash
+	// Auth credentials live in auth.json (written by handleFirstBootLogin /
+	// handleSetPassword) and are not part of the fan-control config. The
+	// generated config intentionally has no password_hash field.
 
 	// Ensure the config directory exists. 0700 so only the daemon's user
-	// can read the password hash stored inside.
+	// can read credentials stored inside.
 	if err := os.MkdirAll(filepath.Dir(s.configPath), 0700); err != nil {
 		http.Error(w, "create config dir: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1364,10 +1431,8 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	live := s.cfg.Load()
-
 	// Verify current password (if one is set).
-	if live.Web.PasswordHash != "" && !checkPassword(live.Web.PasswordHash, req.Current) {
+	if current := s.authHashValue(); current != "" && !checkPassword(current, req.Current) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		s.writeJSON(r, w, map[string]string{"error": "current password is incorrect"})
@@ -1386,19 +1451,30 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	live.Web.PasswordHash = hash
-	if len(live.Controls) > 0 {
-		if _, err := config.Save(live, s.configPath); err != nil {
-			s.logger.Error("web: failed to save new password hash", "err", err)
+	if s.authPath != "" {
+		if err := s.storeAuthHash(hash); err != nil {
+			s.logger.Error("web: failed to save new password hash to auth.json", "err", err)
 			http.Error(w, "could not save password", http.StatusInternalServerError)
 			return
 		}
 	} else {
-		if err := s.writePasswordHash(hash); err != nil {
-			s.logger.Error("web: failed to save new password hash", "err", err)
-			http.Error(w, "could not save password", http.StatusInternalServerError)
-			return
+		// Legacy path: write to config.yaml (tests / no authPath).
+		live := s.cfg.Load()
+		live.Web.PasswordHash = hash
+		if len(live.Controls) > 0 {
+			if _, err := config.Save(live, s.configPath); err != nil {
+				s.logger.Error("web: failed to save new password hash", "err", err)
+				http.Error(w, "could not save password", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			if err := s.writePasswordHash(hash); err != nil {
+				s.logger.Error("web: failed to save new password hash", "err", err)
+				http.Error(w, "could not save password", http.StatusInternalServerError)
+				return
+			}
 		}
+		s.liveHash.Store(&hash)
 	}
 
 	s.logger.Info("web: password changed", "remote", r.RemoteAddr)

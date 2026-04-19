@@ -33,6 +33,7 @@ import (
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
+	"github.com/ventd/ventd/internal/web/authpersist"
 )
 
 // Build-time metadata populated by -ldflags -X from .goreleaser.yml.
@@ -201,6 +202,38 @@ func run() error {
 		return err
 	}
 
+	authPath := authpersist.DefaultPath(filepath.Dir(*configPath))
+
+	// Migrate hash from config.yaml to auth.json on the first startup after
+	// an upgrade. This is a one-time operation; subsequent starts skip it
+	// because auth.json already exists.
+	migratedHash, migrateErr := migrateAuthToFile(*configPath, authPath, logger)
+	if migrateErr != nil {
+		logger.Error("auth migration failed; credentials may have been lost",
+			"auth_path", authPath, "err", migrateErr)
+	}
+
+	// Load the admin hash from auth.json. Fall back to the migrated hash if
+	// auth.json was just written above and has not yet been read back.
+	authHash := migratedHash
+	if authHash == "" {
+		if auth, loadErr := authpersist.Load(authPath); loadErr == nil && auth != nil {
+			authHash = auth.Admin.BcryptHash
+		}
+	}
+
+	// Integrity guard: if a full config exists but no auth hash is loadable,
+	// admin credentials were lost (e.g. the config was written without them
+	// by a bug in a prior version). Fall back to first-boot so the operator
+	// can set a new password via the wizard rather than being permanently
+	// locked out.
+	if !firstBoot && authHash == "" {
+		logger.Error("auth.json missing or unreadable but config.yaml exists — "+
+			"admin credentials were lost; falling back to first-boot wizard. "+
+			"Check auth.json.bak if it exists, or complete the wizard again.",
+			"auth_path", authPath)
+	}
+
 	// Generate a one-time setup token if no password is configured yet.
 	// The token is a first-boot credential: anyone who can read it can set
 	// the admin password. Never write the plaintext to slog/journald — it
@@ -208,7 +241,7 @@ func run() error {
 	// controlling TTY when present (operator running ventd manually), and
 	// always drop a 0600 file under /run/ventd for systemd deployments.
 	var setupToken string
-	if cfg.Web.PasswordHash == "" {
+	if authHash == "" {
 		tok, tokErr := web.GenerateSetupToken()
 		if tokErr != nil {
 			return fmt.Errorf("generate setup token: %w", tokErr)
@@ -259,7 +292,7 @@ func run() error {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
-	return runDaemon(context.Background(), cfg, *configPath, logger, setupToken, sigCh)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh)
 }
 
 // runDaemon runs the daemon lifecycle: watchdog registration, hwmon watcher,
@@ -276,6 +309,7 @@ func runDaemon(
 	parentCtx context.Context,
 	cfg *config.Config,
 	configPath string,
+	authPath string,
 	logger *slog.Logger,
 	setupToken string,
 	sigCh <-chan os.Signal,
@@ -424,7 +458,7 @@ func runDaemon(
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
 	// requests before run() returns — otherwise the HTTP handler goroutines
 	// outlive wd.Restore() and can observe a half-torn-down daemon.
-	webSrv := web.New(ctx, &liveCfg, configPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	wg.Add(1)
@@ -580,6 +614,51 @@ func resolveHwmonPaths(cfg *config.Config, cal *calibrate.Manager, logger *slog.
 			s.Path = resolved
 		}
 	}
+}
+
+// migrateAuthToFile moves the password hash from config.yaml to auth.json on
+// the first startup after an upgrade from a pre-auth.json version.
+//
+// It is a no-op when:
+//   - authPath is empty
+//   - config.yaml has no hash field (nothing to migrate)
+//   - auth.json already exists (already migrated or freshly written)
+//
+// On success the hash is removed from config.yaml and the migrated hash is
+// returned so the caller can use it without re-reading auth.json.
+func migrateAuthToFile(configPath, authPath string, logger *slog.Logger) (string, error) {
+	if authPath == "" {
+		return "", nil
+	}
+	// Skip if auth.json already exists — it is authoritative.
+	if _, err := os.Stat(authPath); err == nil {
+		return "", nil
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil || cfg.Web.PasswordHash == "" {
+		return "", nil // no config or no hash — nothing to migrate
+	}
+	hash := cfg.Web.PasswordHash
+	if err := authpersist.Save(authPath, &authpersist.Auth{
+		Admin: authpersist.AdminCreds{
+			Username:   "admin",
+			BcryptHash: hash,
+			CreatedAt:  time.Now(),
+		},
+	}); err != nil {
+		return "", fmt.Errorf("write auth.json: %w", err)
+	}
+	// Clear the hash from config.yaml so it is not exposed there going forward.
+	cfg.Web.PasswordHash = ""
+	if _, saveErr := config.Save(cfg, configPath); saveErr != nil {
+		// Non-fatal: auth.json is written and authoritative. Log the failure but
+		// do not undo the migration — the stale field in config.yaml is harmless.
+		logger.Warn("auth migration: failed to clear hash from config.yaml (non-fatal)",
+			"err", saveErr, "config_path", configPath)
+	}
+	logger.Info("auth migration: moved admin hash from config.yaml to auth.json",
+		"auth_path", authPath)
+	return hash, nil
 }
 
 // resolveControl looks up the Fan for a Control definition.

@@ -45,7 +45,7 @@ func TestHwdiagEndpointSurfacesFutureSchema(t *testing.T) {
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
 
-	srv := New(context.Background(), &liveCfg, "", logger, cal, sm, restartCh, "", diag)
+	srv := New(context.Background(), &liveCfg, "", "", logger, cal, sm, restartCh, "", diag)
 
 	// Create a session so requireAuth passes.
 	tok, err := srv.sessions.create()
