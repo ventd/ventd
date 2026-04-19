@@ -545,3 +545,101 @@ func TestScanHwmon_MultipleReadingTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestRegression_Issue460v2_SentinelSuppressedAtScanBoundary pins
+// RULE-HWMON-SENTINEL-STATUS-BOUNDARY: the monitor.Scan path must reject
+// sentinel / implausible values (0xFFFF temp, 0xFFFF RPM, 0xFFFF voltage)
+// before they appear in the /api/hardware JSON payload. This test
+// reproduces the v2 failure mode: raw sysfs contains the sentinel but the
+// scan happens at the moment of mid-latch, so the UI shows 255.5°C even
+// though a second-later direct sysfs read looks normal.
+func TestRegression_Issue460v2_SentinelSuppressedAtScanBoundary(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d0 := mkHwmonDir(t, root, "hwmon0", "nct6687")
+
+	// Sentinel temp (255500 millidegrees → 255.5°C after ÷1000). Must be suppressed.
+	writeFile(t, filepath.Join(d0, "temp6_input"), "255500\n")
+	writeFile(t, filepath.Join(d0, "temp6_label"), "PCIe x1\n")
+
+	// Valid temp alongside sentinel — must still appear.
+	writeFile(t, filepath.Join(d0, "temp1_input"), "42000\n")
+	writeFile(t, filepath.Join(d0, "temp1_label"), "CPU Temp\n")
+
+	// Sentinel RPM (65535 — 0xFFFF raw). Must be suppressed.
+	writeFile(t, filepath.Join(d0, "fan3_input"), "65535\n")
+
+	// Valid fan alongside sentinel — must still appear.
+	writeFile(t, filepath.Join(d0, "fan1_input"), "1200\n")
+
+	// Sentinel voltage (65535 millivolts → 65.535 V after ÷1000). Must be suppressed.
+	writeFile(t, filepath.Join(d0, "in5_input"), "65535\n")
+
+	// Valid voltage alongside sentinel — must still appear.
+	writeFile(t, filepath.Join(d0, "in0_input"), "12000\n")
+
+	devs := scanHwmon()
+	if len(devs) != 1 {
+		t.Fatalf("Scan: got %d devices, want 1", len(devs))
+	}
+	dev := devs[0]
+
+	// Sentinel values must be absent from readings.
+	for _, rd := range dev.Readings {
+		if rd.Value >= 150.0 && rd.Unit == "°C" {
+			t.Errorf("sentinel temp %.1f°C escaped suppression (label=%q)", rd.Value, rd.Label)
+		}
+		if rd.Value >= 65535 && rd.Unit == "RPM" {
+			t.Errorf("sentinel RPM %.0f escaped suppression (label=%q)", rd.Value, rd.Label)
+		}
+		if rd.Value > 20.0 && rd.Unit == "V" {
+			t.Errorf("sentinel voltage %.3f V escaped suppression (label=%q)", rd.Value, rd.Label)
+		}
+	}
+
+	// Valid readings must be present.
+	if r := findReading(&dev, "CPU Temp"); r == nil || r.Value != 42.0 {
+		t.Errorf("valid temp 42°C missing from readings: %+v", dev.Readings)
+	}
+	if r := findReading(&dev, "fan1"); r == nil || r.Value != 1200 {
+		t.Errorf("valid fan 1200 RPM missing from readings: %+v", dev.Readings)
+	}
+	if r := findReading(&dev, "in0"); r == nil || r.Value != 12.0 {
+		t.Errorf("valid voltage 12 V missing from readings: %+v", dev.Readings)
+	}
+}
+
+// TestSentinelMonitorVal_AllBranches exercises isSentinelMonitorVal directly
+// to confirm the threshold table matches the constants in
+// internal/hal/hwmon/sentinel.go.
+func TestSentinelMonitorVal_AllBranches(t *testing.T) {
+	cases := []struct {
+		prefix string
+		val    float64
+		want   bool
+		desc   string
+	}{
+		// temp
+		{"temp", 149.9, false, "temp below cap"},
+		{"temp", 150.0, true, "temp at cap (PlausibleTempMaxCelsius=150)"},
+		{"temp", 255.5, true, "temp 0xFFFF sentinel"},
+		// fan
+		{"fan", 10000, false, "fan at PlausibleRPMMax"},
+		{"fan", 10001, true, "fan just above PlausibleRPMMax"},
+		{"fan", 65535, true, "fan 0xFFFF sentinel"},
+		// in (voltage)
+		{"in", 20.0, false, "voltage at cap"},
+		{"in", 20.001, true, "voltage just above PlausibleVoltageMaxVolts"},
+		{"in", 65.535, true, "voltage 0xFFFF sentinel"},
+		// unknown prefix
+		{"power", 9999, false, "power prefix not checked"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			if got := isSentinelMonitorVal(tc.prefix, tc.val); got != tc.want {
+				t.Errorf("isSentinelMonitorVal(%q, %v) = %v, want %v", tc.prefix, tc.val, got, tc.want)
+			}
+		})
+	}
+}

@@ -8,25 +8,11 @@ and frozen.
 
 <!-- git-cliff start -->
 ## [Unreleased]
-### Infrastructure
-- ci: commit stripped-binary size baseline (`docs/binary_size_baseline`) at commit `3e0aee03`, established by ULTRA-08; add `binary-size-drift` CI step that warns at >10% growth and blocks at >25% (#453).
+
 ### Fixed
-- authpersist: replace shared `.tmp` suffix with a unique `.tmp.<hex8>` suffix and `O_EXCL` open flag in `Save`, eliminating a concurrent-write race where two callers could truncate each other's in-flight tmp file and cause the losing goroutine to return nil while disk held a different hash (#515).
-- controller: immediate `watchdog.RestoreOne` when a sentinel reading fires on the first tick before any valid PWM write (`!hasLastPWM`); previously the fan sat in firmware-latch state for up to 30s on cold boot with a glitching sensor (#512).
-- deploy: AppArmor profile v2 — ship in enforce mode with complete path list (`/run/ventd/**`, `/var/lib/ventd/**`, power_supply, thermal, pwm class, NVML paths); `AppArmorProfile=ventd` unit directive pins profile by name, defeating docker-default attachment race on hosts with Docker installed; `StateDirectory=ventd` added so systemd owns `/var/lib/ventd` creation with correct mode; `RuntimeDirectoryMode` corrected to 0750; fresh-install listener now reaches `0.0.0.0:9999` instead of loopback-only fallback (#498).
-- web/ui: setup wizard no longer shows stale failure state on page reload (#502). Wizard state is cached in `sessionStorage` with a 60 s TTL so the overlay renders immediately on reload (no blank-overlay flash); the server is always re-queried and its response is authoritative — a successful or no-longer-needed state clears the cache before rendering. Any failure state older than 60 s is expired client-side and the server state is shown instead.
+
+- monitor: suppress 255.5°C / 65535 RPM sentinel values at the /api/hardware scan boundary — v2 of #460 fix (#460)
 <!-- git-cliff end -->
-
-## [Unreleased]
-
-### Testing
-
-- cmd/ventd: `TestRegression_Issue466_FirstBootReloadStartsControllers` — regression guard for the first-boot → post-wizard transition branch of the in-process reload path (PR #478). Verifies that when the daemon starts in first-boot mode (no controls) and receives a reload signal, controllers start and write the configured PWM value, the watchdog acquires manual mode (pwm_enable=1), and Restore fires on shutdown (pwm_enable returns to its pre-ventd value). Covers branch 3 of #478; branches 1 and 2 are covered by sibling tests (#514).
-
-### Fixed
-
-- setup: heuristic sensor binding for mini PC / NAS / HTPC hardware where RPM correlation fails at idle (#504). When a fan responds to PWM changes (RPM delta > 0) but stays below the 50 RPM noise floor, ventd now applies a priority-ordered heuristic (coretemp "Package id 0" → k10temp Tctl/Tdie → label match → plausible-range sensor) and includes the fan in the generated config as an open-loop channel. The bound sensor is marked `heuristic: true` in config.yaml so users can verify the assignment in the Curves page.
-- setup: error message now distinguishes truly absent fans (all headers show 0 RPM delta) from fans that responded but could not be correlated. The old "no fans responded during calibration" message no longer fires when fans did move (#504).
 
 ## [Pre-automation history]
 
