@@ -1,0 +1,217 @@
+name: pve-template-prep
+# Rebuild or create Proxmox VM templates for Arch / Void / Alpine via the
+# self-hosted runner's ssh pve alias (gharunner, NOPASSWD-scoped allowlist).
+# VMIDs: arch=9103 (rebuild broken), void-glibc=9105 (new), alpine-3.19=9106 (new).
+# Closes #171 (arch), #172 (void), #173 (alpine). Unblocks #183.
+
+on:
+  workflow_dispatch:
+    inputs:
+      distro:
+        description: 'Distro to (re)build on pve (arch | void | alpine | all)'
+        required: true
+        type: choice
+        options: [arch, void, alpine, all]
+
+permissions:
+  contents: read
+
+jobs:
+  template-prep:
+    runs-on: [self-hosted, linux, x64, hil, phoenix-desktop]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Negative control: sudo scope must NOT allow arbitrary bash.
+      # If sudo bash exits 0, the && exit 1 fires and the step fails.
+      # If sudo bash is rejected (expected), we fall through to the echo.
+      - name: negative-control — verify sudo scope excludes bash
+        run: |
+          ssh pve sudo bash -c 'exit 0' && exit 1 || echo "scope confirmed: bash rejected"
+          echo "**negative-control**: \`sudo bash\` rejected by sudoers — OK" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── arch ──────────────────────────────────────────────────────────────
+      # Replaces the broken VMID 9103 template (#171) using the official
+      # Arch Linux x86_64 cloud image (cloud-init + qemu-ga pre-installed).
+      - name: arch — rebuild broken template (VMID 9103)
+        id: arch
+        if: inputs.distro == 'arch' || inputs.distro == 'all'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          # Tear down the broken existing template
+          ssh pve sudo /usr/sbin/qm stop 9103 2>/dev/null || true
+          ssh pve sudo /usr/sbin/qm destroy 9103 --purge 2>/dev/null || true
+
+          # Download official Arch Linux cloud image
+          ssh pve sudo /usr/bin/wget -q \
+            -O /var/lib/vz/images/arch-cloudimg.qcow2 \
+            "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
+
+          # Resize to 10 GiB (cloud-init expands on first boot)
+          ssh pve sudo /usr/bin/qemu-img resize \
+            /var/lib/vz/images/arch-cloudimg.qcow2 10G
+
+          # Create VM
+          ssh pve sudo /usr/sbin/qm create 9103 \
+            --name arch-latest --memory 2048 --cores 2 \
+            --net0 virtio,bridge=vmbr0 --ostype l26
+
+          # Import disk into local-lvm
+          ssh pve sudo /usr/sbin/qm importdisk 9103 \
+            /var/lib/vz/images/arch-cloudimg.qcow2 local-lvm
+
+          # Wire up disk, cloud-init drive, and agent
+          ssh pve sudo /usr/sbin/qm set 9103 \
+            --scsihw virtio-scsi-pci \
+            --scsi0 local-lvm:vm-9103-disk-0,discard=on \
+            --ide2 local-lvm:cloudinit \
+            --boot order=scsi0 \
+            --serial0 socket --vga serial0 \
+            --agent enabled=1
+
+          # Convert to template
+          ssh pve sudo /usr/sbin/qm template 9103
+
+          # Remove downloaded source image
+          ssh pve sudo /bin/rm /var/lib/vz/images/arch-cloudimg.qcow2
+
+          echo "[PASS] arch: VMID 9103 rebuilt from Arch Linux cloud image" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── void ──────────────────────────────────────────────────────────────
+      # Bootstraps VMID 9105 (new, #172) via virt-builder using the Void
+      # glibc template.  Run `sudo virt-builder --list | grep -i void` on
+      # pve first; if the template name differs, adjust the first argument.
+      - name: void — bootstrap glibc template (VMID 9105)
+        id: void
+        if: inputs.distro == 'void' || inputs.distro == 'all'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          # Tear down any previous attempt
+          ssh pve sudo /usr/sbin/qm stop 9105 2>/dev/null || true
+          ssh pve sudo /usr/sbin/qm destroy 9105 --purge 2>/dev/null || true
+
+          # Bootstrap a bootable Void glibc image.
+          # virt-builder installs packages via xbps-install; qemu-ga runit
+          # service is enabled by symlinking into /var/service.
+          ssh pve sudo /usr/bin/virt-builder void-glibc-x86_64 \
+            --format qcow2 \
+            --size 10G \
+            --hostname void-template \
+            --install qemu-ga,openssh \
+            --run-command 'ln -sf /etc/sv/qemu-ga /var/service/qemu-ga' \
+            --run-command 'ln -sf /etc/sv/sshd /var/service/sshd' \
+            --output /var/lib/vz/images/void-glibc.qcow2
+
+          # Generalise: remove host keys, machine IDs, logs
+          ssh pve sudo /usr/bin/virt-sysprep \
+            -a /var/lib/vz/images/void-glibc.qcow2
+
+          # Create VM
+          ssh pve sudo /usr/sbin/qm create 9105 \
+            --name void-glibc-latest --memory 2048 --cores 2 \
+            --net0 virtio,bridge=vmbr0 --ostype l26
+
+          # Import disk
+          ssh pve sudo /usr/sbin/qm importdisk 9105 \
+            /var/lib/vz/images/void-glibc.qcow2 local-lvm
+
+          # Wire up disk, cloud-init drive, and agent
+          ssh pve sudo /usr/sbin/qm set 9105 \
+            --scsihw virtio-scsi-pci \
+            --scsi0 local-lvm:vm-9105-disk-0,discard=on \
+            --ide2 local-lvm:cloudinit \
+            --boot order=scsi0 \
+            --serial0 socket --vga serial0 \
+            --agent enabled=1
+
+          # Convert to template
+          ssh pve sudo /usr/sbin/qm template 9105
+
+          # Remove built image (imported into LVM; source no longer needed)
+          ssh pve sudo /bin/rm /var/lib/vz/images/void-glibc.qcow2
+
+          echo "[PASS] void: VMID 9105 bootstrapped via virt-builder" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── alpine ────────────────────────────────────────────────────────────
+      # Creates VMID 9106 (new, #173) by image-swapping the official Alpine
+      # 3.19 nocloud/cloud-init QCOW2 image into a Proxmox VM template.
+      - name: alpine — cloud-image template (VMID 9106)
+        id: alpine
+        if: inputs.distro == 'alpine' || inputs.distro == 'all'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          # Tear down any previous attempt
+          ssh pve sudo /usr/sbin/qm stop 9106 2>/dev/null || true
+          ssh pve sudo /usr/sbin/qm destroy 9106 --purge 2>/dev/null || true
+
+          # Download Alpine 3.19 BIOS cloud-init QCOW2 image.
+          # Verify the filename against https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/cloud/
+          # before running if the release revision (r0) has changed.
+          ssh pve sudo /usr/bin/wget -q \
+            -O /var/lib/vz/images/alpine-3.19-cloudimg.qcow2 \
+            "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/cloud/nocloud_alpine-3.19.0-x86_64-bios-cloudinit-r0.qcow2"
+
+          # Resize to 4 GiB (Alpine is minimal; cloud-init expands on first boot)
+          ssh pve sudo /usr/bin/qemu-img resize \
+            /var/lib/vz/images/alpine-3.19-cloudimg.qcow2 4G
+
+          # Create VM
+          ssh pve sudo /usr/sbin/qm create 9106 \
+            --name alpine-3-19-cloudinit --memory 512 --cores 2 \
+            --net0 virtio,bridge=vmbr0 --ostype l26
+
+          # Import disk
+          ssh pve sudo /usr/sbin/qm importdisk 9106 \
+            /var/lib/vz/images/alpine-3.19-cloudimg.qcow2 local-lvm
+
+          # Wire up disk, cloud-init drive, and agent
+          ssh pve sudo /usr/sbin/qm set 9106 \
+            --scsihw virtio-scsi-pci \
+            --scsi0 local-lvm:vm-9106-disk-0,discard=on \
+            --ide2 local-lvm:cloudinit \
+            --boot order=scsi0 \
+            --serial0 socket --vga serial0 \
+            --agent enabled=1
+
+          # Convert to template
+          ssh pve sudo /usr/sbin/qm template 9106
+
+          # Remove downloaded source image
+          ssh pve sudo /bin/rm /var/lib/vz/images/alpine-3.19-cloudimg.qcow2
+
+          echo "[PASS] alpine: VMID 9106 created from Alpine 3.19 cloud image" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── gate ──────────────────────────────────────────────────────────────
+      - name: gate — all selected distros passed
+        if: always()
+        env:
+          ARCH_OUTCOME:   ${{ steps.arch.outcome }}
+          VOID_OUTCOME:   ${{ steps.void.outcome }}
+          ALPINE_OUTCOME: ${{ steps.alpine.outcome }}
+          DISTRO_INPUT:   ${{ inputs.distro }}
+        run: |
+          declare -A outcomes=( [arch]="$ARCH_OUTCOME" [void]="$VOID_OUTCOME" [alpine]="$ALPINE_OUTCOME" )
+          failed=0
+          {
+            printf '\n## Template prep — outcome\n\n'
+            printf '| distro | result |\n'
+            printf '|--------|--------|\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for distro in arch void alpine; do
+            o="${outcomes[$distro]}"
+            if [[ "$o" == "skipped" ]]; then
+              printf '| %s | [SKIP: not selected] |\n' "$distro" >> "$GITHUB_STEP_SUMMARY"
+            elif [[ "$o" == "success" ]]; then
+              printf '| %s | [PASS] |\n' "$distro" >> "$GITHUB_STEP_SUMMARY"
+            else
+              printf '| %s | [FAIL] |\n' "$distro" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+          done
+          exit $failed
