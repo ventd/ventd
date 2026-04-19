@@ -28,11 +28,6 @@ on:
       - 'tests/upgrade/**'
       - '.github/workflows/upgrade-path.yml'
   workflow_dispatch:
-    inputs:
-      distro:
-        description: 'Single distro to test (leave blank for all four)'
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -89,13 +84,6 @@ jobs:
             family: arch
           - distro: alpine:3.20
             family: alpine
-
-    # Skip a specific distro when workflow_dispatch narrows the matrix.
-    # The 'if' expression compares the input to the distro tag; an empty
-    # input (default) runs all four rows.
-    if: |
-      github.event.inputs.distro == '' ||
-      github.event.inputs.distro == matrix.distro
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
