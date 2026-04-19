@@ -132,11 +132,15 @@ fi
 
 # ---------------------------------------------------------------------------
 _section "Starting ops-mcp server"
-# Start server detached. Do NOT fail fast inside — let the outer diagnostic
-# section run so we can see why it died.
-incus exec "$CONTAINER" -- bash -c '
+# CRITICAL: use --cwd /opt/ops-mcp so FastMCP's pydantic_settings can stat
+# .env in a readable directory. Default CWD is /root (700 root:root) which
+# ops-mcp cannot stat into → PermissionError: '.env'. Production systemd
+# unit sets WorkingDirectory=/opt/ops-mcp which accomplishes the same.
+incus exec "$CONTAINER" --cwd /opt/ops-mcp -- bash -c '
   set -a; source /etc/ops-mcp-env; set +a
   install -o ops-mcp -g ops-mcp -m 644 /dev/null /var/log/ops-mcp/server.log
+  # chdir before detaching so the backgrounded process inherits CWD=/opt/ops-mcp
+  cd /opt/ops-mcp
   nohup runuser -u ops-mcp -- /opt/ops-mcp/venv/bin/python /opt/ops-mcp/server.py \
     >> /var/log/ops-mcp/server.log 2>&1 &
   echo $! > /tmp/ops-mcp.pid
@@ -159,8 +163,6 @@ echo "--- ops-mcp file layout ---"
 incus exec "$CONTAINER" -- ls -la /opt/ops-mcp/ 2>&1 || true
 echo "--- Python version in venv ---"
 incus exec "$CONTAINER" -- /opt/ops-mcp/venv/bin/python --version 2>&1 || true
-echo "--- MCP SDK import smoke test (independent of server.py) ---"
-incus exec "$CONTAINER" -- /opt/ops-mcp/venv/bin/python -c "import mcp; print('mcp version:', getattr(mcp, '__version__', 'unknown'))" 2>&1 || true
 echo "--- end diagnostics ---"
 
 if incus exec "$CONTAINER" -- bash -c 'ss -tlnp 2>/dev/null | grep -q ":8892 "'; then
@@ -215,11 +217,12 @@ fi
 
 # ---------------------------------------------------------------------------
 _section "A4-A7: Tool calls via direct Python import"
-incus exec "$CONTAINER" -- bash -c '
+incus exec "$CONTAINER" --cwd /opt/ops-mcp -- bash -c '
 set -a; source /etc/ops-mcp-env; set +a
 /opt/ops-mcp/venv/bin/python - <<'"'"'PYEOF'"'"'
 import sys, os, json
 sys.path.insert(0, "/opt/ops-mcp")
+os.chdir("/opt/ops-mcp")
 os.environ.update({
     "OPS_MCP_LOG": "DEBUG",
     "OPS_MCP_AUDIT": "/var/log/ops-mcp/audit.jsonl",
