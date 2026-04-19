@@ -30,16 +30,32 @@ One static binary, one install command, one URL. Hardware detection, calibration
 
 - **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
 - **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI.
-- **Automatic safety.** Restores `pwm_enable` to its pre-daemon state on every software exit path — `SIGTERM`, `SIGINT`, panic, `SIGKILL`, OOM kill, watchdog timeout — within two seconds. See [docs/safety.md](docs/safety.md) for the full model.
 - **Automatic hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
 - **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
 - **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
 
+## Safety
+
+ventd controls physical hardware. Two things follow from that, and both are load-bearing design decisions rather than marketing copy.
+
+**The daemon runs as an unprivileged user.** The shipped systemd unit sets `User=ventd` with an empty `CapabilityBoundingSet` and empty `AmbientCapabilities` — no `CAP_DAC_OVERRIDE`, no `CAP_SYS_RAWIO`, nothing. Write access to hwmon PWM sysfs files comes from a DAC grant via the installed udev rule (`deploy/90-ventd-hwmon.rules` chgrps the files to the `ventd` group). A process compromise lands the attacker as `ventd:ventd`, not as root. To our knowledge ventd is the only Linux fan daemon in its class that does this — fan2go and CoolerControl both run as `User=root`.
+
+**Every exit path restores firmware control within two seconds.** Two layers, working together:
+
+- **Graceful exits** (`SIGTERM`, `SIGINT`, panic inside a recovered frame) trigger the user-space watchdog in `internal/watchdog`, which restores each fan's pre-ventd `pwm_enable` value. Per-entry panic recovery: one fan's restoration failing never aborts the loop for the rest. Fallback when the original value was unrecordable: write PWM=255 (hwmon) or release to driver auto (NVIDIA).
+- **Ungraceful exits** (`SIGKILL`, OOM kill, hardware-watchdog timeout, panic escaping the defer chain) are caught by a separate root-privileged binary, `ventd-recover`, fired via `OnFailure=ventd-recover.service` on the main unit. It walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file and writes `1`. Zero heap allocations on the hot path; always exits 0 to avoid systemd re-entering the OnFailure chain. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires; this is the mechanism behind the "within two seconds" promise.
+
+**Calibration cannot strand a fan at zero.** Sweeps that drive PWM to 0 are watched by a per-fan sentinel (`internal/calibrate/safety.go`) that escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12% duty — above start-PWM of nearly every fan on the market) if the zero state persists for more than two seconds. A hung calibration goroutine cannot leave a fan stopped under load.
+
+Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](docs/safety.md).
+
+Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](SECURITY.md) issue, not a regular bug.
+
 ## What's coming
 
-Ventd is under active development. The [roadmap](docs/roadmap.md) covers the full plan; near-term highlights:
+ventd is under active development. The [roadmap](docs/roadmap.md) covers the full plan; near-term highlights:
 
-- **More fan hardware** — IPMI (server BMCs), USB AIO pumps (Corsair, NZXT, Lian Li), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi.
+- **More fan hardware** — IPMI (server BMCs — landed in `main`, shipping in v0.3.x), USB AIO pumps (Corsair, NZXT, Lian Li), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi.
 - **Learning control** — PI controller with autotune; optional MPC (model-predictive control) that learns your machine's thermal behaviour and runs fans quieter than any curve can.
 - **Cross-platform** — Windows, macOS (Intel + Apple Silicon), FreeBSD, OpenBSD, illumos, Android.
 - **Acoustic health** — detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
@@ -49,19 +65,21 @@ Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware datab
 
 ## Install
 
+ventd runs as an unprivileged system user with no root capabilities (see [Safety](#safety) above). The install script is small and plaintext — read it before you run it:
+
+```
+curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh -o install.sh
+less install.sh           # read it — it's ~150 lines
+sudo bash install.sh
+```
+
+If you already trust the script, or you're in a trusted-provisioning environment (container image bake, Ansible role, CI), the one-line form works:
+
 ```
 curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh | sudo bash
 ```
 
-The script detects your architecture and init system (systemd, OpenRC, or runit), downloads the binary, **verifies its SHA-256 against the published `checksums.txt` for the release**, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
-
-Prefer to inspect before running? Download, read, verify, then execute:
-
-```
-curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh -o install.sh
-less install.sh                       # read it
-sudo bash install.sh
-```
+Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), downloads the binary, **verifies its SHA-256 against the published `checksums.txt` for the release**, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
 
 Open the printed URL. The setup wizard prompts for a one-time token on first run. The daemon does **not** log the token to journald; it writes it to `/run/ventd/setup-token` (0600, root-only) and, if a controlling TTY is attached, to that TTY. Recover it with:
 
@@ -90,7 +108,7 @@ sudo cat /run/ventd/setup-token
 | Curated per-hardware profiles | no | yes | no | partial | no |
 | Native desktop GUI | no (web UI) | yes (Qt) | no | no | no |
 
-CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app. `ventd` trades those for zero-config first boot, a browser-only workflow that works over the network, and no runtime dependencies.
+CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app. ventd trades those for zero-config first boot, a browser-only workflow that works over the network, and no runtime dependencies.
 
 ## Documentation
 
@@ -101,12 +119,6 @@ CoolerControl is the more mature option if you want a pre-seeded profile for you
 - [NVIDIA GPU fan control](docs/nvidia-fan-control.md)
 - [Safety model](docs/safety.md)
 - [Troubleshooting](docs/troubleshooting.md)
-
-## Safety
-
-`ventd` controls physical hardware. Every software exit path — graceful or ungraceful — restores `pwm_enable=1` and hands control back to BIOS firmware within two seconds. Calibration sweeps that drive PWM to `0` are backed by a per-fan sentinel that escalates to a quiet floor if the zero state persists. Full model and failure-class breakdown in [docs/safety.md](docs/safety.md).
-
-Report any case where `ventd` leaves a fan in an unsafe state as a [SECURITY.md](SECURITY.md) issue, not a regular bug.
 
 ## Building from source
 
