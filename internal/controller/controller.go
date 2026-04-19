@@ -433,6 +433,12 @@ func (c *Controller) tick() {
 	// ENOENT/EIO failures still use the MaxPWM fail-safe — this path is
 	// intentionally narrow to the sentinel case.
 	if curveCfg.Sensor != "" && c.sentinelBuf[curveCfg.Sensor] {
+		if !c.hasLastPWM {
+			c.logger.Warn("controller: sensor sentinel on first tick, restoring fan to firmware auto",
+				"sensor", curveCfg.Sensor, "fan", c.fanName)
+			c.wd.RestoreOne(c.pwmPath)
+			return
+		}
 		since, tracked := c.sensorInvalidSince[curveCfg.Sensor]
 		if !tracked {
 			since = time.Now()
