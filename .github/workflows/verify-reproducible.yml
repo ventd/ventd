@@ -1,0 +1,160 @@
+name: Verify Reproducible Builds
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to verify (e.g. v0.3.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, linux, x64, hil, phoenix-desktop]
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      # cache: false — reusing the module cache would invalidate the
+      # reproducibility claim; we must download from the proxy fresh.
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: "1.25.9"
+          cache: false
+
+      - name: Download published release artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          mkdir -p published
+          gh release download "${TAG}" \
+            --pattern "ventd_*_linux_amd64.tar.gz" \
+            --pattern "ventd_*_linux_arm64.tar.gz" \
+            --dir published/ \
+            --repo "${{ github.repository }}"
+          echo "Downloaded artifacts:"
+          ls -lh published/
+
+      - name: Extract published binaries
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          for arch in amd64 arm64; do
+            archive="published/ventd_${VERSION}_linux_${arch}.tar.gz"
+            if [ ! -f "${archive}" ]; then
+              echo "ERROR: expected archive not found: ${archive}" >&2
+              exit 1
+            fi
+            mkdir -p "published/extracted/${arch}"
+            tar -xzf "${archive}" -C "published/extracted/${arch}" ventd ventd-recover
+          done
+          echo "Extracted binaries:"
+          find published/extracted/ -type f | sort
+
+      - name: Rebuild from source with clean module cache
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          COMMIT=$(git rev-parse HEAD)
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+
+          # Fresh GOMODCACHE — must not reuse any cached modules.
+          GOMODCACHE=$(mktemp -d)
+          export GOMODCACHE
+          export CGO_ENABLED=0
+          export GOFLAGS=-trimpath
+
+          mkdir -p rebuilt
+
+          for arch in amd64 arm64; do
+            GOARCH="${arch}" GOOS=linux go build \
+              -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${SOURCE_DATE_EPOCH}" \
+              -o "rebuilt/ventd_linux_${arch}" \
+              ./cmd/ventd
+
+            GOARCH="${arch}" GOOS=linux go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o "rebuilt/ventd-recover_linux_${arch}" \
+              ./cmd/ventd-recover
+          done
+
+          echo "Rebuilt binaries:"
+          sha256sum rebuilt/*
+          rm -rf "${GOMODCACHE}"
+
+      - name: Compare SHA256 hashes
+        id: compare
+        run: |
+          FAIL=0
+
+          for arch in amd64 arm64; do
+            for bin in ventd ventd-recover; do
+              PUB_BIN="published/extracted/${arch}/${bin}"
+              REBUILT_BIN="rebuilt/${bin}_linux_${arch}"
+
+              PUB_HASH=$(sha256sum "${PUB_BIN}"     | awk '{print $1}')
+              NEW_HASH=$(sha256sum "${REBUILT_BIN}" | awk '{print $1}')
+
+              if [ "${PUB_HASH}" = "${NEW_HASH}" ]; then
+                echo "MATCH    ${bin} linux/${arch}: ${PUB_HASH}"
+              else
+                echo "MISMATCH ${bin} linux/${arch}"
+                echo "  published: ${PUB_HASH}  (${PUB_BIN})"
+                echo "  rebuilt:   ${NEW_HASH}  (${REBUILT_BIN})"
+                FAIL=1
+              fi
+            done
+          done
+
+          echo "fail=${FAIL}" >> "$GITHUB_OUTPUT"
+          exit "${FAIL}"
+
+      - name: Install diffoscope
+        if: failure() && steps.compare.outputs.fail == '1'
+        run: sudo apt-get install -y --no-install-recommends diffoscope
+
+      - name: Run diffoscope on mismatched binaries
+        if: failure() && steps.compare.outputs.fail == '1'
+        run: |
+          mkdir -p diffoscope-output
+
+          for arch in amd64 arm64; do
+            for bin in ventd ventd-recover; do
+              PUB_BIN="published/extracted/${arch}/${bin}"
+              REBUILT_BIN="rebuilt/${bin}_linux_${arch}"
+              if [ -f "${PUB_BIN}" ] && [ -f "${REBUILT_BIN}" ]; then
+                diffoscope "${PUB_BIN}" "${REBUILT_BIN}" \
+                  --html "diffoscope-output/${bin}_linux_${arch}.html" \
+                  || true
+              fi
+            done
+          done
+
+      - name: Upload diffoscope report
+        if: failure() && steps.compare.outputs.fail == '1'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: diffoscope-${{ steps.tag.outputs.tag }}-${{ github.run_id }}
+          path: diffoscope-output/
+          retention-days: 90
+          if-no-files-found: warn

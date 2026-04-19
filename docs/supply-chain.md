@@ -189,6 +189,86 @@ unsigned snapshots for local testing.
 
 ---
 
+## Reproducible Builds (P10-REPRO-01)
+
+Every release artifact is independently verifiable via rebuild-from-source.
+An independent rebuild of any tagged commit produces byte-identical binaries
+to the published release — no trust in the build infrastructure required.
+
+### What makes builds reproducible
+
+- **`-trimpath`** — removes all host-specific filesystem paths from debug
+  info and the Go build cache key.  Both the goreleaser config and the
+  CI `GOFLAGS` env carry this flag.
+- **`mod_timestamp: '{{ .CommitTimestamp }}'`** — pins every output binary's
+  modification timestamp to the git commit timestamp rather than wall-clock
+  build time.
+- **`-X main.buildDate={{.CommitTimestamp}}`** — the `buildDate` embedded
+  in the binary is the commit Unix timestamp, not the CI run timestamp.
+- **Go `1.25.9` pinned exactly** — `1.25.x` floating pins allow patch
+  toolchain changes that silently alter codegen.  The release workflow and
+  `go.mod` both carry the exact `1.25.9` pin.
+- **`SOURCE_DATE_EPOCH`** — set from the commit timestamp in the release
+  workflow; governs archive entry timestamps so the `.tar.gz` itself is
+  also reproducible.
+- **`CGO_ENABLED=0`** — pure-Go compilation; no C toolchain variance.
+
+### Automated verification
+
+`.github/workflows/verify-reproducible.yml` runs automatically on every
+`release: published` event and is also triggerable via `workflow_dispatch`
+for ad-hoc tag verification.  It:
+
+1. Checks out the released tag's source.
+2. Downloads the published `.tar.gz` archives for `linux/amd64` and
+   `linux/arm64` via `gh release download`.
+3. Rebuilds `ventd` and `ventd-recover` using Go `1.25.9`, identical
+   `-trimpath` flags, and a **clean `GOMODCACHE`** (`mktemp -d`) to
+   prevent module-cache cross-contamination.
+4. `sha256sum`-compares all four binary pairs (two binaries × two arches).
+5. On any mismatch: runs `diffoscope` and uploads the HTML report as a
+   workflow artifact (retained 90 days) before failing the job.
+
+### Manual user verification
+
+```sh
+git clone https://github.com/ventd/ventd && cd ventd
+git checkout v<TAG>
+
+export SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+export GOFLAGS=-trimpath
+export CGO_ENABLED=0
+
+# Rebuild ventd
+go build -trimpath \
+  -ldflags="-s -w \
+    -X main.version=<TAG_WITHOUT_v> \
+    -X main.commit=$(git rev-parse HEAD) \
+    -X main.buildDate=${SOURCE_DATE_EPOCH}" \
+  -o ventd-rebuilt ./cmd/ventd
+
+# Download the published binary
+gh release download v<TAG> \
+  --pattern 'ventd_*_linux_amd64.tar.gz' \
+  --repo ventd/ventd
+tar -xzf ventd_*_linux_amd64.tar.gz ventd
+
+sha256sum ventd ventd-rebuilt   # hashes must match
+```
+
+The same pattern applies to `ventd-recover` (omit the `-X` ldflags; use
+`-ldflags="-s -w"` only):
+
+```sh
+go build -trimpath -ldflags="-s -w" \
+  -o ventd-recover-rebuilt ./cmd/ventd-recover
+
+tar -xzf ventd_*_linux_amd64.tar.gz ventd-recover
+sha256sum ventd-recover ventd-recover-rebuilt   # hashes must match
+```
+
+---
+
 ## Remaining Phase 10 controls
 
 | Control | Status | Target |
@@ -196,7 +276,7 @@ unsigned snapshots for local testing.
 | SBOM generation (syft) | **done** (P10-SBOM-01) | — |
 | Release binary signing (`cosign`) | **done** (P10-SIGN-01) | — |
 | SLSA Level 3 provenance | **done** (P10-SIGN-01) | — |
-| Reproducible builds (build stamp) | planned | P10-REPRO-01 |
+| Reproducible builds (build stamp) | **done** (P10-REPRO-01) | — |
 
 ---
 
