@@ -257,6 +257,7 @@ type Sensor struct {
 	Metric      string `yaml:"metric,omitempty" json:"metric,omitempty"`             // nvidia: temp(default), util, mem_util, power, clock_gpu, clock_mem, fan_pct
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
 	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor Path across renumbering
+	Heuristic   bool   `yaml:"heuristic,omitempty" json:"heuristic,omitempty"`       // true when auto-assigned by heuristic binding; verify in Curves page
 }
 
 type Fan struct {

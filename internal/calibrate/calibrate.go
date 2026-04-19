@@ -1079,7 +1079,7 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	const minDelta = 50 // RPM — below this is noise
 	if bestDelta < minDelta {
 		m.logger.Info("detect: no sensor correlated", "pwm_path", pwmPath, "best_delta", bestDelta)
-		return DetectResult{}, nil
+		return DetectResult{Delta: bestDelta}, nil
 	}
 
 	m.logger.Info("detect: sensor identified", "pwm_path", pwmPath, "rpm_path", best, "delta", bestDelta)
