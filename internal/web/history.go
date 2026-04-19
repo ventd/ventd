@@ -134,7 +134,9 @@ func (h *HistoryStore) RecordStatus(s statusResponse) {
 		t = time.Now().UTC()
 	}
 	for _, sensor := range s.Sensors {
-		h.Record(sensor.Name, float32(sensor.Value), t)
+		if sensor.Value != nil {
+			h.Record(sensor.Name, float32(*sensor.Value), t)
+		}
 	}
 	for _, fan := range s.Fans {
 		h.Record(fan.Name, float32(fan.Duty), t)

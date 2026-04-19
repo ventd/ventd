@@ -148,10 +148,15 @@ func (b *Backend) Read(ch hal.Channel) (hal.Reading, error) {
 		if rpm < 0 {
 			rpm = 0
 		}
-		if rpm > 0xFFFF {
-			rpm = 0xFFFF
+		// Reject driver sentinels and implausible values before they
+		// propagate into calibration or the control loop.
+		if IsSentinelRPM(rpm) {
+			b.logger.Warn("hal/hwmon: RPM sentinel or implausible value, marking reading invalid",
+				"rpm_path", rpmPath, "raw_rpm", rpm)
+			reading.OK = false
+		} else {
+			reading.RPM = uint16(rpm)
 		}
-		reading.RPM = uint16(rpm)
 	} else {
 		reading.OK = false
 	}

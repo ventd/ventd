@@ -22,9 +22,9 @@ function renderSensorBar(){
     // Temperatures get the sensor-val class plus the tempClass
     // heat-colour modifier (tc-cool/warm/hot/crit); non-temp readings
     // carry only sensor-val (which leaves them at the default teal
-    // palette). The sensor-name and dot separator classes live in
-    // app.css under .sys-status so they only apply here.
-    const cls = s.unit==='°C' ? tempClass(s.value) : '';
+    // palette). Null values (sentinel / unavailable) skip heat-colouring
+    // and fmtSensorVal renders them as '—'.
+    const cls = (s.unit==='°C' && s.value != null) ? tempClass(s.value) : '';
     const valCls = cls ? 'sensor-val '+cls : 'sensor-val';
     const val = '<span class="'+valCls+'">'+fmtSensorVal(s.value, s.unit)+'</span>';
     return '<span class="sensor-name">'+esc(s.name)+'</span> '+val;

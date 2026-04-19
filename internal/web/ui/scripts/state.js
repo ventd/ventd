@@ -87,7 +87,9 @@ function sensorUnit(s){
 // formatting matches what operators expect to read on a hardware
 // monitor: 1 decimal for temps and watts, 3 for volts, integer
 // for RPM/MHz/%.
+// Returns '—' for null/undefined values (sentinel or unavailable reading).
 function fmtSensorVal(val, unit){
+  if(val == null) return '\u2014';
   if(unit==='°C') return val.toFixed(1)+'°C';
   if(unit==='V') return val.toFixed(3)+' V';
   if(unit==='W') return val.toFixed(1)+' W';

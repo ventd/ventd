@@ -83,7 +83,9 @@ function updateHistoryFromStatus(snap){
   if(snap.sensors){
     for(var i = 0; i < snap.sensors.length; i++){
       var s = snap.sensors[i];
-      pushHistorySample(s.name, t, s.value);
+      // Skip null/undefined values (sentinel or unavailable readings)
+      // so sparklines do not record a spurious 0 for the missing sample.
+      if(s.value != null) pushHistorySample(s.name, t, s.value);
     }
   }
   if(snap.fans){

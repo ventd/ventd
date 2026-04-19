@@ -33,6 +33,52 @@ import (
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
+// TestRegression_Issue460_SentinelRejection is the fixture-driven regression
+// test for #460 (0xFFFF sentinel displayed as 255.5°C / 65535 RPM). It
+// exercises the full fix surface: sentinel rejection at readAllSensors,
+// carry-forward of last good PWM on sentinel, and watchdog.RestoreOne after
+// 30 s of consecutive sentinel readings.
+func TestRegression_Issue460_SentinelRejection(t *testing.T) {
+	t.Run("temp_sentinel_skipped_in_readAllSensors", func(t *testing.T) {
+		// 255500 millidegrees in a temp*_input file → ReadValue returns 255.5.
+		// readAllSensors must omit this sensor from the map and populate sentinelDst.
+		dir := t.TempDir()
+		tempPath := filepath.Join(dir, "temp1_input")
+		if err := os.WriteFile(tempPath, []byte("255500\n"), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		sensors := []config.Sensor{{Name: "cpu", Type: "hwmon", Path: tempPath}}
+		dst := make(map[string]float64)
+		sentinels := make(map[string]bool)
+		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels)
+		if _, ok := dst["cpu"]; ok {
+			t.Errorf("sentinel temp landed in sensor map; want omitted")
+		}
+		if !sentinels["cpu"] {
+			t.Errorf("sentinel temp not recorded in sentinelDst; want sentinels[%q]=true", "cpu")
+		}
+	})
+
+	t.Run("temp_valid_passes_through_readAllSensors", func(t *testing.T) {
+		// 45000 millidegrees = 45.0°C → must pass through unchanged.
+		dir := t.TempDir()
+		tempPath := filepath.Join(dir, "temp1_input")
+		if err := os.WriteFile(tempPath, []byte("45000\n"), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		sensors := []config.Sensor{{Name: "cpu", Type: "hwmon", Path: tempPath}}
+		dst := make(map[string]float64)
+		sentinels := make(map[string]bool)
+		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels)
+		if v, ok := dst["cpu"]; !ok || v != 45.0 {
+			t.Errorf("valid temp: dst[%q]=%v present=%v, want 45.0 present", "cpu", v, ok)
+		}
+		if sentinels["cpu"] {
+			t.Errorf("valid temp incorrectly marked as sentinel")
+		}
+	})
+}
+
 // TestSafety_Invariants is the rule-to-test index for the controller
 // safety-critical write path. Each subtest binds one invariant from
 // .claude/rules/hwmon-safety.md. Do not delete a subtest without
@@ -395,6 +441,75 @@ func TestSafety_Invariants(t *testing.T) {
 	})
 
 	// ---------- Rule: resolve paths via hwmon_device, not literal hwmon index ----------
+
+	// ---------- Rule: invalid/sentinel reading carries forward last good PWM ----------
+
+	t.Run("sentinel/invalid_reading_carries_forward_pwm", func(t *testing.T) {
+		// First tick: temp=60°C → curve writes a known PWM (≈128 with linear
+		// 40→80°C / 0→255 range). Second tick: temp file rewritten to 255500
+		// (sentinel, 255.5°C) → readAllSensors marks sensor as sentinel →
+		// controller must carry forward the PWM from tick 1, NOT evaluate the
+		// curve (which with a missing key would write MaxPWM=200).
+		ff := newFakeFan(t)
+		// Seed a valid temperature so the first tick can record a lastPWM.
+		if err := os.WriteFile(ff.tempPath, []byte("60000\n"), 0o600); err != nil {
+			t.Fatalf("seed temp: %v", err)
+		}
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+
+		// Tick 1: valid reading → lastPWM recorded.
+		c.tick()
+		firstPWM := readPWMByte(t, ff.pwmPath)
+		if firstPWM == 0 || firstPWM == 200 {
+			t.Logf("first tick PWM=%d (sanity: should be between min/max)", firstPWM)
+		}
+
+		// Inject sentinel value.
+		if err := os.WriteFile(ff.tempPath, []byte("255500\n"), 0o600); err != nil {
+			t.Fatalf("seed sentinel: %v", err)
+		}
+
+		// Tick 2: sentinel → must carry forward firstPWM, NOT evaluate the
+		// curve (which would yield MaxPWM=200 on a missing sensor key).
+		c.tick()
+		got := readPWMByte(t, ff.pwmPath)
+		if got != firstPWM {
+			t.Errorf("PWM after sentinel tick = %d, want %d (carried forward from last good tick)", got, firstPWM)
+		}
+	})
+
+	// ---------- Rule: prolonged sentinel triggers watchdog.RestoreOne ----------
+
+	t.Run("sentinel/prolonged_invalid_triggers_restore", func(t *testing.T) {
+		// Simulate 31s of consecutive sentinel readings by pre-loading
+		// sensorInvalidSince with a timestamp 31s in the past. The next tick
+		// must call wd.RestoreOne(pwmPath), which writes pwm_enable=2 back
+		// (restoring the pre-ventd value captured by Register).
+		ff := newFakeFan(t) // pwm_enable pre-set to "2"
+		// Seed sentinel temperature.
+		if err := os.WriteFile(ff.tempPath, []byte("255500\n"), 0o600); err != nil {
+			t.Fatalf("seed sentinel: %v", err)
+		}
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+
+		logger := silentLogger()
+		wd := watchdog.New(logger)
+		wd.Register(ff.pwmPath, "hwmon") // captures origEnable=2
+
+		cfgPtr := &atomic.Pointer[config.Config]{}
+		cfgPtr.Store(cfg)
+		c := New("cpu fan", "cpu_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+		// Backdating sensorInvalidSince simulates 31s of consecutive sentinel.
+		c.sensorInvalidSince["cpu"] = time.Now().Add(-31 * time.Second)
+
+		// Tick: must trigger RestoreOne → pwm_enable restored to "2".
+		c.tick()
+		if got := readIntFile(t, ff.enablePath); got != 2 {
+			t.Errorf("pwm_enable after prolonged sentinel = %d, want 2 (RestoreOne fired)", got)
+		}
+	})
 
 	t.Run("hwmon_index_instability/resolve_by_device_path", func(t *testing.T) {
 		// hwmonX indices are volatile across reboots. The daemon stores

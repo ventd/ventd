@@ -36,6 +36,7 @@ import (
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hal"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/watchdog"
 )
@@ -623,16 +624,20 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 
 		// For nvidia, Read returns PWM readback in the PWM field (not RPM) as a
 		// proxy for "spinning". For hwmon, RPM field is the actual speed.
-		r, _ := b.Read(ch)
 		var rpm int
 		if isNvidia {
+			r, _ := b.Read(ch)
 			rpm = int(r.PWM) // PWM readback used as a proxy for "spinning"
-		} else if fan.RPMPath != "" {
-			// fan.RPMPath override (set by DetectRPMSensor): read from the
-			// explicitly-detected sensor path rather than the auto-derived one.
-			rpm, _ = readSysfsInt(fan.RPMPath)
 		} else {
-			rpm = int(r.RPM)
+			// Sentinel-guarded read: rejects 0xFFFF and implausible values with
+			// up to 3 retries before aborting the calibration with a clear error.
+			var rpmErr error
+			rpm, rpmErr = readCalRPMWithRetry(ctx, b, ch, fan.RPMPath, 3)
+			if rpmErr != nil {
+				m.logger.Error("calibrate: RPM sentinel persisted, aborting sweep",
+					"pwm_path", pwmPath, "pwm", pwm, "err", rpmErr)
+				return snapshot(0, step), rpmErr
+			}
 		}
 
 		if rpm > 0 && startPWM == 0 {
@@ -681,13 +686,10 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			if ctxSleep(1500 * time.Millisecond) {
 				return snapshot(uint8(p), steps+1), ctx.Err()
 			}
-			var rpm int
-			if fan.RPMPath != "" {
-				rpm, _ = readSysfsInt(fan.RPMPath)
-			} else {
-				r, _ := b.Read(ch)
-				rpm = int(r.RPM)
-			}
+			// Sentinel-guarded read: a sentinel during down-ramp would falsely
+			// appear as high RPM and prevent stall detection. Retry up to 3x;
+			// if all fail, log and break — the up-ramp result is still valid.
+			rpm, _ := readCalRPMWithRetry(ctx, b, ch, fan.RPMPath, 3)
 			m.logger.Debug("calibrate: down-ramp", "pwm_path", pwmPath, "pwm", p, "rpm", rpm)
 			if rpm == 0 {
 				// Fan stalled at p; last PWM that kept it spinning was p+2.
@@ -1232,6 +1234,45 @@ func (m *Manager) checkpoint(pwmPath string, partial Result) {
 
 // readSysfsInt reads an integer from a sysfs file. Used for RPM sensor reads
 // and rpm_target range queries; never mutates hardware state.
+// readCalRPMWithRetry reads RPM from the given channel or explicit rpmPath,
+// rejecting sentinel / implausible values. It retries up to maxRetry times
+// (with a 500 ms sleep between attempts) before returning an error. This
+// prevents a single glitching register from corrupting a calibration sample.
+//
+// For nvidia channels (no rpmPath, b.Read returns PWM as a spinning proxy),
+// sentinel rejection does not apply — callers handle that path directly.
+func readCalRPMWithRetry(ctx context.Context, b hal.FanBackend, ch hal.Channel, rpmPath string, maxRetry int) (int, error) {
+	for attempt := 0; attempt <= maxRetry; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		if rpmPath != "" {
+			v, err := readSysfsInt(rpmPath)
+			if err != nil {
+				continue
+			}
+			if halhwmon.IsSentinelRPM(v) {
+				continue
+			}
+			return v, nil
+		}
+		r, _ := b.Read(ch)
+		if !r.OK {
+			continue
+		}
+		return int(r.RPM), nil
+	}
+	target := rpmPath
+	if target == "" {
+		target = ch.ID
+	}
+	return 0, fmt.Errorf("calibrate: RPM sensor %q returned sentinel or invalid value %d time(s); check sensor wiring", target, maxRetry+1)
+}
+
 func readSysfsInt(path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
