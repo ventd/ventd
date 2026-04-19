@@ -173,6 +173,22 @@ jobs:
           CGO_ENABLED: "0"
         run: go build -trimpath -ldflags="-s -w" ./cmd/ventd/
 
+      - name: Binary size drift check
+        if: matrix.distro == 'ubuntu-24.04'
+        run: |
+          CGO_ENABLED=0 go build -ldflags='-s -w' -o /tmp/ventd-current ./cmd/ventd
+          CURRENT=$(stat -c%s /tmp/ventd-current)
+          BASELINE=$(grep '^BYTES=' docs/binary_size_baseline | cut -d= -f2)
+          DRIFT_PCT=$(( (CURRENT - BASELINE) * 100 / BASELINE ))
+          echo "baseline=$BASELINE current=$CURRENT drift=${DRIFT_PCT}%"
+          if [ $DRIFT_PCT -gt 10 ]; then
+            echo "::warning::binary size grew ${DRIFT_PCT}% above baseline"
+          fi
+          if [ $DRIFT_PCT -gt 25 ]; then
+            echo "::error::binary size grew ${DRIFT_PCT}% above baseline (block threshold)"
+            exit 1
+          fi
+
       - name: Test with race detector
         if: matrix.race
         run: go test -race -count=1 ./...
