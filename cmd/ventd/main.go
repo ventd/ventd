@@ -594,18 +594,10 @@ func resolveControl(cfg *config.Config, ctrl config.Control) (config.Fan, error)
 	return config.Fan{}, fmt.Errorf("fan %q not found (should have been caught by validation)", ctrl.Fan)
 }
 
-// setupTokenPath is where the first-boot setup token is persisted for
-// operators who can read files owned by the daemon user but cannot watch
-// the TTY (the systemd case). Deleted automatically when the token TTL
-// expires inside the web package, but the file itself lives for the
-// lifetime of the daemon — /run is a tmpfs so the token never reaches
-// persistent storage.
-const setupTokenPath = "/run/ventd/setup-token"
-
 // publishSetupToken makes the first-boot token available to the operator
 // without leaking it into journald. It always logs the retrieval paths;
 // the plaintext goes only to /dev/tty (if one is attached to the daemon)
-// and to setupTokenPath with 0600 perms.
+// and to the two token files (runtime + persistent) with 0640 perms.
 func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
 	scheme := "http"
 	if tls {
@@ -625,25 +617,16 @@ func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
 		displayHost = "127.0.0.1"
 	}
 	url := scheme + "://" + net.JoinHostPort(displayHost, port)
-	writtenToFile := false
-	if err := os.MkdirAll(filepath.Dir(setupTokenPath), 0700); err != nil {
-		logger.Warn("first-boot: create setup-token dir", "err", fmt.Errorf("mkdir %s: %w", filepath.Dir(setupTokenPath), err))
-	} else {
-		f, err := os.OpenFile(setupTokenPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-		if err != nil {
-			logger.Warn("first-boot: write setup token file", "path", setupTokenPath, "err", err)
-		} else {
-			if _, err := f.WriteString(tok + "\n"); err != nil {
-				logger.Warn("first-boot: write setup token", "err", err)
-			}
-			_ = f.Close()
-			writtenToFile = true
-		}
+
+	// Write the token to both the tmpfs runtime path and the persistent state
+	// path so it survives daemon restarts. Each write is atomic (temp+rename).
+	if err := web.WriteSetupTokenFiles(tok, web.SetupTokenRuntimePath, web.SetupTokenPersistPath); err != nil {
+		logger.Warn("first-boot: write setup token files", "err", err)
 	}
 
 	// Best-effort TTY print. Fails silently under systemd where there is
-	// no controlling TTY, which is intentional — the file path below
-	// covers that case.
+	// no controlling TTY, which is intentional — the file paths below
+	// cover that case.
 	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
 		_, _ = fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 		_, _ = fmt.Fprintf(tty, "  Ventd — First Boot\n")
@@ -654,11 +637,10 @@ func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
 	}
 
 	logger.Info("first-boot: setup pending", "url", url, "ttl", web.SetupTokenTTL)
-	if writtenToFile {
-		logger.Info("first-boot: setup token written", "path", setupTokenPath, "hint", "sudo cat "+setupTokenPath)
-	} else {
-		logger.Warn("first-boot: setup token only available on the controlling TTY (file write failed)")
-	}
+	logger.Info("first-boot pending — setup token available",
+		"command", "sudo cat "+web.SetupTokenRuntimePath,
+		"ttl", web.SetupTokenTTL,
+	)
 }
 
 // localIP returns the machine's preferred outbound IP address.

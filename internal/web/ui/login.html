@@ -38,7 +38,7 @@
     </div>
     <button class="btn" id="loginBtn">Sign In</button>
     <div class="msg" id="loginMsg"></div>
-    <p class="hint">First time? Check the terminal / <code>journalctl -u ventd</code> for your setup token.</p>
+    <p class="hint">First time? Run <code>sudo cat /run/ventd/setup-token</code> to find your setup token.</p>
   </div>
 
   <!-- Section B: first-boot — enter setup token + set password -->
@@ -58,7 +58,10 @@
     </div>
     <button class="btn" id="firstBootBtn">Create Password &amp; Continue</button>
     <div class="msg" id="firstBootMsg"></div>
-    <p class="hint">Find your setup token in the terminal or via:<br><code>journalctl -u ventd | grep "Setup token"</code></p>
+    <p class="hint">Can't find the setup token? Recover it with:<br>
+<code>sudo cat /run/ventd/setup-token</code><br>
+<span class="muted">(or <code>/var/lib/ventd/setup-token</code> if the service was restarted)</span><br>
+Note: every daemon restart rotates the token. Always use the file above — it is always the current valid token.</p>
   </div>
 </div>
 
