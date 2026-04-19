@@ -57,6 +57,7 @@ func TestRegression_Issue484_InstallerRegistersRecoverUnit(t *testing.T) {
 	cmd := exec.Command("bash", installScript, stubVentd)
 	cmd.Env = append(os.Environ(),
 		"VENTD_TEST_MODE=1",
+		"VENTD_INIT_SYSTEM=systemd",
 		"VENTD_PREFIX="+prefix,
 		"VENTD_SYSTEMD_DIR="+systemdDir,
 		"VENTD_SBIN_DIR="+sbinDir,

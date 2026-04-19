@@ -22,7 +22,7 @@ func TestVentdRecover_NoAllocs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer syscall.Close(fd)
+	defer func() { _ = syscall.Close(fd) }()
 
 	allocs := testing.AllocsPerRun(200, func() {
 		syscall.Seek(fd, 0, 0) //nolint:errcheck

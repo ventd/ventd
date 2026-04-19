@@ -246,7 +246,7 @@ detect_init() {
     fi
 }
 
-INIT_SYSTEM="$(detect_init)"
+INIT_SYSTEM="${VENTD_INIT_SYSTEM:-$(detect_init)}"
 
 case "$INIT_SYSTEM" in
     systemd)
