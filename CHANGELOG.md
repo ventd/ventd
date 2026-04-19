@@ -1,10 +1,22 @@
 # Changelog
 
-All notable changes to ventd are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
-follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+> **Note:** Entries from v0.3.0 onward are generated from conventional commit
+> messages at tag time via `.github/workflows/release-changelog.yml` (git-cliff).
+> Hand-curated history prior to v0.3.0 is preserved below under
+> [Pre-automation history].
+
+## [Pre-automation history]
+
+Entries prior to v0.3.0 were hand-curated.
+Subsequent entries are generated from conventional commit messages at tag
+time via .github/workflows/release-changelog.yml.
+
+---
 
 ### Removed
 
