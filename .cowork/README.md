@@ -43,6 +43,41 @@ Every Cowork session must either: (a) be measurably faster than the previous ses
 - Sequential MCP calls that could have been batched in a single turn.
 - CC dispatches for tasks the current MCP toolset can do directly (currently: PR merge, PR edit, create issue, add comment, delete file, create branch).
 
+## CLI tools
+
+`cowork-query` queries `.cowork/events.jsonl` without ad-hoc grep/jq. Install:
+
+```sh
+go install github.com/ventd/ventd/cmd/cowork-query@latest
+```
+
+Run from the repo root (where `.cowork/` lives):
+
+```sh
+# PRs merged in the last 24 hours
+cowork-query merged --since 24h
+
+# Event timeline for a specific PR (proxy for workflow complexity)
+cowork-query tpm --pr 362
+
+# CC sessions that ran longer than 30 minutes
+cowork-query slow-cc --threshold 30m
+
+# Open GitHub issues with label role:atlas idle > 72 h
+cowork-query stale-role --label role:atlas --age 72h
+
+# PR/hr throughput over the last 7 days
+cowork-query throughput --since 7d
+
+# Last 10 LESSONS.md entries
+cowork-query lessons
+
+# Machine-readable output (all commands)
+cowork-query merged --since 7d --json
+```
+
+Durations: Go syntax (`30m`, `1h`) or days suffix (`7d`). `stale-role` calls `gh issue list` and requires `gh` to be authenticated.
+
 ## Related files on this branch
 
 - `.cowork/LESSONS.md` — self-optimization log (read at session START, write at session END).
