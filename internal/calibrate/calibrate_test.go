@@ -958,3 +958,98 @@ func keys(m map[string]Result) []string {
 	}
 	return out
 }
+
+// TestRegression_Issue467_ConcurrentPersistDoesNotLoseFinal verifies that
+// concurrent calls to atomicWriteJSON on the same path never leave the file
+// missing or corrupt, and never leave stale .tmp files behind.
+func TestRegression_Issue467_ConcurrentPersistDoesNotLoseFinal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "calibration.json")
+
+	const N = 10
+	var wg sync.WaitGroup
+	for i := range N {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			env := onDiskEnvelope{
+				SchemaVersion: SchemaVersion,
+				Results: map[string]Result{
+					"pwm": {PWMPath: "pwm", StartPWM: uint8(idx * 10), MaxRPM: idx * 100},
+				},
+			}
+			if err := atomicWriteJSON(path, env); err != nil {
+				t.Errorf("atomicWriteJSON goroutine %d: %v", idx, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("calibration.json missing after concurrent writes: %v", err)
+	}
+	var result onDiskEnvelope
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("corrupt calibration.json after concurrent writes: %v", err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("stale .tmp file left behind: %s", e.Name())
+		}
+	}
+}
+
+// TestRegression_Issue467_AbortPreservesTerminalState verifies that the
+// abort path produces a valid terminal calibration.json with no stale .tmp
+// files, even when checkpoint saves are racing with the abort's final write.
+// This is the integration-level repro for issue #467.
+func TestRegression_Issue467_AbortPreservesTerminalState(t *testing.T) {
+	pwmPath := makeFakeHwmon(t, 100, 2, 1500)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	wd := watchdog.New(logger)
+	wd.Register(pwmPath, "hwmon")
+	m := New(calPath, logger, wd)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
+
+	fan := &config.Fan{Name: "test", Type: "hwmon", PWMPath: pwmPath, MinPWM: 0, MaxPWM: 255}
+	if err := m.Start(fan); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !waitFor(t, 500*time.Millisecond, func() bool { return m.IsCalibrating(pwmPath) }) {
+		t.Fatal("calibration did not start")
+	}
+
+	m.Abort(pwmPath)
+	if !waitFor(t, 2*time.Second, func() bool { return !m.IsCalibrating(pwmPath) }) {
+		t.Fatal("calibration did not terminate after abort")
+	}
+
+	data, err := os.ReadFile(calPath)
+	if err != nil {
+		t.Fatalf("calibration.json missing after abort: %v", err)
+	}
+	var env onDiskEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatalf("corrupt calibration.json after abort: %v", err)
+	}
+
+	dir := filepath.Dir(calPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("stale .tmp file left behind: %s", e.Name())
+		}
+	}
+}
