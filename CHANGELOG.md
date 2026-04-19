@@ -8,6 +8,8 @@ and frozen.
 
 <!-- git-cliff start -->
 ## [Unreleased]
+### Infrastructure
+- ci: commit stripped-binary size baseline (`docs/binary_size_baseline`) at commit `3e0aee03`, established by ULTRA-08; add `binary-size-drift` CI step that warns at >10% growth and blocks at >25% (#453).
 ### Fixed
 - deploy: AppArmor profile v2 — ship in enforce mode with complete path list (`/run/ventd/**`, `/var/lib/ventd/**`, power_supply, thermal, pwm class, NVML paths); `AppArmorProfile=ventd` unit directive pins profile by name, defeating docker-default attachment race on hosts with Docker installed; `StateDirectory=ventd` added so systemd owns `/var/lib/ventd` creation with correct mode; `RuntimeDirectoryMode` corrected to 0750; fresh-install listener now reaches `0.0.0.0:9999` instead of loopback-only fallback (#498).
 <!-- git-cliff end -->

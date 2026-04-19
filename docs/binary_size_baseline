@@ -1,0 +1,14 @@
+# ventd stripped binary size baseline
+#
+# Established: 2026-04-19 by Cassidy (ultrareview-4 tooling half)
+# Commit: 3e0aee03f81ea2d0cf0a4f071a4f582a5e991b19
+# Build: CGO_ENABLED=0 go build -ldflags='-s -w' -o ./ventd ./cmd/ventd
+#
+# Threshold: ULTRA-08 warns on >10% growth, blocks on >25% growth.
+# Update this file (and commit separately) when an intentional feature
+# lands that justifies size growth.
+
+BYTES=9441572
+TEXT=9038366
+DATA=391339
+BSS=319920
