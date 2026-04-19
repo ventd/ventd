@@ -433,6 +433,9 @@ func parseSensorsDetectModules(output string) []candidate {
 			}
 			continue
 		}
+		if !moduleNameRe.MatchString(line) {
+			continue
+		}
 		modules = append(modules, line)
 	}
 
@@ -444,8 +447,9 @@ func parseSensorsDetectModules(output string) []candidate {
 }
 
 var (
-	sdDriverRe = regexp.MustCompile(`^Driver ` + "`" + `([^']+)` + `'`)
-	sdChipRe   = regexp.MustCompile(`Chip ` + "`" + `([^']+)` + `'`)
+	sdDriverRe   = regexp.MustCompile(`^Driver ` + "`" + `([^']+)` + `'`)
+	sdChipRe     = regexp.MustCompile(`Chip ` + "`" + `([^']+)` + `'`)
+	moduleNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
 // parseSensorsDetectChips extracts the mapping of driver name → chip name

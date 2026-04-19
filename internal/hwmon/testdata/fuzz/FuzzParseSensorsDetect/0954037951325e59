@@ -1,0 +1,2 @@
+go test fuzz v1
+string("#----cut here----\n0 0")
