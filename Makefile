@@ -43,5 +43,9 @@ test-issue-logger: ## Run the issue-logger self-tests.
 		echo "scripts/cc-issue-logger.test.sh not found — skipping"; \
 	fi
 
+sbom: ## Generate CycloneDX + SPDX SBOMs into dist/ via goreleaser snapshot (requires syft in PATH).
+	goreleaser release --snapshot --clean
+	@echo "SBOMs written to dist/ (*.cdx.json and *.spdx.json)"
+
 clean: ## Remove build artifacts.
 	rm -rf dist/ coverage.out
