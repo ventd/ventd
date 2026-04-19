@@ -1,0 +1,66 @@
+name: Update Drift Baseline
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-baseline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v1.62.2
+
+      - name: Install dupl
+        run: go install github.com/mibk/dupl/cmd/dupl@latest
+
+      - name: Snapshot current state
+        run: |
+          go run ./tools/driftreport \
+            --root . \
+            --snapshot \
+            --output .github/drift-baseline.json
+
+      - name: Open PR with updated baseline
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = `drift-baseline-update-${Date.now()}`;
+            const { execSync } = require('child_process');
+
+            execSync(`git config user.name "PhoenixDnB"`);
+            execSync(`git config user.email "101230040+PhoenixDnB@users.noreply.github.com"`);
+            execSync(`git checkout -b ${branch}`);
+            execSync(`git add .github/drift-baseline.json`);
+            execSync(`git commit -m "chore(ci): update drift baseline"`);
+            execSync(`git push origin ${branch}`);
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'chore(ci): update drift baseline',
+              head: branch,
+              base: 'main',
+              body: [
+                '## Summary',
+                '',
+                'Automated baseline update from the drift-baseline-update workflow.',
+                'Review `.cowork/drift-baseline.json` to confirm the new values are expected.',
+                '',
+                'Merge when the numbers look correct.',
+              ].join('\n'),
+            });
+            console.log(`PR opened: ${pr.data.html_url}`);
