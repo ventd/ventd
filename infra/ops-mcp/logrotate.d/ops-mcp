@@ -1,0 +1,9 @@
+/var/log/ops-mcp/audit.jsonl {
+    weekly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 640 ops-mcp ops-mcp
+}
