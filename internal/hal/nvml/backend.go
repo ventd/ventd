@@ -122,9 +122,9 @@ func (b *Backend) Restore(ch hal.Channel) error {
 	}
 	idx, err := parseIndex(st.Index)
 	if err != nil {
-		b.logger.Error("watchdog: nvidia gpu index parse failed, skipping restore",
+		b.logger.Error("hal/nvml: restore gpu index parse failed",
 			"gpu_index", st.Index, "err", err)
-		return nil
+		return err
 	}
 	if err := nvidia.ResetFanSpeed(idx); err != nil {
 		b.logger.Error("watchdog: nvidia fan reset failed",
