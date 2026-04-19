@@ -75,6 +75,10 @@ SyslogIdentifier=ventd
 # restore CAP_DAC_OVERRIDE here. See deploy/README.md.
 User=ventd
 Group=ventd
+# Defence-in-depth: grant the video group so NVML can open /dev/nvidiactl
+# on Ubuntu/Debian. systemd silently skips groups that don't exist on the
+# host, so this is safe on GPU-less machines.
+SupplementaryGroups=video
 
 # --- Sandbox: process isolation -------------------------------------------
 # ventd has no legitimate need to gain privileges or keep capabilities at

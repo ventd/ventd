@@ -547,6 +547,37 @@ if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     ventd_create_account
 fi
 
+# _ventd_add_nvidia_group — add the ventd user to the group that owns the
+# NVIDIA control device so NVML can open it without elevated privileges.
+#
+# /dev/nvidiactl is typically owned root:video on Ubuntu/Debian; some distros
+# use render or a distro-specific group. We stat the actual device node rather
+# than hard-coding "video" so the installer works across distros.
+#
+# Test hook: _VENTD_NVIDIACTL_PATH overrides the default /dev/nvidiactl so
+# validation/install-nvidia.test.sh can point at a mock device node.
+_ventd_add_nvidia_group() {
+    local ctl_path="${_VENTD_NVIDIACTL_PATH:-/dev/nvidiactl}"
+    if [ ! -e "$ctl_path" ]; then
+        return 0  # no NVIDIA device; nothing to do
+    fi
+    local nvidia_group
+    nvidia_group="$(stat -c '%G' "$ctl_path" 2>/dev/null || true)"
+    if [ -z "$nvidia_group" ] || [ "$nvidia_group" = "root" ]; then
+        return 0  # root-owned device doesn't need a group membership fix
+    fi
+    if id ventd 2>/dev/null | tr ',' '\n' | grep -q "(${nvidia_group})"; then
+        echo "  ✓ ventd user already in ${nvidia_group} group (NVML access confirmed)"
+        return 0
+    fi
+    usermod -aG "$nvidia_group" ventd
+    echo "  ✓ Added ventd user to ${nvidia_group} group for NVML access"
+}
+
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    _ventd_add_nvidia_group
+fi
+
 # ── Install ──────────────────────────────────────────────────────────────────
 
 echo "Installing ventd..."
@@ -945,6 +976,26 @@ if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
             runit)   echo "  Inspect the log:  tail -n 50 /var/log/ventd/current" >&2 ;;
         esac
         exit 1
+    fi
+fi
+
+# ── NVML post-install verification ──────────────────────────────────────────
+#
+# If an NVIDIA GPU is detected, verify that the ventd user can reach NVML via
+# nvidia-smi. Catches group-membership gaps on systems where usermod took
+# effect in the process table but the service user's credential still caches
+# the old groups (a daemon restart flushes this — the check also nudges the
+# operator if they need to re-login for interactive nvidia-smi calls).
+
+if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" && -e /dev/nvidiactl ]]; then
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        if sudo -u ventd nvidia-smi -q -d PIDS 2>&1 | grep -q "NVIDIA-SMI"; then
+            echo "  ✓ NVML accessible from ventd user"
+        else
+            echo "  ⚠ NVML verification failed. GPU features may be disabled."
+            echo "    Check: sudo -u ventd nvidia-smi"
+            echo "    Typical fix: sudo usermod -aG video ventd && sudo systemctl restart ventd"
+        fi
     fi
 fi
 

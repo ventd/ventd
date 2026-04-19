@@ -26,7 +26,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"os"
+	"os/user"
+	"strconv"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -113,7 +117,7 @@ func Init(logger *slog.Logger) error {
 			logInitFailedOnce.Do(func() {
 				logger.Warn("NVML init failed; GPU features disabled",
 					"err", msg,
-					"hint", "NVIDIA driver installed but not ready — try `nvidia-smi -pm 1` or reinstall the driver")
+					"diagnostic", diagnoseNvmlDevice("/dev/nvidiactl"))
 			})
 			return fmt.Errorf("%w: %s", ErrInitFailed, msg)
 		}
@@ -517,6 +521,41 @@ func nvmlErrorString(code int32) string {
 		return fmt.Sprintf("nvml error %d", code)
 	}
 	return goStringFromC(r)
+}
+
+// diagnoseNvmlFailure returns an actionable diagnostic string when nvmlInit_v2
+// fails. The error argument is not examined; filesystem state of the control
+// device is the authoritative signal.
+func diagnoseNvmlFailure(_ error) string {
+	return diagnoseNvmlDevice("/dev/nvidiactl")
+}
+
+// diagnoseNvmlDevice inspects ctlPath (normally /dev/nvidiactl) and returns a
+// human-readable explanation of why NVML cannot be initialised. Accepts an
+// explicit path so tests can exercise every branch without real hardware.
+func diagnoseNvmlDevice(ctlPath string) string {
+	stat, err := os.Stat(ctlPath)
+	if err != nil {
+		return ctlPath + " not found; NVIDIA driver may not be installed"
+	}
+	f, err := os.Open(ctlPath)
+	if err != nil {
+		if os.IsPermission(err) {
+			gid := stat.Sys().(*syscall.Stat_t).Gid
+			group, _ := user.LookupGroupId(strconv.Itoa(int(gid)))
+			gname := "unknown"
+			if group != nil {
+				gname = group.Name
+			}
+			return fmt.Sprintf(
+				"Permission denied on %s (owner group: %s). Fix: sudo usermod -aG %s ventd && sudo systemctl restart ventd",
+				ctlPath, gname, gname,
+			)
+		}
+		return fmt.Sprintf("Cannot open %s: %v", ctlPath, err)
+	}
+	f.Close()
+	return "Device accessible but NVML still failed — driver in bad state; try `sudo nvidia-smi -pm 1`"
 }
 
 // goStringFromC copies a NUL-terminated C string into a Go string without
