@@ -9,6 +9,13 @@ and frozen.
 <!-- git-cliff start -->
 <!-- git-cliff end -->
 
+## [Unreleased]
+
+### Fixed
+
+- setup: heuristic sensor binding for mini PC / NAS / HTPC hardware where RPM correlation fails at idle (#504). When a fan responds to PWM changes (RPM delta > 0) but stays below the 50 RPM noise floor, ventd now applies a priority-ordered heuristic (coretemp "Package id 0" → k10temp Tctl/Tdie → label match → plausible-range sensor) and includes the fan in the generated config as an open-loop channel. The bound sensor is marked `heuristic: true` in config.yaml so users can verify the assignment in the Curves page.
+- setup: error message now distinguishes truly absent fans (all headers show 0 RPM delta) from fans that responded but could not be correlated. The old "no fans responded during calibration" message no longer fires when fans did move (#504).
+
 ## [Pre-automation history]
 
 Entries here were hand-curated during v0.0.x through v0.3.0-rc*. They are

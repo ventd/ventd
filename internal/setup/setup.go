@@ -522,7 +522,23 @@ func (m *Manager) run(ctx context.Context) {
 					if err != nil {
 						m.logger.Warn("setup: rpm detect failed", "fan", fans[i].Name, "err", err)
 					}
-					fans[i].DetectPhase = "none"
+					if det.Delta > 0 {
+						// Fan moved (RPM delta > 0) but below the correlation noise floor.
+						// Try heuristic temperature-sensor binding so the fan is still
+						// controllable via an open-loop curve.
+						chips := loadHwmonChips(m.hwmonRoot)
+						if hs := heuristicSensorBinding(chips); hs != nil {
+							m.logger.Warn("setup: no RPM sensor correlated; heuristic binding applied",
+								"fan", fans[i].Name, "best_delta", det.Delta, "sensor", hs.Path)
+							fans[i].DetectPhase = "heuristic"
+						} else {
+							m.logger.Warn("setup: fan responded but heuristic binding found no sensor",
+								"fan", fans[i].Name, "best_delta", det.Delta)
+							fans[i].DetectPhase = "none"
+						}
+					} else {
+						fans[i].DetectPhase = "none"
+					}
 				} else {
 					fans[i].RPMPath = det.RPMPath
 					fans[i].DetectPhase = "found"
@@ -542,7 +558,9 @@ func (m *Manager) run(ctx context.Context) {
 	m.setPhase("calibrating", "Calibrating fans — finding minimum and maximum speeds...")
 	var wg sync.WaitGroup
 	for i := range fans {
-		if fans[i].DetectPhase == "none" || fans[i].ControlKind == "rpm_target" {
+		if fans[i].DetectPhase == "none" || fans[i].DetectPhase == "heuristic" || fans[i].ControlKind == "rpm_target" {
+			// "heuristic" fans have no reliable RPM sensor so calibration cannot run;
+			// they are still included in the final config via doneFans below.
 			fans[i].CalPhase = "skipped"
 		} else {
 			fans[i].CalPhase = "calibrating"
@@ -599,8 +617,9 @@ func (m *Manager) run(ctx context.Context) {
 	// --- Phase 4: collect successful fans and build config ---
 	var doneFans []fanDiscovery
 	for _, f := range fans {
-		// Include calibrated fans and rpm_target fans (calibration skipped for the latter).
-		if f.CalPhase != "done" && f.ControlKind != "rpm_target" {
+		// Include calibrated fans, rpm_target fans, and fans bound by heuristic
+		// (responded to PWM but no RPM sensor correlated — controlled open-loop).
+		if f.CalPhase != "done" && f.ControlKind != "rpm_target" && f.DetectPhase != "heuristic" {
 			continue
 		}
 		var chipName string
@@ -623,13 +642,14 @@ func (m *Manager) run(ctx context.Context) {
 
 	if len(doneFans) == 0 {
 		m.mu.Lock()
-		m.errMsg = "no fans responded during calibration"
+		m.errMsg = setupFailMessage(fans)
 		m.mu.Unlock()
 		return
 	}
 
 	// Discover CPU/GPU temp sensors for curve generation.
 	cpuSensorName, cpuSensorPath := m.discoverCPUTempSensor()
+	var cpuSensorHeuristic bool
 	var cpuCurrentTemp float64
 	if cpuSensorPath != "" {
 		cpuCurrentTemp, _ = hwmonpkg.ReadValue(cpuSensorPath)
@@ -638,6 +658,16 @@ func (m *Manager) run(ctx context.Context) {
 		// coretemp / k10temp / acpitz. Surface a remediation diag so the UI
 		// can offer a one-click modprobe; doesn't block the wizard.
 		m.emitCPUSensorModuleMissingDiag()
+		// Last-resort heuristic: try the same binding logic used for uncorrelated
+		// fans. This keeps heuristic-only rigs from getting a fixed-speed curve.
+		chips := loadHwmonChips(m.hwmonRoot)
+		if hs := heuristicSensorBinding(chips); hs != nil {
+			cpuSensorPath = hs.Path
+			cpuSensorName = "CPU Temperature"
+			cpuSensorHeuristic = true
+			cpuCurrentTemp, _ = hwmonpkg.ReadValue(cpuSensorPath)
+			m.logger.Warn("setup: heuristic CPU temp sensor selected", "path", cpuSensorPath)
+		}
 	}
 
 	// GPU temp: prefer NVML (NVIDIA), fall back to AMD GPU hwmon sensor.
@@ -665,6 +695,17 @@ func (m *Manager) run(ctx context.Context) {
 
 	cfg := buildConfig(doneFans, cpuSensorName, cpuSensorPath, cpuCurrentTemp, hasGPUTemp, gpuTempPath, gpuCurrentTemp, profile)
 
+	// Mark the CPU temp sensor as heuristically assigned so users can identify
+	// auto-selected bindings on the Curves page.
+	if cpuSensorHeuristic {
+		for i := range cfg.Sensors {
+			if cfg.Sensors[i].Name == "cpu_temp" {
+				cfg.Sensors[i].Heuristic = true
+				break
+			}
+		}
+	}
+
 	// Pre-validate before exposing to the review screen. Catches any
 	// future buildConfig regression that emits a config the Apply path
 	// would reject — surfaces it as a wizard error (so the operator
@@ -683,6 +724,29 @@ func (m *Manager) run(ctx context.Context) {
 	m.result = cfg
 	m.profile = profile
 	m.mu.Unlock()
+}
+
+// setupFailMessage returns a human-readable error when no fans could be set up.
+// It distinguishes truly absent fans (zero RPM delta) from fans that responded
+// to PWM but failed heuristic sensor binding.
+func setupFailMessage(fans []FanState) string {
+	detected := 0
+	for _, f := range fans {
+		if f.DetectPhase == "found" || f.DetectPhase == "heuristic" {
+			detected++
+		}
+	}
+	if detected == 0 {
+		return "setup: no fans detected (all fan headers show 0 RPM delta). " +
+			"Verify fan connections and ensure fans are not already stopped by BIOS."
+	}
+	return fmt.Sprintf(
+		"setup: detected %d fan(s) but could not identify a temperature sensor "+
+			"(idle CPU / slow thermal response). "+
+			"Ventd attempted heuristic binding but found no plausible sensor. "+
+			"Check /etc/ventd/config.yaml and verify sensor assignment in the Curves page.",
+		detected,
+	)
 }
 
 // validateGeneratedConfig round-trips cfg through yaml.Marshal + config.Parse
