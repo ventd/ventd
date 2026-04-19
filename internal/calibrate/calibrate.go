@@ -22,6 +22,8 @@ package calibrate
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -1162,6 +1164,8 @@ func (m *Manager) load() {
 }
 
 func (m *Manager) save() {
+	// Marshal while holding the lock so the JSON encoder doesn't race with
+	// concurrent map writes (e.g. checkpoint() or run() updating m.results).
 	m.mu.Lock()
 	env := onDiskEnvelope{
 		SchemaVersion: SchemaVersion,
@@ -1173,8 +1177,9 @@ func (m *Manager) save() {
 		m.logger.Warn("calibrate: marshal results failed", "err", err)
 		return
 	}
+
 	// Ensure the parent directory exists — on a fresh install or after
-	// /etc/ventd is wiped, WriteFile would otherwise fail with ENOENT and the
+	// /etc/ventd is wiped, atomicWriteBytes would otherwise fail with ENOENT and the
 	// checkpoint would silently vanish.
 	dir := filepath.Dir(m.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1182,39 +1187,61 @@ func (m *Manager) save() {
 			"err", fmt.Errorf("mkdir %s: %w", dir, err))
 		return
 	}
-	tmp := m.path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		m.logger.Warn("calibrate: open tmp failed", "path", tmp, "err", err)
-		return
+	if err := atomicWriteBytes(m.path, data); err != nil {
+		m.logger.Warn("calibrate: persist failed", "path", m.path, "err", err)
 	}
-	if _, err := f.Write(data); err != nil {
+}
+
+// atomicWriteJSON marshals data to JSON then writes it to path atomically.
+// Intended for tests and callers that own their data exclusively; production
+// code that reads from a shared map must marshal under the appropriate lock
+// before calling atomicWriteBytes directly.
+func atomicWriteJSON(path string, data any) error {
+	b, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	return atomicWriteBytes(path, b)
+}
+
+// atomicWriteBytes writes b to path atomically via a uniquely-named temp file
+// and rename. Concurrent callers on the same path are safe: the last writer
+// wins but no caller ever observes a partial or missing file, and no caller's
+// error-path cleanup can delete another caller's in-flight tmp file.
+func atomicWriteBytes(path string, b []byte) error {
+	var suf [8]byte
+	if _, err := rand.Read(suf[:]); err != nil {
+		return fmt.Errorf("random suffix: %w", err)
+	}
+	tmp := path + ".tmp." + hex.EncodeToString(suf[:])
+
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("create tmp: %w", err)
+	}
+	// Always remove tmp on exit; no-op if Rename already moved the file.
+	defer os.Remove(tmp)
+
+	if _, err := f.Write(b); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
-		m.logger.Warn("calibrate: write tmp failed", "path", tmp, "err", err)
-		return
+		return fmt.Errorf("write: %w", err)
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
-		m.logger.Warn("calibrate: sync tmp failed", "path", tmp, "err", err)
-		return
+		return fmt.Errorf("sync: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		m.logger.Warn("calibrate: close tmp failed", "path", tmp, "err", err)
-		return
+		return fmt.Errorf("close: %w", err)
 	}
-	if err := os.Rename(tmp, m.path); err != nil {
-		_ = os.Remove(tmp)
-		m.logger.Warn("calibrate: rename tmp failed", "path", m.path,
-			"err", fmt.Errorf("rename %s -> %s: %w", tmp, m.path, err))
-		return
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", tmp, path, err)
 	}
-	if dir, err := os.Open(filepath.Dir(m.path)); err == nil {
-		_ = dir.Sync() // best-effort; some filesystems don't support this
-		_ = dir.Close()
+	// Best-effort directory fsync for rename durability across power loss.
+	if d, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
 	}
+	return nil
 }
 
 // checkpoint writes a single fan's partial result to disk atomically. Called
