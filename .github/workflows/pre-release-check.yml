@@ -1,0 +1,179 @@
+name: pre-release-check
+# Drew pre-tag validation gates. workflow_dispatch only.
+# Real gates: govulncheck, CHANGELOG non-empty, no open release-blocker, build+test.
+# Stubs: SBOM / cosign / repro — activate as #322 / #323 / #324 merge.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'SHA or ref to check (empty = HEAD of default branch)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  pre-release-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+
+      - name: gate1 — govulncheck
+        id: gate1
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          govulncheck -json ./... > govuln.json 2>&1 || true
+          python3 - << 'PY'
+          import json, os, sys
+          osv_sev, findings = {}, []
+          try:
+              for line in open('govuln.json'):
+                  try: obj = json.loads(line)
+                  except Exception: continue
+                  msg = obj.get('message', {})
+                  if 'osv' in msg:
+                      o = msg['osv']
+                      s = ((o.get('database_specific') or {}).get('severity') or 'UNKNOWN').upper()
+                      osv_sev[o.get('id', '')] = s
+                  elif 'finding' in msg:
+                      findings.append(msg['finding'].get('osv', ''))
+          except Exception as e:
+              print(f'parse error: {e}', file=sys.stderr)
+          counts = {}
+          for oid in findings:
+              s = osv_sev.get(oid, 'UNKNOWN')
+              counts[s] = counts.get(s, 0) + 1
+          total = sum(counts.values())
+          crit, high = counts.get('CRITICAL', 0), counts.get('HIGH', 0)
+          verdict = 'FAIL' if crit else 'WARN' if high else ('FAIL' if total else 'PASS')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('## Gate 1 — govulncheck\n\n')
+              if total == 0:
+                  f.write('**PASS** — no reachable vulnerabilities.\n\n')
+              else:
+                  f.write('| severity | count |\n|----------|-------|\n')
+                  for s in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'):
+                      if counts.get(s): f.write(f'| {s} | {counts[s]} |\n')
+                  f.write(f'\n**{verdict}** — {total} reachable vuln(s).\n\n')
+          out = os.environ.get('GITHUB_OUTPUT', '')
+          if out:
+              open(out, 'a').write(f'verdict={verdict}\n')
+          if crit:
+              print('::error::govulncheck: CRITICAL vulnerability — failing job')
+              sys.exit(1)
+          elif high:
+              print('::warning::govulncheck: HIGH vulnerability found')
+          PY
+
+      - name: gate2 — CHANGELOG [Unreleased] non-empty
+        id: gate2
+        run: |
+          count=$(awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | grep -c '^- ' || true)
+          if [ "$count" -lt 1 ]; then
+            echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
+            printf '## Gate 2 — CHANGELOG\n\n**FAIL** — no bullet entries under [Unreleased].\n\n' >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::CHANGELOG [Unreleased] section is empty'
+            exit 1
+          fi
+          echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
+          printf '## Gate 2 — CHANGELOG\n\n**PASS** — %d entries under [Unreleased].\n\n' "$count" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gate3 — no open release-blocker issues
+        id: gate3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          issues=$(gh api -H 'Accept: application/vnd.github+json' \
+            "/repos/${{ github.repository }}/issues?labels=release-blocker&state=open&per_page=100")
+          count=$(echo "$issues" | jq length)
+          {
+            printf '## Gate 3 — release-blocker issues\n\n'
+            if [ "$count" -gt 0 ]; then
+              printf '**FAIL** — %d open release-blocker issue(s):\n\n' "$count"
+              echo "$issues" | jq -r '.[] | "- #\(.number) \(.title)"'
+              printf '\n'
+            else
+              printf '**PASS** — no open release-blocker issues.\n\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -gt 0 ]; then
+            echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
+            echo "::error::${count} open release-blocker issue(s) — release gated"
+            exit 1
+          fi
+          echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
+
+      - name: gate4 — build + test
+        id: gate4
+        run: |
+          set +e
+          go build ./... > build.log 2>&1; bc=$?
+          go test ./... > test.log 2>&1; tc=$?
+          set -e
+          {
+            printf '## Gate 4 — build + test\n\n'
+            if [ $bc -ne 0 ] || [ $tc -ne 0 ]; then
+              printf '**FAIL**\n\n```\n'
+              cat build.log test.log
+              printf '```\n\n'
+            else
+              printf '**PASS**\n\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ $bc -ne 0 ] || [ $tc -ne 0 ]; then
+            echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
+
+      - name: gate5 — SBOM validate (stub)
+        run: |
+          echo '[SKIP: P10-SBOM-01 not landed — activates when #322 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gate6 — cosign verify (stub)
+        run: |
+          echo '[SKIP: P10-SIGN-01 not landed — activates when #323 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: gate7 — repro diff (stub)
+        run: |
+          echo '[SKIP: P10-REPRO-01 not landed — activates when #324 merges]' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: overall verdict
+        if: always()
+        env:
+          G1: ${{ steps.gate1.outputs.verdict }}
+          G2: ${{ steps.gate2.outputs.verdict }}
+          G3: ${{ steps.gate3.outputs.verdict }}
+          G4: ${{ steps.gate4.outputs.verdict }}
+        run: |
+          ov=PASS
+          for v in "$G1" "$G2" "$G3" "$G4"; do
+            v="${v:-FAIL}"
+            if [ "$v" = FAIL ]; then ov=FAIL; break; fi
+            if [ "$v" = WARN ] && [ "$ov" != FAIL ]; then ov=PARTIAL; fi
+          done
+          {
+            printf '\n---\n\n## Overall verdict: %s\n\n' "$ov"
+            echo '| gate | status |'
+            echo '|------|--------|'
+            printf '| Gate 1 — govulncheck | %s (real) |\n' "${G1:-FAIL}"
+            printf '| Gate 2 — CHANGELOG | %s (real) |\n' "${G2:-FAIL}"
+            printf '| Gate 3 — release-blocker issues | %s (real) |\n' "${G3:-FAIL}"
+            printf '| Gate 4 — build + test | %s (real) |\n' "${G4:-FAIL}"
+            echo '| Gate 5 — SBOM validate | SKIP (stub) |'
+            echo '| Gate 6 — cosign verify | SKIP (stub) |'
+            echo '| Gate 7 — repro diff | SKIP (stub) |'
+          } >> "$GITHUB_STEP_SUMMARY"

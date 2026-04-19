@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - install: setup token now persists to `/var/lib/ventd/setup-token` (mode 0600, owned `ventd:ventd`) in addition to the tmpfs `/run/ventd/setup-token`, surviving reboot; install.sh prints both paths (#182).
 
+### Infrastructure
+
+- release: pre-release-check.yml workflow automates pre-tag gates (govulncheck / CHANGELOG / release-blocker / build+test; Phase 10 stubs) (#RELEASE-CHECK-01)
+
 ## [Pre-automation history]
 
 Entries prior to v0.3.0 were hand-curated.
