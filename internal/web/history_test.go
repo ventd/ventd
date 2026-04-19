@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -109,8 +110,8 @@ func TestHistoryRecordStatus(t *testing.T) {
 	status := statusResponse{
 		Timestamp: ts,
 		Sensors: []sensorStatus{
-			{Name: "cpu_temp", Value: 47.3, Unit: "°C"},
-			{Name: "gpu_temp", Value: 62.1, Unit: "°C"},
+			{Name: "cpu_temp", Value: ptrFloat64(47.3), Unit: "°C"},
+			{Name: "gpu_temp", Value: ptrFloat64(62.1), Unit: "°C"},
 		},
 		Fans: []fanStatus{
 			{Name: "cpu_fan", PWM: 128, Duty: 50.2},
@@ -334,10 +335,17 @@ func TestHistorySamplerRunsOnTick(t *testing.T) {
 	// race against the one we spawn below.
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	live := config.Empty()
+	// Write a real hwmon-style file so buildStatus produces a non-nil value.
+	// /dev/null used to work when Value was float64 (zeroed on error), but now
+	// that Value is *float64, failed reads produce nil and RecordStatus skips them.
+	probeFile := t.TempDir() + "/temp1_input"
+	if err := os.WriteFile(probeFile, []byte("47000\n"), 0600); err != nil {
+		t.Fatalf("write probe file: %v", err)
+	}
 	live.Sensors = append(live.Sensors, config.Sensor{
 		Name: "probe",
-		Type: "static",
-		Path: "/dev/null", // read fails → value 0, a valid sample.
+		Type: "hwmon",
+		Path: probeFile,
 	})
 	var cfgPtr atomic.Pointer[config.Config]
 	cfgPtr.Store(live)
@@ -431,3 +439,7 @@ func httpReadAll(r *http.Response) ([]byte, error) {
 	_, err := buf.ReadFrom(r.Body)
 	return buf.Bytes(), err
 }
+
+// ptrFloat64 returns a pointer to v. Used in tests that construct
+// sensorStatus literals now that Value is *float64.
+func ptrFloat64(v float64) *float64 { return &v }

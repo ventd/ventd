@@ -21,6 +21,11 @@ import (
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
+// sentinelInvalidDuration is how long a sensor must return sentinel/implausible
+// values consecutively before the controller calls watchdog.RestoreOne to hand
+// the fan back to firmware auto. 30s = 15 ticks at the default 2s poll interval.
+const sentinelInvalidDuration = 30 * time.Second
+
 // CalibrationChecker can report whether a given pwmPath is currently being calibrated.
 type CalibrationChecker interface {
 	IsCalibrating(pwmPath string) bool
@@ -109,6 +114,18 @@ type Controller struct {
 	// per-tick heap allocations from readAllSensors and applySmoothing.
 	rawSensorsBuf map[string]float64
 	smoothedBuf   map[string]float64
+	// sentinelBuf receives the names of sensors that returned a sentinel or
+	// implausible value during the most recent readAllSensors call. It is
+	// separate from the value map so that ENOENT/EIO failures (which still
+	// use the "loud-on-data-loss" MaxPWM path) are not conflated with
+	// sentinel rejections (which carry forward the last good PWM).
+	sentinelBuf map[string]bool
+
+	// sensorInvalidSince tracks when each sensor name first returned a
+	// sentinel in the current consecutive run. Cleared per-sensor when a
+	// valid reading arrives. Used to trigger watchdog.RestoreOne after
+	// sentinelInvalidDuration of consecutive sentinel readings.
+	sensorInvalidSince map[string]time.Time
 
 	// Opt-2: compiled curve cached across ticks; rebuilt when the config
 	// pointer changes (SIGHUP) or any comparable CurveConfig field changes.
@@ -177,19 +194,21 @@ func New(
 	opts ...Option,
 ) *Controller {
 	c := &Controller{
-		fanName:       fanName,
-		curveName:     curveName,
-		pwmPath:       pwmPath,
-		fanType:       fanType,
-		cfg:           cfg,
-		wd:            wd,
-		cal:           cal,
-		logger:        logger.With("fan", fanName, "curve", curveName),
-		rawSensorsBuf: make(map[string]float64), // Opt-1
-		smoothedBuf:   make(map[string]float64), // Opt-1
-		piState:       make(map[string]curve.PIState),
-		lastTickAt:    time.Now(),
-		fatalErr:      make(chan error, 1),
+		fanName:            fanName,
+		curveName:          curveName,
+		pwmPath:            pwmPath,
+		fanType:            fanType,
+		cfg:                cfg,
+		wd:                 wd,
+		cal:                cal,
+		logger:             logger.With("fan", fanName, "curve", curveName),
+		rawSensorsBuf:      make(map[string]float64), // Opt-1
+		smoothedBuf:        make(map[string]float64), // Opt-1
+		sentinelBuf:        make(map[string]bool),    // Opt-1 (sentinel tracking)
+		sensorInvalidSince: make(map[string]time.Time),
+		piState:            make(map[string]curve.PIState),
+		lastTickAt:         time.Now(),
+		fatalErr:           make(chan error, 1),
 	}
 	if fanType == "nvidia" {
 		c.backend = halnvml.NewBackend(c.logger)
@@ -368,13 +387,49 @@ func (c *Controller) tick() {
 	// safely (Linear returns MaxPWM, keeping the fan at full speed on data loss).
 	// This isolates a single flaky sensor from affecting fans on other sensors.
 	// Opt-1: writes into the pre-allocated rawSensorsBuf; no heap allocation.
-	readAllSensors(c.logger, live.Sensors, c.rawSensorsBuf)
+	// sentinelBuf receives names of sensors that returned sentinel/implausible
+	// values — distinct from ENOENT/EIO failures so the two failure modes get
+	// different treatment below.
+	readAllSensors(c.logger, live.Sensors, c.rawSensorsBuf, c.sentinelBuf)
 
 	// Apply EMA smoothing to each sensor before curve evaluation. With
 	// Smoothing=0 (the default), α=1 → passthrough; a zero-smoothing
 	// config produces the same sensor map it would have without this
 	// stage, preserving pre-3a behaviour bit-for-bit.
 	sensors := c.applySmoothing(c.rawSensorsBuf, curveCfg.Smoothing.Duration, live.PollInterval.Duration)
+
+	// Sentinel gate: if the curve's bound sensor just returned a sentinel
+	// value, carry forward the last known good PWM rather than letting the
+	// curve evaluate against a missing key (which would produce MaxPWM).
+	// ENOENT/EIO failures still use the MaxPWM fail-safe — this path is
+	// intentionally narrow to the sentinel case.
+	if curveCfg.Sensor != "" && c.sentinelBuf[curveCfg.Sensor] {
+		since, tracked := c.sensorInvalidSince[curveCfg.Sensor]
+		if !tracked {
+			since = time.Now()
+			c.sensorInvalidSince[curveCfg.Sensor] = since
+			c.logger.Warn("controller: sensor sentinel, carrying forward last PWM",
+				"sensor", curveCfg.Sensor, "fan", c.fanName)
+		}
+		if time.Since(since) >= sentinelInvalidDuration {
+			c.logger.Warn("controller: sensor sentinel for >30s, restoring fan to firmware auto",
+				"sensor", curveCfg.Sensor, "fan", c.fanName)
+			c.wd.RestoreOne(c.pwmPath)
+			return
+		}
+		if c.hasLastPWM {
+			ch, buildErr := c.channelFor(fan)
+			if buildErr == nil {
+				_ = c.backend.Write(ch, c.lastPWM)
+			}
+		}
+		return
+	}
+	// Sentinel cleared: reset tracking for this sensor so the 30s clock
+	// restarts fresh on the next sentinel run.
+	if curveCfg.Sensor != "" {
+		delete(c.sensorInvalidSince, curveCfg.Sensor)
+	}
 
 	// Opt-2: build the curve graph once; only rebuild when the config pointer
 	// changes (SIGHUP) or any comparable CurveConfig field changes (catches
@@ -539,12 +594,20 @@ var readNvidiaMetric = nvidia.ReadMetric
 // Opt-1: dst is the Controller's pre-allocated rawSensorsBuf, reused every tick.
 // Individual sensor failures are logged and the sensor is omitted from dst;
 // the caller never receives an error for a partial read.
-func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string]float64) {
+//
+// sentinelDst, if non-nil, receives the names of sensors that returned a
+// sentinel or implausible value (distinct from I/O errors). Callers that need
+// to carry forward the last good PWM — rather than fall back to the loud
+// MaxPWM path used for ENOENT/EIO — consult this set after the call.
+func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string]float64, sentinelDst map[string]bool) {
 	clear(dst)
+	if sentinelDst != nil {
+		clear(sentinelDst)
+	}
 	for _, s := range sensors {
 		var (
-			tempC float64
-			err   error
+			val float64
+			err error
 		)
 		switch s.Type {
 		case "nvidia":
@@ -559,16 +622,28 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string
 				)
 				continue
 			}
-			tempC, err = readNvidiaMetric(uint(idx), s.Metric)
+			val, err = readNvidiaMetric(uint(idx), s.Metric)
 		default: // "hwmon" and any future sysfs-backed types
-			tempC, err = hwmon.ReadValue(s.Path)
+			val, err = hwmon.ReadValue(s.Path)
 		}
 		if err != nil {
 			logger.Warn("controller: sensor read failed, skipping sensor this tick",
 				"sensor", s.Name, "err", err)
 			continue
 		}
-		dst[s.Name] = tempC
+		// Sentinel / plausibility filter: reject values matching known driver
+		// sentinels or exceeding the plausibility cap for the sensor kind.
+		// Only applied to hwmon paths because nvidia metrics have no 0xFFFF
+		// sentinel convention and the NVML driver self-validates.
+		if s.Type != "nvidia" && halhwmon.IsSentinelSensorVal(s.Path, val) {
+			logger.Warn("controller: sensor returned sentinel or implausible value, skipping",
+				"sensor", s.Name, "path", s.Path, "value", val)
+			if sentinelDst != nil {
+				sentinelDst[s.Name] = true
+			}
+			continue
+		}
+		dst[s.Name] = val
 	}
 }
 

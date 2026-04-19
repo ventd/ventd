@@ -23,6 +23,13 @@ import (
 // this as fatal — retries will not cure a misconfiguration.
 var ErrNotPermitted = errors.New("hal: manual-mode acquisition not permitted")
 
+// ErrSensorSentinel is returned when a backend Read detects a raw value that
+// matches a known driver sentinel (e.g. 0xFFFF RPM from nct6687) or exceeds
+// the plausibility cap for the reading kind. Callers must treat this as
+// "skip this tick", not as a fatal error. The OK field of Reading is also
+// set to false so callers that only check OK still handle the case correctly.
+var ErrSensorSentinel = errors.New("hal: sensor sentinel or implausible value")
+
 // ChannelRole is a coarse, human-readable classification of what a
 // channel is probably cooling. It's advisory — the control config is
 // still the source of truth for how a fan is driven.

@@ -91,3 +91,56 @@ Hardcoding an index in persistent config or in-memory state will silently
 write to the wrong fan after a reboot.
 
 Bound: internal/controller/safety_test.go:hwmon_index_instability/resolve_by_device_path
+
+## RULE-HWMON-SENTINEL-TEMP: temperature sentinel rejected at the backend read boundary
+
+Raw sysfs temperature reads in millidegrees that match the 0xFFFF sentinel
+(255500 millidegrees = 255.5°C) or exceed the 150°C plausibility cap MUST
+be rejected by `IsSentinelSensorVal` before reaching the controller's sensor
+map. A curve bound to a sensor returning 255.5°C would drive PWM to MaxPWM
+on every tick — a safety bug on hardware that has no thermal runaway
+protection.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_rejects_255_5_degrees
+
+## RULE-HWMON-SENTINEL-FAN: fan RPM sentinel rejected at the backend read boundary
+
+Raw sysfs fan*_input reads of exactly 65535 RPM (the 0xFFFF nct6687 sentinel)
+or any value above 10000 RPM MUST be rejected by `IsSentinelRPM` in the hwmon
+backend's Read() method and marked as an invalid reading (OK=false). A
+calibration sweep that records 65535 RPM as a curve point would produce a
+wildly incorrect fan-speed model that misbehaves in closed-loop control.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_rejects_65535_rpm
+
+## RULE-HWMON-SENTINEL-VOLTAGE: voltage sentinel rejected at the backend read boundary
+
+Raw sysfs in*_input reads that exceed 20 V after the millivolts-to-volts
+scale (÷1000) MUST be rejected by `IsSentinelSensorVal`. The 0xFFFF sentinel
+at 65535 mV = 65.535 V exceeds every standard PSU rail. A control loop
+driven by a 65 V "voltage" reading would produce garbage PWM outputs.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/voltage_rejects_implausible
+
+## RULE-HWMON-INVALID-CURVE-SKIP: a curve tick with an invalid sentinel reading carries forward the last good PWM
+
+When the sensor bound to a curve returns a sentinel or implausible value
+(recorded in sentinelBuf by readAllSensors), the controller tick MUST NOT
+evaluate the curve. Instead, it must write the last known good PWM value
+(c.lastPWM) and return. This prevents a 255.5°C sentinel from driving PWM
+to MaxPWM — the "loud-on-data-loss" fallback used for ENOENT/EIO is NOT
+appropriate here because the chip is alive but glitching.
+
+Bound: internal/controller/safety_test.go:sentinel/invalid_reading_carries_forward_pwm
+
+## RULE-HWMON-PROLONGED-INVALID-RESTORE: after 30s of consecutive sentinel readings call watchdog.RestoreOne
+
+If a sensor bound to a fan's control curve has returned sentinel or
+implausible values for a continuous period of 30 seconds (tracked in
+sensorInvalidSince), the controller MUST call watchdog.RestoreOne(pwmPath)
+to hand the fan back to firmware auto-control. Staying on a frozen lastPWM
+indefinitely when the sensor chip appears to be dead is a latent thermal
+risk; firmware auto is safer than any daemon-chosen value under those
+conditions.
+
+Bound: internal/controller/safety_test.go:sentinel/prolonged_invalid_triggers_restore

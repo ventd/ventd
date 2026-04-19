@@ -21,6 +21,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
@@ -819,9 +820,9 @@ type statusResponse struct {
 }
 
 type sensorStatus struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
-	Unit  string  `json:"unit"`
+	Name  string   `json:"name"`
+	Value *float64 `json:"value"` // null when the reading is a sentinel or implausible
+	Unit  string   `json:"unit"`
 }
 
 type fanStatus struct {
@@ -861,14 +862,21 @@ func (s *Server) buildStatus() statusResponse {
 		default:
 			val, err = hwmon.ReadValue(sensor.Path)
 		}
+		ss := sensorStatus{
+			Name: sensor.Name,
+			Unit: sensorUnit(sensor),
+		}
 		if err != nil {
 			s.logger.Warn("web: sensor read failed", "sensor", sensor.Name, "err", err)
+			// Value remains nil → JSON null → UI renders "—"
+		} else if sensor.Type != "nvidia" && halhwmon.IsSentinelSensorVal(sensor.Path, val) {
+			s.logger.Warn("web: sensor returned sentinel value, suppressing from UI",
+				"sensor", sensor.Name, "path", sensor.Path, "value", val)
+			// Value remains nil → JSON null → UI renders "—"
+		} else {
+			ss.Value = &val
 		}
-		resp.Sensors = append(resp.Sensors, sensorStatus{
-			Name:  sensor.Name,
-			Value: val,
-			Unit:  sensorUnit(sensor),
-		})
+		resp.Sensors = append(resp.Sensors, ss)
 	}
 
 	for _, fan := range live.Fans {
@@ -896,7 +904,9 @@ func (s *Server) buildStatus() statusResponse {
 			} else {
 				rpm, rpmErr = hwmon.ReadRPM(fan.PWMPath)
 			}
-			if rpmErr == nil {
+			// Reject sentinel RPM values — they must not appear in the UI
+			// as if the fan is spinning at 65535 RPM.
+			if rpmErr == nil && !halhwmon.IsSentinelRPM(rpm) {
 				fs.RPM = &rpm
 			}
 		}
