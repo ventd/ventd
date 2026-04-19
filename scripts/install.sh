@@ -603,12 +603,40 @@ for candidate in \
     fi
 done
 if [[ -n "$WAIT_HWMON_SRC" ]]; then
-    install -d -m 755 /usr/local/sbin
-    install -m 755 "$WAIT_HWMON_SRC" /usr/local/sbin/ventd-wait-hwmon
-    echo "  ✓ wait-hwmon helper → /usr/local/sbin/ventd-wait-hwmon"
+    install -d -m 755 "$VENTD_SBIN_DIR"
+    install -m 755 "$WAIT_HWMON_SRC" "$VENTD_SBIN_DIR/ventd-wait-hwmon"
+    echo "  ✓ wait-hwmon helper → $VENTD_SBIN_DIR/ventd-wait-hwmon"
 else
     echo "  ! ventd-wait-hwmon not found in asset tree — cold-boot race"
     echo "    will rely on in-binary retry alone (still correct, one layer)"
+fi
+
+# ventd-recover: emergency pwm_enable restore binary. Installed to
+# /usr/local/sbin so ventd-recover.service can call it as root outside
+# the main daemon's sandbox. Optional in older release tarballs — if
+# absent, graceful-exit watchdog still works; only SIGKILL/OOM recovery
+# is missing.
+# VENTD_RECOVER_BIN may be set by test suites to inject a pre-built binary
+# path directly without modifying the source tree.
+RECOVER_BIN_SRC="${VENTD_RECOVER_BIN:-}"
+if [[ -z "$RECOVER_BIN_SRC" ]]; then
+    for candidate in \
+        "${ASSET_DIR}/ventd-recover" \
+        "${ASSET_DIR}/../ventd-recover" \
+        "${TARBALL_ROOT:-}/ventd-recover"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            RECOVER_BIN_SRC="$candidate"
+            break
+        fi
+    done
+fi
+if [[ -n "$RECOVER_BIN_SRC" ]]; then
+    install -d -m 755 "$VENTD_SBIN_DIR"
+    install -m 755 "$RECOVER_BIN_SRC" "$VENTD_SBIN_DIR/ventd-recover"
+    echo "  ✓ recovery binary → $VENTD_SBIN_DIR/ventd-recover"
+else
+    echo "  ! ventd-recover binary not found in asset tree — SIGKILL/OOM"
+    echo "    fan restore unavailable; graceful-exit watchdog still active"
 fi
 
 # /etc/ventd is group-readable (0750) so the ventd group (daemon only)
@@ -708,6 +736,10 @@ case "$INIT_SYSTEM" in
                 systemctl enable ventd.service
                 systemctl start ventd.service
                 echo "  ✓ systemd unit → $SERVICE_DST (enabled + started)"
+            fi
+            if [[ -n "$RECOVER_SRC" ]]; then
+                systemctl enable ventd-recover.service
+                echo "  ✓ ventd-recover.service enabled (OnFailure hook registered)"
             fi
             if (( VERIFY_ENABLE == 1 )); then
                 systemctl enable ventd-postreboot-verify.service
@@ -1012,7 +1044,7 @@ fi
 # if neither resolves. Best-effort: any failure here is informational only.
 MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || MACHINE_IP=""
 if [[ -z "$MACHINE_IP" ]] && command -v ip >/dev/null 2>&1; then
-    MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
+    MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)" || MACHINE_IP=""
 fi
 # Scheme is always https on first boot: the daemon auto-generates a
 # self-signed cert if no tls_cert is configured. Older installs that

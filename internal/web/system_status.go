@@ -54,13 +54,19 @@ func (s *Server) handleSystemWatchdog(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(r, w, resp)
 }
 
-// recoveryStatus reports whether ventd-recover.service is installed
-// and currently active. OpenRC / runit hosts lack systemctl entirely;
-// we detect that and return installed=false rather than 500.
+// recoveryStatus reports whether ventd-recover is fully installed:
+// binary present, unit file present, and unit enabled. OpenRC / runit
+// hosts lack systemctl entirely; we detect that and return
+// installed=false rather than 500.
 type recoveryStatus struct {
 	Installed     bool `json:"installed"`
 	ServiceActive bool `json:"service_active"`
 }
+
+const (
+	recoverBinPath  = "/usr/local/sbin/ventd-recover"
+	recoverUnitPath = "/etc/systemd/system/ventd-recover.service"
+)
 
 // cachedRecovery wraps the systemctl shell-out with a short TTL so a
 // dashboard that polls "System Status" every 5s doesn't spawn a
@@ -70,6 +76,7 @@ type cachedRecovery struct {
 	snap     recoveryStatus
 	at       time.Time
 	ttl      time.Duration
+	statFn   func(string) error                     // test seam (os.Lstat error)
 	lookPath func(string) (string, error)           // test seam
 	runCmd   func(ctx string, args ...string) error // test seam
 }
@@ -80,7 +87,11 @@ type cachedRecovery struct {
 // and resets with the binary, so production sees one process-wide
 // cache which is what we want.
 var recoveryCache = &cachedRecovery{
-	ttl:      5 * time.Second,
+	ttl: 5 * time.Second,
+	statFn: func(path string) error {
+		_, err := os.Stat(path)
+		return err
+	},
 	lookPath: exec.LookPath,
 	runCmd: func(name string, args ...string) error {
 		cmd := exec.Command(name, args...)
@@ -100,12 +111,18 @@ func (c *cachedRecovery) snapshot() recoveryStatus {
 		return c.snap
 	}
 	snap := recoveryStatus{}
-	if _, err := c.lookPath("systemctl"); err == nil {
-		// is-enabled exits 0 when enabled, non-zero otherwise. Same
-		// contract as is-active. A non-installed unit exits non-zero
-		// on both, which is exactly what we report.
-		snap.Installed = c.runCmd("systemctl", "is-enabled", "ventd-recover.service") == nil
-		snap.ServiceActive = c.runCmd("systemctl", "is-active", "ventd-recover.service") == nil
+	// All three components must be present for "installed":
+	//   1. binary at /usr/local/sbin/ventd-recover
+	//   2. unit file at /etc/systemd/system/ventd-recover.service
+	//   3. unit is-enabled (systemd only)
+	binOK := c.statFn(recoverBinPath) == nil
+	unitFileOK := c.statFn(recoverUnitPath) == nil
+	if binOK && unitFileOK {
+		if _, err := c.lookPath("systemctl"); err == nil {
+			// is-enabled exits 0 when enabled, non-zero otherwise.
+			snap.Installed = c.runCmd("systemctl", "is-enabled", "ventd-recover.service") == nil
+			snap.ServiceActive = c.runCmd("systemctl", "is-active", "ventd-recover.service") == nil
+		}
 	}
 	c.snap = snap
 	c.at = time.Now()
