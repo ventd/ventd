@@ -453,5 +453,59 @@ func TestController_ErrNotPermittedFatal_ManualMode(t *testing.T) {
 	}
 }
 
+// TestController_ManualWriteRetryAndRestore regresses #272: the manual-mode
+// write path must use the same retry+RestoreOne semantics as the curve path.
+// Two consecutive Write failures must trigger RestoreOne (not just log-and-return).
+func TestController_ManualWriteRetryAndRestore(t *testing.T) {
+	ff := newFakeFan(t) // pwm_enable=2
+
+	manual := uint8(150)
+	cfg := &config.Config{
+		Sensors: []config.Sensor{{Name: "cpu", Type: "hwmon", Path: ff.tempPath}},
+		Fans: []config.Fan{{
+			Name: "cpu fan", Type: "hwmon", PWMPath: ff.pwmPath,
+			MinPWM: 40, MaxPWM: 200,
+		}},
+		Curves:   []config.CurveConfig{{Name: "cpu_curve", Type: "fixed", Value: 100}},
+		Controls: []config.Control{{Fan: "cpu fan", Curve: "cpu_curve", ManualPWM: &manual}},
+	}
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	wd := watchdog.New(logger)
+	wd.Register(ff.pwmPath, "hwmon") // origEnable=2 captured at registration
+
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+	c := New("cpu fan", "cpu_curve", ff.pwmPath, "hwmon", cfgPtr, wd, &stubCal{}, logger)
+
+	writeErr := errors.New("sysfs write failed")
+	fb := &fakeErrBackend{errs: []error{writeErr, writeErr}}
+	c.backend = fb
+
+	// Simulate daemon having taken manual control (enable=1) so RestoreOne's
+	// write of origEnable=2 is observable as a change.
+	if err := os.WriteFile(ff.enablePath, []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("perturb enable: %v", err)
+	}
+
+	c.tick()
+
+	// RestoreOne must have fired: enable file restored to the captured origEnable (2).
+	if got := readIntFile(t, ff.enablePath); got != 2 {
+		t.Errorf("pwm_enable after double-fail manual tick = %d, want 2 (RestoreOne must have fired)", got)
+	}
+
+	// Structured event must appear in logs.
+	if !strings.Contains(logBuf.String(), "write_failed_restore_triggered") {
+		t.Errorf("expected write_failed_restore_triggered event in logs, got: %s", logBuf.String())
+	}
+
+	// Write called exactly twice: initial attempt + one retry.
+	if fb.writeCalls != 2 {
+		t.Errorf("Write called %d times, want 2 (initial + one retry)", fb.writeCalls)
+	}
+}
+
 // Verify PICurve implements StatefulCurve at compile time.
 var _ curve.StatefulCurve = (*curve.PICurve)(nil)

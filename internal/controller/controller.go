@@ -230,6 +230,41 @@ func (c *Controller) signalFatal(err error) {
 	}
 }
 
+// writeWithRetry performs a backend.Write with one 50ms retry. On
+// ErrNotPermitted it signals fatal immediately without retrying; on double
+// I/O failure it invokes watchdog.RestoreOne to hand the fan back to firmware
+// auto. Returns true iff the write eventually succeeded. kind is "curve" or
+// "manual" for structured log fields.
+func (c *Controller) writeWithRetry(ch hal.Channel, pwm uint8, pwmPath, kind string) bool {
+	writeErr := c.backend.Write(ch, pwm)
+	if writeErr == nil {
+		return true
+	}
+	if errors.Is(writeErr, hal.ErrNotPermitted) {
+		c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
+			"channel", ch.ID, "err", writeErr)
+		c.signalFatal(writeErr)
+		return false
+	}
+	c.logger.Warn("controller: PWM write failed, retrying",
+		"event", "write_retry",
+		"pwm_path", pwmPath, "fan", c.fanName, "kind", kind, "err", writeErr)
+	time.Sleep(50 * time.Millisecond)
+	retryErr := c.backend.Write(ch, pwm)
+	if retryErr == nil {
+		c.logger.Info("controller: PWM write retry succeeded",
+			"event", "write_retry_succeeded",
+			"pwm_path", pwmPath, "fan", c.fanName, "kind", kind)
+		return true
+	}
+	c.logger.Error("controller: PWM write failed after retry, triggering restore",
+		"event", "write_failed_restore_triggered",
+		"pwm_path", pwmPath, "fan", c.fanName, "kind", kind,
+		"err1", writeErr, "err2", retryErr)
+	c.wd.RestoreOne(pwmPath)
+	return false
+}
+
 // Run starts the control loop. It takes manual control of the PWM channel
 // via the backend, ticks at interval until ctx is cancelled, then returns.
 //
@@ -356,14 +391,8 @@ func (c *Controller) tick() {
 			c.logger.Error("controller: cannot build backend channel", "err", err)
 			return
 		}
-		if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
-			if errors.Is(writeErr, hal.ErrNotPermitted) {
-				c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
-					"channel", ch.ID, "err", writeErr)
-				c.signalFatal(writeErr)
-				return
-			}
-			c.logger.Error("controller: manual PWM write failed", "err", writeErr)
+		if !c.writeWithRetry(ch, pwm, c.pwmPath, "manual") {
+			return
 		}
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
 		return
@@ -497,28 +526,8 @@ func (c *Controller) tick() {
 		c.logger.Error("controller: cannot build backend channel", "err", err)
 		return
 	}
-	if writeErr := c.backend.Write(ch, pwm); writeErr != nil {
-		if errors.Is(writeErr, hal.ErrNotPermitted) {
-			c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
-				"channel", ch.ID, "err", writeErr)
-			c.signalFatal(writeErr)
-			return
-		}
-		c.logger.Warn("controller: PWM write failed, retrying",
-			"event", "write_retry",
-			"pwm_path", c.pwmPath, "fan", c.fanName, "err", writeErr)
-		time.Sleep(50 * time.Millisecond)
-		if retryErr := c.backend.Write(ch, pwm); retryErr != nil {
-			c.logger.Error("controller: PWM write failed after retry, triggering restore",
-				"event", "write_failed_restore_triggered",
-				"pwm_path", c.pwmPath, "fan", c.fanName,
-				"err1", writeErr, "err2", retryErr)
-			c.wd.RestoreOne(c.pwmPath)
-			return
-		}
-		c.logger.Info("controller: PWM write retry succeeded",
-			"event", "write_retry_succeeded",
-			"pwm_path", c.pwmPath, "fan", c.fanName)
+	if !c.writeWithRetry(ch, pwm, c.pwmPath, "curve") {
+		return
 	}
 
 	// Update hysteresis baseline — the temp + PWM we just committed are
