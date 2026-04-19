@@ -1181,14 +1181,37 @@ func (m *Manager) save() {
 		return
 	}
 	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		m.logger.Warn("calibrate: write tmp failed", "path", tmp,
-			"err", fmt.Errorf("write %s: %w", tmp, err))
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		m.logger.Warn("calibrate: open tmp failed", "path", tmp, "err", err)
+		return
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		m.logger.Warn("calibrate: write tmp failed", "path", tmp, "err", err)
+		return
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		m.logger.Warn("calibrate: sync tmp failed", "path", tmp, "err", err)
+		return
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		m.logger.Warn("calibrate: close tmp failed", "path", tmp, "err", err)
 		return
 	}
 	if err := os.Rename(tmp, m.path); err != nil {
+		_ = os.Remove(tmp)
 		m.logger.Warn("calibrate: rename tmp failed", "path", m.path,
 			"err", fmt.Errorf("rename %s -> %s: %w", tmp, m.path, err))
+		return
+	}
+	if dir, err := os.Open(filepath.Dir(m.path)); err == nil {
+		_ = dir.Sync() // best-effort; some filesystems don't support this
+		_ = dir.Close()
 	}
 }
 
