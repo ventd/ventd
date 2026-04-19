@@ -63,7 +63,6 @@ If none, write "None".
 <!--
 Hygiene:
 - Single commit preferred unless the change is genuinely layered (refactor + feature).
-- CHANGELOG entry under `## [Unreleased]` for any user-facing / operator-facing change.
 - Issue label `role:atlas` gets removed automatically when Atlas merges.
 - Draft → ready promotion: Atlas does this for safety-critical PRs after (B) window closes; for routine PRs, CC may promote directly.
 -->
