@@ -163,9 +163,8 @@ jobs:
           PY
 
       - name: Upload SBOMs as workflow artifacts
-        # actions/upload-artifact v4.3.3 —
-        # SHA: 65462800fd760344b1a7b4382951275a0abb4808
-        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        # actions/upload-artifact v4 — matches canonical post-#355 SHA in docker.yml
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sboms-${{ github.ref_name }}
           path: sboms/
