@@ -20,11 +20,12 @@ builds:
       - arm64
     flags:
       - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.buildDate={{.Date}}
+      - -X main.buildDate={{.CommitTimestamp}}
 
   # ventd-recover: emergency fan restore oneshot. Installed to
   # /usr/local/sbin and invoked by ventd-recover.service via OnFailure=
@@ -41,6 +42,7 @@ builds:
       - arm64
     flags:
       - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
     ldflags:
       - -s -w
 
@@ -61,11 +63,12 @@ builds:
       - nonvidia
     flags:
       - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.buildDate={{.Date}}
+      - -X main.buildDate={{.CommitTimestamp}}
 
 archives:
   - id: default

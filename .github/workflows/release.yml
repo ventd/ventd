@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.25.9"
           cache: true
 
       - name: Install cosign v4.1.1
@@ -38,6 +38,10 @@ jobs:
             | sh -s -- -b /usr/local/bin v1.18.0
           syft version
 
+      - name: Set SOURCE_DATE_EPOCH
+        id: source_date
+        run: echo "epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e24998b8b67b290c2fa8b7c14fcfa7de2c5c9b8c # v7
         with:
@@ -46,6 +50,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_DATE_EPOCH: ${{ steps.source_date.outputs.epoch }}
+          GOFLAGS: -trimpath
 
       - name: Generate artifact hashes for SLSA provenance
         id: hash
@@ -75,7 +81,7 @@ jobs:
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.25.9"
           cache: true
 
       - name: Download SBOMs from release
