@@ -175,11 +175,15 @@ def _parse_since(since: str) -> float:
 
 # --- FastMCP -----------------------------------------------------------------
 
+# NOTE: Do NOT pass streamable_http_path="/" to FastMCP. Claude.ai MCP
+# connectors POST to /mcp per protocol standard. Overriding the path to
+# "/" makes /mcp return 404 and the connector cannot complete the MCP
+# handshake after OAuth succeeds. cowork-mcp and spawn-mcp omit this
+# parameter and work correctly.
 mcp = FastMCP(
     "ops-mcp",
     host=HOST,
     port=PORT,
-    streamable_http_path="/",
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=ENABLE_DNS_REBINDING_PROTECTION,
         allowed_hosts=ALLOWED_HOSTS,
