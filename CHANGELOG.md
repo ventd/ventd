@@ -84,6 +84,7 @@ time via .github/workflows/release-changelog.yml.
   GO-2025-4008 (crypto/tls ALPN), GO-2025-4009 (encoding/pem), and
   GO-2026-4947 (crypto/x509). No code changes; govulncheck now reports zero
   reachable vulnerabilities.
+- supply-chain: security advisory policy + GHSA drafted for v0.3.0 stdlib CVE set (#SUPPLY-GHSA-01)
 
 ### Infrastructure
 
