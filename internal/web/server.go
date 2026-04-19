@@ -923,6 +923,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(r, w, s.cfg.Load())
 	case http.MethodPut:
 		s.handleConfigPut(w, r)
+	case http.MethodPatch:
+		s.handleConfigPatch(w, r)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -954,7 +956,9 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Store(validated)
 	s.logger.Info("config updated via web UI", "controls", len(validated.Controls))
 
-	s.writeJSON(r, w, map[string]string{"status": "ok"})
+	// Return the validated config so the UI can rehydrate the form from the
+	// server's canonical state (#483: prevents stale field values after apply).
+	s.writeJSON(r, w, validated)
 }
 
 // sensorUnit returns the display unit for a configured sensor.

@@ -185,10 +185,10 @@ async function applyConfig(){
 
 // commitConfigApply is the second half of the Apply flow — called
 // from the modal's Confirm button after the user has reviewed the
-// diff. Same PUT semantics as the previous one-step applyConfig:
-// on 200 the dirty flag clears, on non-200 the error surface goes
-// through the modal's status line so the user can retry without
-// dismissing.
+// diff. On 200 the server returns the validated merged config; the UI
+// rehydrates from it so stale or normalised field values don't persist
+// in the form (#483). On non-200 the error surface goes through the
+// modal's status line so the user can retry without dismissing.
 async function commitConfigApply(){
   const statusEl = document.getElementById('apply-status');
   const confirmBtn = document.getElementById('btn-apply-confirm');
@@ -200,12 +200,15 @@ async function commitConfigApply(){
       body:JSON.stringify(cfg)
     });
     if(r.ok){
+      const newCfg = await r.json();
+      cfg = newCfg;
+      curveDirtyPatch = {};
       dirty=false;
       document.getElementById('dirty').hidden=true;
       document.getElementById('btn-apply').disabled=true;
       notify('Configuration applied', 'ok');
       closeApplyModal();
-      loadConfig();
+      render();
     } else {
       const msg = await r.text();
       if(statusEl){ statusEl.textContent = msg; statusEl.className = 'apply-status apply-status-err'; }
@@ -214,6 +217,49 @@ async function commitConfigApply(){
     if(statusEl){ statusEl.textContent = 'Apply failed: '+e.message; statusEl.className = 'apply-status apply-status-err'; }
   } finally {
     if(confirmBtn) confirmBtn.disabled = false;
+  }
+}
+
+// applyCurvePatch sends a PATCH /api/config for the currently selected curve,
+// containing only the fields the user changed since the last curve selection
+// or last successful apply. On success the full merged config is returned and
+// cfg is rehydrated so subsequent edits start from the actual server state.
+// On failure the error is shown inline on the editor — form values are NOT
+// reset so the user can correct and retry.
+async function applyCurvePatch(){
+  if(selIdx<0 || !cfg) return;
+  const curveName = cfg.curves[selIdx].name;
+  const keys = Object.keys(curveDirtyPatch);
+  if(keys.length === 0){ notify('No changes to apply', 'ok'); return; }
+
+  const patchBody = { name: curveName };
+  keys.forEach(k => { patchBody[k] = curveDirtyPatch[k]; });
+  const patch = { curves: [patchBody] };
+
+  clearCurveApplyError();
+  const applyBtn = document.getElementById('btn-curve-apply');
+  if(applyBtn) applyBtn.disabled = true;
+  try {
+    const r = await fetch('/api/config', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(patch),
+    });
+    if(r.ok){
+      const newCfg = await r.json();
+      cfg = newCfg;
+      curveDirtyPatch = {};
+      notify('Curve applied', 'ok');
+      render();
+    } else {
+      const errMsg = await r.text();
+      // Show inline — do NOT hydrate from config so user's typed values survive.
+      showCurveApplyError(errMsg);
+    }
+  } catch(e){
+    showCurveApplyError('Apply failed: '+e.message);
+  } finally {
+    if(applyBtn) applyBtn.disabled = false;
   }
 }
 

@@ -16,6 +16,10 @@
 
 let cfg = null, sts = null, hw = null, selIdx = -1, dirty = false, dragging = null;
 let hwCollapsed = {}, calStatuses = {}, calResults = {};
+// curveDirtyPatch accumulates per-field PATCH values for the selected curve.
+// Keys are PATCH field names (e.g. 'min_pwm_pct'); values are the new values
+// to send. Reset on curve selection so each editor session starts clean.
+let curveDirtyPatch = {};
 
 // Curve-editor SVG geometry. The viewBox is 510x255; G defines the
 // inner plot area (the strip framed by axis labels and tick marks).
