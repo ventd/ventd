@@ -78,17 +78,63 @@ jobs:
               print('::warning::govulncheck: HIGH vulnerability found')
           PY
 
-      - name: gate2 — git-cliff automation configured
+      - name: gate2 — CHANGELOG will be non-empty
         id: gate2
         run: |
+          # Two-part check:
+          # (1) cliff.toml must exist (git-cliff automation configured — #450 IMPROV-B)
+          # (2) at least one conventional-commit-formatted commit since last tag,
+          #     otherwise release-changelog.yml would produce an empty CHANGELOG block.
           if [ ! -f cliff.toml ]; then
             echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
-            printf '## Gate 2 — CHANGELOG automation\n\n**FAIL** — cliff.toml missing; git-cliff automation not configured.\n\n' >> "$GITHUB_STEP_SUMMARY"
+            printf '## Gate 2 — CHANGELOG\n\n**FAIL** — cliff.toml missing; git-cliff automation not configured.\n\n' >> "$GITHUB_STEP_SUMMARY"
             echo '::error::cliff.toml missing — release-changelog automation not set up'
             exit 1
           fi
+
+          # Prefixes tracked by cliff.toml (see commit_parsers in cliff.toml on main):
+          # feat, fix, perf, refactor, docs, rules, test, chore, ci.
+          # chore(release) is explicitly skipped by cliff.toml, so subtract it.
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          ALL=$(git log "$RANGE" --format='%s' 2>/dev/null | \
+            grep -cE '^(feat|fix|perf|refactor|docs|rules|test|chore|ci)(\([^)]+\))?!?: ' || true)
+          SKIPPED=$(git log "$RANGE" --format='%s' 2>/dev/null | \
+            grep -cE '^chore\(release\)' || true)
+          COUNT=$((ALL - SKIPPED))
+
+          if [ "$COUNT" -lt 1 ]; then
+            echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
+            {
+              printf '## Gate 2 — CHANGELOG\n\n'
+              printf '**FAIL** — zero conventional-commit entries '
+              if [ -n "$LAST_TAG" ]; then
+                printf 'since tag \`%s\`.\n\n' "$LAST_TAG"
+              else
+                printf 'in history.\n\n'
+              fi
+              printf 'git-cliff would emit an empty CHANGELOG block on next tag.\n'
+              printf 'Commits must use conventional-commit format (\`feat:\`, \`fix:\`, \`docs:\`, etc.) to appear in CHANGELOG.\n\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::zero conventional-commit entries since last tag — CHANGELOG would be empty'
+            exit 1
+          fi
+
           echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
-          printf '## Gate 2 — CHANGELOG automation\n\n**PASS** — cliff.toml present; CHANGELOG generated at tag time by release-changelog.yml.\n\n' >> "$GITHUB_STEP_SUMMARY"
+          {
+            printf '## Gate 2 — CHANGELOG\n\n'
+            printf '**PASS** — %d conventional-commit entries will appear in next CHANGELOG' "$COUNT"
+            if [ -n "$LAST_TAG" ]; then
+              printf ' (range \`%s..HEAD\`).\n\n' "$LAST_TAG"
+            else
+              printf ' (no prior tag; counting full history).\n\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: gate3 — no open release-blocker issues
         id: gate3
