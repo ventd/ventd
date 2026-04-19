@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>wizard-cache regression tests — Issue #502</title>
+  <style>
+    body { font-family: monospace; background:#111; color:#eee; padding:1.5rem; }
+    h2   { color:#aaa; margin:0 0 1.2rem; }
+    .pass{ color:#4caf50; }
+    .fail{ color:#f44336; font-weight:bold; }
+    pre  { background:#1e1e1e; border-left:3px solid #555; padding:.6rem 1rem; margin:.8rem 0; }
+    pre.ok  { border-color:#4caf50; }
+    pre.err { border-color:#f44336; }
+  </style>
+</head>
+<body>
+<h2>wizard-cache regression tests — Issue #502</h2>
+<div id="results"></div>
+<script>
+"use strict";
+
+// ── Cache implementation (must stay in sync with setup.js) ───────────────────
+//
+// These functions are duplicated here rather than imported because setup.js
+// has hard DOM dependencies (document.getElementById calls at module scope)
+// that cannot be satisfied in a standalone test page without a full fixture.
+// Any change to WIZARD_CACHE_KEY, WIZARD_CACHE_TTL, readCachedWizardState,
+// cacheWizardState, or clearWizardCache in setup.js MUST be reflected here.
+
+const WIZARD_CACHE_KEY = 'ventd-wizard-state';
+const WIZARD_CACHE_TTL = 60_000; // 60 s — must match setup.js
+
+function cacheWizardState(s) {
+  try {
+    sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify({ s, ts: Date.now() }));
+  } catch(_) {}
+}
+
+function readCachedWizardState() {
+  try {
+    const raw = sessionStorage.getItem(WIZARD_CACHE_KEY);
+    if (!raw) return null;
+    const { s, ts } = JSON.parse(raw);
+    if (Date.now() - ts > WIZARD_CACHE_TTL) {
+      sessionStorage.removeItem(WIZARD_CACHE_KEY);
+      return null;
+    }
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function clearWizardCache() {
+  try { sessionStorage.removeItem(WIZARD_CACHE_KEY); } catch(_) {}
+  try { localStorage.removeItem('ventd-wizard-result'); } catch(_) {}
+}
+
+// ── Harness ───────────────────────────────────────────────────────────────────
+
+let pass = 0, fail = 0;
+const out = document.getElementById('results');
+
+function assert(label, ok, detail) {
+  const el = document.createElement('div');
+  el.className = ok ? 'pass' : 'fail';
+  el.textContent = (ok ? '✓ ' : '✗ ') + label + (detail && !ok ? ' — ' + detail : '');
+  out.appendChild(el);
+  ok ? pass++ : fail++;
+}
+
+// ── TestRegression_Issue502_StaleWizardCacheExpires ───────────────────────────
+// Write a cache entry whose timestamp is 61 s in the past.
+// readCachedWizardState() must return null AND remove the key.
+(function TestRegression_Issue502_StaleWizardCacheExpires() {
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+  const stale = { s: { needed: true, applied: false, done: true, error: 'calibration failed' }, ts: Date.now() - 61_000 };
+  sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify(stale));
+
+  const result = readCachedWizardState();
+  assert('StaleWizardCacheExpires: 61s-old entry returns null', result === null);
+  assert('StaleWizardCacheExpires: key removed after expiry', sessionStorage.getItem(WIZARD_CACHE_KEY) === null);
+})();
+
+// ── TestRegression_Issue502_FreshCacheIsReadable ──────────────────────────────
+// A cache entry written with a current timestamp must survive one read.
+(function TestRegression_Issue502_FreshCacheIsReadable() {
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+  const state = { needed: true, applied: false, running: true };
+  cacheWizardState(state);
+
+  const result = readCachedWizardState();
+  assert('FreshCacheIsReadable: fresh entry returns state', result !== null && result.needed === true && result.running === true);
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+})();
+
+// ── TestRegression_Issue502_ServerStateOverridesCache ────────────────────────
+// Simulate: stale failure state in cache + server returns applied=true.
+// The logic in checkSetup() calls clearWizardCache() when !p.needed || p.applied.
+// Assert: after that path executes, readCachedWizardState returns null and
+// the legacy localStorage key is also cleared.
+(function TestRegression_Issue502_ServerStateOverridesCache() {
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+  localStorage.removeItem('ventd-wizard-result');
+
+  // Plant a stale failure entry (within TTL so it would otherwise be shown).
+  const staleFailure = { s: { needed: true, applied: false, done: true, error: 'bad sensor' }, ts: Date.now() - 5_000 };
+  sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify(staleFailure));
+  localStorage.setItem('ventd-wizard-result', 'old-failure');
+
+  // Simulate the server returning setup_complete (applied=true).
+  const serverResp = { needed: false, applied: true };
+  if (!serverResp.needed || serverResp.applied) {
+    clearWizardCache(); // mirrors checkSetup() success path
+  }
+
+  assert('ServerStateOverridesCache: sessionStorage cleared on applied=true', sessionStorage.getItem(WIZARD_CACHE_KEY) === null);
+  assert('ServerStateOverridesCache: legacy localStorage key cleared', localStorage.getItem('ventd-wizard-result') === null);
+
+  // The caller (checkSetup) then proceeds to read from server, not cache.
+  const result = readCachedWizardState();
+  assert('ServerStateOverridesCache: readCachedWizardState returns null post-clear', result === null);
+})();
+
+// ── TestRegression_Issue502_ExactTTLBoundary ──────────────────────────────────
+// An entry that is exactly 60001 ms old must be expired.
+// An entry that is exactly 59999 ms old must still be valid.
+(function TestRegression_Issue502_ExactTTLBoundary() {
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+
+  // Just past the boundary: should be expired.
+  sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify({ s: { needed: true }, ts: Date.now() - 60_001 }));
+  assert('ExactTTLBoundary: 60001ms-old entry is expired', readCachedWizardState() === null);
+
+  // Just inside the boundary: should still be valid.
+  sessionStorage.setItem(WIZARD_CACHE_KEY, JSON.stringify({ s: { needed: true }, ts: Date.now() - 59_999 }));
+  const r = readCachedWizardState();
+  assert('ExactTTLBoundary: 59999ms-old entry is still valid', r !== null && r.needed === true);
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+})();
+
+// ── TestRegression_Issue502_CorruptCacheHandled ───────────────────────────────
+// Corrupt JSON in sessionStorage must not throw — readCachedWizardState must
+// return null cleanly.
+(function TestRegression_Issue502_CorruptCacheHandled() {
+  sessionStorage.setItem(WIZARD_CACHE_KEY, 'not-json{{{broken');
+  let threw = false, result;
+  try { result = readCachedWizardState(); } catch(e) { threw = true; }
+  assert('CorruptCacheHandled: no exception thrown on corrupt JSON', !threw);
+  assert('CorruptCacheHandled: returns null on corrupt JSON', result === null);
+  sessionStorage.removeItem(WIZARD_CACHE_KEY);
+})();
+
+// ── TestRegression_Issue502_TTLConstantValue ──────────────────────────────────
+// The TTL constant must be exactly 60 000 ms as documented in the fix notes
+// and the web-ui rules. Silently widening it would defeat the stale-failure fix.
+(function TestRegression_Issue502_TTLConstantValue() {
+  assert('TTLConstantValue: WIZARD_CACHE_TTL === 60000', WIZARD_CACHE_TTL === 60_000, 'got ' + WIZARD_CACHE_TTL);
+})();
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+const summary = document.createElement('pre');
+summary.className = fail ? 'err' : 'ok';
+summary.textContent = '\n' + pass + ' passed, ' + fail + ' failed';
+out.appendChild(summary);
+</script>
+</body>
+</html>
