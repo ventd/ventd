@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -43,23 +42,9 @@ var (
 	buildDate = "unknown"
 )
 
-// errRestart is returned by run() when a self-exec restart is requested
-// (e.g. after the web setup wizard writes the initial config).
-var errRestart = errors.New("restart")
-
 func main() {
 	if err := run(); err != nil {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		if errors.Is(err, errRestart) {
-			// All defers in run() have fired (PWM restored, NVML shut down).
-			// Replace the current process image with a fresh instance.
-			if execErr := syscall.Exec(os.Args[0], os.Args, os.Environ()); execErr != nil {
-				logger.Error("ventd: restart failed", "err", execErr)
-				os.Exit(1)
-			}
-		}
-		// At this point, run()'s defers have already fired (including wd.Restore),
-		// so it is safe to os.Exit.
 		logger.Error("ventd: fatal", "err", err)
 		os.Exit(1)
 	}
@@ -266,8 +251,12 @@ func run() error {
 // web server, per-fan controllers, and the shutdown-coordinating select loop.
 // It returns:
 //   - nil on SIGTERM / SIGINT (or ctx cancellation when sigCh is nil)
-//   - errRestart when the web server signals a restart via restartCh
 //   - a wrapped controller error when a control goroutine fails
+//
+// restartCh signals from the web server or hwmon watcher are handled as
+// in-process config reloads: the config file is re-read, liveCfg is swapped
+// atomically, and — on first-boot transition — new controllers are started.
+// The daemon never exits on a failed reload; it logs and continues.
 //
 // Passing nil for sigCh is supported: a receive on a nil channel blocks
 // forever, so the signal case never fires — used by the integration test
@@ -279,6 +268,22 @@ func runDaemon(
 	logger *slog.Logger,
 	setupToken string,
 	sigCh <-chan os.Signal,
+) error {
+	restartCh := make(chan struct{}, 1)
+	return runDaemonInternal(parentCtx, cfg, configPath, logger, setupToken, sigCh, restartCh)
+}
+
+// runDaemonInternal is the concrete daemon implementation with an injectable
+// restartCh. Production callers use runDaemon; tests call this directly via
+// runDaemonWithRestart to send reload signals.
+func runDaemonInternal(
+	parentCtx context.Context,
+	cfg *config.Config,
+	configPath string,
+	logger *slog.Logger,
+	setupToken string,
+	sigCh <-chan os.Signal,
+	restartCh chan struct{},
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -372,13 +377,6 @@ func runDaemon(
 	errCh := make(chan error, len(cfg.Controls)+1)
 	var wg sync.WaitGroup
 
-	// restartCh is signalled by the web server after setup applies a new
-	// config, and by the hwmon watcher on `action=added` topology changes
-	// that match a configured HwmonDevice (#86 Proposal 3 / #95 Option A).
-	// Buffered to one so senders can non-blockingly drop duplicate signals
-	// when a restart is already pending.
-	restartCh := make(chan struct{}, 1)
-
 	// Tier 0.3 — hardware change detection. Watches /sys/class/hwmon for
 	// add/remove at runtime via netlink uevents plus a 5-minute periodic
 	// rescan safety net; emits a ComponentHardware diagnostic with a
@@ -389,17 +387,15 @@ func runDaemon(
 	//
 	// On `action=added`, the watcher calls rebindTrigger below. The trigger
 	// inspects liveCfg to see whether the added device's StableDevice path
-	// matches any configured Fan/Sensor HwmonDevice. If it does, a restart
-	// is requested via restartCh — runDaemon tears down controllers + web,
-	// returns errRestart, and main() re-execs so ResolveHwmonPaths picks
-	// the correct hwmonN for the (now-present) configured chip. During the
-	// 1-2 s restart gap, pwm_enable is restored to 2 (kernel-automatic) by
-	// the wd.Restore() defer — the documented Option A tradeoff (#98).
+	// matches any configured Fan/Sensor HwmonDevice. If it does, a reload
+	// is signalled via restartCh — runDaemon re-reads the config and swaps
+	// liveCfg so ResolveHwmonPaths picks the correct hwmonN for the
+	// (now-present) configured chip.
 	//
 	// Gated on cfg.Hwmon.DynamicRebind (default false) so the v0.2.x
 	// "diagnostic-only" behaviour is preserved until an operator opts in.
 	// When the flag is unset the watcher still emits hardware-change
-	// diagnostics; only the re-exec path is disabled.
+	// diagnostics; only the reload path is disabled.
 	var watcherOpts []hwmon.Option
 	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
 		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
@@ -537,14 +533,54 @@ func runDaemon(
 			return ctrlErr
 
 		case <-restartCh:
-			logger.Info("restarting to apply new configuration")
-			cancel()
-			// Gracefully drain in-flight HTTP responses and release the port
-			// before wg.Wait, so the web goroutine can return.
-			webSrv.Shutdown()
-			wg.Wait()
-			// wd.Restore() and nvidia.Shutdown() run via defer before main() calls Exec.
-			return errRestart
+			// In-process config reload replaces the former re-exec path (#466).
+			// A failed reload is non-fatal: log and keep running with the current config.
+			newCfg, reloadErr := config.Load(configPath)
+			if reloadErr != nil {
+				logger.Warn("config reload failed; keeping current config", "err", reloadErr)
+				continue
+			}
+			resolveHwmonPaths(newCfg, cal, logger)
+			oldCfg := liveCfg.Load()
+			liveCfg.Store(newCfg)
+			logger.Info("config reloaded",
+				"poll_interval", newCfg.PollInterval.Duration,
+				"controls", len(newCfg.Controls),
+			)
+			// First-boot → configured transition: start controllers for the new config.
+			// On a running system (oldCfg already has controls) existing controllers
+			// pick up new curve parameters from liveCfg on their next tick.
+			if len(oldCfg.Controls) == 0 && len(newCfg.Controls) > 0 {
+				for _, fan := range newCfg.Fans {
+					wd.Register(fan.PWMPath, fan.Type)
+				}
+				for _, ctrl := range newCfg.Controls {
+					fanCfg, err := resolveControl(newCfg, ctrl)
+					if err != nil {
+						logger.Error("resolve control after config reload",
+							"fan", ctrl.Fan, "err", err)
+						continue
+					}
+					c := controller.New(
+						ctrl.Fan, ctrl.Curve,
+						fanCfg.PWMPath, fanCfg.Type,
+						&liveCfg, wd, cal, logger,
+						controller.WithSensorReadHook(func() {
+							readyState.MarkSensorRead(time.Now())
+						}),
+						controller.WithPanicChecker(webSrv),
+					)
+					wg.Add(1)
+					go func(c *controller.Controller) {
+						defer wg.Done()
+						if runErr := c.Run(ctx, newCfg.PollInterval.Duration); runErr != nil {
+							errCh <- runErr
+						}
+					}(c)
+				}
+				logger.Info("controllers started after first-boot config reload",
+					"count", len(newCfg.Controls))
+			}
 		}
 	}
 }

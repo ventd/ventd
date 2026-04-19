@@ -728,8 +728,11 @@ func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	return nil
 }
 
-// triggerRestart signals main to restart the daemon after the current request completes.
-func (s *Server) triggerRestart() {
+// triggerReload signals the main loop to reload config in-process (#466).
+// The main loop handles the signal without exiting the daemon: it re-reads the
+// config file, swaps liveCfg atomically, and starts controllers if needed.
+// Buffered to one so callers never block; duplicate signals are dropped.
+func (s *Server) triggerReload() {
 	select {
 	case s.restartCh <- struct{}{}:
 	default:
@@ -1055,7 +1058,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Connection", "close")
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
-	s.triggerRestart()
+	s.triggerReload()
 }
 
 // handleSetupReset POST /api/setup/reset
@@ -1069,11 +1072,11 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.logger.Info("setup: config removed, restarting for fresh setup", "path", s.configPath)
+	s.logger.Info("setup: config removed; triggering reload (daemon continues until next restart)", "path", s.configPath)
 
 	w.Header().Set("Connection", "close")
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
-	s.triggerRestart()
+	s.triggerReload()
 }
 
 // handleSetupLoadModule POST /api/setup/load-module
