@@ -1,0 +1,102 @@
+name: audit-signal
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+
+            const CASSIDY_LABEL  = 'role:cassidy';
+            const SILENT_LABEL   = 'cassidy-silent';
+            const VERDICT_PREFIX = 'audit-verdict:';
+            const DUE_FIELD      = 'Verdict-required-by:';
+            const MARKER         = '<!-- audit-signal-escalation -->';
+            const ESC_BODY       = (n) =>
+              `${MARKER}\n` +
+              `@PhoenixDnB — Cassidy has not posted an \`audit-verdict:\` comment on this ` +
+              `audit issue within the 2h window (issue #${n}). ` +
+              `PR is held with \`cassidy-silent\` label pending your response.`;
+
+            // Ensure labels exist (idempotent)
+            for (const [name, color, desc] of [
+              [SILENT_LABEL, 'd93f0b', 'Cassidy audit verdict overdue — held for Phoenix'],
+            ]) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({ owner, repo, name, color, description: desc });
+                } else throw e;
+              }
+            }
+
+            // Fetch all open role:cassidy issues
+            const cassidyIssues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, labels: CASSIDY_LABEL, state: 'open', per_page: 100 },
+            );
+
+            const now = Date.now();
+            let checkedCt = 0, escalatedCt = 0, skippedCt = 0;
+
+            for (const issue of cassidyIssues) {
+              // Parse Verdict-required-by from the issue body
+              const body = issue.body ?? '';
+              const dueLine = body.split('\n').find(l => l.trim().startsWith(DUE_FIELD));
+              if (!dueLine) continue;  // not a timed audit issue
+
+              const dueStr = dueLine.replace(DUE_FIELD, '').trim();
+              const dueMs  = Date.parse(dueStr);
+              if (isNaN(dueMs)) continue;  // unparseable date; skip
+              if (now < dueMs)  continue;  // deadline not yet passed
+
+              checkedCt++;
+
+              // Fetch comments and check for audit-verdict or prior escalation
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                { owner, repo, issue_number: issue.number, per_page: 100 },
+              );
+
+              const hasVerdict = comments.some(c => c.body?.trimStart().startsWith(VERDICT_PREFIX));
+              if (hasVerdict) {
+                skippedCt++;
+                continue;
+              }
+
+              const alreadyEscalated = comments.some(c => c.body?.includes(MARKER));
+              if (alreadyEscalated) {
+                skippedCt++;
+                continue;
+              }
+
+              // Past-due, no verdict, no prior escalation — fire
+              const hasSilentLabel = issue.labels.some(l => l.name === SILENT_LABEL);
+              if (!hasSilentLabel) {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: issue.number, labels: [SILENT_LABEL],
+                });
+              }
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number, body: ESC_BODY(issue.number),
+              });
+
+              escalatedCt++;
+              core.warning(`Cassidy silent on audit issue #${issue.number} — escalated to Phoenix`);
+            }
+
+            core.info(
+              `checked=${checkedCt} escalated=${escalatedCt} skipped=${skippedCt}`,
+            );
