@@ -11,7 +11,9 @@
 #
 # Exit code: 0 = all assertions passed, 1 = at least one failure.
 
-set -euo pipefail
+set -uo pipefail
+# NOTE: intentionally NOT using set -e so we can capture and print diagnostics
+# on container-side failures. Inner bash -c blocks use explicit exit codes.
 
 OPS_MCP_SRC="${OPS_MCP_SRC:-$(cd "$(dirname "$0")" && pwd)}"
 CONTAINER="ops-mcp-smoke-$$"
@@ -29,19 +31,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+_die() {
+  echo
+  echo "SMOKE: FAIL"
+  echo "Reason: $*"
+  exit 1
+}
+
 # ---------------------------------------------------------------------------
 _section "Launching Incus container: $CONTAINER"
-incus launch images:ubuntu/24.04 "$CONTAINER"
+incus launch images:ubuntu/24.04 "$CONTAINER" || _die "incus launch failed"
 sleep 3
-incus exec "$CONTAINER" -- bash -c 'until ping -c1 8.8.8.8 &>/dev/null; do sleep 1; done'
+incus exec "$CONTAINER" -- bash -c 'until ping -c1 8.8.8.8 &>/dev/null; do sleep 1; done' || _die "container not networked"
 echo "  container up and networked"
 
 # ---------------------------------------------------------------------------
 _section "Installing dependencies"
-# --no-install-recommends keeps us out of build-essential/gcc/cpp which
-# python3-pip Recommends for sdist compilation — MCP SDK ships wheels so
-# we don't need a compiler. This cuts install time from ~60s to ~10s.
-# Also: no || true silencer — apt failures must abort smoke.
 incus exec "$CONTAINER" -- bash -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
@@ -49,7 +54,7 @@ incus exec "$CONTAINER" -- bash -c '
   apt-get install -y -qq --no-install-recommends \
     python3 python3-venv python3-pip \
     sudo systemd util-linux iproute2 curl ca-certificates
-'
+' || _die "apt-get install failed"
 
 # ---------------------------------------------------------------------------
 _section "Verifying tool availability"
@@ -60,20 +65,24 @@ for tool in python3 runuser sudo visudo ss curl; do
     _fail "$tool MISSING — apt-get did not install it"
     echo "--- apt log (last 40 lines) ---"
     incus exec "$CONTAINER" -- bash -c 'tail -40 /var/log/apt/term.log 2>/dev/null || echo no_apt_log' || true
-    exit 1
+    _die "required tool missing"
   fi
 done
 
 # ---------------------------------------------------------------------------
 _section "Creating ops-mcp system user"
-incus exec "$CONTAINER" -- useradd --system --no-create-home --shell /usr/sbin/nologin ops-mcp
-incus exec "$CONTAINER" -- id ops-mcp && _pass "ops-mcp user created" || { _fail "ops-mcp user missing after useradd"; exit 1; }
+incus exec "$CONTAINER" -- useradd --system --no-create-home --shell /usr/sbin/nologin ops-mcp || _die "useradd failed"
+if incus exec "$CONTAINER" -- id ops-mcp; then
+  _pass "ops-mcp user created"
+else
+  _die "ops-mcp user missing after useradd"
+fi
 
 # ---------------------------------------------------------------------------
 _section "Copying source into container"
 TMPTAR=$(mktemp /tmp/ops-mcp-smoke-XXXXXX.tar.gz)
 tar czf "$TMPTAR" -C "$(dirname "$OPS_MCP_SRC")" "$(basename "$OPS_MCP_SRC")"
-incus file push "$TMPTAR" "$CONTAINER/tmp/ops-mcp-src.tar.gz"
+incus file push "$TMPTAR" "$CONTAINER/tmp/ops-mcp-src.tar.gz" || _die "file push failed"
 rm -f "$TMPTAR"
 incus exec "$CONTAINER" -- bash -c '
   set -e
@@ -81,7 +90,7 @@ incus exec "$CONTAINER" -- bash -c '
   tar xzf /tmp/ops-mcp-src.tar.gz -C /opt/ops-mcp --strip-components=1
   chown -R ops-mcp:ops-mcp /opt/ops-mcp
   ls -la /opt/ops-mcp/server.py >/dev/null || { echo "server.py missing after extract"; exit 1; }
-'
+' || _die "source extraction failed"
 _pass "source tree extracted"
 
 # ---------------------------------------------------------------------------
@@ -98,7 +107,7 @@ EOF
   chmod 640 /etc/ops-mcp-env
   chown root:ops-mcp /etc/ops-mcp-env
   test -d /var/log/ops-mcp || { echo "/var/log/ops-mcp missing"; exit 1; }
-'
+' || _die "dirs/env file creation failed"
 _pass "dirs + env file present"
 
 # ---------------------------------------------------------------------------
@@ -108,12 +117,12 @@ incus exec "$CONTAINER" -- bash -c '
   python3 -m venv /opt/ops-mcp/venv
   /opt/ops-mcp/venv/bin/pip install --quiet "mcp>=1.3.0"
   test -x /opt/ops-mcp/venv/bin/python || { echo "venv python missing"; exit 1; }
-'
+' || _die "venv install failed"
 _pass "venv + mcp installed"
 
 # ---------------------------------------------------------------------------
 _section "Installing sudoers fragment"
-incus file push "$OPS_MCP_SRC/ops-mcp.sudoers" "$CONTAINER/etc/sudoers.d/ops-mcp"
+incus file push "$OPS_MCP_SRC/ops-mcp.sudoers" "$CONTAINER/etc/sudoers.d/ops-mcp" || _die "sudoers file push failed"
 incus exec "$CONTAINER" -- chmod 440 /etc/sudoers.d/ops-mcp
 if incus exec "$CONTAINER" -- visudo -cf /etc/sudoers.d/ops-mcp; then
   _pass "sudoers fragment validates"
@@ -123,39 +132,42 @@ fi
 
 # ---------------------------------------------------------------------------
 _section "Starting ops-mcp server"
-# Use runuser (util-linux, always present) instead of sudo -u. runuser doesn't
-# need sudoers config and doesn't require a TTY. This makes the smoke robust
-# against minimal images that ship without full sudo setup.
+# Start server detached. Do NOT fail fast inside — let the outer diagnostic
+# section run so we can see why it died.
 incus exec "$CONTAINER" -- bash -c '
-  set -e
   set -a; source /etc/ops-mcp-env; set +a
-  # Create the log file owned by ops-mcp so the child can write to it.
   install -o ops-mcp -g ops-mcp -m 644 /dev/null /var/log/ops-mcp/server.log
-  # Start server detached. setsid + nohup survive the bash -c exit.
   nohup runuser -u ops-mcp -- /opt/ops-mcp/venv/bin/python /opt/ops-mcp/server.py \
     >> /var/log/ops-mcp/server.log 2>&1 &
   echo $! > /tmp/ops-mcp.pid
-  sleep 1
-  # Verify the process is still alive after 1s (fast crash detection)
-  if ! kill -0 "$(cat /tmp/ops-mcp.pid)" 2>/dev/null; then
-    echo "server process died within 1s"
-    exit 1
-  fi
+  echo "  launched pid: $(cat /tmp/ops-mcp.pid)"
 '
 sleep 3
 
-# Dump what we see regardless of outcome
-echo "--- server.log tail ---"
-incus exec "$CONTAINER" -- tail -30 /var/log/ops-mcp/server.log 2>&1 || true
+# Always-print diagnostics so failure modes are visible
+echo "--- process check ---"
+if incus exec "$CONTAINER" -- bash -c 'kill -0 $(cat /tmp/ops-mcp.pid) 2>/dev/null'; then
+  echo "  process alive (pid: $(incus exec "$CONTAINER" -- cat /tmp/ops-mcp.pid))"
+else
+  echo "  process DIED"
+fi
+echo "--- server.log (full) ---"
+incus exec "$CONTAINER" -- cat /var/log/ops-mcp/server.log 2>&1 || echo "  (log unreadable)"
 echo "--- listening sockets ---"
-incus exec "$CONTAINER" -- ss -tlnp 2>&1 | head -10 || true
+incus exec "$CONTAINER" -- ss -tlnp 2>&1 | head -20 || true
+echo "--- ops-mcp file layout ---"
+incus exec "$CONTAINER" -- ls -la /opt/ops-mcp/ 2>&1 || true
+echo "--- Python version in venv ---"
+incus exec "$CONTAINER" -- /opt/ops-mcp/venv/bin/python --version 2>&1 || true
+echo "--- MCP SDK import smoke test (independent of server.py) ---"
+incus exec "$CONTAINER" -- /opt/ops-mcp/venv/bin/python -c "import mcp; print('mcp version:', getattr(mcp, '__version__', 'unknown'))" 2>&1 || true
 echo "--- end diagnostics ---"
 
 if incus exec "$CONTAINER" -- bash -c 'ss -tlnp 2>/dev/null | grep -q ":8892 "'; then
   _pass "server listening on 127.0.0.1:8892"
 else
   _fail "server not listening on 8892 (see diagnostics above)"
-  exit 1
+  _die "server did not reach listening state"
 fi
 
 # ---------------------------------------------------------------------------
