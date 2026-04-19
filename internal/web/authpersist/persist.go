@@ -4,6 +4,8 @@
 package authpersist
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -84,23 +86,30 @@ func Save(path string, a *Auth) error {
 	}
 
 	// Atomic write: open tmp → write → fsync → [chown] → rename.
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
+	// Unique suffix prevents concurrent callers from truncating each other's
+	// in-flight tmp files; O_EXCL makes collisions fail loudly (1/2^64 chance).
+	var suf [8]byte
+	if _, err := rand.Read(suf[:]); err != nil {
+		return fmt.Errorf("random suffix: %w", err)
+	}
+	tmp := path + ".tmp." + hex.EncodeToString(suf[:])
+
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
 	if err != nil {
 		return fmt.Errorf("write auth %s: %w", tmp, err)
 	}
+	// Always remove tmp on exit; no-op after successful rename.
+	defer func() { _ = os.Remove(tmp) }()
+
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
 		return fmt.Errorf("write auth %s: %w", tmp, err)
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmp)
 		return fmt.Errorf("sync auth %s: %w", tmp, err)
 	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("close auth %s: %w", tmp, err)
 	}
 
@@ -115,7 +124,6 @@ func Save(path string, a *Auth) error {
 	}
 
 	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
 		return fmt.Errorf("rename auth: %w", err)
 	}
 

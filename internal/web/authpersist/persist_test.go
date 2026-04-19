@@ -1,8 +1,10 @@
 package authpersist
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -80,9 +82,10 @@ func TestSave_AtomicNoBakOnFirstWrite(t *testing.T) {
 	if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
 		t.Error(".bak should not exist after first write")
 	}
-	// .tmp should be cleaned up.
-	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
-		t.Error(".tmp file leaked after Save")
+	// No .tmp.* files should remain after Save.
+	tmps, _ := filepath.Glob(path + ".tmp.*")
+	if len(tmps) != 0 {
+		t.Errorf(".tmp.* files leaked after Save: %v", tmps)
 	}
 }
 
@@ -114,5 +117,42 @@ func TestDefaultPath(t *testing.T) {
 	want := "/etc/ventd/auth.json"
 	if got != want {
 		t.Errorf("DefaultPath = %q, want %q", got, want)
+	}
+}
+
+func TestAuthSaveConcurrentDoesNotCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "auth.json")
+
+	const n = 10
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func(i int) {
+			defer wg.Done()
+			a := &Auth{Admin: AdminCreds{
+				Username:   "admin",
+				BcryptHash: fmt.Sprintf("$2a$12$hash%02d", i),
+			}}
+			if err := Save(path, a); err != nil {
+				t.Errorf("goroutine %d Save: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// One of the 10 writers must have won; Load must return a valid non-empty hash.
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after concurrent Save: %v", err)
+	}
+	if got == nil || got.Admin.BcryptHash == "" {
+		t.Fatal("Load returned empty hash after concurrent writes")
+	}
+
+	// No stale .tmp.* files may remain.
+	tmps, _ := filepath.Glob(path + ".tmp.*")
+	if len(tmps) != 0 {
+		t.Errorf("stale .tmp.* files after concurrent Save: %v", tmps)
 	}
 }
