@@ -324,9 +324,9 @@ func cmdSlowCC(args []string) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TASK\tALIAS\tSESSION\tDURATION\tSOURCE")
+	_, _ = fmt.Fprintln(w, "TASK\tALIAS\tSESSION\tDURATION\tSOURCE")
 	for _, r := range results {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Task, r.Alias, r.Session, r.Duration, r.Source)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Task, r.Alias, r.Session, r.Duration, r.Source)
 	}
 	return w.Flush()
 }
@@ -397,9 +397,9 @@ func cmdStaleRole(args []string) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "#\tIDLE\tTITLE")
+	_, _ = fmt.Fprintln(w, "#\tIDLE\tTITLE")
 	for _, r := range rows {
-		fmt.Fprintf(w, "#%d\t%s\t%s\n", r.Number, r.IdleFor, trunc(r.Title, 70))
+		_, _ = fmt.Fprintf(w, "#%d\t%s\t%s\n", r.Number, r.IdleFor, trunc(r.Title, 70))
 	}
 	return w.Flush()
 }
@@ -463,15 +463,15 @@ func cmdThroughput(args []string) error {
 		return enc.Encode(out)
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "window\t%s\n", *since)
-	fmt.Fprintf(w, "merges\t%d\n", mergeCount)
+	_, _ = fmt.Fprintf(w, "window\t%s\n", *since)
+	_, _ = fmt.Fprintf(w, "merges\t%d\n", mergeCount)
 	if mergeCount >= 2 {
-		fmt.Fprintf(w, "PR/hr\t%.2f\n", prPerHour)
-		fmt.Fprintf(w, "first merge\t%s\n", earliest.Format("2006-01-02 15:04 UTC"))
-		fmt.Fprintf(w, "last merge\t%s\n", latest.Format("2006-01-02 15:04 UTC"))
-		fmt.Fprintf(w, "note\trate spans first-to-last merge, not full session wall-clock\n")
+		_, _ = fmt.Fprintf(w, "PR/hr\t%.2f\n", prPerHour)
+		_, _ = fmt.Fprintf(w, "first merge\t%s\n", earliest.Format("2006-01-02 15:04 UTC"))
+		_, _ = fmt.Fprintf(w, "last merge\t%s\n", latest.Format("2006-01-02 15:04 UTC"))
+		_, _ = fmt.Fprintf(w, "note\trate spans first-to-last merge, not full session wall-clock\n")
 	} else {
-		fmt.Fprintf(w, "PR/hr\tn/a (need ≥2 timestamped merges)\n")
+		_, _ = fmt.Fprintf(w, "PR/hr\tn/a (need ≥2 timestamped merges)\n")
 	}
 	return w.Flush()
 }
