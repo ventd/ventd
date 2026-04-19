@@ -10,6 +10,8 @@ Group=cc-runner
 WorkingDirectory=/opt/spawn-mcp
 Environment=PYTHONUNBUFFERED=1
 Environment=IS_DEMO=1
+# spawn_cc_batch: off by default; enable once IMPROV-A is deployed and verified
+Environment=SPAWN_MCP_BATCH_ENABLED=false
 EnvironmentFile=/etc/spawn-mcp/env
 ExecStart=/opt/spawn-mcp/venv/bin/python /opt/spawn-mcp/server.py
 Restart=on-failure
