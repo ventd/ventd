@@ -79,6 +79,7 @@ time via .github/workflows/release-changelog.yml.
 
 ### Infrastructure
 
+- ci: fuzz-smoke.yml (per-PR, 10s/target) + fuzz-long.yml (nightly, 10m/target, crasher-upload) scaffolding for Terry's TX-FUZZ-CORPUS-GROW cadence; inert no-op until Fuzz* targets land (#377)
 - release: drew-audit.yml workflow automates Drew's post-tag audit gates (govulncheck real; SBOM/cosign/repro stubs until Phase 10 lands) (#DREW-AUDIT-01)
 
 ### Changed

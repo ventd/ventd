@@ -1,0 +1,50 @@
+name: fuzz-long
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC nightly
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: run Fuzz targets for 10m each, upload crashers
+        run: |
+          mkdir -p fuzz-crashers
+          any=0
+          while IFS= read -r pkg; do
+            targets=$(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep -E '^Fuzz' || true)
+            [ -z "$targets" ] && continue
+            for t in $targets; do
+              any=1
+              echo "::group::$pkg $t"
+              go test -run=^$ -fuzz="^${t}$" -fuzztime=10m "$pkg" || true
+              # Collect any new corpus entries (Go writes crashers to testdata/fuzz/<T>/)
+              pkgdir=$(go list -f '{{.Dir}}' "$pkg")
+              if [ -d "$pkgdir/testdata/fuzz/$t" ]; then
+                cp -r "$pkgdir/testdata/fuzz/$t" "fuzz-crashers/$(echo "$pkg" | tr / _)-$t"
+              fi
+              echo "::endgroup::"
+            done
+          done < <(go list ./...)
+          if [ "$any" -eq 0 ]; then
+            echo '::notice::no Fuzz* targets found — nightly no-op'
+          fi
+      - name: upload crashers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-crashers-${{ github.run_id }}
+          path: fuzz-crashers/
+          if-no-files-found: ignore
+          retention-days: 30
