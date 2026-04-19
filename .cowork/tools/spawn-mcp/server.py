@@ -72,6 +72,7 @@ REPO_OWNER = os.environ.get("SPAWN_MCP_OWNER", "ventd")
 REPO_NAME = os.environ.get("SPAWN_MCP_REPO", "ventd")
 STATE_BRANCH = os.environ.get("SPAWN_MCP_STATE_BRANCH", "cowork/state")
 WORKTREE = Path(os.environ.get("SPAWN_MCP_WORKTREE", "/home/cc-runner/ventd"))
+CC_WORKTREE_BASE = os.environ.get("SPAWN_MCP_CC_WORKTREE_BASE", "/tmp")
 CC_BIN = os.environ.get("SPAWN_MCP_CC_BIN", "claude")
 TMUX_BIN = os.environ.get("SPAWN_MCP_TMUX_BIN", "tmux")
 ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
@@ -175,38 +176,46 @@ def _existing_sessions() -> list[str]:
     return [s.strip() for s in r.stdout.splitlines() if s.strip()]
 
 
-def _build_claude_cmd(prompt_path: Path, session_log: Path) -> str:
+def _build_worktree_cmd(session_name: str, prompt_path: Path, session_log: Path) -> str:
     """Return the shell command tmux should run in the new session.
 
-    Uses `claude -p --dangerously-skip-permissions` reading the prompt
-    from stdin. Captures stdout+stderr to a session log so failures are
-    visible post-hoc without attaching. Appends a marker line on exit
-    so tail_session can detect completion.
+    Creates a per-session git worktree at CC_WORKTREE_BASE/cc-wt-<session_name>,
+    runs claude from that isolated tree, then removes the worktree on exit.
+    If worktree creation fails (disk full, inode exhaustion, git error), falls
+    back to running claude in the main WORKTREE with a structured-log warning.
     """
-    # Environment injection: IS_DEMO=1 skips onboarding; token (if set)
-    # provides auth without an interactive login. shlex.quote guards
-    # against shell injection on both paths.
+    wt = shlex.quote(f"{CC_WORKTREE_BASE}/cc-wt-{session_name}")
+    main_wt = shlex.quote(str(WORKTREE))
+    log_q = shlex.quote(str(session_log))
+    prompt_q = shlex.quote(str(prompt_path))
+    cc_q = shlex.quote(CC_BIN)
+
     env_parts = ["IS_DEMO=1"]
     if CLAUDE_CODE_OAUTH_TOKEN:
         env_parts.append(f"CLAUDE_CODE_OAUTH_TOKEN={shlex.quote(CLAUDE_CODE_OAUTH_TOKEN)}")
     env_prefix = " ".join(env_parts)
 
-    claude_invocation = (
-        f"{shlex.quote(CC_BIN)} "
-        "--dangerously-skip-permissions "
-        "-p "
-        f"< {shlex.quote(str(prompt_path))} "
-        f"2>&1 | tee -a {shlex.quote(str(session_log))}"
+    claude_run = (
+        f"{env_prefix} {cc_q} --dangerously-skip-permissions -p "
+        f"< {prompt_q} 2>&1 | tee -a {log_q}"
     )
     marker = (
-        f"echo '=== spawn-mcp: claude exited rc='$? ' at '$(date -Iseconds) >> "
-        f"{shlex.quote(str(session_log))}"
+        f"echo '=== spawn-mcp: claude exited rc='$?' at '$(date -Iseconds)"
+        f" >> {log_q}"
     )
-    # Keep tmux session alive briefly after claude exits so tail_session
-    # can capture the final output.
-    tail = "sleep 30"
+    cleanup = f"cd {main_wt} && git worktree remove --force {wt} 2>/dev/null || true"
 
-    return f"{env_prefix} {claude_invocation}; {marker}; {tail}"
+    # Try to create and use a per-session worktree; fall back to main on failure.
+    return (
+        f"if cd {main_wt} && git fetch --quiet origin"
+        f" && git worktree add --detach {wt} origin/main; then"
+        f" cd {wt} && {claude_run}; {marker}; {cleanup}; sleep 30;"
+        f" else"
+        f" echo 'spawn-mcp: worktree create failed, falling back to main worktree'"
+        f" >> {log_q};"
+        f" cd {main_wt} && {claude_run}; {marker}; sleep 30;"
+        f" fi"
+    )
 
 
 # --- Tool: spawn_cc --------------------------------------------------------
@@ -261,14 +270,10 @@ def spawn_cc(alias: str) -> dict[str, Any]:
     # actions.
     session_log = SESSION_LOG_DIR / f"{session_name}.log"
 
-    # Refresh worktree to latest main before dispatch.
-    fetch = subprocess.run(
-        ["git", "-C", str(WORKTREE), "fetch", "origin", "main", "--depth=50"],
-        capture_output=True,
-        text=True,
-    )
-    if fetch.returncode != 0:
-        log.warning("git fetch failed: %s", fetch.stderr)
+    # git fetch is handled inside the per-session shell wrapper so each
+    # worktree starts from a fresh origin/main. The Python-level fetch is
+    # removed to avoid the double-fetch latency.
+    wt_path = f"{CC_WORKTREE_BASE}/cc-wt-{session_name}"
 
     cmd = [
         TMUX_BIN,
@@ -278,7 +283,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
         session_name,
         "-c",
         str(WORKTREE),
-        _build_claude_cmd(prompt_path, session_log),
+        _build_worktree_cmd(session_name, prompt_path, session_log),
     ]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -299,6 +304,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
             "session": session_name,
             "prompt_sha256": prompt_sha,
             "session_log": str(session_log),
+            "worktree_path": wt_path,
             "oauth_token_set": bool(CLAUDE_CODE_OAUTH_TOKEN),
         }
     )
@@ -306,7 +312,7 @@ def spawn_cc(alias: str) -> dict[str, Any]:
         "status": "spawned",
         "session_name": session_name,
         "prompt_sha256": prompt_sha,
-        "worktree": str(WORKTREE),
+        "worktree_path": wt_path,
         "session_log": str(session_log),
         "hint": f"attach on phoenix-desktop: sudo -u cc-runner tmux attach -t {session_name}",
     }
