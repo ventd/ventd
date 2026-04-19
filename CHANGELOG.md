@@ -14,6 +14,10 @@ and frozen.
 
 ## [Unreleased]
 
+### Testing
+
+- cmd/ventd: `TestRegression_Issue466_FirstBootReloadStartsControllers` — regression guard for the first-boot → post-wizard transition branch of the in-process reload path (PR #478). Verifies that when the daemon starts in first-boot mode (no controls) and receives a reload signal, controllers start and write the configured PWM value, the watchdog acquires manual mode (pwm_enable=1), and Restore fires on shutdown (pwm_enable returns to its pre-ventd value). Covers branch 3 of #478; branches 1 and 2 are covered by sibling tests (#514).
+
 ### Fixed
 
 - setup: heuristic sensor binding for mini PC / NAS / HTPC hardware where RPM correlation fails at idle (#504). When a fan responds to PWM changes (RPM delta > 0) but stays below the 50 RPM noise floor, ventd now applies a priority-ordered heuristic (coretemp "Package id 0" → k10temp Tctl/Tdie → label match → plausible-range sensor) and includes the fan in the generated config as an open-loop channel. The bound sensor is marked `heuristic: true` in config.yaml so users can verify the assignment in the Curves page.
