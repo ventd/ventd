@@ -394,9 +394,9 @@ func (b *Backend) Restore(ch hal.Channel) error {
 			return err
 		}
 		if cc != 0 {
-			b.logger.Warn("ipmi: supermicro restore non-zero cc", "cc", fmt.Sprintf("0x%02x", cc))
+			return fmt.Errorf("ipmi: supermicro restore completion code 0x%02x", cc)
 		}
-		b.logger.Info("ipmi: supermicro fans restored to standard auto mode")
+		b.logger.Info("ipmi: fans restored to standard auto mode", "vendor", vendorSupermicro)
 		return nil
 
 	case vendorDell:
@@ -406,9 +406,9 @@ func (b *Backend) Restore(ch hal.Channel) error {
 			return err
 		}
 		if cc != 0 {
-			b.logger.Warn("ipmi: dell restore non-zero cc", "cc", fmt.Sprintf("0x%02x", cc))
+			return fmt.Errorf("ipmi: dell restore completion code 0x%02x", cc)
 		}
-		b.logger.Info("ipmi: dell fans restored to automatic control")
+		b.logger.Info("ipmi: fans restored to standard auto mode", "vendor", vendorDell)
 		return nil
 
 	default:
@@ -523,6 +523,9 @@ func (b *Backend) sendRecv(netfn, cmd uint8, reqData []byte) (byte, []byte, erro
 	dataLen := recv.msg.datalen
 	if dataLen == 0 {
 		return 0, nil, errors.New("ipmi: empty response from BMC")
+	}
+	if int(dataLen) > len(respBuf) {
+		return 0, nil, fmt.Errorf("ipmi: response truncated (%d > %d)", dataLen, len(respBuf))
 	}
 
 	completionCode := respBuf[0]
@@ -668,7 +671,9 @@ func (b *Backend) parseSDRRecord(data []byte) (hal.Channel, bool) {
 		B:            bCoef,
 		RExp:         rExp,
 		BExp:         bExp,
-		Zone:         sensorNumber / 16,
+		Zone:         0, // Hard-coded 0 for Supermicro: CPU-zone fans are always zone 0
+		// on X11/X12/H13 boards. Dynamic per-board zone discovery is
+		// deferred to a future probe (netFn=0x30 cmd=0x66).
 	}
 
 	return hal.Channel{
