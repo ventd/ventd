@@ -2500,6 +2500,111 @@ func TestE2E_CurveEditor_HysteresisAndSmoothingFields(t *testing.T) {
 	}
 }
 
+// TestE2E_Responsive_CurveEditorMobileLayout verifies fix #488: the
+// curve editor form collapses to a single-column grid on portrait-
+// phone viewports and produces no horizontal overflow. Also checks
+// the 2-column intermediate layout at tablet width.
+//
+// Regression target: .editor-form used grid-template-columns:1fr 1fr 1fr
+// with no media query, causing fields to overflow the card's right
+// edge at ~375px viewport width.
+func TestE2E_Responsive_CurveEditorMobileLayout(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: "cpu_linear"}}
+	seeded.Fans = []config.Fan{{Name: "cpu-fan", Type: "hwmon", PWMPath: "/tmp/nonexistent/pwm1", MinPWM: 80, MaxPWM: 255}}
+	seeded.Sensors = []config.Sensor{{Name: "cpu_temp", Type: "hwmon", Path: "/tmp/nonexistent/temp1_input"}}
+	seeded.Curves = []config.CurveConfig{{
+		Name: "cpu_linear", Type: "linear", Sensor: "cpu_temp",
+		MinTemp: 30, MaxTemp: 80, MinPWM: 80, MaxPWM: 255,
+	}}
+	config.MigrateCurvePWMFields(&seeded)
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	// Log in at desktop width — the login form behaves predictably
+	// before mobile emulation kicks in.
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	setViewport(t, page, 1280, 800)
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".curve-card")
+
+	// Open the linear editor.
+	if _, err := page.Eval(`() => selectCurve(0)`); err != nil {
+		t.Fatalf("selectCurve: %v", err)
+	}
+	page.Timeout(3 * time.Second).MustElement(".editor-form")
+
+	countTracks := func(gridTemplateColumns string) int {
+		return len(strings.Fields(gridTemplateColumns))
+	}
+
+	// ── Portrait phone (375×667, iPhone SE) ──────────────────────────
+	setViewport(t, page, 375, 667)
+	time.Sleep(100 * time.Millisecond) // allow layout reflow
+
+	formCols := getComputedStyle(t, page, ".editor-form", "grid-template-columns")
+	if got := countTracks(formCols); got != 1 {
+		t.Errorf("375px: .editor-form columns=%d want 1 (computed=%q)", got, formCols)
+	}
+
+	// No horizontal scroll: the document's scroll width must not
+	// exceed the viewport's client width.
+	noOverflow, err := page.Eval(`() => document.documentElement.scrollWidth <= document.documentElement.clientWidth`)
+	if err != nil {
+		t.Fatalf("overflow check: %v", err)
+	}
+	if !noOverflow.Value.Bool() {
+		sw, _ := page.Eval(`() => document.documentElement.scrollWidth`)
+		cw, _ := page.Eval(`() => document.documentElement.clientWidth`)
+		t.Errorf("375px: horizontal overflow — scrollWidth=%v clientWidth=%v",
+			sw.Value.Int(), cw.Value.Int())
+	}
+
+	// .editor-svg must not exceed the card's content width (max-width:100%).
+	svgMaxWidth := getComputedStyle(t, page, ".editor-svg", "max-width")
+	// Computed max-width is resolved to px; verify it's ≤ viewport width.
+	if svgMaxWidth != "none" {
+		svgW, err2 := page.Eval(`() => {
+			const el = document.querySelector('.editor-svg');
+			return el ? el.getBoundingClientRect().width : -1;
+		}`)
+		if err2 == nil && svgW.Value.Int() > 375 {
+			t.Errorf("375px: .editor-svg width=%d overflows 375px viewport", svgW.Value.Int())
+		}
+	}
+
+	// ── Tablet (768×1024) ─────────────────────────────────────────────
+	setViewport(t, page, 768, 1024)
+	time.Sleep(100 * time.Millisecond)
+
+	formCols = getComputedStyle(t, page, ".editor-form", "grid-template-columns")
+	if got := countTracks(formCols); got != 2 {
+		t.Errorf("768px: .editor-form columns=%d want 2 (computed=%q)", got, formCols)
+	}
+
+	// ── Desktop (1280×800) — must keep 3 columns ──────────────────────
+	setViewport(t, page, 1280, 800)
+	time.Sleep(100 * time.Millisecond)
+
+	formCols = getComputedStyle(t, page, ".editor-form", "grid-template-columns")
+	if got := countTracks(formCols); got != 3 {
+		t.Errorf("1280px: .editor-form columns=%d want 3 (computed=%q)", got, formCols)
+	}
+}
+
 // TestE2E_Sparklines_AppearOnSensorAndFanCards verifies that a
 // sensor card and a fan card each get an SVG sparkline wrapper once
 // the history store has recorded a few samples. Pre-seeds the

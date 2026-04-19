@@ -892,6 +892,11 @@ body.binding-dim .card.binding-highlight { opacity: 1; filter: none; }
  * cleanly. */
 @media (max-width: 899px) {
   .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Curve editor: drop from 3-up to 2-up on tablet / landscape phone
+   * so fields don't become too narrow to read their labels. */
+  .editor-form { grid-template-columns: 1fr 1fr; }
+  /* SVG must not overflow its card on narrow tablets. */
+  .editor-svg { max-width: 100%; }
 }
 
 /* Portrait phone (<480px): 1-up with a tighter gap so the three
@@ -915,6 +920,20 @@ body.binding-dim .card.binding-highlight { opacity: 1; filter: none; }
    * the headers colliding. */
   .card-groups { gap: 6px; }
   .dashboard-group[open] > .card-grid { margin-top: 8px; }
+  /* Curve editor: collapse to single column on portrait phones so
+   * fields never overflow the card's right edge (#488). */
+  .editor-form {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  /* Full-width inputs/selects inside the single-column editor. */
+  .fg input,
+  .fg select { width: 100%; box-sizing: border-box; }
+  /* SVG graph must not exceed the card's content width. */
+  .editor-svg { max-width: 100%; }
+  /* Delete button row: left-align on narrow screens so it stays
+   * inside the card boundary and doesn't crowd the right edge. */
+  .editor-actions { justify-content: flex-start; }
 }
 
 /* Touch devices of any size: reveal .sensor-path unconditionally.
