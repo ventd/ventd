@@ -114,6 +114,15 @@ func TestParseSensorsDetectModules(t *testing.T) {
 				"#----cut here----\n",
 			want: []candidate{{module: "it87"}},
 		},
+		{
+			// Regression for FuzzParseSensorsDetect crashing input:
+			// "0 0" contains a space and must be rejected — kernel module
+			// names are [a-zA-Z0-9_-]+ and modprobe would fail on a
+			// space-containing name with a confusing error.
+			name:  "module name with whitespace is rejected",
+			input: "#----cut here----\n0 0",
+			want:  []candidate{},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -26,6 +26,24 @@ builds:
       - -X main.commit={{.Commit}}
       - -X main.buildDate={{.Date}}
 
+  # ventd-recover: emergency fan restore oneshot. Installed to
+  # /usr/local/sbin and invoked by ventd-recover.service via OnFailure=
+  # on the main ventd.service when the daemon exits unexpectedly.
+  - id: ventd-recover
+    main: ./cmd/ventd-recover
+    binary: ventd-recover
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
   # musl-compatible build — fully static, NVIDIA support compiled out.
   # Required for Alpine, Void-musl, and other musl-libc distros where
   # purego's fakecgo shim would drag in glibc SONAMEs and fail to exec.
@@ -53,6 +71,7 @@ archives:
   - id: default
     ids:
       - ventd
+      - ventd-recover
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     files:
@@ -77,6 +96,7 @@ archives:
   - id: musl
     ids:
       - ventd-musl
+      - ventd-recover
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_musl"
     formats: [tar.gz]
     files:

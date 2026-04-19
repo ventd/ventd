@@ -28,12 +28,12 @@ Type=oneshot
 # on the chips ventd was actually controlling); the recovery sweep
 # needs to cover everything.
 User=root
-ExecStart=/usr/local/bin/ventd --recover
+ExecStart=/usr/local/sbin/ventd-recover
 
 # Bounded execution — recovery should be near-instant.
 TimeoutStartSec=10s
 
-# Don't restart this on failure: ventd --recover is best-effort and
+# Don't restart this on failure: ventd-recover is best-effort and
 # always exits 0 even if some files cannot be written. A non-zero
 # exit here would loop us back into the OnFailure= chain.
 Restart=no
