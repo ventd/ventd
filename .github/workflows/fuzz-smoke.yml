@@ -1,0 +1,41 @@
+name: fuzz-smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: discover + run Fuzz targets for 10s each
+        run: |
+          # List every package that declares at least one Fuzz* function.
+          # `go test -list '^Fuzz'` per-package; tolerate packages with no fuzz targets.
+          any=0
+          while IFS= read -r pkg; do
+            targets=$(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep -E '^Fuzz' || true)
+            [ -z "$targets" ] && continue
+            for t in $targets; do
+              any=1
+              echo "::group::$pkg $t"
+              go test -run=^$ -fuzz="^${t}$" -fuzztime=10s "$pkg"
+              echo "::endgroup::"
+            done
+          done < <(go list ./...)
+          if [ "$any" -eq 0 ]; then
+            echo '::notice::no Fuzz* targets found — advisory no-op (expected until T-tasks land)'
+          fi
