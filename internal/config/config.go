@@ -106,8 +106,14 @@ type Hwmon struct {
 }
 
 type Web struct {
-	Listen       string   `yaml:"listen" json:"listen"`
-	PasswordHash string   `yaml:"password_hash,omitempty" json:"password_hash,omitempty"`
+	Listen string `yaml:"listen" json:"listen"`
+	// PasswordHash is the bcrypt-hashed admin password. Kept as a YAML field
+	// for migration: on first startup after an upgrade the daemon reads this
+	// value and moves it to auth.json, then re-saves the config without it.
+	// It is intentionally excluded from JSON marshaling so that GET /api/config
+	// never exposes the hash to web clients, and PUT /api/config can never
+	// inadvertently overwrite it.
+	PasswordHash string   `yaml:"password_hash,omitempty" json:"-"`
 	TLSCert      string   `yaml:"tls_cert,omitempty" json:"tls_cert,omitempty"`
 	TLSKey       string   `yaml:"tls_key,omitempty" json:"tls_key,omitempty"`
 	SessionTTL   Duration `yaml:"session_ttl,omitempty" json:"session_ttl,omitempty"`
