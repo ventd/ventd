@@ -56,6 +56,15 @@ type State struct {
 type Backend struct {
 	logger   *slog.Logger
 	acquired sync.Map // key: pwmPath (string), value: struct{}
+
+	// writePWMEnable is the function called by ensureManualMode to flip a
+	// pwm*_enable sysfs file into manual mode. nil → hwmon.WritePWMEnable.
+	// Overridden in tests via export_test.go to inject failures.
+	writePWMEnable func(pwmPath string, value int) error
+	// writePWMEnablePath is the function called by ensureManualMode for
+	// fan*_target (RPM-target) channels. nil → hwmon.WritePWMEnablePath.
+	// Overridden in tests via export_test.go to inject failures.
+	writePWMEnablePath func(path string, value int) error
 }
 
 // NewBackend constructs a Backend that logs through the given slog
@@ -275,20 +284,34 @@ func (b *Backend) restoreRPMTarget(st State) error {
 //     expose it. Log INFO and proceed — the subsequent PWM write
 //     lands verbatim.
 //   - any other error: surface to the caller so the controller can
-//     log it against the fan. The acquired flag is still set so we
-//     don't log the same failure every tick.
+//     log it against the fan. The acquired flag is NOT set so a
+//     subsequent call will re-attempt the sysfs write, allowing
+//     recovery from transient errors without a daemon restart.
+//
+// The acquired flag is stored only after a successful sysfs write
+// (or a documented-absence ErrNotExist) to prevent a failed write
+// from silently masking retries on every subsequent tick.
 func (b *Backend) ensureManualMode(st State) error {
-	if _, loaded := b.acquired.LoadOrStore(st.PWMPath, struct{}{}); loaded {
+	if _, ok := b.acquired.Load(st.PWMPath); ok {
 		return nil
+	}
+	writePWMEnable := b.writePWMEnable
+	if writePWMEnable == nil {
+		writePWMEnable = hwmon.WritePWMEnable
+	}
+	writePWMEnablePath := b.writePWMEnablePath
+	if writePWMEnablePath == nil {
+		writePWMEnablePath = hwmon.WritePWMEnablePath
 	}
 	var writeErr error
 	if st.RPMTarget {
 		enablePath := hwmon.RPMTargetEnablePath(st.PWMPath)
-		writeErr = hwmon.WritePWMEnablePath(enablePath, 1)
+		writeErr = writePWMEnablePath(enablePath, 1)
 	} else {
-		writeErr = hwmon.WritePWMEnable(st.PWMPath, 1)
+		writeErr = writePWMEnable(st.PWMPath, 1)
 	}
 	if writeErr == nil {
+		b.acquired.Store(st.PWMPath, struct{}{})
 		if st.RPMTarget {
 			b.logger.Info("controller: RPM-target fan manual control acquired", "path", st.PWMPath)
 		} else {
@@ -297,6 +320,7 @@ func (b *Backend) ensureManualMode(st State) error {
 		return nil
 	}
 	if errors.Is(writeErr, fs.ErrNotExist) {
+		b.acquired.Store(st.PWMPath, struct{}{})
 		b.logger.Info("controller: pwm_enable not supported by driver, writing PWM values directly",
 			"pwm_path", st.PWMPath)
 		return nil
