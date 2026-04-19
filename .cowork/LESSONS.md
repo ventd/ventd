@@ -178,3 +178,13 @@ Root cause of the failure-to-name: (a) sunk-cost momentum after the first sympto
 
 **Handoff reducible to MCP**: spawn-mcp could emit heartbeat lines to the log periodically (every 30s: `[heartbeat: <UTC>, ...`), or implement a line-buffered stdout via `stdbuf -oL` in `_build_claude_cmd`. Low-priority; the GitHub-poll pattern works without it.
 
+---
+
+## 2026-04-19T (IMPROV-L, claude-sonnet-4-6) — sixteenth lesson
+
+**Inefficiency observed**: `.cowork/events.jsonl` was queried ad-hoc with one-off `grep | jq` pipelines — each query re-invented the filter, with no shared understanding of the timestamp schema (mixed ISO-8601 and session labels), duration formats, or fallback heuristics. The slow-cc query in particular required knowing to look in note events for wall-clock mentions when dispatch timestamps are non-parseable labels.
+
+**Fix applied**: observability externalised — events.jsonl now query-able via `cowork-query` (`cmd/cowork-query/main.go`). Named commands: `merged`, `tpm`, `slow-cc`, `stale-role`, `throughput`, `lessons`. Handles mixed timestamp formats (ISO-8601 + session labels with date prefix), `d`-suffix durations, and two-source slow-cc detection (computed dispatch→merge duration + note-text regex for labelled timestamps). Install: `go install github.com/ventd/ventd/cmd/cowork-query@latest`. Usage examples in `.cowork/README.md`.
+
+**Handoff reducible to MCP**: none. This is a local CLI; Cowork continues to use MCP for GitHub state. The CLI is for Atlas and human operator analysis, not Cowork-direct queries.
+
