@@ -78,18 +78,17 @@ jobs:
               print('::warning::govulncheck: HIGH vulnerability found')
           PY
 
-      - name: gate2 — CHANGELOG [Unreleased] non-empty
+      - name: gate2 — git-cliff automation configured
         id: gate2
         run: |
-          count=$(awk '/^## \[Unreleased\]/,/^## \[/' CHANGELOG.md | grep -c '^- ' || true)
-          if [ "$count" -lt 1 ]; then
+          if [ ! -f cliff.toml ]; then
             echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
-            printf '## Gate 2 — CHANGELOG\n\n**FAIL** — no bullet entries under [Unreleased].\n\n' >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::CHANGELOG [Unreleased] section is empty'
+            printf '## Gate 2 — CHANGELOG automation\n\n**FAIL** — cliff.toml missing; git-cliff automation not configured.\n\n' >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::cliff.toml missing — release-changelog automation not set up'
             exit 1
           fi
           echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
-          printf '## Gate 2 — CHANGELOG\n\n**PASS** — %d entries under [Unreleased].\n\n' "$count" >> "$GITHUB_STEP_SUMMARY"
+          printf '## Gate 2 — CHANGELOG automation\n\n**PASS** — cliff.toml present; CHANGELOG generated at tag time by release-changelog.yml.\n\n' >> "$GITHUB_STEP_SUMMARY"
 
       - name: gate3 — no open release-blocker issues
         id: gate3
@@ -170,7 +169,7 @@ jobs:
             echo '| gate | status |'
             echo '|------|--------|'
             printf '| Gate 1 — govulncheck | %s (real) |\n' "${G1:-FAIL}"
-            printf '| Gate 2 — CHANGELOG | %s (real) |\n' "${G2:-FAIL}"
+            printf '| Gate 2 — CHANGELOG automation | %s (real) |\n' "${G2:-FAIL}"
             printf '| Gate 3 — release-blocker issues | %s (real) |\n' "${G3:-FAIL}"
             printf '| Gate 4 — build + test | %s (real) |\n' "${G4:-FAIL}"
             echo '| Gate 5 — SBOM validate | SKIP (stub) |'

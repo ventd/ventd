@@ -1,35 +1,33 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This project's CHANGELOG is generated at tag time by
+`.github/workflows/release-changelog.yml` using `git-cliff` against
+conventional-commit messages. Entries below this header are generated.
+Entries below the `## [Pre-automation history]` heading are hand-curated
+and frozen.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+<!-- git-cliff start -->
+<!-- git-cliff end -->
 
-> **Note:** Entries from v0.3.0 onward are generated from conventional commit
-> messages at tag time via `.github/workflows/release-changelog.yml` (git-cliff).
-> Hand-curated history prior to v0.3.0 is preserved below under
-> [Pre-automation history].
+## [Pre-automation history]
 
-## [Unreleased]
+Entries here were hand-curated during v0.0.x through v0.3.0-rc*. They are
+preserved verbatim; no new entries are added below this line.
 
-### Added
+### Pre-automation unreleased
+
+#### Added
 
 - `internal/web/e2e_test.go`: `TestE2E_PanicButton_CountdownVisible` — end-to-end scenario that fires a timed panic via the browser JS path, asserts the `#panic-countdown` element renders a TTL value, then confirms both the server flag and the browser DOM reset after expiry (closes #216).
 - `internal/web/e2e_test.go`: `TestE2E_Profile_ImportFlow` — end-to-end scenario that seeds two named fan-control profiles, switches to the second via `POST /api/profile/active` through a live browser session, and asserts the server's atomic config reflects the new active profile with correctly rewritten fan-curve bindings (closes #216).
 
-### Fixed
+#### Fixed
 
 - install: setup token now persists to `/var/lib/ventd/setup-token` (mode 0600, owned `ventd:ventd`) in addition to the tmpfs `/run/ventd/setup-token`, surviving reboot; install.sh prints both paths (#182).
 
-### Infrastructure
+#### Infrastructure
 
 - release: pre-release-check.yml workflow automates pre-tag gates (govulncheck / CHANGELOG / release-blocker / build+test; Phase 10 stubs) (#RELEASE-CHECK-01)
-
-## [Pre-automation history]
-
-Entries prior to v0.3.0 were hand-curated.
-Subsequent entries are generated from conventional commit messages at tag
-time via .github/workflows/release-changelog.yml.
 
 ---
 
