@@ -232,3 +232,58 @@ func TestMigrate_DerivesConfigDir(t *testing.T) {
 		t.Errorf("keyPath = %q, want %q", got, want)
 	}
 }
+
+// TestRegression_Issue59_TLSConfigMigration reproduces the upgrade-path
+// crashloop from issue #59: pre-F3 Save() stripped tls_cert/tls_key from
+// the YAML even though a valid keypair existed at <configDir>/tls.{crt,key}.
+// Post-RequireTransportSecurity daemons then refused to start on the next
+// boot. Migrate() must repopulate the fields so the daemon starts clean.
+//
+// regresses #59
+func TestRegression_Issue59_TLSConfigMigration(t *testing.T) {
+	// Legacy YAML — produced by pre-F3 Save(): password_hash is set
+	// (wizard completed), but tls_cert/tls_key were dropped on serialisation
+	// even though the first-boot keypair was already on disk.
+	const legacyYAML = `
+web:
+  listen: "0.0.0.0:9999"
+  password_hash: "$2a$12$fakehashfortestingpurposesonly0000000000000000000000"
+`
+	cfg, err := Parse([]byte(legacyYAML))
+	if err != nil {
+		t.Fatalf("Parse legacy config: %v", err)
+	}
+	if cfg.Web.TLSCert != "" || cfg.Web.TLSKey != "" {
+		t.Fatalf("precondition: legacy config must not carry tls_cert/tls_key, got cert=%q key=%q",
+			cfg.Web.TLSCert, cfg.Web.TLSKey)
+	}
+
+	// Simulate the on-disk keypair that first-boot produced but Save() forgot.
+	const configPath = "/etc/ventd/config.yaml"
+	wantCert := "/etc/ventd/tls.crt"
+	wantKey := "/etc/ventd/tls.key"
+
+	withFakeTLSFS(t, func(certPath, keyPath string) ([]byte, []byte, error) {
+		if certPath != wantCert {
+			t.Errorf("unexpected certPath %q", certPath)
+		}
+		if keyPath != wantKey {
+			t.Errorf("unexpected keyPath %q", keyPath)
+		}
+		return []byte("fake-cert"), []byte("fake-key"), nil
+	})
+
+	mutated, err := Migrate(cfg, configPath, silentLogger())
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if !mutated {
+		t.Fatal("Migrate must return mutated=true when keypair exists but fields were absent (issue #59 scenario)")
+	}
+	if got := cfg.Web.TLSCert; got != wantCert {
+		t.Errorf("TLSCert = %q, want %q", got, wantCert)
+	}
+	if got := cfg.Web.TLSKey; got != wantKey {
+		t.Errorf("TLSKey = %q, want %q", got, wantKey)
+	}
+}
