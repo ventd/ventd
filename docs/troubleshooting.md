@@ -210,3 +210,61 @@ sudo journalctl -u ventd -n 500 --no-pager
 ```
 
 Redact any personal hostnames or IPs before posting publicly.
+
+## AppArmor denials
+
+On Ubuntu and other AppArmor-enabled systems, the ventd profile ships in
+**COMPLAIN mode**: denials are logged but not enforced. If you see unexpected
+behaviour (HTTPS not working, fans not detected), check for audit lines:
+
+```
+sudo journalctl -k | grep -i 'apparmor.*ventd'
+```
+
+### HTTPS falls back to HTTP / ERR_CONNECTION_REFUSED
+
+**Symptom:** the install banner prints `https://192.168.x.x:9999` but the
+browser gets `ERR_CONNECTION_REFUSED`. The web UI may be reachable on
+`http://127.0.0.1:9999` (loopback only).
+
+**Cause:** TLS cert generation failed. Check the daemon log:
+
+```
+sudo journalctl -u ventd | grep -i 'tls\|cert\|apparmor'
+```
+
+An AppArmor denial on `/etc/ventd/tls.crt.tmp` (WRITE) blocks the atomic
+cert write. Verify the profile loaded in complain mode:
+
+```
+sudo aa-status | grep ventd   # should show "complain"
+```
+
+If the profile is in enforce mode, reload it:
+
+```
+sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd
+sudo systemctl restart ventd
+```
+
+### Fan detection incomplete
+
+**Symptom:** fewer fans detected than expected; `journalctl -k` shows
+AppArmor audit lines for `/sys/devices/virtual/thermal/…/hwmon*/name` or
+NVMe paths like `/sys/devices/…/nvme0/hwmon1/name`.
+
+These are **read** denials on hwmon sensor discovery. With the v0.3.x profile
+in complain mode they should be logged but not block enumeration. If you're
+running an older enforce-mode profile, reload the current one:
+
+```
+sudo install -m 644 deploy/apparmor.d/usr.local.bin.ventd \
+                     /etc/apparmor.d/usr.local.bin.ventd
+sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd
+```
+
+### Switching from complain to enforce
+
+See `deploy/apparmor.d/README.md` for the full checklist. The short version:
+confirm `journalctl -k | grep 'apparmor.*ventd'` is empty after a normal run,
+then remove `,complain` from the profile flags and reload.
