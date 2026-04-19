@@ -99,6 +99,20 @@ archives:
       - scripts/_ventd_account.sh
       - scripts/ventd-wait-hwmon
 
+sboms:
+  - id: cyclonedx
+    artifacts: archive
+    documents:
+      - "${artifact}.cdx.json"
+    cmd: syft
+    args: ["${artifact}", "--output", "cyclonedx-json=${document}"]
+  - id: spdx
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+    cmd: syft
+    args: ["${artifact}", "--output", "spdx-json=${document}"]
+
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256

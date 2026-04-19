@@ -21,6 +21,15 @@ jobs:
           go-version: "1.25.x"
           cache: true
 
+      - name: Install syft v1.18.0
+        # anchore/syft v1.18.0 — version-pinned; full release SHA and per-arch
+        # checksums at:
+        # https://github.com/anchore/syft/releases/download/v1.18.0/syft_1.18.0_checksums.txt
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.18.0/install.sh \
+            | sh -s -- -b /usr/local/bin v1.18.0
+          syft version
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e24998b8b67b290c2fa8b7c14fcfa7de2c5c9b8c # v7
         with:
@@ -29,3 +38,134 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sbom-validate:
+    name: SBOM validate + govulncheck gate
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Download SBOMs from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p sboms
+          gh release download "${{ github.ref_name }}" \
+            --pattern "*.cdx.json" \
+            --pattern "*.spdx.json" \
+            --dir sboms/ \
+            --repo "${{ github.repository }}"
+          echo "Downloaded SBOM files:"
+          ls sboms/
+
+      - name: Validate CycloneDX 1.5 schema
+        run: |
+          python3 - <<'PY'
+          import json, sys, glob
+          files = sorted(glob.glob('sboms/*.cdx.json'))
+          if not files:
+              print('ERROR: no CycloneDX SBOM files found', file=sys.stderr)
+              sys.exit(1)
+          errors = []
+          for f in files:
+              try:
+                  doc = json.load(open(f))
+              except Exception as e:
+                  errors.append(f'{f}: JSON parse error: {e}')
+                  continue
+              bom_format = doc.get('bomFormat')
+              spec_version = doc.get('specVersion')
+              if bom_format != 'CycloneDX':
+                  errors.append(f'{f}: bomFormat={bom_format!r} (expected CycloneDX)')
+              if spec_version != '1.5':
+                  errors.append(f'{f}: specVersion={spec_version!r} (expected 1.5)')
+          if errors:
+              for e in errors:
+                  print(f'FAIL: {e}')
+              sys.exit(1)
+          print(f'PASS: {len(files)} CycloneDX SBOM(s) validated (specVersion=1.5)')
+          PY
+
+      - name: Validate SPDX 2.3 schema
+        run: |
+          python3 - <<'PY'
+          import json, sys, glob
+          files = sorted(glob.glob('sboms/*.spdx.json'))
+          if not files:
+              print('ERROR: no SPDX SBOM files found', file=sys.stderr)
+              sys.exit(1)
+          errors = []
+          for f in files:
+              try:
+                  doc = json.load(open(f))
+              except Exception as e:
+                  errors.append(f'{f}: JSON parse error: {e}')
+                  continue
+              spdx_version = doc.get('spdxVersion')
+              if spdx_version != 'SPDX-2.3':
+                  errors.append(f'{f}: spdxVersion={spdx_version!r} (expected SPDX-2.3)')
+          if errors:
+              for e in errors:
+                  print(f'FAIL: {e}')
+              sys.exit(1)
+          print(f'PASS: {len(files)} SPDX SBOM(s) validated (spdxVersion=SPDX-2.3)')
+          PY
+
+      - name: govulncheck — fail release on CRITICAL CVE
+        id: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.2.0
+          govulncheck -json ./... > govuln.json 2>&1 || true
+          python3 - <<'PY'
+          import json, sys
+          osv_sev, findings = {}, []
+          try:
+              for line in open('govuln.json'):
+                  try:
+                      obj = json.loads(line)
+                  except Exception:
+                      continue
+                  msg = obj.get('message', {})
+                  if 'osv' in msg:
+                      o = msg['osv']
+                      s = ((o.get('database_specific') or {}).get('severity') or 'UNKNOWN').upper()
+                      osv_sev[o.get('id', '')] = s
+                  elif 'finding' in msg:
+                      findings.append(msg['finding'].get('osv', ''))
+          except Exception as e:
+              print(f'parse error: {e}', file=sys.stderr)
+          counts = {}
+          for oid in findings:
+              s = osv_sev.get(oid, 'UNKNOWN')
+              counts[s] = counts.get(s, 0) + 1
+          total = sum(counts.values())
+          crit = counts.get('CRITICAL', 0)
+          high = counts.get('HIGH', 0)
+          if total == 0:
+              print('govulncheck: PASS — 0 reachable vulnerabilities')
+          else:
+              for s in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'):
+                  if counts.get(s):
+                      print(f'  {s}: {counts[s]}')
+          if crit:
+              print(f'::error::govulncheck: {crit} CRITICAL reachable CVE(s) — release blocked')
+              sys.exit(1)
+          elif high:
+              print(f'::warning::govulncheck: {high} HIGH reachable CVE(s)')
+          PY
+
+      - name: Upload SBOMs as workflow artifacts
+        # actions/upload-artifact v4 — matches canonical post-#355 SHA in docker.yml
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sboms-${{ github.ref_name }}
+          path: sboms/
+          if-no-files-found: error

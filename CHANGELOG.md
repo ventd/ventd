@@ -63,6 +63,7 @@ time via .github/workflows/release-changelog.yml.
 
 ### Security
 
+- supply-chain: CycloneDX + SPDX SBOMs attached to every release as release assets; `sbom-validate` CI job validates schema versions and gates on CRITICAL CVEs via govulncheck (P10-SBOM-01, closes #322).
 - hal: EACCES/EPERM on pwm_enable writes now propagate as `hal.ErrNotPermitted`, ensuring misconfigured-apparmor/SELinux scenarios surface to operators (closes #288).
 
 ### Added
