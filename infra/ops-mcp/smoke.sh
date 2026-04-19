@@ -47,7 +47,7 @@ _section "Installing dependencies"
 incus exec "$CONTAINER" -- bash -c '
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq python3.11 python3.11-venv python3-pip sudo systemd 2>/dev/null || true
+  apt-get install -y -qq python3 python3-venv python3-pip sudo systemd 2>/dev/null || true
 '
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ EOF
 # ---------------------------------------------------------------------------
 _section "Installing Python venv and mcp"
 incus exec "$CONTAINER" -- bash -c '
-  python3.11 -m venv /opt/ops-mcp/venv
+  python3 -m venv /opt/ops-mcp/venv
   /opt/ops-mcp/venv/bin/pip install --quiet "mcp>=1.3.0"
 '
 
