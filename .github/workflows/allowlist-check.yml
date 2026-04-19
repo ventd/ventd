@@ -1,0 +1,41 @@
+name: allowlist-check
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR number to check'
+        required: true
+
+jobs:
+  allowlist-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+      - name: Run allowlist check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ github.event.pull_request.number || inputs.pr }}"
+          output=$(go run ./tools/allowlistcheck -pr "$PR" 2>&1)
+          exit_code=$?
+          echo "$output"
+          if [ "$exit_code" -ne 0 ]; then
+            gh pr comment "$PR" --body "**Allowlist scope violation**
+
+          The following files are outside the \`Allowlist:\` declared in this PR:
+
+          \`\`\`
+          $output
+          \`\`\`
+
+          Add the files to the allowlist or move them to the correct scope."
+            exit 1
+          fi

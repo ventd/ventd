@@ -78,9 +78,11 @@ TMUX_BIN = os.environ.get("SPAWN_MCP_TMUX_BIN", "tmux")
 ALIAS_RE = re.compile(r"^[a-zA-Z0-9_-]{1,48}$")
 AUDIT_LOG = Path(os.environ.get("SPAWN_MCP_AUDIT", "/var/log/spawn-mcp/audit.jsonl"))
 PROMPT_DIR = Path(os.environ.get("SPAWN_MCP_PROMPT_DIR", "/tmp/spawn-mcp"))
+INLINE_PROMPT_DIR = Path(os.environ.get("SPAWN_MCP_INLINE_PROMPT_DIR", "/tmp/cc-prompts"))
 SESSION_LOG_DIR = Path(os.environ.get("SPAWN_MCP_SESSION_LOG_DIR", "/var/log/spawn-mcp/sessions"))
 HOST = os.environ.get("SPAWN_MCP_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SPAWN_MCP_PORT", "8891"))
+BATCH_ENABLED = os.environ.get("SPAWN_MCP_BATCH_ENABLED", "0") in ("1", "true", "yes")
 
 # Optional: forward a long-lived OAuth token to the claude CLI so a fresh
 # service user without interactive `claude auth login` can authenticate.
@@ -98,6 +100,7 @@ ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("SPAWN_MCP_ALLOWED_ORIGINS"
 
 AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
 SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+INLINE_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
 
 mcp = FastMCP(
     "spawn-mcp",
@@ -174,6 +177,24 @@ def _existing_sessions() -> list[str]:
     if r.returncode != 0:
         return []
     return [s.strip() for s in r.stdout.splitlines() if s.strip()]
+
+
+def _session_exists(session_name: str) -> bool:
+    return session_name in _existing_sessions()
+
+
+def _has_per_session_worktrees() -> bool:
+    return os.access(CC_WORKTREE_BASE, os.W_OK)
+
+
+def _parse_exit_code(content: str) -> int | None:
+    m = re.search(r"claude exited rc=(\d+)", content)
+    return int(m.group(1)) if m else None
+
+
+def _extract_pr_url(content: str) -> str | None:
+    m = re.search(r"https://github\.com/\S+/pull/\d+", content)
+    return m.group(0) if m else None
 
 
 def _build_worktree_cmd(session_name: str, prompt_path: Path, session_log: Path) -> str:
@@ -397,6 +418,137 @@ def tail_session(session_name: str, lines: int = 200) -> dict[str, Any]:
     }
 
 
+# --- Tool: spawn_cc_inline -------------------------------------------------
+
+
+@mcp.tool()
+def spawn_cc_inline(prompt_text: str, alias_hint: str | None = None) -> dict[str, Any]:
+    """Spawn CC with an inline prompt, bypassing the cowork/state alias fetch.
+
+    Eliminates the ~5 min CDN cache delay on fresh or just-edited prompts.
+    prompt_text is the full prompt body in the same format as
+    .cowork/prompts/*.md. alias_hint is an optional short name used in the
+    session name; defaults to "inline".
+
+    Returns: same shape as spawn_cc.
+    """
+    shortid = secrets.token_hex(3)
+    hint = re.sub(r"[^a-zA-Z0-9_-]", "-", alias_hint or "inline")[:24].strip("-") or "inline"
+    session_name = f"cc-{hint}-{shortid}"
+    prompt_sha = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+
+    INLINE_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
+    prompt_path = INLINE_PROMPT_DIR / f"{session_name}.md"
+    fd = os.open(str(prompt_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, prompt_text.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+    session_log = SESSION_LOG_DIR / f"{session_name}.log"
+    wt_path = f"{CC_WORKTREE_BASE}/cc-wt-{session_name}"
+
+    cmd = [
+        TMUX_BIN,
+        "new-session",
+        "-d",
+        "-s",
+        session_name,
+        "-c",
+        str(WORKTREE),
+        _build_worktree_cmd(session_name, prompt_path, session_log),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        _audit({"kind": "error", "alias_hint": hint, "session": session_name, "stderr": r.stderr})
+        return {"status": "error", "stderr": r.stderr, "stdout": r.stdout}
+
+    _audit({
+        "kind": "spawn_inline",
+        "alias_hint": hint,
+        "session": session_name,
+        "prompt_sha256": prompt_sha,
+        "session_log": str(session_log),
+        "worktree_path": wt_path,
+    })
+    return {
+        "status": "spawned",
+        "session_name": session_name,
+        "prompt_sha256": prompt_sha,
+        "worktree_path": wt_path,
+        "session_log": str(session_log),
+        "hint": f"attach on phoenix-desktop: sudo -u cc-runner tmux attach -t {session_name}",
+    }
+
+
+# --- Tool: wait_for_session ------------------------------------------------
+
+
+@mcp.tool()
+def wait_for_session(session_name: str, timeout_s: int = 1800, poll_interval_s: int = 15) -> dict[str, Any]:
+    """Block until the named CC session exits or the timeout expires.
+
+    Polls tmux every poll_interval_s seconds. When the session disappears,
+    reads the session log for exit code and any PR URL opened by the session.
+
+    Returns: exit_code (int or null), duration_s, last_output (up to 2000 chars),
+             pr_opened (URL string or null), timed_out (bool).
+    """
+    if not re.match(r"^cc-[a-zA-Z0-9_-]+$", session_name):
+        return {"status": "rejected", "reason": "invalid session name"}
+    timeout_s = max(1, min(timeout_s, 7200))
+    poll_interval_s = max(5, min(poll_interval_s, 300))
+
+    start = time.time()
+    while (time.time() - start) < timeout_s:
+        if not _session_exists(session_name):
+            log_path = SESSION_LOG_DIR / f"{session_name}.log"
+            try:
+                content = log_path.read_text()
+            except FileNotFoundError:
+                content = ""
+            return {
+                "exit_code": _parse_exit_code(content),
+                "duration_s": int(time.time() - start),
+                "last_output": content[-2000:] if content else "",
+                "pr_opened": _extract_pr_url(content),
+                "timed_out": False,
+            }
+        time.sleep(poll_interval_s)
+
+    return {
+        "exit_code": None,
+        "duration_s": timeout_s,
+        "last_output": "",
+        "pr_opened": None,
+        "timed_out": True,
+    }
+
+
+# --- Tool: spawn_cc_batch --------------------------------------------------
+
+
+@mcp.tool()
+def spawn_cc_batch(aliases: list[str], max_parallel: int = 3) -> list[dict[str, Any]]:
+    """Fire up to max_parallel CC sessions in parallel, one per alias.
+
+    Requires SPAWN_MCP_BATCH_ENABLED=true (default off) and IMPROV-A
+    per-session worktree support (CC_WORKTREE_BASE must be writable).
+
+    Returns: list of spawn results in the same shape as spawn_cc.
+    """
+    if not BATCH_ENABLED:
+        return [{"status": "rejected", "reason": "spawn_cc_batch disabled; set SPAWN_MCP_BATCH_ENABLED=true to enable"}]
+    if not _has_per_session_worktrees():
+        return [{"status": "rejected", "reason": "spawn_cc_batch requires IMPROV-A worktree isolation; CC_WORKTREE_BASE not writable"}]
+
+    results = []
+    for alias in aliases[:max_parallel]:
+        results.append(spawn_cc(alias))
+        time.sleep(0.5)
+    return results
+
+
 # --- OAuth shim (to satisfy claude.ai's custom-connector OAuth flow) -------
 # The trycloudflare tunnel + claude.ai connector registration is the
 # security boundary. These endpoints auto-approve; no PKCE verification,
@@ -487,7 +639,7 @@ async def _register(request: Request) -> JSONResponse:
 
 if __name__ == "__main__":
     log.info(
-        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s oauth_token_set=%s",
+        "spawn-mcp starting on %s:%d; dns_rebinding_protection=%s allowed_hosts=%s allowed_origins=%s worktree=%s oauth_token_set=%s batch_enabled=%s",
         HOST,
         PORT,
         ENABLE_DNS_REBINDING_PROTECTION,
@@ -495,5 +647,6 @@ if __name__ == "__main__":
         ALLOWED_ORIGINS,
         WORKTREE,
         bool(CLAUDE_CODE_OAUTH_TOKEN),
+        BATCH_ENABLED,
     )
     mcp.run(transport="streamable-http")
