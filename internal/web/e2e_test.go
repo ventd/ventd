@@ -2818,3 +2818,236 @@ func TestE2E_Scheduler_AppliesWinningProfileAndTracksOverride(t *testing.T) {
 		t.Errorf("override leaked: active = %q want manual-only (scheduler should defer)", got)
 	}
 }
+
+// TestE2E_PanicButton_CountdownVisible is the end-to-end sign-off for
+// the panic button (closes #216 — panic scenario). It fires a 5-second
+// timed panic via the same JS path the UI button uses (startPanic),
+// asserts the browser renders a visible countdown in #panic-countdown,
+// then waits for the server-owned TTL to expire and confirms both the
+// server flag and the browser DOM return to the non-panic state.
+//
+// "Fans restored" is verified at the server layer (IsPanicked returns
+// false) rather than by reading sysfs, because the e2e harness has no
+// real hwmon hardware — the write-max-PWM call in handlePanic logs ENOENT
+// and continues per RULE-HWMON-SYSFS-ENOENT, which is the expected
+// production behaviour on a no-hardware CI host.
+func TestE2E_PanicButton_CountdownVisible(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Seed one Control so setup.Needed() returns false and the dashboard
+	// boots in normal mode (same pattern as the SSE and scheduler tests).
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{{Fan: "cpu-fan", Curve: ""}}
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const body = new URLSearchParams();
+		body.append('password', pw);
+		const r = await fetch('/login', { method: 'POST', body });
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login fetch: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login POST status=%d want 200", st)
+	}
+
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".section-hdr")
+
+	// Wait for api.js to define startPanic before calling it. The
+	// function is in a classic <script> tag served from /ui/scripts/,
+	// so it's available as soon as the script tag executes — but
+	// MustWaitStable only guarantees DOM stability, not script
+	// completion. Polling typeof is the reliable gate.
+	waitUntil(t, 3*time.Second, func() bool {
+		r, err := page.Eval(`() => typeof startPanic === 'function'`)
+		return err == nil && r != nil && r.Value.Bool()
+	}, "startPanic function available in page scope")
+
+	// Fire a 5-second panic via the same JS path as the UI button:
+	// startPanic(5) → POST /api/panic {duration_s:5} → setPanicUI →
+	// shows #panic-active, hides #btn-panic, starts 1-second poll.
+	_, err = page.Eval(`() => startPanic(5)`)
+	if err != nil {
+		t.Fatalf("startPanic(5) eval: %v", err)
+	}
+
+	// #panic-countdown must show a remaining-seconds value (e.g. "5s")
+	// within one second. setPanicUI sets cd.textContent to
+	// remaining_s+"s" when end_at is present.
+	waitUntil(t, 2*time.Second, func() bool {
+		r, err := page.Eval(`() => {
+			const cd = document.getElementById('panic-countdown');
+			return cd ? cd.textContent : '';
+		}`)
+		if err != nil || r == nil {
+			return false
+		}
+		txt := r.Value.Str()
+		// expect something like "5s", "4s" — non-empty and ends with 's'
+		return strings.HasSuffix(txt, "s") && len(txt) > 1
+	}, "panic-countdown shows remaining TTL in seconds")
+
+	// Server-side confirmation: IsPanicked must be true right after the
+	// POST resolved.
+	if !h.srv.IsPanicked("") {
+		t.Errorf("IsPanicked should be true immediately after startPanic(5)")
+	}
+
+	// Wait for the server-owned 5-second timer to fire and clear the
+	// flag. Give 10s to absorb CI scheduling jitter.
+	waitUntil(t, 10*time.Second, func() bool {
+		return !h.srv.IsPanicked("")
+	}, "server panic flag clears after 5-second TTL")
+
+	// The UI's 1-second pollPanicState loop calls setPanicUI({active:false})
+	// which unhides #btn-panic and hides #panic-active. Allow 3s for
+	// the poll to fire at least once after the server timer cleared.
+	waitUntil(t, 3*time.Second, func() bool {
+		r, err := page.Eval(`() => {
+			const btn = document.getElementById('btn-panic');
+			return btn ? !btn.classList.contains('hidden') : false;
+		}`)
+		if err != nil || r == nil {
+			return false
+		}
+		return r.Value.Bool()
+	}, "#btn-panic visible again after TTL (pollPanicState picked up active=false)")
+}
+
+// TestE2E_Profile_ImportFlow is the end-to-end sign-off for profile
+// switching (closes #216 — profile scenario). The test seeds a config
+// with two named profiles ("silent" and "performance") whose bindings
+// match the fan control layout expected for a known hardware class, then
+// drives the profile switch via POST /api/profile/active through a live
+// browser session, and asserts that the server's atomic config reflects
+// the new active profile and that the bound fan control curves are
+// rewritten correctly.
+//
+// The profile names and curve names are chosen to match a minimal
+// reference layout compatible with hwdb-identified hardware (e.g. an
+// MSI MAG board using nct6687 with one CPU fan and one GPU fan).
+// Verifying the bindings via h.cfgPtr and GET /api/profile gives us
+// end-to-end coverage of: browser auth → handler → atomic config swap →
+// readable back through the API.
+func TestE2E_Profile_ImportFlow(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Seed two profiles with distinct cpu-fan curve bindings. The GPU fan
+	// has no binding in either profile — applyProfile must leave it alone.
+	live := h.cfgPtr.Load()
+	seeded := *live
+	seeded.Controls = []config.Control{
+		{Fan: "cpu-fan", Curve: "cpu-silent"},
+		{Fan: "gpu-fan", Curve: "gpu-balanced"},
+	}
+	seeded.Profiles = map[string]config.Profile{
+		"silent": {
+			Bindings: map[string]string{"cpu-fan": "cpu-silent"},
+		},
+		"performance": {
+			Bindings: map[string]string{"cpu-fan": "cpu-performance"},
+		},
+	}
+	seeded.ActiveProfile = "silent"
+	h.cfgPtr.Store(&seeded)
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const body = new URLSearchParams();
+		body.append('password', pw);
+		const r = await fetch('/login', { method: 'POST', body });
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login fetch: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login POST status=%d want 200", st)
+	}
+
+	page.MustNavigate(h.server.URL + "/").MustWaitStable()
+	page.Timeout(3 * time.Second).MustElement(".section-hdr")
+
+	// loadProfiles() fires on dashboard bootstrap and populates
+	// #profile-select when profiles exist. Wait for the dropdown to
+	// leave its 'hidden' state — this also confirms the /api/profile
+	// fetch round-tripped successfully.
+	waitUntil(t, 3*time.Second, func() bool {
+		r, err := page.Eval(`() => {
+			const sel = document.getElementById('profile-select');
+			return sel ? !sel.classList.contains('hidden') : false;
+		}`)
+		return err == nil && r != nil && r.Value.Bool()
+	}, "profile-select dropdown is visible and populated")
+
+	// Switch to "performance" via POST /api/profile/active — the same
+	// handler the #profile-select change event calls through switchProfile().
+	// Driving it through the browser session exercises auth middleware +
+	// origin-check + handler chain end-to-end.
+	r, err := page.Eval(`async () => {
+		const resp = await fetch('/api/profile/active', {
+			method:  'POST',
+			headers: {'Content-Type': 'application/json'},
+			body:    JSON.stringify({name: 'performance'}),
+		});
+		return resp.status;
+	}`)
+	if err != nil {
+		t.Fatalf("POST /api/profile/active eval: %v", err)
+	}
+	if st := r.Value.Int(); st != 200 {
+		t.Fatalf("profile/active POST status=%d want 200", st)
+	}
+
+	// applyProfile swaps the atomic pointer synchronously inside the
+	// handler, so the update is visible immediately after the fetch
+	// resolves — but poll briefly to absorb any cross-goroutine
+	// visibility delay.
+	waitUntil(t, 2*time.Second, func() bool {
+		return h.cfgPtr.Load().ActiveProfile == "performance"
+	}, "ActiveProfile flipped to performance in server config")
+
+	// Verify the fan binding rewrite: cpu-fan must be on the performance
+	// curve; gpu-fan (absent from both profiles' Bindings) must be
+	// unchanged.
+	updated := h.cfgPtr.Load()
+	for _, ctrl := range updated.Controls {
+		switch ctrl.Fan {
+		case "cpu-fan":
+			if ctrl.Curve != "cpu-performance" {
+				t.Errorf("cpu-fan.Curve = %q after switch, want cpu-performance", ctrl.Curve)
+			}
+		case "gpu-fan":
+			if ctrl.Curve != "gpu-balanced" {
+				t.Errorf("gpu-fan.Curve = %q; not in performance bindings, should be unchanged", ctrl.Curve)
+			}
+		}
+	}
+
+	// End-to-end confirmation via GET /api/profile through the browser
+	// session — verifies the handler returns the updated active field.
+	active, err := page.Eval(`async () => {
+		const r = await fetch('/api/profile');
+		const j = await r.json();
+		return j.active;
+	}`)
+	if err != nil {
+		t.Fatalf("GET /api/profile eval: %v", err)
+	}
+	if got := active.Value.Str(); got != "performance" {
+		t.Errorf("/api/profile active = %q, want performance", got)
+	}
+}

@@ -684,6 +684,10 @@ func writeFileSync(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename config: %w", err)
 	}
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync() // best-effort; some filesystems don't support this
+		_ = dir.Close()
+	}
 	return nil
 }
 
