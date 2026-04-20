@@ -38,7 +38,10 @@
     </div>
     <button class="btn" id="loginBtn">Sign In</button>
     <div class="msg" id="loginMsg"></div>
-    <p class="hint">First time? Run <code>sudo cat /run/ventd/setup-token</code> to find your setup token.</p>
+    <p class="hint">First time? Get your setup token:<br>
+&bull; At server console: <code>sudo cat /run/ventd/setup-token</code><br>
+&bull; Via SSH / journal: <code>sudo journalctl -u ventd | grep 'Setup token'</code><br>
+&bull; From install output: scroll up in your installer terminal</p>
   </div>
 
   <!-- Section B: first-boot — enter setup token + set password -->
@@ -59,9 +62,10 @@
     <button class="btn" id="firstBootBtn">Create Password &amp; Continue</button>
     <div class="msg" id="firstBootMsg"></div>
     <p class="hint">Can't find the setup token? Recover it with:<br>
-<code>sudo cat /run/ventd/setup-token</code><br>
-<span class="muted">(or <code>/var/lib/ventd/setup-token</code> if the service was restarted)</span><br>
-Note: every daemon restart rotates the token. Always use the file above — it is always the current valid token.</p>
+<code>sudo cat /run/ventd/setup-token</code> <span class="muted">(same boot)</span><br>
+<code>sudo cat /var/lib/ventd/setup-token</code> <span class="muted">(persists across reboots)</span><br>
+<code>sudo journalctl -u ventd | grep 'Setup token'</code> <span class="muted">(via journal)</span><br>
+Every daemon restart rotates the token — always use the file above for the current value.</p>
   </div>
 </div>
 

@@ -765,6 +765,7 @@ func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
 		"command", "sudo cat "+web.SetupTokenRuntimePath,
 		"ttl", web.SetupTokenTTL,
 	)
+	logger.Info("Setup token", "path", web.SetupTokenRuntimePath, "hint", "run: sudo cat "+web.SetupTokenRuntimePath)
 }
 
 // localIP returns the machine's preferred outbound IP address.

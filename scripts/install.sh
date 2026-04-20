@@ -1144,9 +1144,10 @@ else
 ║         ${WEB_URL}
 ║                                                                    ║
 ║    (if this is a fresh install and you don't see a login prompt    ║
-║     but a setup wizard instead, the setup token is readable via:   ║
+║     but a setup wizard instead, find the setup token via:          ║
 ║     \`sudo cat /var/lib/ventd/setup-token\` — persists across boots  ║
-║     \`sudo cat /run/ventd/setup-token\`    — same boot only)         ║
+║     \`sudo cat /run/ventd/setup-token\`    — same boot only          ║
+║     \`sudo journalctl -u ventd | grep 'Setup token'\`)               ║
 ║                                                                    ║
 ╚════════════════════════════════════════════════════════════════════╝
 
