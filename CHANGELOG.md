@@ -12,6 +12,7 @@ and frozen.
 ### Fixed
 
 - monitor: suppress 255.5°C / 65535 RPM sentinel values at the /api/hardware scan boundary — v2 of #460 fix (#460)
+- test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)
 <!-- git-cliff end -->
 
 ## [Pre-automation history]

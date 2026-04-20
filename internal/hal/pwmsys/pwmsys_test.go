@@ -2,23 +2,26 @@ package pwmsys
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ventd/ventd/internal/testfixture/fakepwmsys"
 )
 
 func TestEnumerate_RPi5(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, err := b.Enumerate(context.Background())
 	if err != nil {
 		t.Fatalf("Enumerate: %v", err)
 	}
-	// 2 chips × 2 channels = 4
-	if len(chs) != 4 {
-		t.Fatalf("Enumerate returned %d channels, want 4", len(chs))
+	// 1 chip × 2 channels = 2
+	if len(chs) != 2 {
+		t.Fatalf("Enumerate returned %d channels, want 2", len(chs))
 	}
 	for _, ch := range chs {
 		if ch.ID == "" {
@@ -36,8 +39,8 @@ func TestEnumerate_RPi5(t *testing.T) {
 }
 
 func TestEnumerate_Idempotent(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs1, err := b.Enumerate(context.Background())
 	if err != nil {
@@ -69,8 +72,8 @@ func TestEnumerate_EmptyRoot(t *testing.T) {
 }
 
 func TestWrite_DutyCycleTranslation(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, err := b.Enumerate(context.Background())
 	if err != nil {
@@ -83,16 +86,17 @@ func TestWrite_DutyCycleTranslation(t *testing.T) {
 	st := ch.Opaque.(State)
 	period := st.PeriodNs
 
+	rel := filepath.Join(filepath.Base(filepath.Dir(st.ChanDir)), filepath.Base(st.ChanDir), "duty_cycle")
 	cases := []uint8{0, 1, 128, 254, 255}
 	for _, pwm := range cases {
 		if err := b.Write(ch, pwm); err != nil {
 			t.Fatalf("Write(%d): %v", pwm, err)
 		}
-		rel := filepath.Join(filepath.Base(filepath.Dir(st.ChanDir)), filepath.Base(st.ChanDir), "duty_cycle")
-		duty, err := fake.ReadUint(rel)
-		if err != nil {
-			t.Fatalf("read duty_cycle after Write(%d): %v", pwm, err)
+		rawBytes, readErr := os.ReadFile(filepath.Join(fake.Root(), rel))
+		if readErr != nil {
+			t.Fatalf("read duty_cycle after Write(%d): %v", pwm, readErr)
 		}
+		duty, _ := strconv.ParseUint(strings.TrimSpace(string(rawBytes)), 10, 64)
 		expectedDuty := uint64(float64(pwm) / 255.0 * float64(period))
 		// Allow ±1 ns rounding tolerance (signed comparison avoids uint underflow at 0).
 		diff := int64(duty) - int64(expectedDuty)
@@ -103,8 +107,8 @@ func TestWrite_DutyCycleTranslation(t *testing.T) {
 }
 
 func TestWrite_EnableSet(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, _ := b.Enumerate(context.Background())
 	ch := chs[0]
@@ -114,18 +118,19 @@ func TestWrite_EnableSet(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	rel := filepath.Join(filepath.Base(filepath.Dir(st.ChanDir)), filepath.Base(st.ChanDir), "enable")
-	enable, err := fake.ReadUint(rel)
+	rawBytes, err := os.ReadFile(filepath.Join(fake.Root(), rel))
 	if err != nil {
 		t.Fatalf("read enable: %v", err)
 	}
+	enable, _ := strconv.ParseUint(strings.TrimSpace(string(rawBytes)), 10, 64)
 	if enable != 1 {
 		t.Errorf("enable=%d, want 1 after Write", enable)
 	}
 }
 
 func TestRead_RoundTrip(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, _ := b.Enumerate(context.Background())
 	ch := chs[0]
@@ -149,8 +154,8 @@ func TestRead_RoundTrip(t *testing.T) {
 }
 
 func TestRestore_DisablesChannel(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, _ := b.Enumerate(context.Background())
 	ch := chs[0]
@@ -164,18 +169,19 @@ func TestRestore_DisablesChannel(t *testing.T) {
 		t.Fatalf("Restore: %v", err)
 	}
 	rel := filepath.Join(filepath.Base(filepath.Dir(st.ChanDir)), filepath.Base(st.ChanDir), "enable")
-	enable, err := fake.ReadUint(rel)
+	rawBytes, err := os.ReadFile(filepath.Join(fake.Root(), rel))
 	if err != nil {
 		t.Fatalf("read enable after Restore: %v", err)
 	}
+	enable, _ := strconv.ParseUint(strings.TrimSpace(string(rawBytes)), 10, 64)
 	if enable != 0 {
 		t.Errorf("enable=%d after Restore, want 0", enable)
 	}
 }
 
 func TestRestore_SafeOnUnopened(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs, _ := b.Enumerate(context.Background())
 	ch := chs[0]
@@ -187,12 +193,12 @@ func TestRestore_SafeOnUnopened(t *testing.T) {
 }
 
 func TestReEnumerate_ChannelReappears(t *testing.T) {
-	fake := fakepwmsys.New(t, fakepwmsys.RPi5())
-	b := newBackend(fake.Root, nil)
+	fake := fakepwmsys.New(t, &fakepwmsys.ChipRPi5)
+	b := newBackend(fake.Root(), nil)
 
 	chs1, _ := b.Enumerate(context.Background())
-	if len(chs1) != 4 {
-		t.Fatalf("first Enumerate: want 4, got %d", len(chs1))
+	if len(chs1) != 2 {
+		t.Fatalf("first Enumerate: want 2, got %d", len(chs1))
 	}
 
 	// Restore all channels (simulates daemon shutdown).
@@ -205,8 +211,8 @@ func TestReEnumerate_ChannelReappears(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Enumerate: %v", err)
 	}
-	if len(chs2) != 4 {
-		t.Fatalf("second Enumerate: want 4, got %d", len(chs2))
+	if len(chs2) != 2 {
+		t.Fatalf("second Enumerate: want 2, got %d", len(chs2))
 	}
 }
 
