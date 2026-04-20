@@ -1,5 +1,5 @@
 [Unit]
-Description=GitHub MCP Server (HTTP mode, self-hosted, ci-log-tools build)
+Description=GitHub MCP Server (HTTP mode, self-hosted, mcp-t12 build)
 After=network-online.target docker.service
 Requires=docker.service
 Wants=network-online.target
@@ -13,7 +13,7 @@ ExecStartPre=-/usr/bin/docker rm -f github-mcp
 ExecStart=/usr/bin/docker run --rm --name github-mcp \
     --env-file /etc/github-mcp/env \
     -p 127.0.0.1:8765:8082 \
-    github-mcp-server:ci-log-tools \
+    github-mcp-server:mcp-t12 \
     http
 ExecStop=/usr/bin/docker stop github-mcp
 
