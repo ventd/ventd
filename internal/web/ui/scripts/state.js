@@ -5,8 +5,8 @@
 // The dashboard's JS modules share a single global scope (each script
 // loads with `defer` from index.html so they execute in declaration
 // order before DOMContentLoaded). state.js loads first and owns the
-// mutable globals (cfg, sts, hw, selIdx, dirty, dragging, hwCollapsed,
-// calStatuses, calResults) plus the pure helpers that translate
+// mutable globals (cfg, sts, hw, selIdx, dirty, dragging, sliderDragging,
+// hwCollapsed, calStatuses, calResults) plus the pure helpers that translate
 // between sensor values, PWM bytes, and screen coordinates. Every
 // other module reads or mutates these globals — they are the dashboard's
 // single source of truth.
@@ -14,7 +14,7 @@
 // No DOM access here. No fetch. No event listeners. Adding any of
 // those puts the wrong responsibility in the wrong file.
 
-let cfg = null, sts = null, hw = null, selIdx = -1, dirty = false, dragging = null;
+let cfg = null, sts = null, hw = null, selIdx = -1, dirty = false, dragging = null, sliderDragging = false;
 let hwCollapsed = {}, calStatuses = {}, calResults = {};
 // curveDirtyPatch accumulates per-field PATCH values for the selected curve.
 // Keys are PATCH field names (e.g. 'min_pwm_pct'); values are the new values
