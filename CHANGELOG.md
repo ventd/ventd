@@ -9,6 +9,14 @@ and frozen.
 <!-- git-cliff start -->
 ## [Unreleased]
 
+### Added
+
+- test(hwdb): table-driven match tests for 22 board fingerprints + determinism property (T-FP-01)
+
+### Changed
+
+- install: print setup token retrieval instructions (file paths + journalctl) after successful install; emit token path to journal so `journalctl -u ventd | grep 'Setup token'` reliably finds it on headless/remote servers (#503)
+
 ### Fixed
 
 - web/ui: gate manual PWM slider value updates on drag-active state to prevent mid-gesture jumps from server status polls (#507)
