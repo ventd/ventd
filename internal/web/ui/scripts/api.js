@@ -42,7 +42,7 @@ function applyStatus(snap){
                         && document.activeElement.closest('#fan-cards');
   const anyCalRunning = Object.values(calStatuses).some(s=>s.running);
   renderSensorBar();
-  if(!editingFan && !anyCalRunning && !fanSelectOpen) renderFanCards();
+  if(!editingFan && !anyCalRunning && !fanSelectOpen && !sliderDragging) renderFanCards();
   if(!editingSensor) renderSensorCards();
   renderCurveCards();
   if(!dragging && selIdx>=0 && cfg && cfg.curves[selIdx] && cfg.curves[selIdx].type==='linear'){

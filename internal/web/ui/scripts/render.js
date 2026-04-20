@@ -1002,6 +1002,17 @@ document.addEventListener('touchstart', (e) => {
   touchHighlightTimer = setTimeout(clearBindingHighlights, 1200);
 }, { passive: true });
 
+// Suppress renderFanCards during a manual-slider drag so status pushes don't
+// clobber the in-progress gesture (#507).
+document.addEventListener('pointerdown', e => {
+  if(e.target.tagName === 'INPUT' && e.target.type === 'range' &&
+     e.target.dataset.action === 'manual-pwm'){
+    sliderDragging = true;
+  }
+});
+document.addEventListener('pointerup', () => { sliderDragging = false; });
+document.addEventListener('pointercancel', () => { sliderDragging = false; });
+
 // selectCurveByName is called from the mix-source anchor click path.
 // Scrolls the editor into view after selecting so the user sees the
 // target curve rather than just having to hunt for it below the fold.

@@ -11,6 +11,7 @@ and frozen.
 
 ### Fixed
 
+- web/ui: gate manual PWM slider value updates on drag-active state to prevent mid-gesture jumps from server status polls (#507)
 - monitor: suppress 255.5°C / 65535 RPM sentinel values at the /api/hardware scan boundary — v2 of #460 fix (#460)
 - test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)
 <!-- git-cliff end -->
