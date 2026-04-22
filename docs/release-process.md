@@ -1,7 +1,6 @@
 # Release Process
 
 This document covers the post-tag audit workflow and Drew's MCP invocation path.
-For Drew's full role definition see `.cowork/roles/drew/SYSTEM.md` on `cowork/state`.
 
 ## drew-audit.yml — post-tag audit gates
 

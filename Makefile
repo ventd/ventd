@@ -1,7 +1,7 @@
 # ventd — developer convenience targets.
 # Shells to existing tools and scripts. No new deps.
 
-.PHONY: help build test cover lint e2e safety-run issue-review test-issue-logger verify-repro clean
+.PHONY: help build test cover lint e2e safety-run verify-repro clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -28,20 +28,6 @@ e2e: ## Run the fresh-VM smoke suite (requires vagrant).
 
 safety-run: ## Run the hwmon-safety invariant subtests.
 	go test -race -run 'Test.*Safety' ./internal/controller/...
-
-issue-review: ## Audit recent CC output for missed issues.
-	@if [ -x scripts/cc-issue-logger.sh ]; then \
-		bash scripts/cc-issue-logger.sh --audit; \
-	else \
-		echo "scripts/cc-issue-logger.sh not found"; exit 1; \
-	fi
-
-test-issue-logger: ## Run the issue-logger self-tests.
-	@if [ -f scripts/cc-issue-logger.test.sh ]; then \
-		bash scripts/cc-issue-logger.test.sh; \
-	else \
-		echo "scripts/cc-issue-logger.test.sh not found — skipping"; \
-	fi
 
 sbom: ## Generate CycloneDX + SPDX SBOMs into dist/ via goreleaser snapshot (requires syft in PATH).
 	goreleaser release --snapshot --clean
