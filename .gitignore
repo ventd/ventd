@@ -46,3 +46,7 @@ securitytodo.md
 /validation/fresh-vm-smoke-*.md
 release-notes/*-dryrun.txt
 
+
+# AI tooling at repo root — local-only
+/.mcp.json
+
