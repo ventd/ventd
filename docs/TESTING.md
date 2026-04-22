@@ -1,230 +1,212 @@
-# Testing guide
+# Test Environment — Hardware, VMs, and CI Lanes
 
-This doc has one job: make the test suite operable as a diagnostic
-tool, both for humans staring at a regression and for Claude Code
-running unattended against a PR.
+Available validation resources for ventd development. Reference this file
+when validation extends beyond `go test` + CI.
 
-If you add a new test group, update `scripts/diagnose-tests.sh` AND
-the "Groups" and "Failure playbook" sections below.
+## Real hardware
 
----
+### Windows 11 desktop (developer workstation)
 
-## One-command diagnosis
+| Attribute | Value |
+|---|---|
+| CPU | 13th Gen Intel Core i9-13900K (32 threads) |
+| GPU | NVIDIA RTX 4090 |
+| RAM | 32 GB |
+| Cooling | Arctic Liquid Freezer II 420 mm (hwmon PWM, not USB AIO) |
+| Fans | 14 chassis fans, daisy-chained via Phanteks PWM hub |
+| OS | Windows 11 |
+| Role | Primary developer workstation. **Not a Linux HIL.** Reserved for future Windows subproject hardware validation. |
+
+The Phanteks PWM hub topology means 14 physical fans run from a single
+motherboard PWM channel. From ventd's perspective this is one PWM channel
+with one tach-reporting fan (the Phanteks uses one fan slot for RPM
+feedback; the rest are sync'd but tach-less).
+
+### Proxmox host (primary Linux VM infrastructure)
+
+| Attribute | Value |
+|---|---|
+| CPU | AMD Ryzen 7 5800X |
+| GPU | NVIDIA RTX 3060 (passthrough-capable) |
+| Cooling | Noctua air cooler |
+| Host access | `https://192.168.7.10:8006` |
+| Role | Run any Linux distro as a VM on demand. Primary Linux-validation path. |
+
+VMs are stopped unless explicitly booted. The host's own fans are not
+used as a ventd target — use VMs for Linux testing; the Windows desktop
+or the MiniPC for hardware validation.
+
+### MiniPC (secondary HIL)
+
+| Attribute | Value |
+|---|---|
+| CPU | Intel Celeron (exact SKU TBD) |
+| Cooling | Small high-RPM HSF |
+| Access | `ssh phoenix@192.168.7.222` |
+| Role | Low-end edge-case Linux HIL. Useful for "does ventd not brick weird hardware." |
+
+This is a recycled commercial mediabox. Limited chip diversity — one Super
+I/O, one fan — but it's the only dedicated Linux hardware available.
+
+## Infrastructure gaps (be honest about these)
+
+Ventd is a Linux fan controller, and the developer's main machine is
+Windows. This has consequences:
+
+- **No native-Linux DIY-motherboard HIL.** NCT/ITE Super I/O write validation
+  on a diverse chip matrix needs either community validation reports or
+  the developer occasionally dual-booting the desktop to Linux.
+- **AIO validation requires hardware acquisition.** The desktop AIO is an
+  Arctic (hwmon-only). The `internal/hal/liquid` backend needs a Corsair
+  Commander Core or similar USB HID device to validate. Not currently
+  owned.
+- **IPMI/BMC validation requires borrowed hardware.** No Supermicro/Dell/HPE
+  server in inventory.
+- **Framework laptop, ARM SBC, Apple Silicon all absent.**
+
+These gaps do NOT block development — they block final hardware DoD on
+specific specs. Pure-Go work (controller, curves, calibration, HAL
+interfaces) runs entirely in CI or in Proxmox VMs.
+
+## Proxmox VMs
+
+### Dev VM
+
+| VMID | Name | Purpose |
+|---|---|---|
+| 950 | ventd-dev | Linux CC working environment when developer is on Linux |
+
+### Fan-control test VMs
+
+| VMID | Name | Distribution | Use case |
+|---|---|---|---|
+| 200 | fc-test-alpine-319 | Alpine 3.19 (musl) | musl-libc compat; CGO_ENABLED=0 |
+| 201 | fc-test-debian12-secureboot | Debian 12 (Secure Boot) | AppArmor, Secure Boot signing |
+| 202 | fc-test-fedora-40 | Fedora 40 | SELinux, dnf packaging |
+| 203 | fc-test-arch | Arch | rolling release; latest Go |
+| 204 | fc-test-opensuse-tw | openSUSE Tumbleweed | zypper, SUSE family |
+| 205 | fc-test-nixos-2405 | NixOS 24.05 | declarative deployment |
+| 206 | fc-test-void-musl | Void Linux (musl) | runit init; non-systemd |
+| 207 | fc-test-ubuntu-2404 | Ubuntu 24.04 | primary reference distro |
+
+### Fresh-install smoke templates
+
+| VMID | Name | Role |
+|---|---|---|
+| 9000 | ventd-tpl-ubuntu-2404 | Ubuntu 24.04 base template |
+| 9100 | ventd-smoke-tpl-ubuntu-24-04 | Ubuntu 24.04 smoke template |
+| 9101 | ventd-smoke-tpl-debian-12 | Debian 12 smoke template |
+| 9102 | ventd-smoke-tpl-fedora | Fedora smoke template |
+| 9103 | ventd-smoke-tpl-arch | Arch smoke template |
+| 9104 | ventd-smoke-tpl-opensuse-tw | openSUSE TW smoke template |
+
+## When to use what
+
+| Validation need | Use |
+|---|---|
+| Unit / package tests | `go test -race ./...` on dev machine or VM |
+| Cross-distro compile | CI matrix (automatic on PR) |
+| systemd unit behaviour | fc-test-* VM matching the distro |
+| install.sh first-boot | 9xxx smoke template (clone + run) |
+| AppArmor / SELinux profile | fc-test-debian12-secureboot / fc-test-fedora-40 |
+| hwmon with real sysfs entries | MiniPC (limited chip diversity) |
+| NCT6798/IT87 Super I/O writes | **GAP — not currently available.** |
+| Real PWM → RPM response | MiniPC (low-end only) |
+| NVML read on real GPU | RTX 3060 via passthrough to a VM |
+| NVML write (set fan speed) | As above, with coolbits/cap workaround |
+| IPMI with real BMC | **GAP — HARDWARE-REQUIRED.** |
+| USB HID AIO (Corsair/NZXT/Lian Li) | **GAP — HARDWARE-REQUIRED.** |
+| Framework laptop EC | **GAP — HARDWARE-REQUIRED.** |
+| Raspberry Pi / ARM SBC PWM | **GAP — HARDWARE-REQUIRED.** |
+| Apple Silicon / Asahi | **GAP — HARDWARE-REQUIRED.** |
+| Windows HAL (post-v1.0 subproject) | Windows 11 desktop |
+
+## CC guidance — resource selection
+
+1. **Pure Go / interface / fixture work** — `go test -race ./...` + CI.
+   Majority of work stops here. No VM, no SSH.
+2. **Deployment / install / systemd / LSM** — boot a fc-test-* VM or
+   9xxx smoke template. Snapshot first; revert after.
+3. **Real hwmon behaviour** — MiniPC via SSH. Read-only first;
+   **never write PWM** without explicit in-prompt authorisation from the
+   developer.
+4. **NVML** — RTX 3060 passthrough to a VM. Prefer read paths; writes
+   require coolbits/cap workaround.
+5. **Anything in the GAP rows above** — flag `HARDWARE-REQUIRED` in the
+   PR and in the spec DoD. Do not claim DoD without real-hardware
+   evidence.
+
+## Task-to-resource map
+
+| Task prefix | Resource |
+|---|---|
+| P1-HAL-* | CI; VMs for validation |
+| P1-FP-* | CI; MiniPC DMI strings as hwdb seed data |
+| P1-MOD-* | CI; fc-test-* VMs for `modules.alias` cross-distro |
+| P2-IPMI-* | **HARDWARE-REQUIRED** |
+| P2-LIQUID-* | **HARDWARE-REQUIRED** |
+| P2-CROSEC-* | **HARDWARE-REQUIRED** |
+| P2-PWMSYS-* | **HARDWARE-REQUIRED** |
+| P2-ASAHI-* | **HARDWARE-REQUIRED** |
+| P3-INSTALL-* | 9xxx smoke-template VMs |
+| P3-MODPROBE-* | fc-test-* VMs |
+| P3-UDEV-* | fc-test-* VMs |
+| P3-RECOVER-* | MiniPC + CI |
+| P4-PI-*, P4-HYST-*, P4-DITHER-* | CI for unit tests; MiniPC for end-to-end validation |
+| P4-SLEEP-*, P4-INTERFERENCE-*, P4-STEP-*, P4-HWCURVE-* | CI via fakedbus/fakehwmon; MiniPC for real hardware |
+| P4-MPC-* | CI + long-run validation on MiniPC |
+| P5-* | MiniPC for capture/calibration; VMs for profile matching |
+| P7-ACOUSTIC-* | **HARDWARE-REQUIRED** (USB mic) |
+| P8-* | VMs |
+| P10-* | CI only |
+
+## SSH usage pattern
 
 ```sh
-scripts/diagnose-tests.sh            # all groups, race on
-scripts/diagnose-tests.sh safety     # safety-critical subset only
-scripts/diagnose-tests.sh fuzz       # fuzz seed corpora (fast)
-scripts/diagnose-tests.sh fuzz-long  # -fuzz for DIAGNOSE_FUZZTIME (default 30s)
+# Safe: deploy a candidate binary and run it in dry-run mode
+scp ./ventd phoenix@192.168.7.222:/tmp/ventd-candidate
+ssh phoenix@192.168.7.222 '/tmp/ventd-candidate --probe-modules --dry-run'
+ssh phoenix@192.168.7.222 'cat /sys/class/dmi/id/board_vendor /sys/class/dmi/id/board_name'
+
+# Unsafe: requires explicit authorisation from developer in the chat
+# (would affect a running service)
+ssh phoenix@192.168.7.222 'sudo systemctl restart ventd'
 ```
 
-Every run ends with a `DIAGNOSE-SUMMARY BEGIN` … `DIAGNOSE-SUMMARY END`
-block. This block is the stable parseable surface — treat everything
-above it as freeform log.
+CC must NEVER start, stop, or restart ventd as a running service on any
+rig without explicit in-prompt authorisation. Running binaries under
+`/tmp` with `--dry-run` or read-only flags is always safe.
 
-Exit code: `0` iff every selected group passed. One red group does
-not abort the run; the point is to surface all breakage in one pass.
+## Pre-existing CI lanes
 
----
+- `build-and-test-ubuntu` (amd64, race)
+- `build-and-test-ubuntu-arm64` (QEMU, race)
+- `build-and-test-fedora` (container, race)
+- `build-and-test-arch` (container, race)
+- `build-and-test-alpine` (container, CGO_ENABLED=0, no -race)
+- `cross-compile-matrix` (linux/amd64, linux/arm64)
+- `headless-chromium` (go-rod E2E)
+- `nix-drift` (NixOS validation)
+- `apparmor-parse-debian13`
+- `govulncheck`, `golangci-lint`, `shellcheck`
+- `meta-lint` (rule-to-subtest binding)
+- `drew-audit` (release-gated, workflow_dispatch)
+- `pre-release-check` (release-gated, workflow_dispatch)
 
-## Groups
+## Hardware-gated phase milestones (current state)
 
-| Group name            | What it exercises                                                         | File(s)                                                    |
-|-----------------------|---------------------------------------------------------------------------|------------------------------------------------------------|
-| `safety_watchdog`     | `internal/watchdog` — every restore branch: hwmon normal/fallback, rpm_target normal/fallback, nvidia skip, Deregister LIFO | `internal/watchdog/restore_matrix_test.go`                 |
-| `safety_controller`   | `internal/controller` — the 12-rule safety invariant suite                | `internal/controller/safety_test.go` (pre-existing)        |
-| `safety_calibrate`    | `DetectRPMSensor` happy path + no-correlation + nvidia refusal + concurrency + existing `Abort*` tests | `internal/calibrate/detect_test.go`, `calibrate_test.go`   |
-| `hwmon_parsers`       | autoload.go module and driver parsers, koBasename, moduleFromPath         | `internal/hwmon/autoload_test.go` (pre-existing)           |
-| `nvidia_unavailable`  | Every public function's `ErrNotAvailable` path, `goStringFromC`, refcount concurrency | `internal/nvidia/unavailable_test.go`                      |
-| `web_handlers`        | Setup/Detect/Abort HTTP handlers — methods, params, state machine         | `internal/web/setup_handlers_test.go`, `handlers_detect_abort_test.go` |
-| `cmd_preflight`       | `ventd --preflight-check` subcommand JSON shape + reason strings          | `cmd/ventd/preflightcheck_smoke_test.go`                   |
-| `config_fuzz_seed`    | `FuzzParseConfig` — panic-safety + validate contract on seed corpus       | `internal/config/fuzz_test.go`                             |
-| `hwmon_fuzz_seed`     | `FuzzParseSensorsDetect` — panic-safety on sensors-detect stdout          | `internal/hwmon/fuzz_test.go`                              |
+| Gate | Status |
+|---|---|
+| End of Phase 1 (HAL) | **Complete** — shipped in v0.3.x |
+| End of Phase 2 (backends) | **Partial** — IPMI landed, hwmon + NVML in CI; LIQUID/CROSEC/PWMSYS/ASAHI still HARDWARE-REQUIRED |
+| End of Phase 4 (control loop) | **Auto-validatable** on VMs + MiniPC; real NCT/ITE writes are GAP |
+| End of Phase 5 (profiles) | **Auto-validatable** — profile capture + matching runs in CI |
+| End of Phase 6 (Windows) | **Moved to separate subproject** — see main masterplan §16 |
 
-`fuzz-long` additionally runs real fuzzing (`-fuzz` with a wall-clock
-budget) against the two seeded targets. Reserve it for overnight runs
-or when investigating a suspected parser regression.
+## Solo-dev realities
 
----
-
-## Workflows for Claude Code
-
-These are the canonical recipes Claude Code should follow in an
-automated session. They all start by running the relevant group via
-`scripts/diagnose-tests.sh` and then narrowing to the specific test
-that failed.
-
-### Workflow 1 — "A user reports a broken fan after daemon exit"
-
-Symptom class: watchdog or controller.
-
-1. Run the safety slice:
-   ```sh
-   scripts/diagnose-tests.sh safety
-   ```
-2. If `safety_watchdog` failed, the failing test name identifies the
-   branch. Map the name to the branch in `watchdog.go`:
-   - `TestRestore_HwmonPWM_*` → `restoreOne` default branch, lines 186–208
-   - `TestRestore_RPMTarget_*` → `restoreOne` rpmTarget branch, lines 159–184
-   - `TestRestore_Nvidia_*` → `restoreOne` nvidia branch, lines 142–157
-   - `TestDeregister_*` → `Deregister`, lines 104–113
-3. If `safety_controller` failed: the subtest name is a direct 1:1 of
-   a rule in `.claude/rules/hwmon-safety.md`. Fix the rule's
-   implementation in `internal/controller`, not the test.
-4. If `safety_calibrate` failed on abort or detect, check whether the
-   regression is in the fan-control primitive (hwmon package) vs the
-   orchestration (calibrate package).
-
-### Workflow 2 — "Setup wizard broken in the browser"
-
-Symptom class: web handler.
-
-1. Run the web slice:
-   ```sh
-   scripts/diagnose-tests.sh web
-   ```
-2. Method-enforcement regressions (`*_NonPOST_*`) mean someone removed
-   a `if r.Method != http.MethodPost` guard from a handler in
-   `internal/web/server.go`. Restore the guard; do not "fix" the test.
-3. Missing-param regressions (`*_MissingFanParam_*`) mean the handler
-   stopped validating `r.URL.Query().Get("fan")`. Same fix: restore
-   the 400 path.
-4. If `TestHandleSetupStatus_ReturnsJSONWithNeededField` fails, the
-   `ProgressNeeded` struct in `internal/setup` lost its `needed`
-   field (probably renamed). Update the struct tag back or update
-   **both** the test and the UI consumer in `internal/web/ui/`.
-
-### Workflow 3 — "Setup returns `UNKNOWN` for a known hardware state"
-
-Symptom class: new `hwmon.Reason` constant without CLI wiring.
-
-1. Run `scripts/diagnose-tests.sh cmd`.
-2. `TestRunPreflightCheck_RespectsMaxKernel` deterministically expects
-   `KERNEL_TOO_NEW` on any host. If it says `UNKNOWN`, the fix is in
-   `cmd/ventd/preflightcheck.go:preflightReasonString` — add a case.
-3. `TestPreflightReasonString_HandlesAllKnownReasons` enumerates every
-   constant this switch must handle. Add the new one to its table and
-   the matching case to the switch.
-
-### Workflow 4 — "NVML crashes or returns weird values"
-
-Symptom class: nvidia package.
-
-1. Run:
-   ```sh
-   scripts/diagnose-tests.sh all 2>&1 | grep -A2 nvidia_unavailable
-   ```
-2. If `TestGoStringFromC_*` fails, the C-string-to-Go copy in
-   `nvidia.go:goStringFromC` broke. This function is reached every
-   time NVML returns an error string; a panic here crashes the
-   daemon.
-3. If `TestPublicFunctions_ReturnErrNotAvailable/*` fails for a
-   specific function, that function lost its `!Available()` short-
-   circuit. Restore it at the top of the function.
-4. If `TestInit_ConcurrentCallsRespectRefcount` fails, `initMu` or
-   `loadOnce` sync coverage regressed. See `nvidia.go:96-127`.
-
-### Workflow 5 — "Found a malformed config in the wild"
-
-Symptom class: parser regression.
-
-1. Reproduce the crash by saving the offending YAML as, e.g.,
-   `/tmp/crash.yaml`.
-2. Seed the fuzz corpus:
-   ```sh
-   cp /tmp/crash.yaml internal/config/testdata/fuzz/FuzzParseConfig/crash
-   scripts/diagnose-tests.sh fuzz
-   ```
-3. If the seed crashes reproducibly, run the long fuzzer:
-   ```sh
-   DIAGNOSE_FUZZTIME=2m scripts/diagnose-tests.sh fuzz-long
-   ```
-4. Fix the parser in `internal/config/config.go:Parse` (or the called
-   `yaml.Unmarshal` handling). Do NOT delete the seed — it becomes a
-   regression test automatically.
-
-### Workflow 6 — "Install step loses fan control after an lm-sensors upgrade"
-
-Symptom class: sensors-detect parser regression.
-
-1. Capture the real `sensors-detect` output from the affected host:
-   ```sh
-   sudo sensors-detect --auto > /tmp/sd.txt 2>&1
-   ```
-2. Drop into the fuzz corpus:
-   ```sh
-   cp /tmp/sd.txt internal/hwmon/testdata/fuzz/FuzzParseSensorsDetect/real
-   scripts/diagnose-tests.sh fuzz
-   ```
-3. Existing unit tests (`internal/hwmon/autoload_test.go`) pin
-   specific expected parses. The fuzz target only guards against
-   panics and empty-module leakage. If the fuzz passes but the
-   specific host still misdetects, add a case to `autoload_test.go`.
-
----
-
-## Failure playbook (cheat sheet)
-
-| Failing test substring            | First file to open                          |
-|-----------------------------------|---------------------------------------------|
-| `TestRestore_`                    | `internal/watchdog/watchdog.go:129-208`     |
-| `TestDeregister_`                 | `internal/watchdog/watchdog.go:104-113`     |
-| `TestSafety_`                     | `internal/controller/controller.go` + rule  |
-| `TestDetectRPMSensor_`            | `internal/calibrate/calibrate.go:912-1030`  |
-| `TestAbort`                       | `internal/calibrate/calibrate.go:255-270`   |
-| `TestHandleSetup`                 | `internal/web/server.go:873-944`            |
-| `TestHandleDetectRPM`             | `internal/web/server.go:1039-1067`          |
-| `TestHandleCalibrateAbort`        | `internal/web/server.go:845-869`            |
-| `TestRunPreflightCheck_`          | `cmd/ventd/preflightcheck.go`               |
-| `TestPreflightReasonString_`      | `cmd/ventd/preflightcheck.go:50-64`         |
-| `TestPublicFunctions_`            | `internal/nvidia/nvidia.go` (add short-circuit) |
-| `TestGoStringFromC_`              | `internal/nvidia/nvidia.go:529-542`         |
-| `TestNonVidiaBuild_`              | `internal/nvidia/nvidia_nonvidia.go`        |
-| `FuzzParseConfig`                 | `internal/config/config.go:436-451`         |
-| `FuzzParseSensorsDetect`          | `internal/hwmon/autoload.go:346-403`        |
-
----
-
-## Ground rules for adding tests
-
-1. **Test the behaviour, not the implementation.** Name the
-   invariant in the test's doc comment. If the test would still pass
-   after you secretly mutate a load-bearing constant, strengthen the
-   assertion.
-2. **Anchor log strings that ops greps for.** The watchdog tests pin
-   `"wrote PWM=255"` because that substring appears in production
-   incident runbooks. If you soften the log line, update the test
-   AND the runbook together.
-3. **Leave a reference note.** Every new test file starts with a
-   block comment explaining WHY the file exists, WHAT it pins, and
-   WHERE the branch under test lives. Future Claude Code sessions
-   and future you both need that.
-4. **Don't mock what you can fake.** `t.TempDir()` + a fake sysfs
-   tree is cheaper to maintain than an injected interface. Use fakes
-   for file-system semantics; reserve interfaces for things that
-   can't be faked cheaply (NVML, exec.Command).
-5. **New fan types, new reasons, new metrics → extend the matching
-   exhaustiveness guard.** The guards are:
-   - `TestRegister_FanTypeCoverage` (watchdog)
-   - `TestPreflightReasonString_HandlesAllKnownReasons` (cmd)
-   - `TestPublicFunctions_ReturnErrNotAvailable` (nvidia)
-   - `TestReadMetric/*` table (nvidia)
-
----
-
-## What this suite does NOT cover
-
-Documented so nobody mistakes a green diagnose for full confidence.
-
-- **Real NVML calls.** Requires the NVIDIA driver + a GPU. Exercised
-  on the dev-box only via `internal/nvidia/nvidia_smoke_test.go`.
-- **Real sysfs writes to a physical fan.** Covered by the validation
-  matrix (see `validation/`), not by `go test`.
-- **Install-time `modprobe` / `sensors-detect` exec paths.** Require
-  root and matching hardware; exercised via `ventd --probe-modules`
-  against real machines in the validation fleet.
-- **End-to-end browser flows.** `internal/web/e2e_test.go` uses rod
-  for a smoke test but does not cover the full setup wizard journey.
-- **PID-1 reboot refusal.** Tracked by #177. The current reboot test
-  pins CURRENT behaviour (always 200); when the guard lands the
-  assertion flips.
+- VMs are free. Use them.
+- Hardware access costs time (boot, SSH, read, revert) — use sparingly.
+- When HARDWARE-REQUIRED is the blocker, either buy the hardware,
+  borrow it, or ship without real-hardware DoD and flag the gap in the
+  release notes. Don't fake validation.
