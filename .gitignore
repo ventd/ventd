@@ -24,7 +24,6 @@ cover.html
 /TODO.md
 /REVIEW.md
 /REVIEW-FINDINGS.md
-/COWORK-TODO.md
 /AGENTS.md
 /exampleui.png
 /issue1.png
@@ -47,8 +46,3 @@ securitytodo.md
 /validation/fresh-vm-smoke-*.md
 release-notes/*-dryrun.txt
 
-# Cowork orchestration state — lives on the cowork/state branch only.
-# Adding these files in any other branch is almost always a mistake;
-# if Cowork is initialising on a fresh clone, it commits on cowork/state
-# directly, never via a feature PR. See .cowork/MASTERPLAN.md §3.
-.cowork/
