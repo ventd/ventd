@@ -46,6 +46,25 @@ builds:
     ldflags:
       - -s -w
 
+  # ventd-ipmi: privilege-separated IPMI sidecar. Installed to
+  # /usr/libexec/ventd/ventd-ipmi. Holds CAP_SYS_RAWIO + /dev/ipmi0 access
+  # so the main ventd daemon can run without any IPMI capability.
+  - id: ventd-ipmi
+    main: ./cmd/ventd-ipmi
+    binary: ventd-ipmi
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    ldflags:
+      - -s -w
+
   # musl-compatible build — fully static, NVIDIA support compiled out.
   # Required for Alpine, Void-musl, and other musl-libc distros where
   # purego's fakecgo shim would drag in glibc SONAMEs and fail to exec.
@@ -75,6 +94,7 @@ archives:
     ids:
       - ventd
       - ventd-recover
+      - ventd-ipmi
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     files:
@@ -84,12 +104,15 @@ archives:
       - deploy/ventd.service
       - deploy/ventd-recover.service
       - deploy/ventd-postreboot-verify.service
+      - deploy/ventd-ipmi.service
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/usr.local.bin.ventd
       - deploy/selinux/ventd.te
       - deploy/selinux/ventd.fc
       - deploy/selinux/Makefile
+      - deploy/tmpfiles.d-ventd.conf
+      - deploy/sysusers.d-ventd.conf
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
@@ -100,6 +123,7 @@ archives:
     ids:
       - ventd-musl
       - ventd-recover
+      - ventd-ipmi
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_musl"
     formats: [tar.gz]
     files:
@@ -109,12 +133,15 @@ archives:
       - deploy/ventd.service
       - deploy/ventd-recover.service
       - deploy/ventd-postreboot-verify.service
+      - deploy/ventd-ipmi.service
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/usr.local.bin.ventd
       - deploy/selinux/ventd.te
       - deploy/selinux/ventd.fc
       - deploy/selinux/Makefile
+      - deploy/tmpfiles.d-ventd.conf
+      - deploy/sysusers.d-ventd.conf
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh

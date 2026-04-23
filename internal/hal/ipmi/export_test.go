@@ -13,10 +13,11 @@ func NewBackendNonServer(logger *slog.Logger) *Backend {
 		logger = slog.Default()
 	}
 	b := &Backend{
-		device:  "/dev/ipmi0",
-		logger:  logger,
-		readDMI: readDMIFromSysfs,
-		fd:      -1,
+		device:     "/dev/ipmi0",
+		socketPath: "",
+		logger:     logger,
+		readDMI:    readDMIFromSysfs,
+		fd:         -1,
 	}
 	b.dmi = dmiInfo{chassisType: 3, sysVendor: "ASUS"}
 	b.vendor = detectVendorFromString(b.dmi.sysVendor)
@@ -32,12 +33,13 @@ func NewBackendForTest(logger *slog.Logger, vendor string, opts ...Option) *Back
 		logger = slog.Default()
 	}
 	b := &Backend{
-		device:  "/dev/ipmi0",
-		logger:  logger,
-		readDMI: readDMIFromSysfs,
-		dmi:     dmiInfo{chassisType: 23, sysVendor: "test"},
-		vendor:  vendor,
-		fd:      -1,
+		device:     "/dev/ipmi0",
+		socketPath: "",
+		logger:     logger,
+		readDMI:    readDMIFromSysfs,
+		dmi:        dmiInfo{chassisType: 23, sysVendor: "test"},
+		vendor:     vendor,
+		fd:         -1,
 	}
 	for _, opt := range opts {
 		opt(b)

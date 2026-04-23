@@ -243,15 +243,24 @@ func WithSendRecv(fn func(req, resp []byte) error) Option {
 	return func(b *Backend) { b.sendRecv = fn }
 }
 
+// WithSocketPath overrides the default sidecar socket path ("/run/ventd/ipmi.sock").
+// PR 3 will flip the backend to dial this socket instead of opening /dev/ipmi0
+// directly; the field is wired here so PR 2 and PR 3 can land independently.
+// Pass "" to disable socket dialling (direct ioctl mode).
+func WithSocketPath(p string) Option {
+	return func(b *Backend) { b.socketPath = p }
+}
+
 // ── Backend ──────────────────────────────────────────────────────────────────
 
 // Backend is the IPMI implementation of hal.FanBackend.
 type Backend struct {
-	device  string
-	logger  *slog.Logger
-	vendor  string
-	dmi     dmiInfo
-	readDMI func() dmiInfo
+	device     string
+	socketPath string // default /run/ventd/ipmi.sock; PR 3 dials this instead of ioctl
+	logger     *slog.Logger
+	vendor     string
+	dmi        dmiInfo
+	readDMI    func() dmiInfo
 
 	mu sync.Mutex // serialises the full send-poll-receive cycle
 	fd int        // -1 = closed; guarded by mu for open/close
@@ -269,10 +278,11 @@ func NewBackend(logger *slog.Logger, opts ...Option) *Backend {
 		logger = slog.Default()
 	}
 	b := &Backend{
-		device:  "/dev/ipmi0",
-		logger:  logger,
-		readDMI: readDMIFromSysfs,
-		fd:      -1,
+		device:     "/dev/ipmi0",
+		socketPath: "/run/ventd/ipmi.sock",
+		logger:     logger,
+		readDMI:    readDMIFromSysfs,
+		fd:         -1,
 	}
 	for _, opt := range opts {
 		opt(b)
@@ -286,26 +296,28 @@ func NewBackend(logger *slog.Logger, opts ...Option) *Backend {
 // NewBackendForTest in export_test.go.
 func (b *Backend) withDMI(info dmiInfo) *Backend {
 	return &Backend{
-		device:   b.device,
-		logger:   b.logger,
-		readDMI:  b.readDMI,
-		dmi:      info,
-		vendor:   detectVendorFromString(info.sysVendor),
-		fd:       -1,
-		sendRecv: b.sendRecv,
+		device:     b.device,
+		socketPath: b.socketPath,
+		logger:     b.logger,
+		readDMI:    b.readDMI,
+		dmi:        info,
+		vendor:     detectVendorFromString(info.sysVendor),
+		fd:         -1,
+		sendRecv:   b.sendRecv,
 	}
 }
 
 // withVendor returns a copy of b with the vendor overridden; used by tests.
 func (b *Backend) withVendor(vendor string) *Backend {
 	return &Backend{
-		device:   b.device,
-		logger:   b.logger,
-		readDMI:  b.readDMI,
-		dmi:      b.dmi,
-		vendor:   vendor,
-		fd:       -1,
-		sendRecv: b.sendRecv,
+		device:     b.device,
+		socketPath: b.socketPath,
+		logger:     b.logger,
+		readDMI:    b.readDMI,
+		dmi:        b.dmi,
+		vendor:     vendor,
+		fd:         -1,
+		sendRecv:   b.sendRecv,
 	}
 }
 

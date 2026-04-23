@@ -1,5 +1,95 @@
 # ventd deployment notes
 
+## `ventd-ipmi.service` — privilege-separated IPMI sidecar
+
+`ventd-ipmi` is an always-on helper process that holds the only privilege
+needed to talk to a BMC: `CAP_SYS_RAWIO` and `DeviceAllow=/dev/ipmi0`.
+The main `ventd` daemon runs with an empty `CapabilityBoundingSet=` (no
+capabilities at all) and connects to the sidecar over a Unix socket at
+`/run/ventd/ipmi.sock`.
+
+The sidecar is optional: if `/dev/ipmi0` does not exist on the machine,
+`ConditionPathExists=/dev/ipmi0` in the unit file prevents systemd from
+even attempting to start it.
+
+### Prerequisites
+
+1. **System account** — created by `sysusers.d-ventd.conf`:
+   ```
+   sudo systemd-sysusers /usr/lib/sysusers.d/ventd.conf
+   # or on first install via postinstall.sh
+   ```
+
+2. **Runtime directory** — created by `tmpfiles.d-ventd.conf`:
+   ```
+   sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/ventd.conf
+   # /run/ventd is also created at boot automatically once the file is installed
+   ```
+
+### Install
+
+```bash
+# Binary — install alongside ventd
+sudo install -D -m 0755 ventd-ipmi /usr/libexec/ventd/ventd-ipmi
+
+# sysusers + tmpfiles
+sudo install -m 0644 deploy/sysusers.d-ventd.conf /usr/lib/sysusers.d/ventd.conf
+sudo install -m 0644 deploy/tmpfiles.d-ventd.conf /usr/lib/tmpfiles.d/ventd.conf
+sudo systemd-sysusers /usr/lib/sysusers.d/ventd.conf
+sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/ventd.conf
+
+# systemd unit
+sudo install -m 0644 deploy/ventd-ipmi.service /lib/systemd/system/ventd-ipmi.service
+sudo systemctl daemon-reload
+
+# The sidecar is pulled in automatically by ventd.service (WantedBy=ventd.service).
+# You can also start it manually:
+sudo systemctl enable --now ventd-ipmi.service
+```
+
+### Uninstall
+
+```bash
+sudo systemctl stop ventd-ipmi.service
+sudo systemctl disable ventd-ipmi.service
+sudo rm -f /lib/systemd/system/ventd-ipmi.service
+sudo rm -f /usr/libexec/ventd/ventd-ipmi
+sudo systemctl daemon-reload
+# Account and tmpfiles drop-ins remain; remove when ventd itself is removed.
+```
+
+### Verify
+
+```bash
+# Check the sidecar is running and has CAP_SYS_RAWIO
+systemctl status ventd-ipmi
+grep CapPrm /proc/$(systemctl show -p MainPID --value ventd-ipmi)/status
+
+# Check the socket exists and is group-writable by 'ventd'
+ls -la /run/ventd/ipmi.sock
+
+# Check the main daemon has NO IPMI capabilities
+grep -E 'CapBnd|CapPrm' /proc/$(systemctl show -p MainPID --value ventd)/status
+# Both lines should read 0000000000000000
+```
+
+### Security model
+
+| Process | User | Caps | Device |
+|---|---|---|---|
+| `ventd` (main daemon) | `ventd` | none | none |
+| `ventd-ipmi` (sidecar) | `ventd-ipmi` | `CAP_SYS_RAWIO` | `/dev/ipmi0` |
+
+Communication is a length-prefixed JSON socket at `/run/ventd/ipmi.sock`
+(mode `0660`, group `ventd`). Both processes are in the `ventd` group.
+
+### TODO — AppArmor / SELinux profiles for ventd-ipmi
+
+AppArmor and SELinux profiles for `ventd-ipmi` are not shipped yet.
+Track in a follow-up PR. Until then, the sandbox is enforced exclusively
+by systemd's `CapabilityBoundingSet=`, `DeviceAllow=`, `PrivateNetwork=yes`,
+and `SystemCallFilter=` hardening.
+
 ## `ventd.service`
 
 The shipped unit is sandboxed by default. Key points:

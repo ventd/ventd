@@ -1,0 +1,76 @@
+[Unit]
+Description=ventd IPMI sidecar (privilege-separated BMC access)
+Documentation=https://github.com/ventd/ventd
+After=local-fs.target
+# Only meaningful on machines that actually have an IPMI device.
+ConditionPathExists=/dev/ipmi0
+# If the main daemon stops there is no client for the sidecar.
+BindsTo=ventd.service
+PartOf=ventd.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/libexec/ventd/ventd-ipmi --socket /run/ventd/ipmi.sock
+Restart=on-failure
+RestartSec=2s
+
+# Identity: dedicated sidecar account in the ventd group so the main daemon
+# can connect to the socket (group-writable) without any extra privilege.
+User=ventd-ipmi
+Group=ventd
+
+# This is the only process that needs /dev/ipmi0.
+DeviceAllow=/dev/ipmi0 rw
+DeviceAllow=/dev/ipmi1 rw
+DeviceAllow=/dev/ipmidev/0 rw
+AmbientCapabilities=CAP_SYS_RAWIO
+CapabilityBoundingSet=CAP_SYS_RAWIO
+NoNewPrivileges=yes
+
+# Socket directory: /run/ventd is created by tmpfiles.d-ventd.conf (mode 0750,
+# owner ventd-ipmi:ventd) before either unit starts.
+RuntimeDirectory=ventd
+RuntimeDirectoryMode=0750
+
+# Filesystem hardening.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# Cannot blanket-deny devices — the sidecar needs /dev/ipmi*.
+PrivateDevices=no
+ReadWritePaths=/run/ventd
+
+# Network: only the Unix socket to the main daemon — no TCP/UDP needed.
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+# Kernel hardening.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+# Syscall hardening.
+SystemCallArchitectures=native
+# @system-service covers the ioctl syscall needed for /dev/ipmi0.
+SystemCallFilter=@system-service
+# Strip high-risk groups that @system-service does not already exclude.
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# Defence-in-depth.
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RemoveIPC=yes
+UMask=0077
+
+[Install]
+WantedBy=ventd.service
