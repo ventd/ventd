@@ -61,6 +61,30 @@ func MakeTestChannel(sensorNum uint8, name string) hal.Channel {
 	}
 }
 
+// NewBackendWithDMI creates a Backend with caller-supplied chassis_type and
+// sysVendor injected directly — no sysfs read. Allows DMI-gate tests to drive
+// any combination of chassis type and vendor string without touching the host.
+// Variadic opts (e.g. WithSendRecv) are applied after the fixed fields.
+func NewBackendWithDMI(logger *slog.Logger, chassisType int, sysVendor string, opts ...Option) *Backend {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	info := dmiInfo{chassisType: chassisType, sysVendor: sysVendor}
+	b := &Backend{
+		device:     "/dev/ipmi0",
+		socketPath: "",
+		logger:     logger,
+		readDMI:    readDMIFromSysfs,
+		dmi:        info,
+		vendor:     detectVendorFromString(info.sysVendor),
+		fd:         -1,
+	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
+}
+
 // DetectVendorFromString exposes detectVendorFromString for table-driven tests.
 var DetectVendorFromString = detectVendorFromString
 
