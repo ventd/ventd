@@ -19,10 +19,10 @@ var _ RawDevice = (*hid.Device)(nil)
 
 type hidrawLayer struct{}
 
-func (l *hidrawLayer) Enumerate() ([]Device, error) {
-	var out []Device
+func (l *hidrawLayer) Enumerate() ([]DeviceInfo, error) {
+	var out []DeviceInfo
 	err := hid.Enumerate(hid.VendorIDAny, hid.ProductIDAny, func(info *hid.DeviceInfo) error {
-		out = append(out, Device{
+		out = append(out, DeviceInfo{
 			VendorID:     info.VendorID,
 			ProductID:    info.ProductID,
 			Path:         info.Path,

@@ -2,18 +2,101 @@
 // HAL backends (LIQUID, CROSEC). It wraps github.com/sstallion/go-hid behind
 // an interface so backends can be tested with fakehid without real hardware.
 //
-// Production builds require CGO (the hidraw kernel interface is a C binding).
-// Use New() in daemon code and NewWithLayer() in tests.
+// The package has two tiers:
+//   - High-level: Device interface, Matcher, Event/Watch — used by backend code.
+//   - Low-level: Bus, Handle, HIDLayer, RawDevice — injectable I/O surface.
+//
+// Production builds that need real hidraw access require CGO and the hidraw
+// build tag (//go:build cgo && hidraw). Test builds use NewWithLayer.
 package usbbase
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 )
 
-// Device describes a USB HID device visible to the system.
-type Device struct {
+// ── High-level types ─────────────────────────────────────────────────────────
+
+// Device is the I/O surface for an open USB HID device. All method
+// implementations must be safe for concurrent use.
+type Device interface {
+	VendorID() uint16
+	ProductID() uint16
+	SerialNumber() string
+	Read(buf []byte, timeout time.Duration) (int, error)
+	Write(buf []byte) (int, error)
+	Close() error
+}
+
+// Matcher filters USB HID devices by vendor, product, and interface number.
+type Matcher struct {
+	VendorID   uint16
+	ProductIDs []uint16 // empty means any PID
+	Interface  int      // -1 means any interface
+}
+
+// Matches reports whether vid, pid, and iface satisfy this Matcher.
+// iface -1 on either side means "any interface".
+func (m Matcher) Matches(vid, pid uint16, iface int) bool {
+	if m.VendorID != 0 && m.VendorID != vid {
+		return false
+	}
+	if len(m.ProductIDs) > 0 {
+		found := false
+		for _, p := range m.ProductIDs {
+			if p == pid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	if m.Interface >= 0 && iface >= 0 && m.Interface != iface {
+		return false
+	}
+	return true
+}
+
+// MatchesAny reports whether any Matcher in ms matches vid, pid, iface.
+// Returns false when ms is empty.
+func MatchesAny(ms []Matcher, vid, pid uint16, iface int) bool {
+	for _, m := range ms {
+		if m.Matches(vid, pid, iface) {
+			return true
+		}
+	}
+	return false
+}
+
+// EventKind identifies the direction of a USB hotplug event.
+type EventKind int
+
+const (
+	// Add is emitted when a matching USB HID device is connected.
+	Add EventKind = iota
+	// Remove is emitted when a matching USB HID device is disconnected.
+	Remove
+)
+
+// Event is a USB hotplug notification.
+type Event struct {
+	Kind   EventKind
+	Device Device
+}
+
+// ErrUnsupported is returned by Enumerate and Watch on platforms or build
+// configurations without USB HID discovery support.
+var ErrUnsupported = errors.New("usbbase: platform not supported")
+
+// ── Low-level types ──────────────────────────────────────────────────────────
+
+// DeviceInfo is a descriptor for a USB HID device visible to the system.
+// It carries only metadata; use Bus.Open to get an I/O Handle.
+type DeviceInfo struct {
 	VendorID     uint16
 	ProductID    uint16
 	Path         string
@@ -36,7 +119,7 @@ type RawDevice interface {
 // HIDLayer is the discovery and open surface injected into Bus.
 // The CGO implementation uses go-hid; tests inject fakehid.Layer.
 type HIDLayer interface {
-	Enumerate() ([]Device, error)
+	Enumerate() ([]DeviceInfo, error)
 	OpenPath(path string) (RawDevice, error)
 }
 
@@ -53,7 +136,7 @@ func NewWithLayer(l HIDLayer) *Bus {
 }
 
 // Enumerate returns all HID devices visible to the system.
-func (b *Bus) Enumerate() ([]Device, error) {
+func (b *Bus) Enumerate() ([]DeviceInfo, error) {
 	return b.layer.Enumerate()
 }
 
@@ -68,9 +151,7 @@ func (b *Bus) Open(path string) (*Handle, error) {
 }
 
 // Handle is an open USB HID device. All methods are safe for concurrent
-// use: per-handle I/O is serialised by an internal mutex. Callers should
-// still avoid holding their own lock across Handle method calls to prevent
-// lock ordering issues.
+// use: per-handle I/O is serialised by an internal mutex.
 type Handle struct {
 	mu     sync.Mutex
 	raw    RawDevice
