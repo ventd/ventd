@@ -341,7 +341,9 @@ func (b *Backend) Close() error {
 // systems or when /dev/ipmi0 is unavailable.
 func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 	if !isServerChassis(b.dmi) {
-		b.logger.Info("ipmi: not a server chassis, skipping")
+		b.logger.Debug("ipmi: not a server chassis, skipping IPMI probe",
+			"chassis_type", b.dmi.chassisType,
+			"sys_vendor", b.dmi.sysVendor)
 		return nil, nil
 	}
 

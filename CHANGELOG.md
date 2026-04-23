@@ -24,6 +24,23 @@ and frozen.
 - test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)
 <!-- git-cliff end -->
 
+## [v0.3.1] — 2026-04-24
+
+### Added — IPMI vendor coverage
+
+- Supermicro X11/X13: fan control via IPMI raw commands (manual mode, per-zone duty cycle via OEM netFn=0x30 cmd=0x70; restore via cmd=0x45 SET\_FAN\_MODE).
+- Dell PowerEdge R740/R750: fan control via IPMI raw commands (manual mode, per-fan duty cycle via OEM netFn=0x30 cmd=0x30 sub=0x02; restore via sub=0x01).
+- HPE ProLiant DL380 Gen10: detected and reported; fan writes require iLO Advanced license — no OEM commands are sent (informational only).
+- Lenovo ThinkSystem SR650: detected and reported; write support not yet validated against real hardware.
+- Non-server chassis: IPMI backend silently skipped on all non-server systems — no spurious `/dev/ipmi0` probes, no kernel log noise. Gate triggers on chassis\_type=23 (rack-mount) OR known server vendor string (Supermicro, Dell, HP/HPE, Lenovo).
+- `internal/hwdb/profiles.yaml`: six IPMI-capable server profiles covering the above vendors; prefix-match entries cover entire board generations (Supermicro X11\*, X13\*).
+
+### Tests
+
+- T-IPMI-01 coverage: 7 invariant-bound safety subtests tied 1:1 to `.claude/rules/ipmi-safety.md` rules (RULE-IPMI-1 through RULE-IPMI-7), plus vendor-matrix and DMI-gate tests.
+- T-IPMI-02 coverage: privilege-boundary tests for the `ventd-ipmi` sidecar — verifies main daemon holds zero IPMI capabilities and the sidecar unit is correctly confined.
+- Privilege-separated IPMI sidecar (`ventd-ipmi.service`) shipped; main `ventd.service` carries zero IPMI device-access or capability grants.
+
 ## [Pre-automation history]
 
 Entries here were hand-curated during v0.0.x through v0.3.0-rc*. They are

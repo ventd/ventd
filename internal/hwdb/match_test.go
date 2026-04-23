@@ -251,23 +251,24 @@ func TestHWDB_Match(t *testing.T) {
 			wantBoardName: "X12STH",
 		},
 
-		// ── profiles.yaml entry 16: Dell PowerEdge R740 (unverified, exact) ────
-		// no fakedmi preset; synthesized from profiles.yaml
+		// ── Dell PowerEdge R740 (IPMI entry, unverified, exact) ──────────────
+		// IPMI profiles section now provides R740/R750 with IPMI modules.
+		// The new entries appear before the legacy hwmon-only entries in the
+		// file, so they win the first-match-wins unverified stage sweep.
 		{
 			name:          "dell_poweredge_r740_exact",
 			fp:            HardwareFingerprint{BoardVendor: "Dell Inc.", BoardName: "PowerEdge R740"},
 			wantMatch:     true,
-			wantModules:   []string{"dell_smm_hwmon"},
+			wantModules:   []string{"dell_smm_hwmon", "ipmi_devintf", "ipmi_si"},
 			wantBoardName: "PowerEdge R740",
 		},
 
-		// ── profiles.yaml entry 17: Dell PowerEdge R750 (unverified, exact) ────
-		// no fakedmi preset; synthesized from profiles.yaml
+		// ── Dell PowerEdge R750 (IPMI entry, unverified, exact) ──────────────
 		{
 			name:          "dell_poweredge_r750_exact",
 			fp:            HardwareFingerprint{BoardVendor: "Dell Inc.", BoardName: "PowerEdge R750"},
 			wantMatch:     true,
-			wantModules:   []string{"dell_smm_hwmon"},
+			wantModules:   []string{"dell_smm_hwmon", "ipmi_devintf", "ipmi_si"},
 			wantBoardName: "PowerEdge R750",
 		},
 
@@ -319,12 +320,15 @@ func TestHWDB_Match(t *testing.T) {
 
 		// ── Negative cases: fingerprints that match no profile ──────────────────
 
-		// fakedmi BoardSupermicroX11 has board_name "X11DPi-N"; the only
-		// Supermicro profiles are "X11SCH-F" and "X12STH" — no substring match.
+		// fakedmi BoardSupermicroX11 has board_name "X11DPi-N". The new IPMI
+		// profiles section adds a prefix entry for board_name "X11", so this
+		// board now matches (stage 1 prefix in the unverified pass).
 		{
-			name:      "supermicro_x11_no_profile_fakedmi",
-			fp:        supermicroX11FP,
-			wantMatch: false,
+			name:          "supermicro_x11_prefix_fakedmi",
+			fp:            supermicroX11FP,
+			wantMatch:     true,
+			wantModules:   []string{"nct6775", "ipmi_devintf", "ipmi_si"},
+			wantBoardName: "X11",
 		},
 		// fakedmi BoardDellPowerEdgeR750 stores the model in ProductName, not
 		// BoardName. Its board_name is "0WMJTH" which matches no profile entry.
