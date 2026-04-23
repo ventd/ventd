@@ -64,7 +64,9 @@ func main() {
 	// Close listener when context is cancelled so Accept unblocks.
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		if err := ln.Close(); err != nil {
+			log.Error("listener close", "err", err)
+		}
 	}()
 
 	sdNotifyReady()
@@ -91,7 +93,7 @@ func main() {
 			})
 		default:
 			log.Warn("connection limit reached, rejecting", "max", maxConns)
-			conn.Close()
+			_ = conn.Close()
 		}
 	}
 
@@ -120,7 +122,7 @@ type sidecar struct {
 }
 
 func (s *sidecar) handleConn(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	codec := proto.NewCodec(conn, conn)
 	for {
 		req, err := codec.ReadRequest()
@@ -289,7 +291,7 @@ func sdNotifyReady() {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_, _ = conn.Write([]byte("READY=1\n"))
 }
 
