@@ -1,9 +1,11 @@
 // Package fakehid provides an in-memory USB HID device simulator for unit tests.
-// It implements usbbase.HIDLayer and usbbase.RawDevice so tests can exercise
-// usbbase consumers without real hardware or CGO.
+// It implements usbbase.HIDLayer and usbbase.RawDevice (via Layer and DeviceHandle)
+// for Bus/Handle-level tests, and usbbase.Device (via Device) plus Hub for
+// Enumerate/Watch-level tests.
 package fakehid
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -11,11 +13,13 @@ import (
 	"github.com/ventd/ventd/internal/hal/usbbase"
 )
 
+// ── Low-level: Layer + DeviceHandle (implements HIDLayer / RawDevice) ────────
+
 // Layer is an in-memory HID bus. Add devices with AddDevice before use.
 // It implements usbbase.HIDLayer.
 type Layer struct {
 	mu      sync.Mutex
-	devices []usbbase.Device
+	devices []usbbase.DeviceInfo
 	handles map[string]*DeviceHandle
 }
 
@@ -26,7 +30,7 @@ func New() *Layer {
 
 // AddDevice registers a device so Enumerate returns it and OpenPath can open it.
 // The same DeviceHandle is returned for every Open of that path.
-func (l *Layer) AddDevice(d usbbase.Device, h *DeviceHandle) {
+func (l *Layer) AddDevice(d usbbase.DeviceInfo, h *DeviceHandle) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.devices = append(l.devices, d)
@@ -34,10 +38,10 @@ func (l *Layer) AddDevice(d usbbase.Device, h *DeviceHandle) {
 }
 
 // Enumerate implements usbbase.HIDLayer.
-func (l *Layer) Enumerate() ([]usbbase.Device, error) {
+func (l *Layer) Enumerate() ([]usbbase.DeviceInfo, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]usbbase.Device, len(l.devices))
+	out := make([]usbbase.DeviceInfo, len(l.devices))
 	copy(out, l.devices)
 	return out, nil
 }
@@ -189,3 +193,249 @@ var _ usbbase.HIDLayer = (*Layer)(nil)
 
 // compile-time proof that *DeviceHandle implements usbbase.RawDevice.
 var _ usbbase.RawDevice = (*DeviceHandle)(nil)
+
+// ── High-level: Device + Hub (implements usbbase.Device / event source) ──────
+
+// Device is an in-memory USB HID device that implements usbbase.Device.
+// Writes can be scripted by setting OnWrite; the function's return value
+// is queued as the response to the next Read call.
+type Device struct {
+	mu      sync.Mutex
+	vid     uint16
+	pid     uint16
+	serial  string
+	iface   int
+	onWrite func([]byte) []byte // nil means no response
+	readBuf []byte
+	closed  bool
+}
+
+// NewDevice returns a Device with the given VID, PID, serial, and interface
+// number. Pass -1 for iface if the device has no specific interface binding.
+func NewDevice(vid, pid uint16, serial string, iface int) *Device {
+	return &Device{vid: vid, pid: pid, serial: serial, iface: iface}
+}
+
+// SetOnWrite registers a scripted response function. Each call to Write
+// invokes fn with the written bytes; the returned slice is queued for the
+// next Read. Passing nil disables scripted responses.
+func (d *Device) SetOnWrite(fn func([]byte) []byte) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.onWrite = fn
+}
+
+// VendorID implements usbbase.Device.
+func (d *Device) VendorID() uint16 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.vid
+}
+
+// ProductID implements usbbase.Device.
+func (d *Device) ProductID() uint16 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pid
+}
+
+// SerialNumber implements usbbase.Device.
+func (d *Device) SerialNumber() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.serial
+}
+
+// Iface returns the device's interface number used for Matcher.Interface
+// filtering. This is not part of usbbase.Device; it is needed by Hub.
+func (d *Device) Iface() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.iface
+}
+
+// Read implements usbbase.Device. Returns the next scripted response queued
+// by OnWrite, or an error if the buffer is empty.
+func (d *Device) Read(buf []byte, _ time.Duration) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: read on closed device")
+	}
+	if len(d.readBuf) == 0 {
+		return 0, fmt.Errorf("fakehid: read buffer empty")
+	}
+	n := copy(buf, d.readBuf)
+	d.readBuf = d.readBuf[n:]
+	return n, nil
+}
+
+// Write implements usbbase.Device. If OnWrite is set the response is queued
+// for the next Read call.
+func (d *Device) Write(buf []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return 0, fmt.Errorf("fakehid: write on closed device")
+	}
+	if d.onWrite != nil {
+		resp := d.onWrite(buf)
+		if len(resp) > 0 {
+			d.readBuf = append(d.readBuf, resp...)
+		}
+	}
+	return len(buf), nil
+}
+
+// Close implements usbbase.Device.
+func (d *Device) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.closed = true
+	return nil
+}
+
+// IsClosed reports whether Close has been called.
+func (d *Device) IsClosed() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.closed
+}
+
+// compile-time proof that *Device implements usbbase.Device.
+var _ usbbase.Device = (*Device)(nil)
+
+// Hub is an in-memory USB HID bus for Enumerate/Watch tests. Add and remove
+// Devices to simulate hotplug events; Watch subscribers receive the events.
+type Hub struct {
+	mu   sync.Mutex
+	devs []*Device
+	subs []chan usbbase.Event
+}
+
+// NewHub returns an empty Hub with no registered Devices.
+func NewHub() *Hub {
+	return &Hub{}
+}
+
+// Add registers d and broadcasts an Add event to all Watch subscribers.
+func (h *Hub) Add(d *Device) {
+	h.mu.Lock()
+	h.devs = append(h.devs, d)
+	subs := h.copySubs()
+	h.mu.Unlock()
+
+	ev := usbbase.Event{Kind: usbbase.Add, Device: d}
+	for _, sub := range subs {
+		select {
+		case sub <- ev:
+		default: // drop if subscriber buffer is full
+		}
+	}
+}
+
+// Remove deregisters the first Device with the given serial number and
+// broadcasts a Remove event. No-op if no such device is registered.
+func (h *Hub) Remove(serial string) {
+	h.mu.Lock()
+	var removed *Device
+	var remaining []*Device
+	for _, d := range h.devs {
+		if removed == nil && d.SerialNumber() == serial {
+			removed = d
+		} else {
+			remaining = append(remaining, d)
+		}
+	}
+	h.devs = remaining
+	subs := h.copySubs()
+	h.mu.Unlock()
+
+	if removed == nil {
+		return
+	}
+	ev := usbbase.Event{Kind: usbbase.Remove, Device: removed}
+	for _, sub := range subs {
+		select {
+		case sub <- ev:
+		default:
+		}
+	}
+}
+
+// Enumerate returns all registered Devices matching any Matcher.
+// An empty matchers slice returns nothing.
+func (h *Hub) Enumerate(matchers []usbbase.Matcher) ([]usbbase.Device, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(matchers) == 0 {
+		return nil, nil
+	}
+	var out []usbbase.Device
+	for _, d := range h.devs {
+		if usbbase.MatchesAny(matchers, d.VendorID(), d.ProductID(), d.Iface()) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// Watch streams hotplug events to the returned channel, filtered by matchers.
+// If matchers is empty, all events are forwarded. The channel is closed when
+// ctx is cancelled.
+func (h *Hub) Watch(ctx context.Context, matchers []usbbase.Matcher) (<-chan usbbase.Event, error) {
+	raw := make(chan usbbase.Event, 16)
+	out := make(chan usbbase.Event, 16)
+
+	h.mu.Lock()
+	h.subs = append(h.subs, raw)
+	h.mu.Unlock()
+
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			for i, s := range h.subs {
+				if s == raw {
+					h.subs = append(h.subs[:i], h.subs[i+1:]...)
+					break
+				}
+			}
+			h.mu.Unlock()
+			close(out)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-raw:
+				if !ok {
+					return
+				}
+				d, ok2 := ev.Device.(*Device)
+				if !ok2 {
+					continue
+				}
+				if len(matchers) > 0 && !usbbase.MatchesAny(matchers, d.VendorID(), d.ProductID(), d.Iface()) {
+					continue
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return out, nil
+}
+
+// copySubs returns a snapshot of h.subs. Caller must hold h.mu.
+func (h *Hub) copySubs() []chan usbbase.Event {
+	if len(h.subs) == 0 {
+		return nil
+	}
+	cp := make([]chan usbbase.Event, len(h.subs))
+	copy(cp, h.subs)
+	return cp
+}

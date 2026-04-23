@@ -13,7 +13,7 @@ func New() *Bus {
 
 type stubLayer struct{}
 
-func (s *stubLayer) Enumerate() ([]Device, error) {
+func (s *stubLayer) Enumerate() ([]DeviceInfo, error) {
 	return nil, fmt.Errorf("usbbase: not available: build with CGO_ENABLED=1")
 }
 
