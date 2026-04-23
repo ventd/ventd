@@ -16,6 +16,7 @@ the zero write and leave the fan at its current speed. Silently stalling a
 fan whose config did not declare it fan-stop-safe risks thermal runaway.
 
 Bound: internal/controller/safety_test.go:allow_stop/disabled_refuses_zero
+Bound: internal/controller/safety_test.go:allow_stop/enabled_permits_zero
 
 ## RULE-HWMON-CLAMP: PWM writes clamped to [min_pwm, max_pwm]
 
@@ -26,6 +27,7 @@ able to stall a fan below its configured floor or overdrive it above its
 configured ceiling.
 
 Bound: internal/controller/safety_test.go:clamp/below_min_pwm
+Bound: internal/controller/safety_test.go:clamp/above_max_pwm
 
 ## RULE-HWMON-ENABLE-MODE: pwm_enable set to 1 (manual) before first PWM write
 
@@ -37,6 +39,7 @@ Drivers that do not expose pwm_enable (e.g. nct6683) must be treated as
 already in manual mode and proceed without error.
 
 Bound: internal/controller/safety_test.go:pwm_enable/manual_mode_set_on_run_start
+Bound: internal/controller/safety_test.go:pwm_enable/unsupported_driver_proceeds
 
 ## RULE-HWMON-RESTORE-EXIT: Watchdog.Restore() fires on every documented exit path
 
@@ -48,6 +51,7 @@ triggering Restore leaves fans at whatever PWM the daemon last wrote --
 often zero, always wrong.
 
 Bound: internal/controller/safety_test.go:watchdog/restore_on_context_cancel
+Bound: internal/controller/safety_test.go:watchdog/restore_on_tick_panic
 
 ## RULE-HWMON-SYSFS-ENOENT: ENOENT and EIO on sysfs reads are logged and skipped
 
@@ -59,6 +63,7 @@ that still have valid readings. An erring sensor must never silently stop
 all fan control.
 
 Bound: internal/controller/safety_test.go:sensor_read/enoent_skip
+Bound: internal/controller/safety_test.go:sensor_read/eio_skip
 
 ## RULE-HWMON-PUMP-FLOOR: pump fans never written below pump_minimum
 
@@ -102,6 +107,7 @@ on every tick — a safety bug on hardware that has no thermal runaway
 protection.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_rejects_255_5_degrees
+Bound: internal/controller/safety_test.go:temp_sentinel_skipped_in_readAllSensors
 
 ## RULE-HWMON-SENTINEL-FAN: fan RPM sentinel rejected at the backend read boundary
 
@@ -173,3 +179,15 @@ must not appear in the Device.Readings slice at all. Valid readings on the
 same chip must still appear.
 
 Bound: internal/monitor/monitor_test.go:TestRegression_Issue460v2_SentinelSuppressedAtScanBoundary
+
+## RULE-HWMON-READALLSENSORS-PASSTHROUGH: a valid sensor reading must not be filtered by the sentinel gate
+
+`readAllSensors` must place valid sensor values into the sensor map and must
+NOT record them in the sentinel buffer. A sentinel filter that produces false
+positives — rejecting a real 45°C reading as a sentinel — would cause the
+controller to carry forward a stale PWM value and sever the thermal control
+loop on otherwise healthy hardware. The acceptance contract is tested
+symmetrically alongside the rejection contract so that a change to the
+plausibility thresholds that creates false positives fails immediately.
+
+Bound: internal/controller/safety_test.go:temp_valid_passes_through_readAllSensors
