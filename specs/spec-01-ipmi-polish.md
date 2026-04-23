@@ -13,7 +13,12 @@ IPMI is the v0.4.0 release hook per `RELEASE-PLAN.md` — the Reddit post is pre
 
 ## Scope — what this session produces
 
-A PR series that closes the gap between "merged" and "shippable" for IPMI. Three small PRs, not one big one. Each independently mergeable.
+A PR series that closes the gap between "merged" and "shippable" for IPMI. Four small PRs, not one big one. Each independently mergeable.
+
+**Note (2026-04-23):** P2-IPMI-02 shipped the Go socket dial path but NOT
+the privileged sidecar that serves it. Main daemon has zero IPMI privileges
+(correct) and no sidecar to forward through (gap). PR 2 is therefore split:
+PR 2a authors the sidecar; PR 2b tests the privilege boundary.
 
 ### PR 1 — Test coverage against the `fakeipmi` fixture (T-IPMI-01)
 
@@ -47,7 +52,47 @@ Follow the exact format established in `.claude/rules/hwmon-safety.md`. Write 7 
 2. Sidecar `ventd-ipmi.service`: assert `DeviceAllow=/dev/ipmi0 rw` appears exactly once, `CapabilityBoundingSet=` is empty, `NoNewPrivileges=yes`, `ProtectSystem=strict`.
 3. Integration under systemd-run (containerised test): main daemon attempts ioctl on `/dev/ipmi0` directly → EPERM. Forwarded via sidecar → succeeds.
 
-**If you can't run systemd-run inside the test container**, gate (3) behind `//go:build ipmi_integration` and document the missing coverage in `TESTING.md` under the hardware-gated matrix.
+### PR 2a — Author the ventd-ipmi sidecar (spec-gap fix)
+
+Ship the missing privileged process. Always-on (not socket-activated —
+main daemon polls constantly, spawn latency adds no value). Privilege-
+separated: sidecar holds `CAP_SYS_RAWIO` + `DeviceAllow=/dev/ipmi0 rw`,
+main daemon holds neither.
+
+**Files (new):** `cmd/ventd-ipmi/main.go`, `internal/hal/ipmi/proto/`,
+`deploy/ventd-ipmi.service`, `deploy/tmpfiles.d-ventd.conf`,
+`deploy/sysusers.d-ventd.conf`.
+
+**Files (modified):** `internal/hal/ipmi/backend.go` (default socket path),
+`deploy/README.md` (install steps), Makefile/goreleaser (build artifact).
+
+**Wire protocol:** length-prefixed JSON, ops ENUMERATE / READ_SENSORS /
+SET_MANUAL_MODE / WRITE_DUTY / RESTORE. Per-request timeout 2s.
+Frame cap 64KB.
+
+**See:** `cc-prompt-spec01-pr2a.md` for full CC session prompt.
+
+### PR 2b — Sidecar privilege-boundary verification (T-IPMI-02)
+
+Original PR 2 test plan, now that the sidecar exists.
+
+**Files:**
+- `internal/hal/ipmi/socket_test.go` (new)
+- `TESTING.md` (one line if integration test build-tagged)
+
+**Tests:**
+1. Main unit `ventd.service`: no `DeviceAllow=/dev/ipmi*`, empty
+   `CapabilityBoundingSet=`, no `CAP_SYS_RAWIO` in `AmbientCapabilities=`.
+2. Sidecar `ventd-ipmi.service`: exactly-one `DeviceAllow=/dev/ipmi0 rw`,
+   `CapabilityBoundingSet=CAP_SYS_RAWIO` (only that one cap),
+   `NoNewPrivileges=yes`, `ProtectSystem=strict`, `User=ventd-ipmi`,
+   `RestrictAddressFamilies=AF_UNIX`, `Type=notify`.
+3. Integration under systemd-run (containerised test): sidecar responds
+   to proto ENUMERATE roundtrip; process without `CAP_SYS_RAWIO` gets
+   EPERM on direct `/dev/ipmi0` ioctl.
+
+**If systemd-run unavailable in CI**, gate (3) behind `//go:build ipmi_integration`
+and document the missing coverage in `TESTING.md` under the hardware-gated matrix.
 
 ### PR 3 — Vendor gating sanity + CHANGELOG
 
@@ -76,26 +121,14 @@ Follow the exact format established in `.claude/rules/hwmon-safety.md`. Write 7 
 - No fleet management. That's P8.
 - No UI changes.
 
-## CC session prompt — copy/paste this
+See separate CC session prompts:
+- cc-prompt-spec01-pr1.md  (T-IPMI-01 coverage + invariants)
+- cc-prompt-spec01-pr2a.md (sidecar author)
+- cc-prompt-spec01-pr2b.md (sidecar verification)
+- cc-prompt-spec01-pr3.md  (DMI gate + profiles + CHANGELOG)
 
-```
-Read /home/claude/specs/spec-01-ipmi-polish.md. It references existing code in
-internal/hal/ipmi/, internal/testfixture/, .claude/rules/, and the masterplan
-files (ventdmasterplan.md, ventdtestmasterplan.md) for naming and style
-conventions.
-
-Start with PR 1. Do not begin PR 2 until PR 1's DoD checklist is green. Run
-`go test -race ./internal/hal/ipmi/...` after every meaningful edit. If a test
-requires hardware, mark it `//go:build ipmi_integration` and document in
-TESTING.md — do not skip silently.
-
-The .claude/rules/ipmi-safety.md file MUST follow the exact format used in
-.claude/rules/hwmon-safety.md — read that file first before writing the new
-rule file.
-
-Use Sonnet for all of this work. Do not invoke any subagents. Commit at every
-green-test boundary.
-```
+Run in order. Each session gated on prior PR being merged.
+Total estimated cost: $25–48 across all four sessions.
 
 ## Why this is cheap
 
