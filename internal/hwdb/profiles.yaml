@@ -108,6 +108,56 @@
   notes: "ASRock B650 PG Lightning: NCT679x Super I/O."
   unverified: true
 
+# ── IPMI-capable server platforms ──
+#
+# These entries cover boards whose fans are managed via /dev/ipmi0 rather than
+# hwmon sysfs PWM files. The IPMI backend loads ipmi_devintf + ipmi_si at probe
+# time; the chip-level Super I/O module (nct6775 etc.) is listed where it also
+# provides monitoring data.
+#
+# Prefix-match entries (Supermicro X11, X13) cover entire board generations;
+# exact-match entries (Dell, HPE, Lenovo) target a specific product line.
+# Place more-specific entries first within each vendor block.
+#
+# ipmi_write_capable notes: HPE iLO requires a paid licence for OEM fan writes.
+# All other entries below support full read+write+restore via IPMI OEM commands.
+
+- board_vendor: "Supermicro"
+  board_name: "X11"
+  modules: [nct6775, ipmi_devintf, ipmi_si]
+  notes: "Supermicro X11 generation: IPMI OEM fan control (netFn=0x30 cmd=0x70 SET_FAN_SPEED; netFn=0x30 cmd=0x45 SET_FAN_MODE). Prefix-match covers all X11* SKUs (X11SCH, X11DPi, X11SSL, etc.). Super I/O monitoring via nct6775 where present."
+  unverified: true
+
+- board_vendor: "Supermicro"
+  board_name: "X13"
+  modules: [nct6775, ipmi_devintf, ipmi_si]
+  notes: "Supermicro X13 generation: IPMI OEM fan control via same command set as X11. Prefix-match covers all X13* SKUs."
+  unverified: true
+
+- board_vendor: "Dell Inc."
+  board_name: "PowerEdge R740"
+  modules: [dell_smm_hwmon, ipmi_devintf, ipmi_si]
+  notes: "Dell PowerEdge R740: IPMI OEM fan control (netFn=0x30 cmd=0x30 data=[0x02,0xff,pct] manual; data=[0x01,0x01] restore auto). iDRAC manages fans in firmware-auto mode by default; hwmon provides temperature monitoring only."
+  unverified: true
+
+- board_vendor: "Dell Inc."
+  board_name: "PowerEdge R750"
+  modules: [dell_smm_hwmon, ipmi_devintf, ipmi_si]
+  notes: "Dell PowerEdge R750: IPMI OEM fan control (same netFn=0x30 cmd=0x30 OEM path as R740). iDRAC-managed fans; hwmon is monitoring-only."
+  unverified: true
+
+- board_vendor: "HPE"
+  board_name: "ProLiant DL380 Gen10"
+  modules: [ipmi_devintf, ipmi_si]
+  notes: "HPE ProLiant DL380 Gen10: IPMI SDR enumeration and sensor reads supported; fan writes require iLO Advanced license (ipmi_write_capable: false). Detected and reported as informational only — no OEM write commands are sent."
+  unverified: true
+
+- board_vendor: "Lenovo"
+  board_name: "ThinkSystem SR650"
+  modules: [ipmi_devintf, ipmi_si]
+  notes: "Lenovo ThinkSystem SR650: IPMI SDR enumeration supported; OEM fan write commands not yet validated against real hardware. Detected and reported; write support pending field confirmation."
+  unverified: true
+
 # ── Supermicro server / workstation boards ──
 
 - board_vendor: "Supermicro"
