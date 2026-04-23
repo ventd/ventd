@@ -7,8 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"go.uber.org/goleak"
+
 	"github.com/ventd/ventd/internal/hal/ipmi"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 // TestEnumerate_NonServerDMI_Empty verifies that Enumerate returns 0 channels
 // and does not open /dev/ipmi0 when the DMI chassis type indicates a desktop.

@@ -14,11 +14,25 @@ import (
 	"time"
 )
 
+// SDRFanRecord describes one fan sensor entry for SDR enumeration.
+// fakeipmi synthesises a minimal IPMI Full Sensor Record (type 0x01,
+// sensor type 0x04) from each entry so that Backend.Enumerate returns
+// a matching hal.Channel without a real /dev/ipmi0.
+type SDRFanRecord struct {
+	SensorNumber byte
+	Name         string
+}
+
 // Options configures the behaviour of the fake IPMI device.
 type Options struct {
 	// Vendor selects canned responses: "supermicro", "dell", or "hpe".
 	// Defaults to "supermicro" when empty.
 	Vendor string
+
+	// SDRFans specifies the fan sensors returned by Get SDR enumeration.
+	// If empty, a single default record {SensorNumber: 0x01, Name: "FAN1"}
+	// is synthesised so that Enumerate always returns at least one channel.
+	SDRFans []SDRFanRecord
 
 	// SensorResponses overrides per-sensor-number responses for Get Sensor
 	// Reading (netfn=0x04 cmd=0x2D). Key: sensor number byte.
@@ -132,6 +146,16 @@ func (f *Fake) Respond(netfn, cmd byte, data []byte) ([]byte, error) {
 		return []byte{0xC3}, nil // IPMI_CC_NODE_BUSY
 	}
 
+	// SDR repository commands are vendor-agnostic; handle before vendor dispatch.
+	if netfn == 0x0a {
+		switch cmd {
+		case 0x22: // Reserve SDR Repository
+			return []byte{0x00, 0x01, 0x00}, nil
+		case 0x23: // Get SDR
+			return f.buildSDRResponse(data), nil
+		}
+	}
+
 	vendor := f.opts.Vendor
 	if vendor == "" {
 		vendor = "supermicro"
@@ -149,11 +173,68 @@ func (f *Fake) Respond(netfn, cmd byte, data []byte) ([]byte, error) {
 	}
 }
 
+// buildSDRResponse returns a synthesised Get SDR response for the SDRFans
+// defined in Options. The req slice carries [res_lo, res_hi, id_lo, id_hi,
+// offset, count] as sent by enumerateSDR in internal/hal/ipmi/backend.go.
+func (f *Fake) buildSDRResponse(req []byte) []byte {
+	fans := f.opts.SDRFans
+	if len(fans) == 0 {
+		fans = []SDRFanRecord{{SensorNumber: 0x01, Name: "FAN1"}}
+	}
+
+	var recordID int
+	if len(req) >= 4 {
+		recordID = int(req[2]) | int(req[3])<<8
+	}
+
+	if recordID >= len(fans) {
+		return []byte{0xD0} // Requested sensor / record not present
+	}
+
+	fan := fans[recordID]
+	sdr := makeFanSDRWithName(fan.SensorNumber, fan.Name)
+
+	var nextID uint16
+	if recordID+1 >= len(fans) {
+		nextID = 0xFFFF
+	} else {
+		nextID = uint16(recordID + 1)
+	}
+
+	resp := make([]byte, 3+len(sdr))
+	resp[0] = 0x00
+	resp[1] = byte(nextID)
+	resp[2] = byte(nextID >> 8)
+	copy(resp[3:], sdr)
+	return resp
+}
+
+// makeFanSDRWithName builds a minimal IPMI Full Sensor Record (type 0x01,
+// sensor type 0x04) that parseSDRRecord in backend.go can decode. The
+// coefficient fields are left zero, so sdrToRPM returns the raw reading byte
+// directly, which is sufficient for unit-test assertions.
+func makeFanSDRWithName(sensorNum byte, name string) []byte {
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	n := len(name)
+	data := make([]byte, 49+n)
+	data[3] = 0x01 // record type: Full Sensor Record
+	data[7] = sensorNum
+	data[12] = 0x04 // sensor type: fan
+	// data[24..31]: SDR coefficients — left zero; sdrToRPM falls back to raw
+	// Name ID string at byte 48: type=3 (8-bit ASCII), length=n
+	data[48] = (3 << 6) | byte(n)
+	copy(data[49:], name)
+	return data
+}
+
 // supermicroResponse returns canned Supermicro BMC responses.
 //
 // Supported commands:
 //   - Get Sensor Reading (netfn=0x04 cmd=0x2D): returns [CC=0x00, raw=0x60, status=0xC0]
-//   - Set Fan Control   (netfn=0x30 cmd=0x70, param=0x66): returns [CC=0x00]
+//   - Set Fan Speed      (netfn=0x30 cmd=0x70, param=0x66): returns [CC=0x00]
+//   - Set Fan Mode       (netfn=0x30 cmd=0x45, Restore to auto): returns [CC=0x00]
 //   - All others: returns [CC=0xC1] (Command Not Available)
 func (f *Fake) supermicroResponse(netfn, cmd byte, data []byte) ([]byte, error) {
 	if netfn == 0x04 && cmd == 0x2D {
@@ -165,7 +246,10 @@ func (f *Fake) supermicroResponse(netfn, cmd byte, data []byte) ([]byte, error) 
 		// CC=0x00 raw_reading=0x60 status=scanning|event-enabled
 		return []byte{0x00, 0x60, 0xC0}, nil
 	}
-	if netfn == 0x30 && cmd == 0x70 {
+	if netfn == 0x30 && cmd == 0x70 { // SET_FAN_SPEED
+		return []byte{0x00}, nil
+	}
+	if netfn == 0x30 && cmd == 0x45 { // SET_FAN_MODE (Restore to firmware auto)
 		return []byte{0x00}, nil
 	}
 	return []byte{0xC1}, nil

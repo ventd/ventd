@@ -24,13 +24,14 @@ func NewBackendNonServer(logger *slog.Logger) *Backend {
 }
 
 // NewBackendForTest creates a Backend with the given vendor string injected
-// directly (bypassing DMI and device access).  Used to test the Write and
-// Restore vendor-dispatch paths without a real BMC.
-func NewBackendForTest(logger *slog.Logger, vendor string) *Backend {
+// directly (bypassing DMI and device access). Variadic opts are applied after
+// the fixed fields so callers can attach a WithSendRecv fixture without
+// opening /dev/ipmi0.
+func NewBackendForTest(logger *slog.Logger, vendor string, opts ...Option) *Backend {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Backend{
+	b := &Backend{
 		device:  "/dev/ipmi0",
 		logger:  logger,
 		readDMI: readDMIFromSysfs,
@@ -38,6 +39,10 @@ func NewBackendForTest(logger *slog.Logger, vendor string) *Backend {
 		vendor:  vendor,
 		fd:      -1,
 	}
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b
 }
 
 // MakeTestChannel constructs a hal.Channel with IPMI State opaque for use in
