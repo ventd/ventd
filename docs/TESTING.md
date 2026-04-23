@@ -203,6 +203,12 @@ rig without explicit in-prompt authorisation. Running binaries under
 | End of Phase 5 (profiles) | **Auto-validatable** — profile capture + matching runs in CI |
 | End of Phase 6 (Windows) | **Moved to separate subproject** — see main masterplan §16 |
 
+## Hardware-gated matrix
+
+| Test | Build tag | Prerequisites |
+|---|---|---|
+| IPMI sidecar privilege boundary | `ipmi_integration` | systemd-run + root |
+
 ## Solo-dev realities
 
 - VMs are free. Use them.
