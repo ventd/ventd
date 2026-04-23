@@ -1,0 +1,63 @@
+# hwmon Sentinel Acceptance Invariants
+
+These rules complement the sentinel-rejection rules in hwmon-safety.md by
+pinning the acceptance side: what values must pass through the sentinel filter
+unchanged, and what additional values beyond the exact 0xFFFF sentinel must
+be rejected. Together with the rejection rules they fully specify the
+`IsSentinelSensorVal` and `IsSentinelRPM` contracts.
+
+Each rule below is bound to one subtest in `internal/hal/hwmon/safety_test.go`.
+If a rule text is edited, update the corresponding subtest in the same PR;
+if a new rule lands, it must ship with a matching subtest or the rule-lint
+in `tools/rulelint` blocks the merge.
+
+## RULE-SENTINEL-FAN-IMPLAUSIBLE: fan RPM above the plausible cap is rejected even when not the exact 0xFFFF sentinel
+
+`IsSentinelRPM` must reject any RPM value above `PlausibleRPMMax` (10000),
+not only the exact 65535 (0xFFFF) nct6687 sentinel. Different chip families
+use different sentinel values in the same numeric neighbourhood; a plausibility
+cap prevents all of them from reaching calibration or the controller tick. A
+12000 RPM reading from a consumer fan is not physically plausible and must be
+treated as a sentinel regardless of its exact value.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_rejects_implausible_rpm
+
+## RULE-SENTINEL-FAN-VALID: a normal fan RPM reading passes through the sentinel filter unchanged
+
+`IsSentinelRPM` must return false for RPM values within the plausible range
+(≤ 10000 RPM), and `Backend.Read` must return OK=true with the correct RPM
+value. A filter that rejects legitimate readings would cause calibration to
+report "no valid RPM data" and leave the fan under open-loop control.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_accepts_normal_rpm
+
+## RULE-SENTINEL-TEMP-CAP: temperature at or above the 150°C plausibility cap is rejected
+
+`IsSentinelSensorVal` must reject temperature readings at or above
+`PlausibleTempMaxCelsius` (150°C), not only the exact 255.5°C (0xFFFF)
+sentinel. Consumer silicon cannot operate at 150°C; a reading at or above
+this threshold indicates a chip latch error or a driver sentinel in a
+non-standard position. Letting such a value reach the curve would drive the
+fan to MaxPWM on every tick.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_rejects_above_plausible_cap
+
+## RULE-SENTINEL-TEMP-VALID: a normal temperature reading passes through the sentinel filter unchanged
+
+`IsSentinelSensorVal` must return false for temperature readings in the
+normal operating range (below 150°C and not matching the 0xFFFF sentinel).
+A 45°C CPU temperature must reach the controller's sensor map intact. A
+filter that produces false positives would cause the controller to carry
+forward the last good PWM indefinitely, severing the thermal control loop.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_accepts_normal_reading
+
+## RULE-SENTINEL-VOLTAGE-VALID: a normal voltage reading passes through the sentinel filter unchanged
+
+`IsSentinelSensorVal` must return false for voltage readings in the normal
+PSU rail range (≤ 20 V). A 12 V reading (ATX 12V rail) must not be rejected.
+A filter with a threshold set too aggressively would suppress legitimate PSU
+rail monitoring data and blind the daemon to voltage anomalies that can
+indicate hardware instability.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/voltage_accepts_normal_reading
