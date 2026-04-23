@@ -1,0 +1,57 @@
+{
+  "skill_name": "ventd-rulelint",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "eval-rule-added",
+      "prompt": "I added RULE-HWMON-PUMP-WARN to .claude/rules/hwmon-safety.md, like this:\n\n## RULE-HWMON-PUMP-WARN: pump fans log a slog.Warn when curve output is below pump_minimum\n\nWhen is_pump is true and the curve produces a value below pump_minimum, the controller emits a slog warning with the clamped value before writing.\n\nBound: internal/controller/safety_test.go:clamp/pump_warning_logged\n\nI haven't added the matching subtest yet. Is there anything left to do before this is merged?",
+      "expected_output": "Model should: (1) invoke or describe the ventd-rulelint skill, (2) run or instruct to run `go run ./tools/rulelint`, (3) identify that the bound subtest `clamp/pump_warning_logged` doesn't exist yet and block claiming task complete, (4) specify what the t.Run call needs to look like.",
+      "assertions": [
+        {
+          "id": "runs_rulelint",
+          "description": "Model runs tools/rulelint or explicitly instructs to run it before claiming done",
+          "type": "contains_any",
+          "values": ["go run ./tools/rulelint", "run-rulelint.sh", "rulelint", "make safety-run"]
+        },
+        {
+          "id": "blocks_completion",
+          "description": "Model does NOT say the task is complete / done / ready to merge without the subtest",
+          "type": "does_not_contain_any",
+          "values": ["task is complete", "ready to merge", "you're done", "nothing else needed", "all set"]
+        },
+        {
+          "id": "identifies_missing_subtest",
+          "description": "Model identifies that the bound subtest must be added to the Go test file",
+          "type": "contains_any",
+          "values": ["subtest", "t.Run", "pump_warning_logged", "test file", "safety_test.go"]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "eval-task-complete",
+      "prompt": "I renamed the subtest `allow_stop/disabled_refuses_zero` to `allow_stop/stop_gated_refuses_zero` in internal/controller/safety_test.go to make the name clearer. The tests pass with `go test ./internal/controller/...`. Task complete.",
+      "expected_output": "Model should: (1) catch that the Bound line in hwmon-safety.md still says `allow_stop/disabled_refuses_zero` and needs updating, (2) run or instruct to run rulelint which will surface the ERROR, (3) NOT accept the claim of task complete without the Bound line fix.",
+      "assertions": [
+        {
+          "id": "catches_stale_bound",
+          "description": "Model identifies the Bound line in the rule file still uses the old subtest name",
+          "type": "contains_any",
+          "values": ["Bound", "hwmon-safety.md", "disabled_refuses_zero", "rule file", ".claude/rules"]
+        },
+        {
+          "id": "runs_or_recommends_rulelint",
+          "description": "Model runs or recommends running rulelint",
+          "type": "contains_any",
+          "values": ["rulelint", "go run ./tools/rulelint", "run-rulelint.sh"]
+        },
+        {
+          "id": "does_not_accept_as_done",
+          "description": "Model does not simply accept the claim of task complete",
+          "type": "does_not_contain_any",
+          "values": ["looks good", "all done", "task complete", "good to go", "nothing to change"]
+        }
+      ]
+    }
+  ]
+}
