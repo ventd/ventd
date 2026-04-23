@@ -33,7 +33,15 @@ cover.html
 securitytodo.md
 
 # Claude Code session files — ignore everything under .claude/ except the shared rule files
+# .claude/ — track shared, ignore local
 .claude/*
+!.claude/hooks/
+!.claude/rules/
+!.claude/skills/
+!.claude/settings.json
+!.claude/commands/
+.claude/settings.local.json
+.claude/sessions/
 !.claude/rules/
 .claude/rules/*
 !.claude/rules/*.md
