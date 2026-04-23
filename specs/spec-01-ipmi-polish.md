@@ -2,8 +2,9 @@
 
 **Masterplan IDs this covers:** T-IPMI-01, T-IPMI-02 (test coverage), plus release-blocker polish on P2-IPMI-01 / P2-IPMI-02.
 **Target release:** v0.3.x (shipping now per Atlas 2026-04-19 — PR #285 merged).
-**Estimated session cost:** Sonnet, ~3–5 focused sessions, $5–15 each. No Opus required.
+**Estimated session cost:** Sonnet, ~3–4 remaining sessions, $5–15 each. No Opus required. (PR 1 already shipped.)
 **Dependencies already green:** P1-HAL-01, P2-IPMI-01, P2-IPMI-02.
+**Progress:** PR 1 merged 2026-04-23 (357b233).
 
 ---
 
@@ -17,84 +18,67 @@ A PR series that closes the gap between "merged" and "shippable" for IPMI. Four 
 
 **Note (2026-04-23):** P2-IPMI-02 shipped the Go socket dial path but NOT
 the privileged sidecar that serves it. Main daemon has zero IPMI privileges
-(correct) and no sidecar to forward through (gap). PR 2 is therefore split:
-PR 2a authors the sidecar; PR 2b tests the privilege boundary.
+(correct) and no sidecar to forward through (gap). PR 2 authors the sidecar;
+PR 3 tests the privilege boundary.
 
-### PR 1 — Test coverage against the `fakeipmi` fixture (T-IPMI-01)
+### PR 1 — Test coverage [MERGED 2026-04-23]
 
-**Files:**
-- `internal/hal/ipmi/backend_test.go` (extend)
-- `internal/hal/ipmi/safety_test.go` (new) — bound to `.claude/rules/ipmi-safety.md`
-- `internal/testfixture/fakeipmi/**` (new if missing; extend if present)
-- `.claude/rules/ipmi-safety.md` (new)
+Added `fakeipmi` fixture scaffolding and the 7 safety invariant subtests bound to `.claude/rules/ipmi-safety.md`. All rules landed at commit 357b233: RULE-IPMI-1 (Supermicro X11 happy path), RULE-IPMI-2 (Dell R750 happy path), RULE-IPMI-3 (HPE iLO license required), RULE-IPMI-4 (unknown vendor refuses write), RULE-IPMI-5 (BMC busy retry), RULE-IPMI-6 (ioctl timeout no goroutine leak), RULE-IPMI-7 (restore on exit all channels). Rule-lint green; no orphan subtests.
 
-**Coverage required:**
-1. Happy path — Supermicro X11 vendor path: enumerate → read sensors → set manual mode → write fan duty → restore on exit.
-2. Happy path — Dell PowerEdge R750 vendor path: same sequence with Dell-specific command bytes (0x30/0x30).
-3. HPE error path — vendor detected, backend returns clear "iLO Advanced license required" error, does not attempt writes.
-4. Unknown vendor error path — refuses to enter manual mode, logs structured event, returns empty channel list.
-5. BMC-busy retry — first ioctl returns `IPMI_CC_NODE_BUSY`, retry with backoff succeeds on second attempt.
-6. ioctl timeout — BMC unresponsive for >2s → surface as structured error, no goroutine leak (verify with `go.uber.org/goleak`).
-7. Fallback on daemon exit — watchdog calls `backend.Restore()`, verify every channel gets the pre-ventd `pwm_enable` restored (or manual-mode-off equivalent for IPMI).
+### PR 2 — Author the ventd-ipmi privileged sidecar
 
-**Invariant file contents (`.claude/rules/ipmi-safety.md`):**
-Follow the exact format established in `.claude/rules/hwmon-safety.md`. Write 7 `RULE-IPMI-<N>:` entries corresponding to the 7 tests above. Each rule's `Bound:` line points to a specific subtest name.
-
-### PR 2 — Socket-activated sidecar verification (T-IPMI-02)
+Rationale: P2-IPMI-02 shipped `deploy/ventd-ipmi.service` and an AF_UNIX socket path in `deploy/`, but no binary actually binds the socket. Main `ventd.service` still opens `/dev/ipmi0` directly, so the zero-capability claim is aspirational until this PR lands.
 
 **Files:**
-- `internal/hal/ipmi/socket_test.go` (new)
-- `deploy/ventd-ipmi.service` (verify exists and correct)
-- `deploy/ventd.service` (verify main unit has zero IPMI device grant)
+- `cmd/ventd-ipmi/main.go` (new)
+- `internal/hal/ipmi/proto/` (new) — length-prefixed JSON wire protocol shared between main daemon and sidecar.
+- `internal/hal/ipmi/client.go` (new) — main-daemon-side client that dials the sidecar socket.
+- `internal/hal/ipmi/backend.go` (modify) — backend switches from direct ioctl path to `proto.Client` when sidecar socket is present.
+- `deploy/ventd-ipmi.service` (verify + amend if needed):
+    ```
+    User=ventd-ipmi
+    CapabilityBoundingSet=CAP_SYS_RAWIO
+    AmbientCapabilities=CAP_SYS_RAWIO
+    DeviceAllow=/dev/ipmi0 rw
+    NoNewPrivileges=yes
+    ProtectSystem=strict
+    RestrictAddressFamilies=AF_UNIX
+    Type=notify
+    ```
+- `deploy/ventd-ipmi.socket` (new or verify) — `ListenStream` on the well-known path.
+- `deploy/ventd.service` (modify) — remove any residual `/dev/ipmi0` `DeviceAllow=` or `CAP_SYS_RAWIO` grant; add `Requires=ventd-ipmi.socket`.
 
-**Tests:**
-1. Main unit `ventd.service`: parse the unit file, assert `DeviceAllow=` does not include `/dev/ipmi0`.
-2. Sidecar `ventd-ipmi.service`: assert `DeviceAllow=/dev/ipmi0 rw` appears exactly once, `CapabilityBoundingSet=` is empty, `NoNewPrivileges=yes`, `ProtectSystem=strict`.
-3. Integration under systemd-run (containerised test): main daemon attempts ioctl on `/dev/ipmi0` directly → EPERM. Forwarded via sidecar → succeeds.
+**Design constraints:**
+- Sidecar is always-on, NOT socket-activated on demand. Rationale: the main daemon polls BMC sensors every control tick; socket activation would churn processes. systemd `.socket` unit owns the listening fd; sidecar inherits it.
+- Wire protocol: length-prefixed JSON. One request/response per frame. No streaming, no multiplexing. Keep it dumb.
+- `proto` package exports: `Request` (enum: `Enumerate`, `ReadSensor`, `SetMode`, `WriteDuty`, `Restore`), `Response`, `Codec`.
+- Sidecar binary stays tiny — no third-party deps beyond what's already in `go.mod`. Pure stdlib `net` + `encoding/json` + `syscall`.
 
-### PR 2a — Author the ventd-ipmi sidecar (spec-gap fix)
+**Definition of done:**
+- [ ] `cmd/ventd-ipmi` builds with `CGO_ENABLED=0`.
+- [ ] `internal/hal/ipmi/proto` has round-trip tests for every `Request` type.
+- [ ] `internal/hal/ipmi/client_test.go` uses a fake sidecar to verify the backend speaks proto correctly (pure in-process, no real socket).
+- [ ] `deploy/ventd-ipmi.service` parses cleanly under `systemd-analyze verify`.
+- [ ] PR does NOT yet remove the direct-ioctl fallback in `backend.go` — leave a build tag or runtime flag so PR 3 can flip the switch.
 
-Ship the missing privileged process. Always-on (not socket-activated —
-main daemon polls constantly, spawn latency adds no value). Privilege-
-separated: sidecar holds `CAP_SYS_RAWIO` + `DeviceAllow=/dev/ipmi0 rw`,
-main daemon holds neither.
-
-**Files (new):** `cmd/ventd-ipmi/main.go`, `internal/hal/ipmi/proto/`,
-`deploy/ventd-ipmi.service`, `deploy/tmpfiles.d-ventd.conf`,
-`deploy/sysusers.d-ventd.conf`.
-
-**Files (modified):** `internal/hal/ipmi/backend.go` (default socket path),
-`deploy/README.md` (install steps), Makefile/goreleaser (build artifact).
-
-**Wire protocol:** length-prefixed JSON, ops ENUMERATE / READ_SENSORS /
-SET_MANUAL_MODE / WRITE_DUTY / RESTORE. Per-request timeout 2s.
-Frame cap 64KB.
-
-**See:** `cc-prompt-spec01-pr2a.md` for full CC session prompt.
-
-### PR 2b — Sidecar privilege-boundary verification (T-IPMI-02)
-
-Original PR 2 test plan, now that the sidecar exists.
+### PR 3 — Verify the privilege boundary
 
 **Files:**
 - `internal/hal/ipmi/socket_test.go` (new)
-- `TESTING.md` (one line if integration test build-tagged)
+- `deploy/ventd.service` (final strip)
+- `internal/hal/ipmi/backend.go` (remove direct-ioctl fallback)
 
 **Tests:**
-1. Main unit `ventd.service`: no `DeviceAllow=/dev/ipmi*`, empty
-   `CapabilityBoundingSet=`, no `CAP_SYS_RAWIO` in `AmbientCapabilities=`.
-2. Sidecar `ventd-ipmi.service`: exactly-one `DeviceAllow=/dev/ipmi0 rw`,
-   `CapabilityBoundingSet=CAP_SYS_RAWIO` (only that one cap),
-   `NoNewPrivileges=yes`, `ProtectSystem=strict`, `User=ventd-ipmi`,
-   `RestrictAddressFamilies=AF_UNIX`, `Type=notify`.
-3. Integration under systemd-run (containerised test): sidecar responds
-   to proto ENUMERATE roundtrip; process without `CAP_SYS_RAWIO` gets
-   EPERM on direct `/dev/ipmi0` ioctl.
+1. Main unit `ventd.service`: parse the unit file, assert `DeviceAllow=` does not include `/dev/ipmi0` AND `CapabilityBoundingSet=` excludes `CAP_SYS_RAWIO`.
+2. Sidecar `ventd-ipmi.service`: assert `DeviceAllow=/dev/ipmi0 rw` appears exactly once, `CapabilityBoundingSet=CAP_SYS_RAWIO`, `NoNewPrivileges=yes`, `ProtectSystem=strict`.
+3. Integration under `systemd-run` (containerised): main daemon attempts direct ioctl on `/dev/ipmi0` → EPERM. Forwarded via sidecar → succeeds. Gate behind `//go:build ipmi_integration` if `systemd-run` unavailable in the test container; document the gap in `TESTING.md`.
 
-**If systemd-run unavailable in CI**, gate (3) behind `//go:build ipmi_integration`
-and document the missing coverage in `TESTING.md` under the hardware-gated matrix.
+**Definition of done:**
+- [ ] Direct-ioctl fallback removed from `backend.go`.
+- [ ] Integration test passes OR is explicitly gated with docs.
+- [ ] `go test -race ./internal/hal/ipmi/...` green.
 
-### PR 3 — Vendor gating sanity + CHANGELOG
+### PR 4 — Vendor gating + CHANGELOG
 
 **Files:**
 - `internal/hal/ipmi/backend.go` (minor)
@@ -109,9 +93,11 @@ and document the missing coverage in `TESTING.md` under the hardware-gated matri
 ## Definition of done
 
 - [ ] `go test -race ./internal/hal/ipmi/...` passes locally and in CI.
-- [ ] `go test -run TestIPMISafety_Invariants ./internal/hal/ipmi/...` passes; every subtest maps 1:1 to a `RULE-IPMI-<N>` in `.claude/rules/ipmi-safety.md`.
-- [ ] `.github/workflows/rule-lint.yml` (or whatever T-META-01 lints are called) still green — no orphan rules, no orphan subtests.
-- [ ] `CHANGELOG.md` updated with honest vendor-coverage statement.
+- [ ] `go test -run TestIPMISafety_Invariants ./internal/hal/ipmi/...` passes; every subtest maps 1:1 to a `RULE-IPMI-<N>` in `.claude/rules/ipmi-safety.md`. ✓ PR 1 done.
+- [ ] `.github/workflows/rule-lint.yml` (or whatever T-META-01 lints are called) still green — no orphan rules, no orphan subtests. ✓ PR 1 done.
+- [ ] PR 2: `cmd/ventd-ipmi` builds with `CGO_ENABLED=0`; proto round-trip tests pass; `deploy/ventd-ipmi.service` parses under `systemd-analyze verify`.
+- [ ] PR 3: direct-ioctl fallback removed from `backend.go`; privilege-boundary tests pass or gated with docs.
+- [ ] PR 4: DMI gate landed; `CHANGELOG.md` updated with honest vendor-coverage statement.
 - [ ] No HARDWARE-REQUIRED work — everything in this spec is pure-Go / fixture / cross-compile, no Proxmox VM or Desktop HIL needed.
 
 ## Explicit non-goals (do not let CC scope-creep into these)
@@ -121,14 +107,16 @@ and document the missing coverage in `TESTING.md` under the hardware-gated matri
 - No fleet management. That's P8.
 - No UI changes.
 
-See separate CC session prompts:
-- cc-prompt-spec01-pr1.md  (T-IPMI-01 coverage + invariants)
-- cc-prompt-spec01-pr2a.md (sidecar author)
-- cc-prompt-spec01-pr2b.md (sidecar verification)
-- cc-prompt-spec01-pr3.md  (DMI gate + profiles + CHANGELOG)
+## CC session prompt — copy/paste this
 
-Run in order. Each session gated on prior PR being merged.
-Total estimated cost: $25–48 across all four sessions.
+PRs 2, 3, and 4 are the remaining work. Run in order; each session gated on the prior PR being merged.
+
+See separate CC session prompts:
+- `cc-prompt-spec01-pr2.md`  (sidecar author — PR 2)
+- `cc-prompt-spec01-pr3.md`  (privilege boundary — PR 3)
+- `cc-prompt-spec01-pr4.md`  (DMI gate + profiles + CHANGELOG — PR 4)
+
+Total estimated cost: $20–40 across the three remaining sessions.
 
 ## Why this is cheap
 
