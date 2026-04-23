@@ -13,7 +13,6 @@
       "Bash(go tool:*)",
       "Bash(staticcheck:*)",
       "Bash(govulncheck:*)",
-
       "Bash(git:*)",
       "Bash(gh pr:*)",
       "Bash(gh issue:*)",
@@ -21,13 +20,11 @@
       "Bash(gh workflow:*)",
       "Bash(gh auth status)",
       "Bash(gh api:*)",
-
       "Bash(make:*)",
       "Bash(shellcheck:*)",
       "Bash(yamllint:*)",
       "Bash(jq:*)",
       "Bash(yq:*)",
-
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
@@ -61,43 +58,34 @@
       "Bash(env)",
       "Bash(uname:*)",
       "Bash(date:*)",
-
       "Bash(mkdir:*)",
       "Bash(cp:*)",
       "Bash(mv:*)",
       "Bash(touch:*)",
       "Bash(ln:*)",
       "Bash(chmod:*)",
-
       "Bash(tar:*)",
       "Bash(gzip:*)",
       "Bash(gunzip:*)",
       "Bash(zstd:*)",
       "Bash(unzstd:*)",
-
       "Bash(curl:*)",
       "Bash(wget:*)",
-
       "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(pip:*)",
       "Bash(uv:*)",
-
       "Bash(node:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
-
       "Bash(docker:*)",
       "Bash(podman:*)",
-
       "Read(//home/cc-runner/**)",
       "Read(//tmp/**)",
       "Read(//var/tmp/**)",
-
       "Write(//home/cc-runner/**)",
       "Write(//tmp/**)",
       "Write(//var/tmp/**)",
-
       "Write(.claude/**)",
       "Write(.github/**)",
       "Write(internal/**)",
@@ -124,7 +112,6 @@
       "Bash(sudo:*)",
       "Bash(doas:*)",
       "Bash(su:*)",
-
       "Bash(rm -rf /:*)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~:*)",
@@ -134,7 +121,6 @@
       "Bash(mkfs:*)",
       "Bash(shred:*)",
       "Bash(chown:*)",
-
       "Bash(systemctl:*)",
       "Bash(journalctl:*)",
       "Bash(service:*)",
@@ -145,7 +131,6 @@
       "Bash(groupdel:*)",
       "Bash(visudo:*)",
       "Bash(passwd:*)",
-
       "Bash(apt:*)",
       "Bash(apt-get:*)",
       "Bash(dnf:*)",
@@ -154,12 +139,10 @@
       "Bash(apk:*)",
       "Bash(brew:*)",
       "Bash(snap:*)",
-
       "Bash(iptables:*)",
       "Bash(nft:*)",
       "Bash(ip link:*)",
       "Bash(ip addr:*)",
-
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard origin/main)",
@@ -169,7 +152,6 @@
       "Bash(git push --delete origin main)",
       "Bash(gh repo delete:*)",
       "Bash(gh pr merge:*)",
-
       "Write(//etc/**)",
       "Write(//usr/**)",
       "Write(//opt/**)",
@@ -182,6 +164,80 @@
       "Read(//etc/shadow)",
       "Read(//etc/sudoers)",
       "Read(//root/**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-context.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/block-bad-commits.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/bash-firewall.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/limit-subagents.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/secret-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/go-fmt.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/go-lint.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/systemd-verify.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/filter-go-test.sh"
+          }
+        ]
+      }
     ]
   }
 }
