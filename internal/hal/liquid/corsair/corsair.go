@@ -49,9 +49,14 @@ type corsairBackend struct {
 func (b *corsairBackend) Name() string { return BackendName }
 
 // Close implements hal.FanBackend.
-// Sends the sleep command, then closes the HID handle.
-// hidraw.Device.Close is idempotent, so double-Close is safe.
+// Restores all channels to firmware curve mode (RULE-LIQUID-04), sends the sleep
+// command, then closes the HID handle. hidraw.Device.Close is idempotent.
 func (b *corsairBackend) Close() error {
+	l := b.logger
+	if l == nil {
+		l = slog.Default()
+	}
+	b.restoreAll(l) // RULE-LIQUID-04: restore before closing the HID handle.
 	b.inner.mu.Lock()
 	_, _ = sendCommand(b.inner.hid, cmdSleepFrame)
 	b.inner.mu.Unlock()
@@ -133,20 +138,18 @@ func (b *corsairBackend) Write(ch hal.Channel, pwm uint8) error {
 		return fmt.Errorf("corsair: Write: unknown channel %q", ch.ID)
 	}
 
-	b.inner.mu.Lock()
-	defer b.inner.mu.Unlock()
-
-	// RULE-LIQUID-02: after USB reconnect, write pump to safe floor before
-	// resuming any other command sequence.
-	if b.reconnecting && b.inner.hasPump {
+	// RULE-LIQUID-02: after USB reconnect, write pump to safe floor before any
+	// other command sequence. reconnectFloor acquires its own mutex, so this must
+	// be called before b.inner.mu.Lock().
+	if b.reconnecting {
 		b.reconnecting = false
-		if err := doWake(b.inner.hid); err != nil {
-			return fmt.Errorf("corsair: reconnect wake: %w", err)
-		}
-		if err := doWriteDuty(b.inner.hid, 0, b.pumpMin); err != nil {
-			return fmt.Errorf("corsair: reconnect pump floor: %w", err)
+		if err := b.reconnectFloor(); err != nil {
+			return err
 		}
 	}
+
+	b.inner.mu.Lock()
+	defer b.inner.mu.Unlock()
 
 	// RULE-LIQUID-01: pump floor enforced in the HAL write path.
 	if ce.isPump && pwm < b.pumpMin {

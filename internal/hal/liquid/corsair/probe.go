@@ -48,6 +48,18 @@ type liveDevice struct{ *probedDevice }
 // RULE-LIQUID-03: unknown firmware is read-only.
 type unknownFirmwareDevice struct{ *probedDevice }
 
+// probeClass is the internal compile-time discriminant that drives corsairBackend
+// construction. The concrete type (liveDevice vs unknownFirmwareDevice) encodes
+// write access so it cannot be confused with a runtime boolean flag.
+//
+// RULE-LIQUID-06: writable() returns true only for liveDevice.
+type probeClass interface {
+	writable() bool
+}
+
+func (d liveDevice) writable() bool            { return true }
+func (d unknownFirmwareDevice) writable() bool { return false }
+
 // firmwareAllowList is the set of firmware versions approved for write access.
 // Empty for v0.4.0 — every real device probes as unknownFirmwareDevice.
 // RULE-LIQUID-06: writable mode requires BOTH the unsafe flag AND an
@@ -126,14 +138,22 @@ func probeWith(path string, opts ProbeOptions, openFn func(string) (openResult, 
 		pumpMin = defaultPumpMinimum
 	}
 
-	// RULE-LIQUID-06: writable only when BOTH conditions hold.
-	writable := opts.UnsafeCorsairWrites && firmwareAllowList[pd.fw]
+	// RULE-LIQUID-06: classify by compile-time type — liveDevice when both the
+	// unsafe flag and an allow-listed firmware are present, unknownFirmwareDevice
+	// otherwise. cls.writable() drives the corsairBackend writable field so the
+	// type split is the single source of truth, not a stand-alone boolean.
+	var cls probeClass
+	if opts.UnsafeCorsairWrites && firmwareAllowList[pd.fw] {
+		cls = liveDevice{pd}
+	} else {
+		cls = unknownFirmwareDevice{pd}
+	}
 
 	channels := buildChannels(entry)
 
 	return &corsairBackend{
 		inner:    pd,
-		writable: writable,
+		writable: cls.writable(),
 		pumpMin:  pumpMin,
 		channels: channels,
 	}, nil
