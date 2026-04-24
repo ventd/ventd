@@ -1,3 +1,4 @@
+
 version: 2
 
 project_name: ventd
@@ -167,12 +168,10 @@ signs:
   - cmd: cosign
     artifacts: all
     output: true
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
+    signature: "${artifact}.bundle"
     args:
       - "sign-blob"
-      - "--output-signature=${artifact}.sig"
-      - "--output-certificate=${artifact}.pem"
+      - "--bundle=${artifact}.bundle"
       - "--yes"
       - "${artifact}"
 

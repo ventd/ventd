@@ -33,7 +33,7 @@ jobs:
           fi
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@3f4b1b8ba8b234d895d3bba1cfdd20b9c8826a33 # git-cliff@v2
+        uses: taiki-e/install-action@v2
         with:
           tool: git-cliff@2
 
@@ -41,7 +41,7 @@ jobs:
         run: git-cliff --tag "${{ steps.tag.outputs.value }}" --output CHANGELOG.md
 
       - name: Open PR with generated CHANGELOG
-        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb2b58c9 # v7.0.8
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
         with:
           commit-message: "chore(release): update CHANGELOG for ${{ steps.tag.outputs.value }}"
           title: "chore(release): CHANGELOG for ${{ steps.tag.outputs.value }}"
