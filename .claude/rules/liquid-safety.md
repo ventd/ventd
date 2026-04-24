@@ -22,6 +22,7 @@ without active liquid cooling can destroy CPU and VRM components within
 seconds.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/PumpMinimumFloor
+<!-- rulelint:allow-orphan -->
 
 ---
 
@@ -38,6 +39,7 @@ defaulted to on reset, which may be below pump_minimum on some Commander
 Core firmware versions.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/ReconnectPumpFloor
+<!-- rulelint:allow-orphan -->
 
 ---
 
@@ -55,6 +57,7 @@ code inside the package. Sending unvalidated write commands to an unknown
 firmware risks leaving the device in a state that requires iCUE to recover.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/UnknownFirmwareReadOnly
+<!-- rulelint:allow-orphan -->
 
 ---
 
@@ -71,6 +74,7 @@ exit. The deferred structure is the same pattern as the hwmon watchdog's
 per-entry recover loop.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/RestoreCompletesOnPanic
+<!-- rulelint:allow-orphan -->
 
 ---
 
@@ -86,6 +90,7 @@ until USB reset. The mutex is per-device instance, not per-channel, because
 all channels share one HID endpoint.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/SerialisedWrites
+<!-- rulelint:allow-orphan -->
 
 ---
 
@@ -104,3 +109,4 @@ gate mechanism is exercised in tests before any firmware version is added to
 the list.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/WriteRequiresFlagAndAllowlist
+<!-- rulelint:allow-orphan -->
