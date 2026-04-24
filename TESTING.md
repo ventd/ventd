@@ -254,6 +254,12 @@ rig without explicit in-prompt authorisation. Running binaries under
 - `drew-audit` (release-gated, workflow_dispatch)
 - `pre-release-check` (release-gated, workflow_dispatch)
 
+## Hardware-gated matrix
+
+| Test | Build tag | Prerequisites |
+|---|---|---|
+| udevadm verify on rule files (integration) | `udev_integration` | VM with udevadm; run `go test -tags=udev_integration ./internal/hal/liquid/corsair/...` |
+
 ## Hardware-gated phase milestones (current state)
 
 | Gate | Status |
