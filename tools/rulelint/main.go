@@ -23,6 +23,7 @@ type ruleEntry struct {
 type boundEntry struct {
 	targetFile  string
 	subtestName string
+	allowOrphan bool // set by <!-- rulelint:allow-orphan --> on the line after Bound:
 }
 
 // parseRulesDir walks dir/*.md and collects all rule entries.
@@ -60,9 +61,23 @@ func parseRuleFile(path string) ([]ruleEntry, []string) {
 	var errs []string
 	curIdx := -1
 
+	// lastBound tracks the indices of the most recently parsed valid Bound: entry
+	// so the allow-orphan marker on the very next line can be attached to it.
+	lastBoundRule := -1
+	lastBoundEntry := -1
+
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
+
+		// Allow-orphan marker: must appear on the line DIRECTLY after a Bound: line.
+		if lastBoundRule >= 0 && line == "<!-- rulelint:allow-orphan -->" {
+			rules[lastBoundRule].bounds[lastBoundEntry].allowOrphan = true
+			lastBoundRule = -1
+			continue
+		}
+		// Any other line resets the "last was Bound:" state.
+		lastBoundRule = -1
 
 		if strings.HasPrefix(line, "## ") {
 			if m := ruleHeadingRE.FindStringSubmatch(line); m != nil {
@@ -108,6 +123,9 @@ func parseRuleFile(path string) ([]ruleEntry, []string) {
 				targetFile:  targetFile,
 				subtestName: subtestName,
 			})
+			// Arm the marker detector for the next line.
+			lastBoundRule = curIdx
+			lastBoundEntry = len(rules[curIdx].bounds) - 1
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -170,10 +188,12 @@ func run(root string, w io.Writer) int {
 		for _, b := range r.bounds {
 			absPath := filepath.Join(root, b.targetFile)
 			if _, err := os.Stat(absPath); os.IsNotExist(err) {
-				forwardErrs = append(forwardErrs, fmt.Sprintf(
-					"%s: RULE-%s: bound file not found: %s",
-					r.file, r.id, b.targetFile,
-				))
+				if !b.allowOrphan {
+					forwardErrs = append(forwardErrs, fmt.Sprintf(
+						"%s: RULE-%s: bound file not found: %s",
+						r.file, r.id, b.targetFile,
+					))
+				}
 				continue
 			}
 			found, err := containsSubtest(absPath, b.subtestName)
@@ -185,9 +205,20 @@ func run(root string, w io.Writer) int {
 				continue
 			}
 			if !found {
+				if !b.allowOrphan {
+					forwardErrs = append(forwardErrs, fmt.Sprintf(
+						"%s: RULE-%s: subtest %q not found in %s",
+						r.file, r.id, b.subtestName, b.targetFile,
+					))
+				}
+				continue
+			}
+			// File exists and subtest is present. If the allow-orphan marker is
+			// still present, the impl PR forgot to remove it.
+			if b.allowOrphan {
 				forwardErrs = append(forwardErrs, fmt.Sprintf(
-					"%s: RULE-%s: subtest %q not found in %s",
-					r.file, r.id, b.subtestName, b.targetFile,
+					"%s: RULE-%s: allow-orphan marker present but binding is already resolved: %s:%s",
+					r.file, r.id, b.targetFile, b.subtestName,
 				))
 				continue
 			}
