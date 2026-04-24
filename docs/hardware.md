@@ -71,7 +71,7 @@ Pumps are detected during calibration by low RPM variance across the PWM sweep p
 
 Confirmed pumps:
 
-- Corsair H100i, H115i, H150i (via USB is out of scope; use the stock PWM header)
+- Corsair H100i, H115i, H150i connected via USB — see "Liquid cooling (AIO) — Corsair" section below (alpha, v0.4.0).
 - NZXT Kraken X series (stock header only)
 - Arctic Liquid Freezer II, III (VRM fan is classified separately from pump)
 - Custom loops driven by a D5 or DDC pump controller on a standard PWM header
@@ -85,6 +85,43 @@ For USB-connected AIOs (iCUE, CAM, NZXT), use the vendor software or [liquidctl]
 ## ARM / Raspberry Pi
 
 Raspberry Pi 4, CM4, Pi 5: fan control via the `gpio-fan` or `pwm-fan` device tree overlay. Enable the overlay in `/boot/firmware/config.txt` or the distro equivalent, then `ventd` sees the hwmon entry and controls it normally.
+
+## Liquid cooling (AIO) — Corsair
+
+Corsair USB HID AIO and fan controller support is new in v0.4.0 and
+alpha-quality. Read paths (fan RPM, temperatures, connected-state) are
+enabled by default. Write paths (set PWM, set curve) require the
+experimental `--enable-corsair-write` flag — see below.
+
+| Family            | VID    | PIDs             | Channels     | Tested firmware | Status                       |
+|-------------------|--------|------------------|--------------|-----------------|------------------------------|
+| Commander Core    | 0x1b1c | 0x0c1c, 0x0c1e   | pump + 6 fan | none            | alpha, read-only by default  |
+| Commander Core XT | 0x1b1c | 0x0c20, 0x0c2a   | 6 fan        | none            | alpha, read-only by default  |
+| Commander ST      | 0x1b1c | 0x0c32           | pump + 6 fan | none            | alpha, read-only by default  |
+
+### Writes are experimental
+
+No firmware version is currently on the validation allow-list. Every
+probed device is treated as `unknownFirmwareDevice` and writes return
+`ErrReadOnly` unless you start ventd with `--enable-corsair-write`.
+Running writes against unvalidated firmware may leave the device in a
+state requiring iCUE to recover.
+
+### Access mechanism
+
+`deploy/90-ventd-liquid.rules` tags Corsair VID 0x1b1c devices with
+`uaccess`, granting the logged-in seat user access. No root, no sidecar.
+
+### Not in scope for v0.4.0
+
+- Commander Pro (different protocol, separate spec-02a)
+- iCUE LINK System Hub (daisy-chain addressing, separate PR)
+- RGB / LED control (out of scope — use OpenRGB)
+
+### Help validate
+
+If you own a Commander Core, Core XT, or Commander ST and can help
+validate, please file an issue with the output of `ventd --list-fans`.
 
 ## Reporting compatibility
 

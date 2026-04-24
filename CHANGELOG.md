@@ -24,6 +24,32 @@ and frozen.
 - test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)
 <!-- git-cliff end -->
 
+## [v0.4.0] — 2026-04-25
+
+### Added
+
+- Native Corsair AIO support (Commander Core, Commander Core XT,
+  Commander ST). No liquidctl dependency, no Python runtime, no sidecar
+  — single static binary, USB HID access via `uaccess` udev tag.
+  **ALPHA QUALITY**: tested against behavioural fixture and the
+  liquidctl protocol documentation; real-hardware validation pending
+  community reports. Read-only by default; writes require the
+  experimental `--enable-corsair-write` flag. If you own a supported
+  device and can validate, please file an issue with `ventd --list-fans`
+  output.
+- Pure-Go hidraw substrate — `CGO_ENABLED=0` builds restored
+  (spec-02 PR 1.5).
+- udev rule `deploy/90-ventd-liquid.rules` grants access to Corsair
+  VID 0x1b1c devices via `TAG+="uaccess"` (spec-02 PR 3).
+
+### Changed
+
+- (none)
+
+### Fixed
+
+- (none)
+
 ## [v0.3.1] — 2026-04-24
 
 ### Added — IPMI vendor coverage
