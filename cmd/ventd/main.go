@@ -23,6 +23,7 @@ import (
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halipmi "github.com/ventd/ventd/internal/hal/ipmi"
+	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
 	"github.com/ventd/ventd/internal/hwdiag"
@@ -262,6 +263,7 @@ func run() error {
 	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
 	// a single source of truth.
 	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
+	halcorsair.RegisterAll(logger, halcorsair.ProbeOptions{})
 	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))

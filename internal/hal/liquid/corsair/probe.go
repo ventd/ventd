@@ -2,11 +2,36 @@ package corsair
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hal/usbbase/hidraw"
 )
+
+// RegisterAll probes all Corsair Commander devices visible on the system and
+// registers each with the HAL under "corsair:<path>". Devices whose firmware is
+// not on the allow-list are registered as read-only backends (RULE-LIQUID-06).
+// Probe failures and missing hardware are logged and skipped — not fatal.
+func RegisterAll(logger *slog.Logger, opts ProbeOptions) {
+	m := DeviceMatcher()
+	infos, err := hidraw.Enumerate([]hidraw.Matcher{{
+		VendorID:   m.VendorID,
+		ProductIDs: m.ProductIDs,
+	}})
+	if err != nil {
+		logger.Warn("corsair: enumerate failed", "err", err)
+		return
+	}
+	for _, info := range infos {
+		b, err := Probe(info.Path, opts)
+		if err != nil {
+			logger.Warn("corsair: probe skipped", "path", info.Path, "err", err)
+			continue
+		}
+		hal.Register(BackendName+":"+info.Path, b)
+	}
+}
 
 // ProbeOptions carries runtime flags that affect how a Corsair device is probed.
 type ProbeOptions struct {
