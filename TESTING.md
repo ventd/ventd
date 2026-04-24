@@ -258,6 +258,7 @@ rig without explicit in-prompt authorisation. Running binaries under
 
 | Test | Build tag | Prerequisites |
 |---|---|---|
+| IPMI sidecar privilege boundary | `ipmi_integration` | systemd-run + root |
 | udevadm verify on rule files (integration) | `udev_integration` | VM with udevadm; run `go test -tags=udev_integration ./internal/hal/liquid/corsair/...` |
 
 ## Hardware-gated phase milestones (current state)
