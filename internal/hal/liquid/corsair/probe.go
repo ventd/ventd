@@ -105,6 +105,11 @@ func probeWith(path string, opts ProbeOptions, openFn func(string) (openResult, 
 		return nil, fmt.Errorf("corsair probe %s: open: %w", path, err)
 	}
 
+	if res.info.VendorID != corsairVID {
+		_ = res.hid.Close()
+		return nil, fmt.Errorf("corsair probe %s: VID 0x%04x is not Corsair (want 0x%04x)", path, res.info.VendorID, corsairVID)
+	}
+
 	entry, known := lookupDevice(res.info.ProductID)
 	if !known {
 		_ = res.hid.Close()

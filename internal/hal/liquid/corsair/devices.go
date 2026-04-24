@@ -1,5 +1,7 @@
 package corsair
 
+import "github.com/ventd/ventd/internal/hal/usbbase"
+
 // corsairVID is Corsair's USB vendor ID.
 const corsairVID = 0x1b1c
 
@@ -53,4 +55,13 @@ func allPIDs() []uint16 {
 		out[i] = e.pid
 	}
 	return out
+}
+
+// DeviceMatcher returns the USB device matcher for all known Corsair Commander
+// devices. Pass to usbbase.Enumerate or usbbase.Watch to discover Corsair hardware.
+func DeviceMatcher() usbbase.Matcher {
+	return usbbase.Matcher{
+		VendorID:   corsairVID,
+		ProductIDs: allPIDs(),
+	}
 }
