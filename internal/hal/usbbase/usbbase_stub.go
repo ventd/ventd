@@ -1,12 +1,9 @@
-//go:build !cgo || !hidraw
-
 package usbbase
 
 import "fmt"
 
-// New returns a stub Bus that reports unavailability. USB HID access requires
-// CGO (go-hid wraps the hidraw C kernel interface); build with CGO_ENABLED=1
-// for production use.
+// New returns a stub Bus. The Bus API (low-level HIDLayer surface) is used
+// only in tests via NewWithLayer; production code uses Enumerate and Watch.
 func New() *Bus {
 	return &Bus{layer: &stubLayer{}}
 }
@@ -14,9 +11,9 @@ func New() *Bus {
 type stubLayer struct{}
 
 func (s *stubLayer) Enumerate() ([]DeviceInfo, error) {
-	return nil, fmt.Errorf("usbbase: not available: build with CGO_ENABLED=1")
+	return nil, fmt.Errorf("usbbase: Bus.Enumerate not available; use usbbase.Enumerate")
 }
 
 func (s *stubLayer) OpenPath(_ string) (RawDevice, error) {
-	return nil, fmt.Errorf("usbbase: not available: build with CGO_ENABLED=1")
+	return nil, fmt.Errorf("usbbase: Bus.Open not available; use usbbase.Enumerate")
 }

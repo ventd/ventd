@@ -1,4 +1,4 @@
-//go:build !linux || !cgo || !hidraw
+//go:build !linux
 
 package usbbase
 

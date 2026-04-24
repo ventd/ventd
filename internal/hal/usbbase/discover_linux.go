@@ -1,206 +1,136 @@
-//go:build linux && cgo && hidraw
+//go:build linux
 
 package usbbase
 
 import (
 	"context"
 	"fmt"
-	"strings"
+	"log/slog"
 	"sync"
-	"syscall"
 	"time"
 
-	hid "github.com/sstallion/go-hid"
+	"github.com/ventd/ventd/internal/hal/usbbase/hidraw"
 )
 
-// platformEnumerate enumerates USB HID devices using go-hid and returns those
-// matching any Matcher. Devices are opened; callers must call Close when done.
 func platformEnumerate(matchers []Matcher) ([]Device, error) {
 	if len(matchers) == 0 {
 		return nil, nil
 	}
-
-	var (
-		mu  sync.Mutex
-		out []Device
-	)
-
-	err := hid.Enumerate(hid.VendorIDAny, hid.ProductIDAny, func(info *hid.DeviceInfo) error {
-		if !MatchesAny(matchers, info.VendorID, info.ProductID, info.InterfaceNbr) {
-			return nil
-		}
-		dev, err := hid.OpenPath(info.Path)
-		if err != nil {
-			// Log but continue; other devices may be accessible.
-			return nil
-		}
-		mu.Lock()
-		out = append(out, &hidDevice{
-			dev:    dev,
-			vid:    info.VendorID,
-			pid:    info.ProductID,
-			serial: info.SerialNbr,
-		})
-		mu.Unlock()
-		return nil
-	})
+	hMatchers := toHidrawMatchers(matchers)
+	infos, err := hidraw.Enumerate(hMatchers)
 	if err != nil {
 		return nil, fmt.Errorf("usbbase: enumerate: %w", err)
+	}
+
+	var out []Device
+	for _, info := range infos {
+		dev, err := hidraw.Open(info.Path)
+		if err != nil {
+			slog.Warn("usbbase: open failed", "path", info.Path, "err", err)
+			continue
+		}
+		out = append(out, &hidrawAdapter{dev: dev, info: info})
 	}
 	return out, nil
 }
 
-// platformWatch streams USB hotplug events using NETLINK_KOBJECT_UEVENT.
-// On uevent, it re-enumerates and diffs against the last known set.
-// Falls back to a 10-second polling ticker when the netlink socket is unavailable.
 func platformWatch(ctx context.Context, matchers []Matcher) (<-chan Event, error) {
-	ch := make(chan Event, 16)
+	hMatchers := toHidrawMatchers(matchers)
+	hCh, err := hidraw.Watch(ctx, hMatchers)
+	if err != nil {
+		return nil, fmt.Errorf("usbbase: watch: %w", err)
+	}
+
+	out := make(chan Event, 16)
+	var mu sync.Mutex
+	opened := make(map[string]*hidrawAdapter)
 
 	go func() {
-		defer close(ch)
-
-		known, _ := platformEnumerate(matchers)
-		knownMap := devicesAsMap(known)
-
-		uevents := subscribeUSBEvents(ctx)
-
+		defer close(out)
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-uevents:
+			case hev, ok := <-hCh:
 				if !ok {
 					return
 				}
-			}
-
-			current, _ := platformEnumerate(matchers)
-			currentMap := devicesAsMap(current)
-
-			for serial, dev := range currentMap {
-				if _, exists := knownMap[serial]; !exists {
+				switch hev.Kind {
+				case hidraw.Add:
+					if !MatchesAny(matchers, hev.Info.VendorID, hev.Info.ProductID, hev.Info.InterfaceNumber) {
+						continue
+					}
+					dev, err := hidraw.Open(hev.Info.Path)
+					if err != nil {
+						slog.Warn("usbbase: watch: open failed", "path", hev.Info.Path, "err", err)
+						continue
+					}
+					adapter := &hidrawAdapter{dev: dev, info: hev.Info}
+					mu.Lock()
+					opened[hev.Info.Path] = adapter
+					mu.Unlock()
 					select {
-					case ch <- Event{Kind: Add, Device: dev}:
+					case out <- Event{Kind: Add, Device: adapter}:
+					case <-ctx.Done():
+						return
+					}
+				case hidraw.Remove:
+					mu.Lock()
+					adapter, exists := opened[hev.Info.Path]
+					if exists {
+						delete(opened, hev.Info.Path)
+					}
+					mu.Unlock()
+					if !exists {
+						continue
+					}
+					select {
+					case out <- Event{Kind: Remove, Device: adapter}:
 					case <-ctx.Done():
 						return
 					}
 				}
 			}
-			for serial, dev := range knownMap {
-				if _, exists := currentMap[serial]; !exists {
-					select {
-					case ch <- Event{Kind: Remove, Device: dev}:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-			knownMap = currentMap
 		}
 	}()
 
-	return ch, nil
+	return out, nil
 }
 
-// subscribeUSBEvents opens a NETLINK_KOBJECT_UEVENT socket and emits one
-// notification per uevent for subsystem "hidraw". Returns a closed channel
-// if the socket is unavailable.
-func subscribeUSBEvents(ctx context.Context) <-chan struct{} {
-	out := make(chan struct{}, 8)
-
-	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW|syscall.SOCK_CLOEXEC, syscall.NETLINK_KOBJECT_UEVENT)
-	if err != nil {
-		close(out)
-		return out
-	}
-
-	sa := &syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: 1}
-	if err := syscall.Bind(fd, sa); err != nil {
-		_ = syscall.Close(fd)
-		close(out)
-		return out
-	}
-
-	go func() {
-		<-ctx.Done()
-		_ = syscall.Close(fd)
-	}()
-
-	go func() {
-		defer close(out)
-		buf := make([]byte, 16*1024)
-		for {
-			n, _, err := syscall.Recvfrom(fd, buf, 0)
-			if err != nil {
-				return
-			}
-			msg := string(buf[:n])
-			if !isHIDRawEvent(msg) {
-				continue
-			}
-			select {
-			case out <- struct{}{}:
-			default:
-			}
+// toHidrawMatchers converts usbbase.Matcher to hidraw.Matcher.
+func toHidrawMatchers(ms []Matcher) []hidraw.Matcher {
+	out := make([]hidraw.Matcher, len(ms))
+	for i, m := range ms {
+		out[i] = hidraw.Matcher{
+			VendorID:   m.VendorID,
+			ProductIDs: m.ProductIDs,
+			Interface:  m.Interface,
 		}
-	}()
-
+	}
 	return out
 }
 
-// isHIDRawEvent reports whether a raw netlink uevent string is from the
-// hidraw subsystem.
-func isHIDRawEvent(msg string) bool {
-	return strings.Contains(msg, "SUBSYSTEM=hidraw")
+// hidrawAdapter wraps *hidraw.Device and implements usbbase.Device.
+type hidrawAdapter struct {
+	dev  *hidraw.Device
+	info hidraw.DeviceInfo
 }
 
-// devicesAsMap indexes devices by serial number for diffing.
-func devicesAsMap(devs []Device) map[string]Device {
-	m := make(map[string]Device, len(devs))
-	for _, d := range devs {
-		m[d.SerialNumber()] = d
+func (a *hidrawAdapter) VendorID() uint16     { return a.info.VendorID }
+func (a *hidrawAdapter) ProductID() uint16    { return a.info.ProductID }
+func (a *hidrawAdapter) SerialNumber() string { return a.info.SerialNumber }
+
+func (a *hidrawAdapter) Read(buf []byte, timeout time.Duration) (int, error) {
+	if err := a.dev.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return 0, fmt.Errorf("usbbase: set deadline: %w", err)
 	}
-	return m
+	return a.dev.Read(buf)
 }
 
-// hidDevice wraps *hid.Device and implements usbbase.Device.
-type hidDevice struct {
-	mu     sync.Mutex
-	dev    *hid.Device
-	vid    uint16
-	pid    uint16
-	serial string
-	closed bool
+func (a *hidrawAdapter) Write(buf []byte) (int, error) {
+	return a.dev.Write(buf)
 }
 
-func (d *hidDevice) VendorID() uint16     { return d.vid }
-func (d *hidDevice) ProductID() uint16    { return d.pid }
-func (d *hidDevice) SerialNumber() string { return d.serial }
-
-func (d *hidDevice) Read(buf []byte, timeout time.Duration) (int, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed {
-		return 0, fmt.Errorf("usbbase: read on closed device")
-	}
-	return d.dev.ReadWithTimeout(buf, timeout)
-}
-
-func (d *hidDevice) Write(buf []byte) (int, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed {
-		return 0, fmt.Errorf("usbbase: write on closed device")
-	}
-	return d.dev.Write(buf)
-}
-
-func (d *hidDevice) Close() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed {
-		return nil
-	}
-	d.closed = true
-	return d.dev.Close()
+func (a *hidrawAdapter) Close() error {
+	return a.dev.Close()
 }
