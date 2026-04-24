@@ -110,3 +110,30 @@ the list.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/WriteRequiresFlagAndAllowlist
 <!-- rulelint:allow-orphan -->
+
+---
+
+## RULE-LIQUID-07 — Yield to conflicting kernel drivers
+
+Before opening a hidraw device for a Corsair VID 0x1b1c PID in the ventd
+PID table, ventd checks whether a kernel driver currently owns that
+device. Detection is broad: any driver bound to /sys/class/hidraw/hidrawN/
+device/driver is treated as a conflict, not just a named list like
+corsair-cpro. If a conflict is detected, ventd attempts to unbind the
+driver from that specific device via
+/sys/bus/hid/drivers/<driver>/unbind (one write, no reboot required).
+If unbind succeeds or no driver was bound, HID access proceeds normally.
+If unbind fails, ventd marks the device unavailable for this run and
+logs an actionable error identifying the conflicting driver, the hidraw
+path, and the exact blacklist file to create for permanent
+remediation (/etc/modprobe.d/ventd.conf with blacklist <driver>).
+
+Rationale: corsair-cpro (mainline, targets Commander Pro) may misidentify
+Commander Core devices, and out-of-tree Corsair forks from AUR can claim
+Commander Core directly. Simultaneous userspace hidraw access and
+kernel-driver access corrupt device state. Auto-unbind is the zero-user-
+input remediation path; the error-with-guidance fallback is the escape
+hatch when unbind itself is blocked.
+
+Bound: internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/UnbindConflictingDriver
+<!-- rulelint:allow-orphan -->
