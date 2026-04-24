@@ -1,0 +1,47 @@
+# ventd — grant the logged-in seat user access to Corsair USB devices.
+#
+# The daemon runs unprivileged (User=ventd, Group=ventd; see
+# deploy/ventd.service). It accesses Corsair Commander Core, Commander Core XT,
+# and Commander Pro AIO controllers via /dev/hidraw* devices. This rule tags
+# the Corsair USB parent device (VID 0x1b1c) with "uaccess" — systemd-logind
+# grants the active seat user access to the matching hidraw child node
+# without requiring ventd to run as root, use a sidecar, or hold CAP_DAC_OVERRIDE.
+#
+# Installed to:
+#   /etc/udev/rules.d/90-ventd-liquid.rules
+#
+# ──────────────────────────────────────────────────────────────────────
+#
+# Design: subsystem = usb, not hidraw.
+#
+# This rule matches the USB parent device (SUBSYSTEM=="usb") rather than the
+# hidraw child (SUBSYSTEM=="hidraw"). The hidraw node inherits the uaccess tag
+# from its parent and does not need a separate rule. Matching the parent is
+# safer: the USB device is always present when the device is plugged in, and
+# the ATTRS{idVendor} filter is exact. A hidraw-level rule would require
+# matching the HID descriptor or relying on kernel to populate the hidraw
+# driver, adding latency and complexity.
+#
+# Why uaccess, not group grant.
+#
+# ventd exposes a web UI; the logged-in seat user should control cooling,
+# not an arbitrary "ventd" group. The "uaccess" tag (defined in systemd
+# logind) is the modern Discretionary Access Control primitive on systemd
+# systems. It assigns read/write access to the device node only for the
+# current seat's active user, with automatic cleanup on logout. An
+# alternative (ventd group + daemon socket) would add a sidecar and violate
+# the "single binary, no sidecar" architecture promise. A root-privileged
+# daemon is strictly worse — ventd is sandboxed and capability-bounded in
+# deploy/ventd.service, and CAP_DAC_OVERRIDE is never restored.
+#
+# ──────────────────────────────────────────────────────────────────────
+#
+# Reload after editing:
+#   sudo udevadm control --reload
+#   sudo udevadm trigger --subsystem-match=usb
+#
+# The installer (scripts/install.sh and scripts/postinstall.sh) runs
+# both commands automatically after placing this file, so no operator
+# action is required on a clean install.
+
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1b1c", TAG+="uaccess"
