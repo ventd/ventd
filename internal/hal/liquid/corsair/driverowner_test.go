@@ -139,9 +139,11 @@ func TestCheckAndUnbind_UnbindFailsWithActionableError(t *testing.T) {
 	if err := os.Symlink(driverDir, filepath.Join(hidAddrDir, "driver")); err != nil {
 		t.Fatal(err)
 	}
-	// Read-only unbind file — write will fail.
+	// Make the unbind path a directory. os.WriteFile on a directory always returns
+	// EISDIR regardless of root or filesystem permissions, making this portable
+	// across Ubuntu, Arch, Alpine, and Fedora CI environments.
 	unbindPath := filepath.Join(driverDir, "unbind")
-	if err := os.WriteFile(unbindPath, nil, 0o444); err != nil {
+	if err := os.MkdirAll(unbindPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
