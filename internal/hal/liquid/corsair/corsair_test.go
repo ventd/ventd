@@ -2,6 +2,9 @@ package corsair
 
 import (
 	"errors"
+	"fmt"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,5 +218,30 @@ func TestSetCurve_PreservesOtherChannels(t *testing.T) {
 		if ch != want {
 			t.Errorf("RestoresReceived[%d] = %d, want %d", i, ch, want)
 		}
+	}
+}
+
+// TestEnumerate_NoCorsairVIDShortCircuits verifies that enumerateAll returns
+// (nil, nil) and opens no HID handles when no VID 0x1b1c devices are present.
+func TestEnumerate_NoCorsairVIDShortCircuits(t *testing.T) {
+	enumerateFn := func(_ []hidraw.Matcher) ([]hidraw.DeviceInfo, error) {
+		return nil, nil
+	}
+
+	var opens atomic.Int64
+	openFn := func(path string) (openResult, error) {
+		opens.Add(1)
+		return openResult{}, fmt.Errorf("openFn: must not be called when no Corsair VID present (path=%s)", path)
+	}
+
+	backends, err := enumerateAll(ProbeOptions{}, slog.Default(), enumerateFn, openFn)
+	if err != nil {
+		t.Fatalf("enumerateAll: %v", err)
+	}
+	if backends != nil {
+		t.Errorf("got %d backends, want nil", len(backends))
+	}
+	if n := opens.Load(); n != 0 {
+		t.Errorf("HID handles opened = %d, want 0", n)
 	}
 }

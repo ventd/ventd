@@ -13,6 +13,7 @@ import (
 
 	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hal/liquid"
+	"github.com/ventd/ventd/internal/hal/usbbase/hidraw"
 )
 
 // BackendName is the short stable identifier for this backend in the HAL registry.
@@ -187,4 +188,58 @@ func (b *corsairBackend) findChannel(id string) (channelEntry, bool) {
 		}
 	}
 	return channelEntry{}, false
+}
+
+// enumerateAll performs a VID-gated discovery of Corsair Commander devices.
+// It first checks for any VID 0x1b1c device before opening any HID handles.
+// When no Corsair VID devices are present it logs a single debug event and
+// returns (nil, nil), avoiding spurious /dev/hidraw* opens that would
+// otherwise trigger udev events in kernel logs on non-Corsair machines.
+//
+// enumerateFn and openFn are nil in production (real hidraw.Enumerate and
+// hidraw.Open are used). Tests inject fakes to verify the short-circuit
+// without touching real hardware.
+func enumerateAll(
+	opts ProbeOptions,
+	logger *slog.Logger,
+	enumerateFn func([]hidraw.Matcher) ([]hidraw.DeviceInfo, error),
+	openFn func(string) (openResult, error),
+) ([]hal.FanBackend, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if enumerateFn == nil {
+		enumerateFn = hidraw.Enumerate
+	}
+
+	// VID gate: check for any Corsair device before opening any HID handle.
+	vidInfos, err := enumerateFn([]hidraw.Matcher{{VendorID: corsairVID}})
+	if err != nil {
+		return nil, fmt.Errorf("corsair: VID presence check: %w", err)
+	}
+	if len(vidInfos) == 0 {
+		logger.Debug("corsair: no VID 0x1b1c devices present, skipping enumeration")
+		return nil, nil
+	}
+
+	// Full enumeration for supported PIDs only.
+	m := DeviceMatcher()
+	infos, err := enumerateFn([]hidraw.Matcher{{
+		VendorID:   m.VendorID,
+		ProductIDs: m.ProductIDs,
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("corsair: enumerate: %w", err)
+	}
+
+	var backends []hal.FanBackend
+	for _, info := range infos {
+		b, err := probeWith(info.Path, opts, openFn)
+		if err != nil {
+			logger.Warn("corsair: probe skipped", "path", info.Path, "err", err)
+			continue
+		}
+		backends = append(backends, b)
+	}
+	return backends, nil
 }
