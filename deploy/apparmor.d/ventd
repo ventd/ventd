@@ -7,7 +7,12 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /usr/bin/ventd                  mr,
 
   /etc/ventd/                     r,
-  /etc/ventd/**                   rwk,
+  /etc/ventd/**                   r,
+  /etc/ventd/*.tmp                rw,
+  /etc/ventd/tls.crt              rw,
+  /etc/ventd/tls.key              rw,
+  /etc/ventd/cert.pem             rw,
+  /etc/ventd/key.pem              rw,
 
   /run/ventd/                     rw,
   /run/ventd/**                   rwk,
