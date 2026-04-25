@@ -33,7 +33,7 @@ jobs:
           fi
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
         with:
           tool: git-cliff@2
 
