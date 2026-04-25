@@ -239,6 +239,7 @@ func validateRequired(label string, p Profile) error {
 	return nil
 }
 
+//nolint:unparam // segment index reserved for error messages, see RULE-HWDB-04
 func validateCurve(id string, idx int, c Curve) error {
 	for i := 1; i < len(c.Points); i++ {
 		prev, cur := c.Points[i-1], c.Points[i]
