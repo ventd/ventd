@@ -32,11 +32,13 @@ cover.html
 /scripts/provision-test-vms.sh
 securitytodo.md
 
-# Claude Code session files — ignore everything under .claude/ except the shared rule files
-# .claude/ — track shared, ignore local
+# Claude Code session files — ignore everything under .claude/ except the shared rule files, templates, scripts, and skills
+# .claude/ — track shared (rules, templates, scripts, skills), ignore local
 .claude/*
 !.claude/hooks/
 !.claude/rules/
+!.claude/templates/
+!.claude/scripts/
 !.claude/skills/
 !.claude/settings.json
 !.claude/commands/
