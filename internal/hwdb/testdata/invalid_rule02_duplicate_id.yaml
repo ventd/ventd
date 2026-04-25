@@ -1,0 +1,21 @@
+- id: "duplicate-board"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "Test Vendor"
+  hardware:
+    fan_count: 1
+    pwm_control: "nct6775"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-25"
+  verified: false
+
+- id: "duplicate-board"
+  schema_version: 1
+  fingerprint:
+    dmi_board_name: "Other Board"
+  hardware:
+    fan_count: 2
+    pwm_control: "nct6775"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-25"
+  verified: false

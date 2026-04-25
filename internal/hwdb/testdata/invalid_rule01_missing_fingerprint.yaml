@@ -1,0 +1,9 @@
+- id: "test-missing-fingerprint"
+  schema_version: 1
+  fingerprint: {}
+  hardware:
+    fan_count: 1
+    pwm_control: "nct6775"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-25"
+  verified: false

@@ -1,0 +1,60 @@
+- id: "msi-meg-x570-unify"
+  schema_version: 1
+  fingerprint:
+    dmi_sys_vendor: "Micro-Star International Co., Ltd."
+    dmi_product_name: "MS-7C35"
+    dmi_board_vendor: "Micro-Star International Co., Ltd."
+    dmi_board_name: "MEG X570 UNIFY"
+    dmi_board_version:
+      - "1.0"
+      - "2.0"
+    family: "x570-unify"
+    superio_chip: "nct6798d"
+  hardware:
+    fan_count: 6
+    pwm_control: "nct6798d"
+    temp_sensors:
+      - "k10temp"
+      - "nct6798d"
+      - "nvme"
+    fans:
+      - id: 1
+        label: "CPU_FAN"
+        stall_pwm_min: 60
+      - id: 2
+        label: "CHA_FAN1"
+        stall_pwm_min: 50
+      - id: 3
+        label: "CHA_FAN2"
+    quirks:
+      nct6798d_pwm3_broken: true
+  defaults:
+    cpu_sensor: "k10temp/Tctl"
+    curves:
+      - role: "cpu"
+        fan_ids: [1]
+        allow_stop: true
+        points:
+          - [40, 30]
+          - [60, 50]
+          - [75, 80]
+          - [85, 100]
+      - role: "case"
+        fan_ids: [2, 3]
+        allow_stop: false
+        points:
+          - [30, 20]
+          - [50, 40]
+          - [70, 70]
+          - [80, 100]
+  predictive_hints:
+    platform_heavy_threshold_watts: 80
+    thermal_critical_c: 95
+    thermal_safe_ceiling_c: 85
+  sensor_trust:
+    - sensor: "nct6798d/temp4"
+      trust: "untrusted"
+      reason: "stuck-at reading on this board rev"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-22"
+  verified: true
