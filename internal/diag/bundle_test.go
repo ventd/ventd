@@ -159,7 +159,7 @@ func listBundleEntries(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("open bundle: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("gzip: %v", err)

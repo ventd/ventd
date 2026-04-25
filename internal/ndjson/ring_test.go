@@ -116,7 +116,7 @@ func TestRing_PartialWriteRecovery(t *testing.T) {
 	if _, err := f.WriteString(`{"schema_version":"1.0","ts":"2026-04-26`); err != nil { // partial — no closing
 		t.Fatalf("WriteString partial: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	r, err := ndjson.OpenRing(path, "1.0")
 	if err != nil {
@@ -126,7 +126,7 @@ func TestRing_PartialWriteRecovery(t *testing.T) {
 	if err := r.Write("after_partial", payload{N: 99}); err != nil {
 		t.Fatalf("Write after partial: %v", err)
 	}
-	r.Close()
+	_ = r.Close()
 
 	// File must be readable — the NDJSON reader skips the partial line via scanner.
 	fi, err := os.Stat(path)

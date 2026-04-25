@@ -391,7 +391,7 @@ func writeFakeBundleWithContent(t *testing.T, files map[string]string) string {
 	}
 	_ = tw.Close()
 	_ = gz.Close()
-	f.Close()
+	_ = f.Close()
 	return path
 }
 
