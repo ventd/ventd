@@ -60,3 +60,5 @@ release-notes/*-dryrun.txt
 # AI tooling at repo root — local-only
 /.mcp.json
 
+*:Zone.Identifier
+*:Zone.Identifier:Zone.Identifier
