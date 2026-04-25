@@ -2,6 +2,7 @@ package deploy_test
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -121,6 +122,57 @@ func TestInstallContract_AppArmorProfileShipped(t *testing.T) {
 				if _, err := os.Stat(path); err != nil {
 					t.Errorf("AppArmorProfile=%s declared in %s but %s not found: %v",
 						profile, unit, path, err)
+				}
+			})
+		}
+	}
+}
+
+// TestInstallContract_AppArmorHILValidated — RULE-INSTALL-05
+// Every shipped AppArmor profile must have a HIL validation log under enforce mode.
+func TestInstallContract_AppArmorHILValidated(t *testing.T) {
+	entries, err := os.ReadDir("apparmor.d")
+	if err != nil {
+		t.Fatalf("read apparmor.d: %v", err)
+	}
+	distros := []string{"ubuntu", "debian"}
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == "README.md" || e.Name() == "FIREWALL.md" {
+			continue
+		}
+		profile := e.Name()
+		for _, distro := range distros {
+			distro := distro
+			profile := profile
+			t.Run(profile+"/"+distro, func(t *testing.T) {
+				pattern := "../validation/apparmor-smoke-" + distro + "-*.md"
+				matches, err := filepath.Glob(pattern)
+				if err != nil {
+					t.Fatalf("glob %s: %v", pattern, err)
+				}
+				if len(matches) == 0 {
+					t.Errorf("no HIL validation log found for profile %q on %s (expected %s)",
+						profile, distro, pattern)
+					return
+				}
+				for _, match := range matches {
+					data, err := os.ReadFile(match)
+					if err != nil {
+						t.Fatalf("read %s: %v", match, err)
+					}
+					content := string(data)
+					for line := range strings.SplitSeq(content, "\n") {
+						if !strings.Contains(line, `apparmor="DENIED"`) {
+							continue
+						}
+						// Expected deny paths: /dev/mem, /dev/kmem, /sys/kernel/
+						isExpected := strings.Contains(line, "/dev/mem") ||
+							strings.Contains(line, "/dev/kmem") ||
+							strings.Contains(line, "/sys/kernel/")
+						if !isExpected {
+							t.Errorf("%s: unexpected DENIED line: %s", match, line)
+						}
+					}
 				}
 			})
 		}

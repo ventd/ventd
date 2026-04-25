@@ -54,7 +54,19 @@ the named AppArmor profile. If no profile file is present at
 `deploy/apparmor.d/<name>`, systemd fails with exit status 231/APPARMOR on
 AppArmor-enforcing distributions (Ubuntu, Debian). The test enumerates every
 `AppArmorProfile=` value across `deploy/*.service` and asserts that a
-corresponding file exists under `deploy/apparmor.d/`. This test is in skip
-state until PR 2 ships the AppArmor profiles.
+corresponding file exists under `deploy/apparmor.d/`.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_AppArmorProfileShipped
+
+## RULE-INSTALL-05: Every shipped AppArmor profile must have a HIL validation log under enforce mode
+
+For each profile under `deploy/apparmor.d/*` (excluding README.md), a
+validation log must exist at `validation/apparmor-smoke-<distro>-<date>.md`
+for at least Ubuntu 24.04 and Debian 12 (or 13). Each log must record
+the daemon starting under enforce mode with no `apparmor="DENIED"`
+lines in `journalctl -k` for legitimate ventd operations during a
+representative exercise window. Profiles that parse cleanly but fail
+under enforce on a fresh install are exactly the regression class
+spec-06 was opened to prevent (#459).
+
+Bound: deploy/install-contract_test.go:TestInstallContract_AppArmorHILValidated
