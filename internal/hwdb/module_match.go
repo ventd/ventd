@@ -33,6 +33,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -206,5 +207,5 @@ func (mp *ModuleProfile) ToEffectiveControllerProfile() (*EffectiveControllerPro
 	if pwmControl == "" {
 		return nil, ErrNoMatch
 	}
-	return MigrateModuleProfileToECP(cat, pwmControl, nil)
+	return MigrateModuleProfileToECP(cat, pwmControl, slog.Default())
 }
