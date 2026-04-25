@@ -1,0 +1,10 @@
+- id: "test-bad-contributed-by"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "Test Vendor"
+  hardware:
+    fan_count: 1
+    pwm_control: "nct6775"
+  contributed_by: "John Doe <john@example.com>"
+  captured_at: "2026-04-25"
+  verified: false

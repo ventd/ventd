@@ -1,0 +1,17 @@
+- id: "test-decreasing-pwm"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "Test Vendor"
+  hardware:
+    fan_count: 1
+    pwm_control: "nct6775"
+  defaults:
+    curves:
+      - role: "cpu"
+        fan_ids: [1]
+        points:
+          - [40, 50]
+          - [60, 30]
+  contributed_by: "anonymous"
+  captured_at: "2026-04-25"
+  verified: false

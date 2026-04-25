@@ -11,6 +11,10 @@ and frozen.
 
 ### Added
 
+- Hardware profile library schema v1 (`internal/hwdb/schema.go`): per-board YAML descriptors with strict-decode PII gate, monotonic curve validation, kernel-module allowlist, and reserved predictive-thermal hints for spec-05 consumers (spec-03 PR 1).
+- DMI fingerprint hash function with frozen v1 input tuple (sys_vendor, product_name, board_vendor, board_name, board_version, cpu_model_name, cpu_core_count). 16-char hex SHA-256 prefix.
+- Documented per-platform state directory layout under `/var/lib/ventd/platform/<fingerprint>/` and the user-mode fallback at `$XDG_STATE_HOME/ventd/`. Reserved layout for capture (PR 4) and predictive (spec-05) writes.
+- `.claude/rules/hwdb-schema.md` with invariants RULE-HWDB-01..09 each bound 1:1 to a subtest under `TestSchema_Invariants` or `TestMigrate_ChainIntegrity`.
 - test(hwdb): table-driven match tests for 22 board fingerprints + determinism property (T-FP-01)
 - deploy: AppArmor profile for ventd-ipmi sidecar; closes spec-01 PR 2a TODO (#spec-06-pr2)
 - deploy: AppArmor profile renamed from `usr.local.bin.ventd` to `ventd` to match profile name

@@ -1,0 +1,11 @@
+- id: "test-unknown-field"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "Test Vendor"
+  hardware:
+    fan_count: 1
+    pwm_control: "nct6775"
+  smbios_uuid: "12345678-1234-1234-1234-123456789abc"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-25"
+  verified: false
