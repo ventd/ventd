@@ -184,15 +184,23 @@ func TestRuleHwdbPR2_07(t *testing.T) {
 }
 
 // TestRuleHwdbPR2_08 verifies RULE-HWDB-PR2-08: bios_overridden:true causes
-// ShouldApplyCurve to refuse curve writes.
+// ShouldApplyCurve to refuse curve writes. The apply-path controller test
+// (TestWriteWithRetry_RefusesBIOSOverridden) verifies the full wiring.
 func TestRuleHwdbPR2_08(t *testing.T) {
 	t.Run("TestRuleHwdbPR2_08", func(t *testing.T) {
+		// nil → permit (pre-calibration channels).
+		ok, err := ShouldApplyCurve(nil)
+		if !ok || err != nil {
+			t.Errorf("nil cal: ShouldApplyCurve should return (true, nil), got (%v, %v)", ok, err)
+		}
+
 		// bios_overridden:true → refuse.
-		calOverridden := &CalibrationResult{
-			ChannelKey:     "nct6798:pwm1",
+		calOverridden := &ChannelCalibration{
+			HwmonName:      "nct6798",
+			ChannelIndex:   1,
 			BIOSOverridden: true,
 		}
-		ok, err := ShouldApplyCurve(calOverridden)
+		ok, err = ShouldApplyCurve(calOverridden)
 		if ok {
 			t.Error("bios_overridden:true: ShouldApplyCurve should return false")
 		}
@@ -201,9 +209,9 @@ func TestRuleHwdbPR2_08(t *testing.T) {
 		}
 
 		// bios_overridden:false → permit.
-		calOK := &CalibrationResult{
-			ChannelKey:     "nct6798:pwm2",
-			BIOSOverridden: false,
+		calOK := &ChannelCalibration{
+			HwmonName:    "nct6798",
+			ChannelIndex: 2,
 		}
 		ok, err = ShouldApplyCurve(calOK)
 		if !ok {
@@ -219,18 +227,23 @@ func TestRuleHwdbPR2_08(t *testing.T) {
 // recalibration.
 func TestRuleHwdbPR2_09(t *testing.T) {
 	t.Run("TestRuleHwdbPR2_09", func(t *testing.T) {
-		cal := &CalibrationResult{
-			ChannelKey:      "nct6798:pwm1",
-			FirmwareVersion: "ASUS 0805",
+		run := &CalibrationRun{
+			DMIFingerprint: "asus-z790-a",
+			BIOSVersion:    "ASUS 0805",
+		}
+
+		// nil → always needs recalibration.
+		if !NeedsRecalibration(nil, "ASUS 0805") {
+			t.Error("nil run: NeedsRecalibration should return true")
 		}
 
 		// Mismatch → needs recalibration.
-		if !NeedsRecalibration(cal, "ASUS 1001") {
+		if !NeedsRecalibration(run, "ASUS 1001") {
 			t.Error("BIOS version mismatch: NeedsRecalibration should return true")
 		}
 
 		// Match → no recalibration needed.
-		if NeedsRecalibration(cal, "ASUS 0805") {
+		if NeedsRecalibration(run, "ASUS 0805") {
 			t.Error("BIOS version match: NeedsRecalibration should return false")
 		}
 	})

@@ -36,7 +36,7 @@ type EffectiveControllerProfile struct {
 	CPUTINFloats bool
 
 	// From calibration (layer 4 — per channel; nil map means no calibration loaded)
-	CalibrationByChannel map[int]*CalibrationResult
+	CalibrationByChannel map[ChannelKey]*ChannelCalibration
 
 	// Diagnostics from the matching process
 	Diagnostics MatchDiagnostics
@@ -50,7 +50,7 @@ func ResolveEffectiveProfile(
 	driver *DriverProfile,
 	chip *ChipProfile,
 	board *BoardProfileV2,
-	cal map[int]*CalibrationResult,
+	cal map[ChannelKey]*ChannelCalibration,
 	diag MatchDiagnostics,
 ) *EffectiveControllerProfile {
 	ecp := &EffectiveControllerProfile{
