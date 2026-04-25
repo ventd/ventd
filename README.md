@@ -55,7 +55,7 @@ Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](S
 
 ventd is under active development. The [roadmap](docs/roadmap.md) covers the full plan; near-term highlights:
 
-- **More fan hardware** — IPMI (server BMCs — landed in `main`, shipping in v0.3.x), USB AIO pumps (Corsair, NZXT, Lian Li), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi.
+- **More fan hardware** — USB AIO pumps: Corsair Commander Core / Core XT / ST shipped in v0.4.0 (alpha quality, community validation requested); NZXT and Lian Li planned for v0.4.x. Laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi all roadmapped post-v1.0.
 - **Learning control** — PI controller with autotune; optional MPC (model-predictive control) that learns your machine's thermal behaviour and runs fans quieter than any curve can.
 - **Cross-platform** — Windows, macOS (Intel + Apple Silicon), FreeBSD, OpenBSD, illumos, Android.
 - **Acoustic health** — detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
