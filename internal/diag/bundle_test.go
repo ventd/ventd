@@ -183,7 +183,7 @@ func listBundleEntries(t *testing.T, path string) []string {
 func readBundleFile(t *testing.T, bundlePath, target string) []byte {
 	t.Helper()
 	f, _ := os.Open(bundlePath)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, _ := gzip.NewReader(f)
 	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
