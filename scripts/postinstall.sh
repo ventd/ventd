@@ -49,13 +49,13 @@ log_security_outcome() {
     fi
 }
 
-if [ -f /etc/apparmor.d/usr.local.bin.ventd ]; then
+if [ -f /etc/apparmor.d/ventd ]; then
     if command -v aa-status >/dev/null 2>&1 \
        && aa-status --enabled 2>/dev/null \
-       && aa-status 2>/dev/null | grep -q 'usr\.local\.bin\.ventd'; then
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd pkg=dpkg/rpm"
+       && aa-status 2>/dev/null | grep -qE '^[[:space:]]*ventd$'; then
+        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm"
     else
-        log_security_outcome apparmor refused "profile=/etc/apparmor.d/usr.local.bin.ventd pkg=dpkg/rpm hint=aa-status-did-not-list-profile"
+        log_security_outcome apparmor refused "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm hint=aa-status-did-not-list-profile"
     fi
 else
     log_security_outcome apparmor skipped "reason=profile-not-shipped-by-pkg pkg=dpkg/rpm"
