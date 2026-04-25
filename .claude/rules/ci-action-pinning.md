@@ -4,7 +4,7 @@ These rules enforce supply-chain hygiene in `.github/workflows/*.yml`. An
 unpinned or corrupt action ref silently succeeds at parse time while allowing
 an untrusted commit to run arbitrary code in the CI environment.
 
-Each rule below is bound to one top-level test function in
+Each rule below is bound to test functions and subtests in
 `tools/actionpincheck/main_test.go`. If a rule text is edited, update the
 corresponding test in the same PR; if a new rule lands, it must ship with a
 matching test or `tools/rulelint` blocks the merge.
@@ -20,6 +20,10 @@ ambiguous under some pack states and may resolve differently on different
 runners.
 
 Bound: tools/actionpincheck/main_test.go:TestActionPinCheck_RefFormat
+Bound: tools/actionpincheck/main_test.go:matrix_template_skipped
+Bound: tools/actionpincheck/main_test.go:local_action_skipped
+Bound: tools/actionpincheck/main_test.go:uses_inside_run_block_skipped
+Bound: tools/actionpincheck/main_test.go:multiple_violations_counted
 
 ## RULE-CI-02: A 40-char SHA pin must carry a trailing version comment
 
@@ -35,6 +39,7 @@ reviewers see the intended version change, not just SHA shuffling. A missing
 comment or a major-only comment (`# v6`) does not satisfy this rule.
 
 Bound: tools/actionpincheck/main_test.go:TestActionPinCheck_SHAHasVersionComment
+Bound: tools/actionpincheck/main_test.go:reusable_workflow_with_path_and_sha
 
 ## RULE-CI-03: Non-allowlisted owners must pin to a 40-char SHA
 
