@@ -12,6 +12,9 @@ and frozen.
 ### Added
 
 - test(hwdb): table-driven match tests for 22 board fingerprints + determinism property (T-FP-01)
+- deploy: AppArmor profile for ventd-ipmi sidecar; closes spec-01 PR 2a TODO (#spec-06-pr2)
+- deploy: AppArmor profile renamed from `usr.local.bin.ventd` to `ventd` to match profile name
+- test: RULE-INSTALL-04 (profile file shipped) and RULE-INSTALL-05 (HIL validated under enforce) install-contract bindings
 
 ### Changed
 
@@ -36,6 +39,8 @@ See `docs/config.md` for the full TLS configuration reference.
 
 ### Fixed
 
+- deploy: stale "complain mode (v0.3.x)" claim in deploy/apparmor.d/README.md corrected; profiles ship in enforce mode
+- deploy: `/etc/ventd/**` tightened to read-only with explicit rw on cert/key paths
 - web/ui: gate manual PWM slider value updates on drag-active state to prevent mid-gesture jumps from server status polls (#507)
 - monitor: suppress 255.5°C / 65535 RPM sentinel values at the /api/hardware scan boundary — v2 of #460 fix (#460)
 - test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)

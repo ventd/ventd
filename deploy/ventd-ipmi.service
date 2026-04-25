@@ -27,6 +27,7 @@ DeviceAllow=/dev/ipmidev/0 rw
 AmbientCapabilities=CAP_SYS_RAWIO
 CapabilityBoundingSet=CAP_SYS_RAWIO
 NoNewPrivileges=yes
+AppArmorProfile=ventd-ipmi
 
 # Socket directory: /run/ventd is created by tmpfiles.d-ventd.conf (mode 0750,
 # owner ventd-ipmi:ventd) before either unit starts.

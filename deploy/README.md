@@ -83,12 +83,7 @@ grep -E 'CapBnd|CapPrm' /proc/$(systemctl show -p MainPID --value ventd)/status
 Communication is a length-prefixed JSON socket at `/run/ventd/ipmi.sock`
 (mode `0660`, group `ventd`). Both processes are in the `ventd` group.
 
-### TODO — AppArmor / SELinux profiles for ventd-ipmi
-
-AppArmor and SELinux profiles for `ventd-ipmi` are not shipped yet.
-Track in a follow-up PR. Until then, the sandbox is enforced exclusively
-by systemd's `CapabilityBoundingSet=`, `DeviceAllow=`, `PrivateNetwork=yes`,
-and `SystemCallFilter=` hardening.
+AppArmor profiles for both binaries ship in `deploy/apparmor.d/`. See [`deploy/apparmor.d/README.md`](apparmor.d/README.md).
 
 ## `ventd.service`
 
@@ -234,8 +229,8 @@ Directory mode `0750`, file mode `0640`, owned `root:ventd`. The line
 shape is:
 
 ```
-2026-04-16T10:18:30Z apparmor=loaded  profile=/etc/apparmor.d/usr.local.bin.ventd
-2026-04-16T10:18:30Z apparmor=refused parser_exit=1 profile=/etc/apparmor.d/usr.local.bin.ventd
+2026-04-16T10:18:30Z apparmor=loaded  profile=/etc/apparmor.d/ventd
+2026-04-16T10:18:30Z apparmor=refused parser_exit=1 profile=/etc/apparmor.d/ventd
 2026-04-16T10:18:30Z apparmor=skipped reason=parser-not-installed
 2026-04-16T10:18:31Z selinux=loaded   module=ventd.pp
 2026-04-16T10:18:31Z selinux=refused  reason=semodule-refused module=ventd.pp
@@ -245,7 +240,7 @@ This is the answer to "did AppArmor actually confine ventd after
 install?" once the install scrollback is gone. See #202, #204, #211.
 
 At daemon startup, ventd additionally emits a `WARN` slog line when
-`/etc/apparmor.d/usr.local.bin.ventd` exists on disk but
+`/etc/apparmor.d/ventd` exists on disk but
 `/proc/self/attr/current` reads `unconfined` — this catches the
 silent-downgrade class directly from `journalctl -u ventd` without
 requiring the operator to remember where the install log lives.

@@ -4,7 +4,7 @@
 # Exit codes: 0 = valid, 1 = syntax error or missing required permission.
 set -euo pipefail
 
-PROFILE="${1:-deploy/apparmor.d/usr.local.bin.ventd}"
+PROFILE="${1:-deploy/apparmor.d/ventd}"
 
 fail() {
     echo "FAIL: $*" >&2

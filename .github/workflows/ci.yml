@@ -118,7 +118,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends apparmor-utils
-          sudo apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
+          sudo apparmor_parser -QK deploy/apparmor.d/ventd
+          sudo apparmor_parser -QK deploy/apparmor.d/ventd-ipmi
 
       - name: Parse AppArmor profile (Alpine container)
         if: contains(matrix.container, 'alpine')
@@ -137,7 +138,8 @@ jobs:
             mkdir -p "$(dirname "$dest")"
             [ -s "$dest" ] || printf '# CI include stub\n' > "$dest"
           done
-          apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
+          apparmor_parser -QK deploy/apparmor.d/ventd
+          apparmor_parser -QK deploy/apparmor.d/ventd-ipmi
 
       - name: Set up Go (setup-go)
         if: matrix.use-setup-go
@@ -338,4 +340,6 @@ jobs:
       - name: Trust workspace dir
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Parse AppArmor profile
-        run: apparmor_parser -QK deploy/apparmor.d/usr.local.bin.ventd
+        run: |
+          apparmor_parser -QK deploy/apparmor.d/ventd
+          apparmor_parser -QK deploy/apparmor.d/ventd-ipmi

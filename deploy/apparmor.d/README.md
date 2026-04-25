@@ -1,73 +1,49 @@
-# AppArmor profile — ventd
+# AppArmor profiles — ventd
 
-## Current status: COMPLAIN mode (v0.3.x)
+Two profiles ship in this directory:
 
-The profile ships in `flags=(complain)` mode. Denials are **logged** to the
-kernel audit log (`dmesg` / `journalctl -k`) but the daemon is **not blocked**.
-This matches Ubuntu's convention for new profiles that have not yet been
-validated across a full hardware matrix.
+- **`ventd`** — main daemon (`/usr/local/bin/ventd`, `/usr/bin/ventd`)
+- **`ventd-ipmi`** — IPMI sidecar (`/usr/libexec/ventd/ventd-ipmi`)
 
-### Why complain mode?
+## Shipping mode
 
-The v0.3.0 enforce-mode profile was written against a narrow test-rig path
-list. On fresh installs it caused two regressions (#459):
+Both profiles ship in **enforce** mode. Denials are blocked, not merely
+logged. This is the correct production setting for v0.4.1+.
 
-1. **TLS cert generation failed** — `tls.crt.tmp` was denied (profile only
-   listed `cert.pem.tmp`), so HTTPS fell back to loopback-only HTTP. The URL
-   printed by the installer (`https://192.168.x.x:9999`) was unreachable.
+The previous README claimed "complain mode (v0.3.x)". That was accurate
+for v0.3.0 but stale by v0.4.0. The regression (#459) that caused the
+stale claim has been fixed; the profiles now pass enforce-mode HIL on
+Ubuntu 24.04 and Debian 12.
 
-2. **hwmon enumeration degraded** — The profile matched a path component named
-   literally `hwmon`, but the kernel names directories `hwmon0`, `hwmon1`, etc.
-   Reads on `/sys/devices/virtual/thermal/…/hwmon0/name` and NVMe thermal
-   paths were denied, causing incomplete fan detection.
+## Switching to complain mode (debugging)
 
-### What was fixed (Approach B paths)
-
-The profile now grants the correct paths:
-
-| Gap | Fix |
-|---|---|
-| `tls.crt.tmp` denied | `/etc/ventd/*.tmp rw` wildcard covers all atomic-write temps |
-| `hwmon0` denied (literal `hwmon` pattern) | `hwmon*` pattern matches `hwmon0`…`hwmonN` |
-| `/sys/devices/virtual/thermal/**` denied | Explicit read grant added |
-| NVML device nodes missing | `/dev/nvidia*` rw added |
-| `/proc/cpuinfo`, `/proc/meminfo` missing | Added for runtime diagnostics |
-
-### Switching to enforce mode
-
-Once you have verified there are no unexpected denials in `dmesg` for your
-hardware, switch to enforce:
+If ventd fails to start after install and you suspect an AppArmor denial:
 
 ```bash
-# Check for audit lines from ventd (should be empty after a clean run):
-sudo journalctl -k | grep -i 'ventd.*audit'
+# Switch to complain mode (logs denials, does not block)
+sudo aa-complain /etc/apparmor.d/ventd
+sudo aa-complain /etc/apparmor.d/ventd-ipmi
 
-# Edit the profile and remove the 'complain' flag:
-sudo sed -i 's/flags=(attach_disconnected,complain)/flags=(attach_disconnected)/' \
-    /etc/apparmor.d/usr.local.bin.ventd
-
-# Reload in enforce mode:
-sudo apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd
-
-# Confirm:
-sudo aa-status | grep ventd
+# Restart and watch kernel audit log
+sudo systemctl restart ventd
+sudo journalctl -k | grep apparmor
 ```
 
-If you see new denials after switching to enforce, run `sudo aa-logprof` to
-generate suggested rule additions, then open a PR with the extra rules.
-
-### Validation script
-
-`scripts/validate-apparmor-profile.sh` checks syntax and required permissions:
+## Restoring enforce mode
 
 ```bash
-bash scripts/validate-apparmor-profile.sh
+sudo aa-enforce /etc/apparmor.d/ventd
+sudo aa-enforce /etc/apparmor.d/ventd-ipmi
+sudo systemctl restart ventd
 ```
 
-It requires `apparmor_parser` for the syntax check; if not installed it skips
-that step and only validates the permission grep checks.
+## Bug report: attach audit log
 
-### Roadmap
+When filing a bug for an AppArmor denial, attach:
 
-Enforce mode will be re-enabled by default once regression test coverage across
-the supported hardware matrix is added (tracked in the test masterplan).
+```bash
+journalctl -k | grep apparmor
+cat /proc/$(pidof ventd)/attr/current
+```
+
+Historical context: issues #459, #202, #204, #211.

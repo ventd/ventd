@@ -141,6 +141,8 @@ interfaces) runs entirely in CI or in Proxmox VMs.
 | 205 | fc-test-nixos-2405 | NixOS 24.05 | declarative deployment |
 | 206 | fc-test-void-musl | Void Linux (musl) | runit init; non-systemd |
 | 207 | fc-test-ubuntu-2404 | Ubuntu 24.04 | primary reference distro |
+| 220 | fc-test-ubuntu-2404-apparmor | Ubuntu 24.04 | spec-06 PR 2 AppArmor HIL — enforce mode |
+| 221 | fc-test-debian-12-apparmor   | Debian 12    | spec-06 PR 2 AppArmor HIL — enforce mode |
 
 ### Fresh-install smoke templates
 
@@ -163,7 +165,8 @@ interfaces) runs entirely in CI or in Proxmox VMs.
 | install.sh first-boot | 9xxx smoke template (clone + run) |
 | install.sh on read-only `/` | Steam Deck OLED (SteamOS) |
 | Coexistence w/ vendor fan daemon | Steam Deck OLED (jupiter-fan-control); MiniPC (none) |
-| AppArmor / SELinux profile | fc-test-debian12-secureboot / fc-test-fedora-40 |
+| AppArmor enforce-mode HIL  | fc-test-ubuntu-2404-apparmor (220) + fc-test-debian-12-apparmor (221) |
+| AppArmor / SELinux profile parse | fc-test-debian12-secureboot (201) / fc-test-fedora-40 (202) |
 | hwmon with real sysfs entries | MiniPC (limited chip diversity) |
 | `steamdeck-hwmon` driver path | Steam Deck OLED (requires SSH enable) |
 | `dell-smm-hwmon` driver path | Dell Latitude 7280 (requires dual-boot) |
