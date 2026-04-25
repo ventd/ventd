@@ -14,4 +14,3 @@ driver it is permitted to write to — a driver without a known manual-mode inte
 be safely calibrated.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_05
-<!-- rulelint:allow-orphan -->

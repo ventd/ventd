@@ -15,4 +15,3 @@ fields absent is rejected at load time with a human-readable error that names th
 and the offending module name.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_01
-<!-- rulelint:allow-orphan -->

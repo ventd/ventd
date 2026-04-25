@@ -15,4 +15,3 @@ rejected. The field is exposed on `EffectiveControllerProfile.RuntimeConflictDet
 for use by the post-PR-2 sanity-check path.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_14
-<!-- rulelint:allow-orphan -->

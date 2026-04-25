@@ -15,4 +15,3 @@ BIOS upgrade can produce incorrect PWM polarity detection, wrong stall_pwm, and
 miscalibrated fan curves that damage hardware.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_09
-<!-- rulelint:allow-orphan -->

@@ -13,4 +13,3 @@ The error names the module and the constraint. This prevents calibration code fr
 dispatching a discrete-state sweep without knowing how many states exist.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_04
-<!-- rulelint:allow-orphan -->

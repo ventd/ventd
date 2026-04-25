@@ -13,4 +13,3 @@ value. This ensures the inheritance chain is always complete — a chip with no 
 cannot be used in the three-tier resolver.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_02
-<!-- rulelint:allow-orphan -->

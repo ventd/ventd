@@ -17,4 +17,3 @@ quirk. A calibration result with PWMPolarity=inverted must further override the 
 profile's calibration fields. Each assertion is labeled with the layer that should win.
 
 Bound: internal/hwdb/effective_profile_test.go:TestRuleHwdbPR2_10
-<!-- rulelint:allow-orphan -->

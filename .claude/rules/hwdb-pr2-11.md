@@ -16,4 +16,3 @@ matches a known chip name ("nct6798") and a string that matches only a driver mo
 ("nct6775"). The warning must be observable via the test's slog handler.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_11
-<!-- rulelint:allow-orphan -->

@@ -14,4 +14,3 @@ BIOS firmware actively overrides ventd's PWM values — the correct response is 
 the issue in the diagnostic bundle and mark the channel as monitor-only.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_08
-<!-- rulelint:allow-orphan -->

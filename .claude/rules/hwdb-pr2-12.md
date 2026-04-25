@@ -15,4 +15,3 @@ catalog with no violations must load cleanly. This prevents silent acceptance of
 malformed catalog entry that could produce undefined matcher behaviour at runtime.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_12
-<!-- rulelint:allow-orphan -->

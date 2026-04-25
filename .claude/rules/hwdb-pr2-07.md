@@ -14,4 +14,3 @@ monitor-only driver that runs calibration would attempt PWM writes to a driver t
 either returns EPERM or silently ignores them.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_07
-<!-- rulelint:allow-orphan -->

@@ -14,4 +14,3 @@ is rejected at load time. This invariant ensures the diagnostic bundle always ha
 actionable to surface when it detects this driver.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_06
-<!-- rulelint:allow-orphan -->

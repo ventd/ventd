@@ -13,4 +13,3 @@ This ensures the full three-tier chain (driver → chip → board) is always res
 board match is found.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_03
-<!-- rulelint:allow-orphan -->

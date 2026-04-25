@@ -15,4 +15,3 @@ is rejected. The `ExitBehaviour` field is exposed on `EffectiveControllerProfile
 the apply path can dispatch the correct shutdown action per channel.
 
 Bound: internal/hwdb/profile_v1_test.go:TestRuleHwdbPR2_13
-<!-- rulelint:allow-orphan -->
