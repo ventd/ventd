@@ -1,0 +1,28 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "nct6775"
+    family: "nuvoton-superio"
+    description: "Nuvoton NCT6775+ family Super I/O — modern AMD/Intel desktops (~75% of consumer boards)"
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "0": "full_speed"
+      "1": "manual"
+      "2": "thermal_cruise"
+      "3": "fan_speed_cruise"
+      "5": "smart_fan_iv"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"

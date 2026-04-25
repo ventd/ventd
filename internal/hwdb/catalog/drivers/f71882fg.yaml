@@ -1,0 +1,26 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "f71882fg"
+    family: "fintek-superio"
+    description: "Fintek F71882FG family Super I/O — older Asus/Foxconn/Jetway boards (~2009-2014), some Mini-ITX server boards."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "auto_trip_points"
+      "3": "thermostat"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: true
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"

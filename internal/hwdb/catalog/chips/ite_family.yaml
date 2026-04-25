@@ -1,0 +1,83 @@
+schema_version: "1.0"
+
+# ITE IT87xx chip profiles — ASRock, Gigabyte, some MSI Intel boards.
+# All inherit from the it87 driver (mainline or OOT frankcrawford/it87).
+# Polarity probe is required for all ITE chips due to known BIOS misconfiguration.
+
+chip_profiles:
+  - name: "it8603"
+    inherits_driver: "it87"
+    description: "ITE IT8603E — common on recent ASRock AMD boards. Does NOT support pwm_enable=0 (full-speed mode absent)."
+    overrides:
+      pwm_enable_modes:
+        "1": "manual"
+        "2": "auto_trip_points"
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8620"
+    inherits_driver: "it87"
+    description: "ITE IT8620E — Gigabyte AM4/Intel boards with dual Super I/O."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8628"
+    inherits_driver: "it87"
+    description: "ITE IT8628E — common on Gigabyte X570/B550/X670 Aorus boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8665"
+    inherits_driver: "it87"
+    description: "ITE IT8665E — some ASRock boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8686"
+    inherits_driver: "it87"
+    description: "ITE IT8686E — Gigabyte B450/B550 Aorus boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8688"
+    inherits_driver: "it87"
+    description: "ITE IT8688E — Gigabyte X470/X570 Aorus boards (second Super I/O)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8689"
+    inherits_driver: "it87"
+    description: "ITE IT8689E — newer Gigabyte boards. Requires force_id=0x8689 and ignore_resource_conflict=1. Some Gigabyte boards: reads OK, writes ignored (separate fan-control chip)."
+    overrides:
+      capability: "rw_quirk"
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+      - "https://github.com/frankcrawford/it87"
+
+  - name: "it8705"
+    inherits_driver: "it87"
+    description: "ITE IT8705F — legacy Super I/O, pre-2010 boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it8712"
+    inherits_driver: "it87"
+    description: "ITE IT8712F — legacy Super I/O."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"

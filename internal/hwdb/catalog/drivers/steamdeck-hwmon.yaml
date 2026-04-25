@@ -1,0 +1,29 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "steamdeck-hwmon"
+    family: "valve-steamdeck"
+    description: "Valve Steam Deck fan controller — Steam Deck LCD and OLED. Single fan, 0-255 duty. Conflicts with jupiter-fan-control on SteamOS."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "ec_auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 20
+    recommended_alternative_driver: null
+    conflicts_with_userspace:
+      - daemon: "jupiter-fan-control"
+        detection: "systemctl is-active jupiter-fan-control"
+        resolution: "stop_and_disable"
+        reason: "Concurrent writers to steamdeck-hwmon pwm cause oscillation. SteamOS ships jupiter-fan-control by default."
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://www.kernel.org/doc/html/latest/hwmon/steamdeck.html"

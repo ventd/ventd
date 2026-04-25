@@ -1,0 +1,24 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "pwm-fan"
+    family: "devicetree-pwm"
+    description: "Generic devicetree PWM fan driver — Raspberry Pi 5, NanoPi, OrangePi, Rockchip, Allwinner, NXP i.MX SBCs. Supports optional cooling-levels DT property for discrete state control."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 20
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations:
+      - "https://docs.kernel.org/hwmon/pwm-fan.html"

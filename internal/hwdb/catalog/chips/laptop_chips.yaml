@@ -1,0 +1,58 @@
+schema_version: "1.0"
+
+# Laptop/platform driver chip profiles.
+# Each chip name matches /sys/class/hwmon/*/name for platform drivers.
+
+chip_profiles:
+  - name: "dell_smm"
+    inherits_driver: "dell-smm-hwmon"
+    description: "Dell SMM hwmon — /sys/class/hwmon/*/name value for dell-smm-hwmon driver."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html"
+
+  - name: "steamdeck_hwmon"
+    inherits_driver: "steamdeck-hwmon"
+    description: "Steam Deck hwmon — /sys/class/hwmon/*/name value for steamdeck-hwmon driver."
+    overrides: {}
+    channel_overrides: {}
+    citations: []
+
+  - name: "pwmfan"
+    inherits_driver: "pwm-fan"
+    description: "Generic devicetree pwm-fan — /sys/class/hwmon/*/name value for pwm-fan driver on SBCs."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/pwm-fan.html"
+
+  - name: "asus_ec"
+    inherits_driver: "asus-ec-sensors"
+    description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."
+    overrides: {}
+    channel_overrides: {}
+    citations: []
+
+  - name: "hp_wmi"
+    inherits_driver: "hp-wmi-sensors"
+    description: "HP WMI sensors — /sys/class/hwmon/*/name value. Read-only on all HP consumer/business models."
+    overrides: {}
+    channel_overrides: {}
+    citations: []
+
+  - name: "coretemp"
+    inherits_driver: "coretemp"
+    description: "Intel per-core temperature — /sys/class/hwmon/*/name value."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/coretemp.html"
+
+  - name: "k10temp"
+    inherits_driver: "k10temp"
+    description: "AMD CPU Tctl/Tdie temperature — /sys/class/hwmon/*/name value."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/k10temp.html"

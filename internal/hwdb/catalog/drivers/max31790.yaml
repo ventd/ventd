@@ -1,0 +1,25 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "max31790"
+    family: "maxim-fanctrl"
+    description: "Maxim MAX31790 6-channel PWM fan controller — standalone fan controller boards (Aquacomputer Octo, chassis fan splitters)."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.kernel.org/hwmon/max31790.html"

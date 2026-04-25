@@ -1,0 +1,117 @@
+schema_version: "1.0"
+
+# Nuvoton NCT6775 family chip profiles — modern AMD/Intel desktops.
+# Each chip name corresponds to the value in /sys/class/hwmon/*/name.
+# All inherit from the nct6775 driver; specific overrides noted per chip.
+
+chip_profiles:
+  - name: "nct6798"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6798D — AMD X670/B650 and Intel Z690/Z790 boards (ASUS, MSI, Gigabyte)"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6799"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6799D — Intel Z890/B860 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6796"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6796D — Intel Z490/Z590 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6795"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6795D — Intel Z390/Z490 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6793"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6793D — Intel Z270/Z370 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6792"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6792D — Intel X99/Z170 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6791"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6791D — AMD AM4 B450/X470 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6779"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6779D — AMD AM4 B350/X370 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6775"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6775F — older AMD/Intel boards (also W83677HG-I)"
+    overrides:
+      pwm_enable_modes:
+        "0": "full_speed"
+        "1": "manual"
+        "2": "thermal_cruise"
+        "3": "fan_speed_cruise"
+        "4": "smart_fan_iii"
+        "5": "smart_fan_iv"
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6776"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6776F — Intel Z68/Z77 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6797"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6797D — AMD X570/B550 boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6106"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6106D — embedded and industrial boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+
+  - name: "nct6116"
+    inherits_driver: "nct6775"
+    description: "Nuvoton NCT6116D — embedded and lower-end boards"
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6775.html"

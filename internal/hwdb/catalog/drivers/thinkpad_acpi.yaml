@@ -1,0 +1,28 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "thinkpad_acpi"
+    family: "thinkpad-proc"
+    description: "ThinkPad ACPI fan control via /proc/acpi/ibm/fan — levels 0-7 plus named states. Requires experimental=1 on T440+. Does NOT use hwmon pwm interface."
+    capability: "rw_proc"
+    pwm_unit: "thinkpad_level"
+    pwm_unit_max: 7
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args:
+      - arg: "experimental=1"
+        reason: "Required for fan write access on T440+ generation ThinkPads."
+        risk: "low"
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://www.thinkwiki.org/wiki/How_to_control_fan_speed"
