@@ -2,7 +2,6 @@
 
 profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   #include <abstractions/base>
-  #include <abstractions/nameservice>
 
   /usr/local/bin/ventd            mr,
   /usr/bin/ventd                  mr,
