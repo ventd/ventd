@@ -118,7 +118,7 @@ func check(name string, r io.Reader, w io.Writer) int {
 		isVTag := vtagRE.MatchString(ref)
 
 		if !isSHA && !isVTag {
-			fmt.Fprintf(w, "%s:%d: RULE-CI-01: %q pins to %q — use a 40-char SHA or v-tag\n",
+			_, _ = fmt.Fprintf(w, "%s:%d: RULE-CI-01: %q pins to %q — use a 40-char SHA or v-tag\n",
 				name, lineNum, usesVal, ref)
 			violations++
 			continue
@@ -126,7 +126,7 @@ func check(name string, r io.Reader, w io.Writer) int {
 
 		if isSHA {
 			if !commentRE.MatchString(comment) {
-				fmt.Fprintf(w, "%s:%d: RULE-CI-02: %q missing trailing version comment (want: # v<major>.<minor>.<patch>)\n",
+				_, _ = fmt.Fprintf(w, "%s:%d: RULE-CI-02: %q missing trailing version comment (want: # v<major>.<minor>.<patch>)\n",
 					name, lineNum, usesVal)
 				violations++
 			}
@@ -135,7 +135,7 @@ func check(name string, r io.Reader, w io.Writer) int {
 
 		// v-tag without SHA — check allowlist (RULE-CI-03).
 		if !allowlistedOwners[owner] {
-			fmt.Fprintf(w, "%s:%d: RULE-CI-03: %q pins by v-tag; %q not in allowlist; use a 40-char SHA\n",
+			_, _ = fmt.Fprintf(w, "%s:%d: RULE-CI-03: %q pins by v-tag; %q not in allowlist; use a 40-char SHA\n",
 				name, lineNum, usesVal, owner)
 			violations++
 		}
