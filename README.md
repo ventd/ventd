@@ -2,37 +2,41 @@
 
 [![CI](https://github.com/ventd/ventd/actions/workflows/ci.yml/badge.svg)](https://github.com/ventd/ventd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ventd/ventd?sort=semver)](https://github.com/ventd/ventd/releases)
-[![Go](https://img.shields.io/github/go-mod/go-version/ventd/ventd)](go.mod)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Release date](https://img.shields.io/github/release-date/ventd/ventd)](https://github.com/ventd/ventd/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/ventd/ventd)](https://github.com/ventd/ventd/blob/main/go.mod)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/ventd/ventd/blob/main/LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-lightgrey)](#supported-platforms)
 
 **Automatic Linux fan control. Install, open the browser, click Apply — ventd handles the rest.**
 
 One static binary, one install command, one URL. Hardware detection, calibration, curve editing, and recovery all happen in the web UI. The terminal install command is the last terminal command you need to run.
 
-<p align="center">
-  <img src="docs/images/dashboard.png" alt="ventd dashboard — live fan speeds, temperatures, and per-fan curves" width="720">
-</p>
+> [!NOTE]
+> **ventd is pre-1.0.** Safety guarantees are production-quality and verified by tests CI enforces. The config schema and curve format may evolve before v1.0. See [What's coming](#whats-coming) for the path to 1.0.
 
-<p align="center">
-  <em>Dashboard: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.</em>
-</p>
+## Why ventd
 
-<p align="center">
-  <img src="docs/images/first-boot-setup.png" alt="ventd first-boot setup — token + password, no config yet" width="540">
-</p>
+Existing Linux fan tools assume you're willing to write YAML by hand, run `liquidctl` as a Python sidecar, and figure out which Super I/O chip your motherboard uses. ventd doesn't. It enumerates everything writable through `hwmon`, `NVML`, and a native USB HID stack, calibrates each fan's start/stop PWM and PWM→RPM curve in the background, and gives you a browser tab to edit curves in. No config file, no Python runtime, no root daemon.
 
-<p align="center">
-  <em>First boot: ventd serves a setup page on <code>https://&lt;host&gt;:9999</code> the moment the daemon starts. Enter the one-time token, set a password, done.</em>
-</p>
+It is also — to our knowledge — the only Linux fan daemon in its class that runs unprivileged. fan2go and CoolerControl both run as `User=root`. ventd runs as `User=ventd` with an empty capability bounding set. See [Safety](#safety).
+
+[![ventd dashboard — live fan speeds, temperatures, and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](/ventd/ventd/blob/main/docs/images/dashboard.png)
+
+*Dashboard: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.*
+
+[![ventd first-boot setup — token + password, no config yet](https://github.com/ventd/ventd/raw/main/docs/images/first-boot-setup.png)](/ventd/ventd/blob/main/docs/images/first-boot-setup.png)
+
+*First boot: ventd serves a setup page on `https://<host>:9999` the moment the daemon starts. Enter the one-time token, set a password, done.*
 
 ## Features
 
-- **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
-- **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI.
-- **Automatic hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
-- **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
-- **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
+* **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
+* **Native USB HID for AIO pumps.** Corsair Commander Core, Core XT, and Commander ST shipped in v0.4.0 — talking directly to the device through a pure-Go hidraw stack with no `liquidctl` Python sidecar. Read-only by default; writes opt-in behind `--enable-corsair-write`.
+* **IPMI for server BMCs.** ASRock Rack, Supermicro, and other server boards exposing IPMI fan control. Shipped in v0.3.1.
+* **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI. The curve editor uses calibration data to draw the stall zone in red, so you can't accidentally set a curve below the fan's stop threshold.
+* **Hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
+* **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
+* **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
 
 ## Safety
 
@@ -42,26 +46,35 @@ ventd controls physical hardware. Two things follow from that, and both are load
 
 **Every exit path restores firmware control within two seconds.** Two layers, working together:
 
-- **Graceful exits** (`SIGTERM`, `SIGINT`, panic inside a recovered frame) trigger the user-space watchdog in `internal/watchdog`, which restores each fan's pre-ventd `pwm_enable` value. Per-entry panic recovery: one fan's restoration failing never aborts the loop for the rest. Fallback when the original value was unrecordable: write PWM=255 (hwmon) or release to driver auto (NVIDIA).
-- **Ungraceful exits** (`SIGKILL`, OOM kill, hardware-watchdog timeout, panic escaping the defer chain) are caught by a separate root-privileged binary, `ventd-recover`, fired via `OnFailure=ventd-recover.service` on the main unit. It walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file and writes `1`. Zero heap allocations on the hot path; always exits 0 to avoid systemd re-entering the OnFailure chain. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires; this is the mechanism behind the "within two seconds" promise.
+* **Graceful exits** (`SIGTERM`, `SIGINT`, panic inside a recovered frame) trigger the user-space watchdog in `internal/watchdog`, which restores each fan's pre-ventd `pwm_enable` value. Per-entry panic recovery: one fan's restoration failing never aborts the loop for the rest. Fallback when the original value was unrecordable: write PWM=255 (hwmon) or release to driver auto (NVIDIA).
+* **Ungraceful exits** (`SIGKILL`, OOM kill, hardware-watchdog timeout, panic escaping the defer chain) are caught by a separate root-privileged binary, `ventd-recover`, fired via `OnFailure=ventd-recover.service` on the main unit. It walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file and writes `1`. Zero heap allocations on the hot path; always exits 0 to avoid systemd re-entering the OnFailure chain. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires; this is the mechanism behind the "within two seconds" promise.
 
 **Calibration cannot strand a fan at zero.** Sweeps that drive PWM to 0 are watched by a per-fan sentinel (`internal/calibrate/safety.go`) that escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12% duty — above start-PWM of nearly every fan on the market) if the zero state persists for more than two seconds. A hung calibration goroutine cannot leave a fan stopped under load.
 
-Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](docs/safety.md).
+Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](https://github.com/ventd/ventd/blob/main/docs/safety.md).
 
-Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](SECURITY.md) issue, not a regular bug.
+Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](https://github.com/ventd/ventd/blob/main/SECURITY.md) issue, not a regular bug.
 
 ## What's coming
 
-ventd is under active development. The [roadmap](docs/roadmap.md) covers the full plan; near-term highlights:
+**Every Linux fan controller in the world today is reactive.** Your CPU temp climbs, your fans spool up. By the time the fans are at speed the silicon has already passed through the thermal noise band you didn't want. Reactive control, with a curve, is the ceiling of what fan2go, CoolerControl, thinkfan, and lm-sensors fancontrol all do.
 
-- **More fan hardware** — USB AIO pumps: Corsair Commander Core / Core XT / ST shipped in v0.4.0 (alpha quality, community validation requested); NZXT and Lian Li planned for v0.4.x. Laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi all roadmapped post-v1.0.
-- **Learning control** — PI controller with autotune; optional MPC (model-predictive control) that learns your machine's thermal behaviour and runs fans quieter than any curve can.
-- **Cross-platform** — Windows, macOS (Intel + Apple Silicon), FreeBSD, OpenBSD, illumos, Android.
-- **Acoustic health** — detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
-- **Curated profile database** — first-boot zero-click on hardware ventd has seen before.
+ventd is being built to break that ceiling. **The v1.0 thesis is predictive thermal control: ventd will model your machine's thermal behaviour, predict the next 30 seconds of temperature from current load, and pre-act on the fans so they're already at the right speed when the heat arrives.**  Quieter at idle (no overshoot, no oscillation), faster under transient load (fans ramped before the silicon needs them), and adapted to your specific machine instead of a one-size curve.
 
-Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware database) is complete as of April 2026. Phase 2 (the multi-backend portfolio above) is underway.
+The v0.5 → v1.0 roadmap is the march to that capability. Each release ships a layer of the stack as a usable feature on its own:
+
+* **v0.5 — Curated profile database.** First-boot zero-click on hardware ventd has seen before. The fingerprint-keyed profile schema landed in v0.3.0; v0.5 populates it.
+* **v0.6 — PI controller with autotune.** Replaces the curve as the inner control loop. Smoother fan response, less hunting, gives you a closed-loop controller you can run today instead of a lookup table.
+* **v0.7 — Feedforward + safety latch.** Anticipates load from CPU/GPU utilisation, not just temperature. The first piece of "predictive" — but reactive enough to fall back safely if the model is wrong.
+* **v0.8 — Online thermal model identification (VFF-RLS + ARX).** ventd watches your machine for a few hours and learns its thermal time constants. The model that the v1.0 predictor will run on top of.
+* **v0.9 — Acoustic signatures.** Detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
+* **v1.0 — Predictive control with motif detection.** The full stack: predict → pre-act → verify. The world's first predictive Linux fan controller.
+
+Detailed design in [specs/spec-05-predictive-thermal.md](https://github.com/ventd/ventd/blob/main/specs/spec-05-predictive-thermal.md). Research in [docs/research/2026-04-predictive-thermal.md](https://github.com/ventd/ventd/blob/main/docs/research/2026-04-predictive-thermal.md).
+
+**Hardware coverage continues in parallel:** NZXT and Lian Li USB AIOs (v0.4.x), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi. **Cross-platform** (Windows, macOS, FreeBSD) is post-v1.0.
+
+Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware database) shipped in v0.3.0. Phase 2 (multi-backend hardware support — IPMI in v0.3.1, Corsair AIO in v0.4.0) is underway.
 
 ## Install
 
@@ -89,36 +102,44 @@ sudo cat /run/ventd/setup-token
 
 ## Supported platforms
 
-- **Distributions:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Alpine, Void, NixOS
-- **Init systems:** systemd, OpenRC, runit
-- **Architectures:** amd64, arm64
-- **C library:** glibc and musl
-- **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require a one-time udev rule, see [NVIDIA GPU fan control](docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
+* **Distributions:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Alpine, Void, NixOS
+* **Init systems:** systemd, OpenRC, runit
+* **Architectures:** amd64, arm64
+* **C library:** glibc and musl
+* **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require a one-time udev rule, see [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
+* **Liquid coolers:** Corsair Commander Core / Core XT / ST (native USB HID, no liquidctl required).
+* **Server BMCs:** IPMI fan control on ASRock Rack, Supermicro, and other vendors exposing the standard IPMI fan interface.
 
 ## How it compares
 
-| | ventd | CoolerControl | fan2go | thinkfan | lm-sensors fancontrol |
-|---|---|---|---|---|---|
+|  | ventd | CoolerControl | fan2go | thinkfan | lm-sensors fancontrol |
+| --- | --- | --- | --- | --- | --- |
 | Zero-config first boot | yes | no | no | no | no |
 | Browser-only setup (no terminal after install) | yes | no | no | no | no |
 | Automatic calibration | yes | manual | manual | manual | manual |
 | Single static binary | yes | no | yes | yes | script |
+| Runs unprivileged (non-root) | yes | no | no | no | no |
 | Runtime NVML `dlopen` (no nvidia build flag) | yes | no | no | no | no |
+| Native USB HID for Corsair AIO (no liquidctl) | yes | via liquidctl | no | no | no |
+| IPMI for server BMCs | yes | no | no | no | no |
 | Hardware change detection | yes | no | no | no | no |
-| Curated per-hardware profiles | no | yes | no | partial | no |
+| Predictive thermal control | v1.0 target | no | no | no | no |
+| Curated per-hardware profiles | v0.5 target | yes | no | partial | no |
 | Native desktop GUI | no (web UI) | yes (Qt) | no | no | no |
 
-CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app. ventd trades those for zero-config first boot, a browser-only workflow that works over the network, and no runtime dependencies.
+CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app today. ventd trades those for zero-config first boot, a browser-only workflow that works over the network, no runtime dependencies, an unprivileged daemon, and a roadmap pointed at predictive control.
 
 ## Documentation
 
-- [Roadmap](docs/roadmap.md)
-- [Installation guide](docs/install.md)
-- [Configuration reference](docs/config.md)
-- [Hardware compatibility](docs/hardware.md)
-- [NVIDIA GPU fan control](docs/nvidia-fan-control.md)
-- [Safety model](docs/safety.md)
-- [Troubleshooting](docs/troubleshooting.md)
+* [Roadmap](https://github.com/ventd/ventd/blob/main/docs/roadmap.md)
+* [Installation guide](https://github.com/ventd/ventd/blob/main/docs/install.md)
+* [Configuration reference](https://github.com/ventd/ventd/blob/main/docs/config.md)
+* [Hardware compatibility](https://github.com/ventd/ventd/blob/main/docs/hardware.md)
+* [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)
+* [Safety model](https://github.com/ventd/ventd/blob/main/docs/safety.md)
+* [Predictive thermal control (research)](https://github.com/ventd/ventd/blob/main/docs/research/2026-04-predictive-thermal.md)
+* [Troubleshooting](https://github.com/ventd/ventd/blob/main/docs/troubleshooting.md)
+* [Changelog](https://github.com/ventd/ventd/blob/main/CHANGELOG.md)
 
 ## Building from source
 
@@ -132,8 +153,8 @@ Requires Go 1.25 or later. No other build dependencies.
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+GPL-3.0. See [LICENSE](https://github.com/ventd/ventd/blob/main/LICENSE).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests, issues, and hardware compatibility reports welcome.
+See [CONTRIBUTING.md](https://github.com/ventd/ventd/blob/main/CONTRIBUTING.md). Pull requests, issues, and hardware compatibility reports welcome.
