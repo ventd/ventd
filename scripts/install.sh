@@ -906,38 +906,45 @@ install_apparmor_profile() {
         log_security_outcome apparmor skipped "reason=parser-not-installed"
         return 0
     fi
-    local src=""
+    local profiles_dir=""
     for candidate in \
-        "${ASSET_DIR}/../deploy/apparmor.d/usr.local.bin.ventd" \
-        "${TARBALL_ROOT:-}/deploy/apparmor.d/usr.local.bin.ventd"; do
-        if [[ -n "$candidate" && -f "$candidate" ]]; then
-            src="$candidate"
+        "${ASSET_DIR}/../deploy/apparmor.d" \
+        "${TARBALL_ROOT:-}/deploy/apparmor.d"; do
+        if [[ -n "$candidate" && -d "$candidate" ]]; then
+            profiles_dir="$candidate"
             break
         fi
     done
-    if [[ -z "$src" ]]; then
+    if [[ -z "$profiles_dir" ]]; then
         log_security_outcome apparmor skipped "reason=profile-not-shipped"
         return 0
     fi
     install -d -m 755 /etc/apparmor.d
-    install -m 644 "$src" /etc/apparmor.d/usr.local.bin.ventd
-    local parser_rc=0
-    apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || parser_rc=$?
-    if [[ $parser_rc -eq 0 ]]; then
-        echo "  ✓ AppArmor profile → /etc/apparmor.d/usr.local.bin.ventd (loaded, enforce mode)"
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/usr.local.bin.ventd mode=enforce"
-        # On hosts with Docker installed, docker-default can win the AppArmor
-        # attachment race for /usr/local/bin/* binaries. Explicitly enforce the
-        # ventd profile so the unit's AppArmorProfile= directive has backing at
-        # load time, regardless of which profile the kernel matched first.
-        if systemctl is-active --quiet docker 2>/dev/null && command -v aa-enforce >/dev/null 2>&1; then
-            aa-enforce /etc/apparmor.d/usr.local.bin.ventd 2>/dev/null || true
-            echo "  ✓ ventd AppArmor profile enforced (docker detected, explicit enforcement applied)"
+    local any_loaded=0
+    for profile in ventd ventd-ipmi; do
+        local src="${profiles_dir}/${profile}"
+        if [[ ! -f "$src" ]]; then
+            continue
         fi
-    else
-        echo "  ! AppArmor profile installed but parser refused to load it"
-        echo "    (run \`apparmor_parser -r /etc/apparmor.d/usr.local.bin.ventd\` for details)"
-        log_security_outcome apparmor refused "parser_exit=${parser_rc} profile=/etc/apparmor.d/usr.local.bin.ventd"
+        install -m 644 "$src" "/etc/apparmor.d/${profile}"
+        local parser_rc=0
+        apparmor_parser -r "/etc/apparmor.d/${profile}" 2>/dev/null || parser_rc=$?
+        if [[ $parser_rc -eq 0 ]]; then
+            echo "  ✓ AppArmor profile → /etc/apparmor.d/${profile} (loaded, enforce mode)"
+            log_security_outcome apparmor loaded "profile=/etc/apparmor.d/${profile} mode=enforce"
+            any_loaded=1
+        else
+            echo "  ! AppArmor profile installed but parser refused to load it"
+            echo "    (run \`apparmor_parser -r /etc/apparmor.d/${profile}\` for details)"
+            log_security_outcome apparmor refused "parser_exit=${parser_rc} profile=/etc/apparmor.d/${profile}"
+        fi
+    done
+    # On hosts with Docker installed, docker-default can win the AppArmor
+    # attachment race for /usr/local/bin/* binaries. Explicitly enforce.
+    if [[ $any_loaded -eq 1 ]] && systemctl is-active --quiet docker 2>/dev/null \
+        && command -v aa-enforce >/dev/null 2>&1; then
+        aa-enforce /etc/apparmor.d/ventd 2>/dev/null || true
+        echo "  ✓ ventd AppArmor profile enforced (docker detected)"
     fi
 }
 

@@ -92,7 +92,7 @@ Two PRs, sequential. PR 1 fixes three pure-code drift bugs + adds the rule file.
 **HIL validation approach:**
 - `validation/vm-apparmor-smoke.sh` runs on Proxmox VMs you'll stand up via CC automation.
 - Script: boot VM, install ventd from local tarball, apply profile in enforce mode, run `ventd --probe-modules --dry-run` + `systemctl start ventd`, verify no AppArmor denies in `/var/log/audit/audit.log`.
-- Runs against: Ubuntu 24.04, Debian 13. (Fedora + Arch default to SELinux/no-LSM; profile is a no-op — HIL scope covers AppArmor-enforcing distros only.)
+- Runs against: Ubuntu 24.04, Debian 12 or 13. (Fedora + Arch default to SELinux/no-LSM; profile is a no-op — HIL scope covers AppArmor-enforcing distros only.)
 - Output: committed log at `validation/apparmor-smoke-<distro>-<date>.md`, green line required for v0.4.1 tag.
 
 **Complain-mode documentation (docs/apparmor.md):**
