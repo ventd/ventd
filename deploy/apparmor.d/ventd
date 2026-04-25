@@ -39,6 +39,8 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
 
   /sys/class/dmi/id/              r,
   /sys/class/dmi/id/**            r,
+  /sys/devices/virtual/dmi/id/   r,
+  /sys/devices/virtual/dmi/id/** r,
 
   /usr/lib/libnvidia-ml.so.*      mr,
   /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.* mr,
@@ -55,6 +57,8 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /sys/devices/**/power_supply/   r,
   /sys/devices/**/power_supply/** r,
 
+  /dev/tty                        rw,
+
   /run/systemd/journal/socket     rw,
   /run/systemd/journal/stdout     rw,
   /run/systemd/notify             rw,
@@ -63,6 +67,7 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /proc/[0-9]*/**                 r,
   /proc/[0-9]*/attr/current       rw,
   /proc/modules                   r,
+  /sys/fs/cgroup/**               r,
 
   network inet stream,
   network inet6 stream,
