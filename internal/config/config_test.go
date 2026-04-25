@@ -861,6 +861,34 @@ controls: []
 	}
 }
 
+// TestWebListenDefault pins the default bind address to 127.0.0.1:9999 and
+// verifies the new default does not trip RequireTransportSecurity (loopback
+// is always allowed without TLS; wildcard 0.0.0.0 is not).
+func TestWebListenDefault(t *testing.T) {
+	t.Run("empty_default_is_loopback", func(t *testing.T) {
+		got := Empty().Web.Listen
+		if got != "127.0.0.1:9999" {
+			t.Errorf("Empty().Web.Listen = %q, want 127.0.0.1:9999", got)
+		}
+	})
+	t.Run("loopback_default_passes_tls_gate", func(t *testing.T) {
+		if err := Empty().Web.RequireTransportSecurity(); err != nil {
+			t.Errorf("loopback default must not require TLS: %v", err)
+		}
+	})
+	t.Run("migration_fills_loopback_when_absent", func(t *testing.T) {
+		// A v1 config with no web.listen field must fill 127.0.0.1:9999.
+		yaml := []byte("version: 1\n")
+		cfg, err := Parse(yaml)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if cfg.Web.Listen != "127.0.0.1:9999" {
+			t.Errorf("migration default = %q, want 127.0.0.1:9999", cfg.Web.Listen)
+		}
+	})
+}
+
 // TestMigrateCurvePWM_PointsPct covers the per-anchor migration. An
 // operator who hand-writes `pwm: 128` on a points curve gets a
 // `pwm_pct: 50` back after Save.

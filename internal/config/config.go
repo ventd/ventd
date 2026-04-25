@@ -416,7 +416,7 @@ func Empty() *Config {
 		Version:      CurrentVersion,
 		PollInterval: Duration{Duration: DefaultPollInterval},
 		Web: Web{
-			Listen:     "0.0.0.0:9999",
+			Listen:     "127.0.0.1:9999",
 			SessionTTL: Duration{Duration: DefaultSessionTTL},
 		},
 		Sensors:  []Sensor{},
@@ -774,7 +774,7 @@ func validate(cfg *Config) error {
 		cfg.PollInterval.Duration = DefaultPollInterval
 	}
 	if cfg.Web.Listen == "" {
-		cfg.Web.Listen = "0.0.0.0:9999"
+		cfg.Web.Listen = "127.0.0.1:9999"
 	}
 	if cfg.Web.LoginFailThreshold <= 0 {
 		cfg.Web.LoginFailThreshold = DefaultLoginFailThreshold

@@ -8,9 +8,8 @@
 #
 # The amd64 job builds, loads the image on the runner, boots the
 # container, and polls /api/ping. On first-boot the daemon auto-
-# generates a self-signed TLS cert and binds HTTPS on 0.0.0.0:9999
-# (see cmd/ventd/main.go ~L158), so the poll uses `curl -fsk
-# https://...`. `/api/ping` is unauthenticated (internal/web/
+# generates a self-signed TLS cert and binds HTTPS on 127.0.0.1:9999
+# (container loopback). `/api/ping` is unauthenticated (internal/web/
 # server.go) and returns 200 once the HTTP server is listening.
 #
 # The arm64 job builds under QEMU emulation. QEMU cross-builds can
@@ -124,21 +123,28 @@ jobs:
             --publish 9999:9999 \
             ventd:ci
 
-      - name: Poll /api/ping
+      - name: Poll /api/ping (from inside container)
         run: |
-          # First-boot binds HTTPS with a self-signed cert, so -k is
-          # required. /api/ping is unauthenticated and returns 200
-          # once the web server is listening.
+          # First-boot binds HTTPS with a self-signed cert (so
+          # --no-check-certificate is required) on 127.0.0.1:9999 —
+          # container loopback only. /api/ping is unauthenticated and
+          # returns 200 once the web server is listening.
+          # Image lacks curl; uses busybox wget which ships in the base.
           for attempt in $(seq 1 30); do
-            code=$(curl -sk -o /tmp/ping.body -w '%{http_code}' \
-                     "https://127.0.0.1:9999/api/ping" || true)
+            out=$(docker exec ventd-smoke wget -S --no-check-certificate \
+              -O /tmp/ping.body \
+              "https://127.0.0.1:9999/api/ping" 2>&1 || true)
+            code=$(echo "$out" | grep -oE 'HTTP/[0-9.]+ [0-9]+' | tail -1 | awk '{print $2}')
             if [ "$code" = "200" ]; then
-              echo "ping OK after ${attempt}s: $(cat /tmp/ping.body)"
+              echo "ping OK after ${attempt}s"
+              docker exec ventd-smoke cat /tmp/ping.body
               exit 0
             fi
             sleep 1
           done
           echo "ping failed after 30s (last HTTP code: ${code:-none})"
+          echo "last wget output:"
+          echo "$out"
           exit 1
 
       - name: Container logs (on failure)

@@ -11,7 +11,7 @@ version: 1
 poll_interval: 2s
 
 web:
-  listen: 0.0.0.0:9999
+  listen: 127.0.0.1:9999
   password_hash: ""          # set by the web UI on first boot; do not edit manually
   # tls_cert: /etc/ventd/cert.pem
   # tls_key:  /etc/ventd/key.pem
@@ -60,7 +60,7 @@ How often the controller reads sensors, evaluates curves, and writes PWM. Expres
 
 ### `web.listen`
 
-Bind address for the web UI. Default `0.0.0.0:9999` (all interfaces). Loopback-only: `127.0.0.1:9999`. For TLS, set `tls_cert` / `tls_key`; `ventd` also auto-generates a self-signed pair on first boot when both fields are blank and the listener is non-loopback.
+Bind address for the web UI. Default `127.0.0.1:9999` (loopback only). To expose the UI on the local network, set `0.0.0.0:9999` with TLS configured (see `tls_cert` / `tls_key`). `ventd` also auto-generates a self-signed pair on first boot when both TLS fields are blank and the listener is non-loopback.
 
 ### `web.session_ttl`
 

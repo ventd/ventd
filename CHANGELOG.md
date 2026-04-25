@@ -16,12 +16,31 @@ and frozen.
 ### Changed
 
 - install: print setup token retrieval instructions (file paths + journalctl) after successful install; emit token path to journal so `journalctl -u ventd | grep 'Setup token'` reliably finds it on headless/remote servers (#503)
+- config: `web.listen` default changed from `0.0.0.0:9999` to `127.0.0.1:9999` to avoid tripping the first-boot TLS safety check on fresh installs
+
+### Migration
+
+The default `web.listen` value changed from `0.0.0.0:9999` to
+`127.0.0.1:9999` to avoid tripping the first-boot TLS safety check.
+Users who relied on external network access via the default config must
+add to their `config.yaml`:
+
+```yaml
+web:
+  listen: "0.0.0.0:9999"
+  tls_cert: /etc/ventd/cert.pem  # TLS required for non-localhost binding
+  tls_key:  /etc/ventd/key.pem
+```
+
+See `docs/config.md` for the full TLS configuration reference.
 
 ### Fixed
 
 - web/ui: gate manual PWM slider value updates on drag-active state to prevent mid-gesture jumps from server status polls (#507)
 - monitor: suppress 255.5°C / 65535 RPM sentinel values at the /api/hardware scan boundary — v2 of #460 fix (#460)
 - test: sync pwmsys_test.go with new fakepwmsys fixture API (#552)
+- deploy: `sysusers.d-ventd.conf` source filename declared `ventd-ipmi` user instead of `ventd` — renamed to `sysusers.d-ventd-ipmi.conf` (spec-01 PR 2 regression)
+- deploy: `ventd.service` referenced `User=ventd` but no sysusers.d drop-in shipped the account, causing exit 217/USER on fresh installs
 <!-- git-cliff end -->
 
 ## [v0.4.0] — 2026-04-25
