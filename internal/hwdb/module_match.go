@@ -13,11 +13,11 @@
 // then (only if nothing matched) over unverified profiles. Within a pass,
 // it stops at the first successful stage:
 //
-//  1. Exact: every non-empty field in Profile.Match is equal (case-
+//  1. Exact: every non-empty field in ModuleProfile.Match is equal (case-
 //     insensitive) to the corresponding field in fp.
-//  2. Prefix: every non-empty field in Profile.Match is a prefix (case-
+//  2. Prefix: every non-empty field in ModuleProfile.Match is a prefix (case-
 //     insensitive) of the corresponding field in fp.
-//  3. Wildcard: every non-empty field in Profile.Match is a substring
+//  3. Wildcard: every non-empty field in ModuleProfile.Match is a substring
 //     (case-insensitive) of the corresponding field in fp. A profile
 //     whose Match struct is entirely empty never matches, to avoid zero-
 //     signal blanket proposals.
@@ -54,14 +54,14 @@ type HardwareFingerprint struct {
 	CPUMicrocode  string `yaml:"cpu_microcode,omitempty"`
 }
 
-// Profile is one entry in the fingerprint database. Match fields are merged
-// in-line with Modules/Notes/Unverified so profiles.yaml stays flat:
+// ModuleProfile is one entry in the module-matching database. Match fields are
+// merged in-line with Modules/Notes/Unverified so profiles.yaml stays flat:
 //
 //   - board_vendor: "MSI"
 //     board_name: "MEG X570 ACE"
 //     modules: [nct6687, it87]
 //     notes: "Dual Super I/O"
-type Profile struct {
+type ModuleProfile struct {
 	Match      HardwareFingerprint `yaml:",inline"`
 	Modules    []string            `yaml:"modules"`
 	Notes      string              `yaml:"notes,omitempty"`
@@ -72,12 +72,12 @@ type Profile struct {
 // Callers distinguish it from parse errors via errors.Is.
 var ErrNoMatch = errors.New("hwdb: no profile matched fingerprint")
 
-// Load parses the embedded profiles.yaml into a Profile slice. Exposed for
-// callers that want the full list (e.g. diagnostic UI) and for Match's own
-// initialisation path. The function re-parses on every call; callers that
-// need to hot-loop should cache the result.
-func Load() ([]Profile, error) {
-	var profiles []Profile
+// LoadModules parses the embedded profiles.yaml into a ModuleProfile slice.
+// Exposed for callers that want the full list (e.g. diagnostic UI) and for
+// Match's own initialisation path. The function re-parses on every call;
+// callers that need to hot-loop should cache the result.
+func LoadModules() ([]ModuleProfile, error) {
+	var profiles []ModuleProfile
 	dec := yaml.NewDecoder(bytes.NewReader(profilesYAML))
 	if err := dec.Decode(&profiles); err != nil {
 		return nil, fmt.Errorf("hwdb: parse profiles.yaml: %w", err)
@@ -100,7 +100,7 @@ func Load() ([]Profile, error) {
 // fingerprint's board_name, file order determines the winner.
 //
 // Returns ErrNoMatch (not nil profile, nil error) when no entry matches.
-func Match(fp HardwareFingerprint) (*Profile, error) {
+func Match(fp HardwareFingerprint) (*ModuleProfile, error) {
 	profiles, err := mergedProfiles()
 	if err != nil {
 		return nil, err
@@ -108,11 +108,11 @@ func Match(fp HardwareFingerprint) (*Profile, error) {
 	needle := lowerFP(fp)
 
 	// First pass: verified profiles only.
-	if p := walkStages(profiles, needle, func(p *Profile) bool { return !p.Unverified }); p != nil {
+	if p := walkStages(profiles, needle, func(p *ModuleProfile) bool { return !p.Unverified }); p != nil {
 		return p, nil
 	}
 	// Second pass: unverified profiles as fallback.
-	if p := walkStages(profiles, needle, func(p *Profile) bool { return p.Unverified }); p != nil {
+	if p := walkStages(profiles, needle, func(p *ModuleProfile) bool { return p.Unverified }); p != nil {
 		return p, nil
 	}
 	return nil, ErrNoMatch
@@ -120,7 +120,7 @@ func Match(fp HardwareFingerprint) (*Profile, error) {
 
 // walkStages runs the exact → prefix → wildcard stage sweep over profiles,
 // skipping entries where filter returns false. Returns the first match or nil.
-func walkStages(profiles []Profile, needle HardwareFingerprint, filter func(*Profile) bool) *Profile {
+func walkStages(profiles []ModuleProfile, needle HardwareFingerprint, filter func(*ModuleProfile) bool) *ModuleProfile {
 	for stage := 0; stage < 3; stage++ {
 		for i := range profiles {
 			if !filter(&profiles[i]) {

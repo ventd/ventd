@@ -108,9 +108,9 @@ func TestRefreshFromURL_FlagOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mergedProfiles: %v", err)
 	}
-	embedded, err := Load()
+	embedded, err := LoadModules()
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadModules: %v", err)
 	}
 	if len(profiles) != len(embedded) {
 		t.Errorf("merged len = %d, want %d (embedded only)", len(profiles), len(embedded))
@@ -120,7 +120,7 @@ func TestRefreshFromURL_FlagOff(t *testing.T) {
 func TestMergedProfiles_LocalWinsOnConflict(t *testing.T) {
 	resetRemote(t)
 
-	embedded, err := Load()
+	embedded, err := LoadModules()
 	if err != nil || len(embedded) == 0 {
 		t.Skip("embedded DB empty or unreadable")
 	}
@@ -131,7 +131,7 @@ func TestMergedProfiles_LocalWinsOnConflict(t *testing.T) {
 
 	// Inject a remote profile with the same match fields but different modules.
 	remoteMu.Lock()
-	remoteDB = []Profile{{
+	remoteDB = []ModuleProfile{{
 		Match:   first.Match,
 		Modules: []string{"__remote_should_not_win__"},
 	}}

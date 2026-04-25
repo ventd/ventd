@@ -19,7 +19,7 @@ const upstreamURL = "https://raw.githubusercontent.com/ventd/hardware-profiles/m
 
 var (
 	remoteMu sync.RWMutex
-	remoteDB []Profile // nil until a successful RefreshFromRemote call
+	remoteDB []ModuleProfile // nil until a successful RefreshFromRemote call
 )
 
 // RefreshFromRemote fetches profiles.yaml from upstreamURL, verifies that its
@@ -60,7 +60,7 @@ func refreshFromURL(ctx context.Context, client *http.Client, url, pinnedSHA256 
 		return 0, fmt.Errorf("hwdb refresh: SHA-256 mismatch: got %s want %s", got, pinnedSHA256)
 	}
 
-	var profiles []Profile
+	var profiles []ModuleProfile
 	dec := yaml.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&profiles); err != nil {
 		return 0, fmt.Errorf("hwdb refresh: parse yaml: %w", err)
@@ -77,8 +77,8 @@ func refreshFromURL(ctx context.Context, client *http.Client, url, pinnedSHA256 
 // mergedProfiles returns the embedded profiles followed by any remotely
 // refreshed profiles. Embedded entries come first, preserving the invariant
 // that local profiles win within each Match resolution stage.
-func mergedProfiles() ([]Profile, error) {
-	embedded, err := Load()
+func mergedProfiles() ([]ModuleProfile, error) {
+	embedded, err := LoadModules()
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func mergedProfiles() ([]Profile, error) {
 	if len(remote) == 0 {
 		return embedded, nil
 	}
-	merged := make([]Profile, 0, len(embedded)+len(remote))
+	merged := make([]ModuleProfile, 0, len(embedded)+len(remote))
 	merged = append(merged, embedded...)
 	merged = append(merged, remote...)
 	return merged, nil

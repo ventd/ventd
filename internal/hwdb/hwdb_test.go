@@ -10,7 +10,7 @@ func TestMatch_VerifiedBeatsUnverifiedShadow(t *testing.T) {
 	// the old file-order logic (board_name="" is an implicit wildcard that
 	// satisfies even the "exact" stage for any board_name).
 	remoteMu.Lock()
-	remoteDB = []Profile{
+	remoteDB = []ModuleProfile{
 		{
 			Match:      HardwareFingerprint{BoardVendor: "TESTREGRESS308"},
 			Modules:    []string{"unverified_mod"},
