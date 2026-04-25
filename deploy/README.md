@@ -83,12 +83,7 @@ grep -E 'CapBnd|CapPrm' /proc/$(systemctl show -p MainPID --value ventd)/status
 Communication is a length-prefixed JSON socket at `/run/ventd/ipmi.sock`
 (mode `0660`, group `ventd`). Both processes are in the `ventd` group.
 
-### TODO — AppArmor / SELinux profiles for ventd-ipmi
-
-AppArmor and SELinux profiles for `ventd-ipmi` are not shipped yet.
-Track in a follow-up PR. Until then, the sandbox is enforced exclusively
-by systemd's `CapabilityBoundingSet=`, `DeviceAllow=`, `PrivateNetwork=yes`,
-and `SystemCallFilter=` hardening.
+AppArmor profiles for both binaries ship in `deploy/apparmor.d/`. See [`deploy/apparmor.d/README.md`](apparmor.d/README.md).
 
 ## `ventd.service`
 
