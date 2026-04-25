@@ -113,7 +113,7 @@ func (r *Ring) Snapshot(dst io.Writer) error {
 	prev := r.path + ".prev"
 	if f, err := os.Open(prev); err == nil {
 		_, _ = io.Copy(dst, f)
-		f.Close()
+		_ = f.Close()
 	}
 	cur, err := os.Open(r.path)
 	if err != nil {

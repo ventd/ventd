@@ -31,7 +31,7 @@ func SelfCheck(bundlePath string, needles []string) (*SelfCheckResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("self_check: open bundle: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {

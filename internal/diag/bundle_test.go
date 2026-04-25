@@ -164,7 +164,7 @@ func listBundleEntries(t *testing.T, path string) []string {
 	if err != nil {
 		t.Fatalf("gzip: %v", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	var entries []string
 	for {
@@ -185,7 +185,7 @@ func readBundleFile(t *testing.T, bundlePath, target string) []byte {
 	f, _ := os.Open(bundlePath)
 	defer f.Close()
 	gz, _ := gzip.NewReader(f)
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()

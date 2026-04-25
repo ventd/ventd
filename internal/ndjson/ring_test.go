@@ -17,7 +17,7 @@ func TestRing_Wraparound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenRing: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	// Write enough events to force rotation via event cap (10k).
 	// We'll manipulate via the internal timeNow instead to keep the test fast —
@@ -57,7 +57,7 @@ func TestRing_RotateOnEventCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenRingWithOptions: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	type payload struct{ N int }
 	// Write 4 events — should trigger rotation after the 3rd.
@@ -85,7 +85,7 @@ func TestRing_RotateOnAge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenRingWithOptions: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	type payload struct{ N int }
 	if err := r.Write("e", payload{N: 0}); err != nil {

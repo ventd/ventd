@@ -126,7 +126,7 @@ func (s *MappingStore) Save(log *slog.Logger) error {
 		return fmt.Errorf("redactor: open mapping file: %w", err)
 	}
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("redactor: write mapping file: %w", err)
 	}
 	if err := f.Close(); err != nil {
