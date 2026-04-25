@@ -1,6 +1,6 @@
 # HTTP API Reference
 
-`ventd` exposes an HTTP API on the address configured by `web.listen` (default `0.0.0.0:9999`). All request and response bodies are JSON unless stated otherwise. Every `/api/<name>` route is simultaneously reachable as `/api/v1/<name>` via an alias registered at startup — see [API v1 mirror](#api-v1-mirror).
+`ventd` exposes an HTTP API on the address configured by `web.listen` (default `127.0.0.1:9999`). All request and response bodies are JSON unless stated otherwise. Every `/api/<name>` route is simultaneously reachable as `/api/v1/<name>` via an alias registered at startup — see [API v1 mirror](#api-v1-mirror).
 
 The web UI exclusively uses this API; everything the browser can do, a script can do.
 
