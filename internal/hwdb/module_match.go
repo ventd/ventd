@@ -186,3 +186,25 @@ func isZeroFP(fp HardwareFingerprint) bool {
 		fp.ProductFamily == "" && fp.ChipHexID == "" && fp.PCISubsystem == "" &&
 		fp.CPUMicrocode == ""
 }
+
+// ToEffectiveControllerProfile resolves a PR 1 ModuleProfile to a PR 2
+// EffectiveControllerProfile using the embedded catalog. RULE-HWDB-PR2-11:
+// the hardware.pwm_control string is tried as a chip name first, then as a
+// driver module name (with a logged warning). Returns ErrNoMatch if neither
+// lookup resolves.
+func (mp *ModuleProfile) ToEffectiveControllerProfile() (*EffectiveControllerProfile, error) {
+	cat, err := LoadCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("hwdb: load catalog for migration: %w", err)
+	}
+	// ModuleProfile.Modules[0] is the primary module from the PR 1 profile;
+	// hardware.pwm_control maps to the first module hint.
+	var pwmControl string
+	if len(mp.Modules) > 0 {
+		pwmControl = mp.Modules[0]
+	}
+	if pwmControl == "" {
+		return nil, ErrNoMatch
+	}
+	return MigrateModuleProfileToECP(cat, pwmControl, nil)
+}
