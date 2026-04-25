@@ -26,14 +26,14 @@ jobs:
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.tag.outputs.tag }}
           fetch-depth: 0
 
       # cache: false — reusing the module cache would invalidate the
       # reproducibility claim; we must download from the proxy fresh.
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.25.9"
           cache: false
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload diffoscope report
         if: failure() && steps.compare.outputs.fail == '1'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: diffoscope-${{ steps.tag.outputs.tag }}-${{ github.run_id }}
           path: diffoscope-output/

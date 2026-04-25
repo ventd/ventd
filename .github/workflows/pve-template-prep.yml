@@ -20,7 +20,7 @@ jobs:
   template-prep:
     runs-on: [self-hosted, linux, x64, hil, phoenix-desktop]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Negative control: sudo scope must NOT allow arbitrary bash.
       # If sudo bash exits 0, the && exit 1 fires and the step fails.
