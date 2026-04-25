@@ -113,7 +113,7 @@ func runDiagBundle(args []string, logger *slog.Logger) error {
 		_ = store.Save(logger)
 	}
 
-	fmt.Fprintf(os.Stdout, "Bundle written: %s\n", bundlePath)
+	_, _ = fmt.Fprintf(os.Stdout, "Bundle written: %s\n", bundlePath)
 	return nil
 }
 

@@ -119,7 +119,7 @@ func (r *Ring) Snapshot(dst io.Writer) error {
 	if err != nil {
 		return nil // nothing written yet is fine
 	}
-	defer cur.Close()
+	defer func() { _ = cur.Close() }()
 	_, err = io.Copy(dst, cur)
 	return err
 }
@@ -130,9 +130,11 @@ func (r *Ring) SnapshotGzip(dst io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("ring snapshot gzip: %w", err)
 	}
-	if err := r.Snapshot(gz); err != nil {
-		gz.Close()
-		return err
+	if snapshotErr := r.Snapshot(gz); snapshotErr != nil {
+		if err := gz.Close(); err != nil {
+			return fmt.Errorf("ring snapshot gzip: %w", err)
+		}
+		return snapshotErr
 	}
 	return gz.Close()
 }

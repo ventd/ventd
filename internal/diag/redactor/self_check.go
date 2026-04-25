@@ -37,7 +37,7 @@ func SelfCheck(bundlePath string, needles []string) (*SelfCheckResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("self_check: gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	result := &SelfCheckResult{}
 	tr := tar.NewReader(gz)

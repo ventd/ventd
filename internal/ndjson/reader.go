@@ -53,17 +53,17 @@ func NewFileReader(path string, schema SchemaVersion) (*Reader, error) {
 	// Peek at magic bytes to detect gzip.
 	var magic [2]byte
 	if _, err := io.ReadFull(f, magic[:]); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("ndjson: read magic %s: %w", path, err)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("ndjson: seek %s: %w", path, err)
 	}
 	if magic[0] == 0x1f && magic[1] == 0x8b {
 		r, err := NewGzipReader(f, schema)
 		if err != nil {
-			f.Close()
+			_ = f.Close()
 			return nil, err
 		}
 		r.closers = append(r.closers, f)

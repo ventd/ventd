@@ -35,7 +35,7 @@ func TestWriter_RoundTrip(t *testing.T) {
 	}
 
 	r := ndjson.NewReader(&buf, "1.0")
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	for i, want := range events {
 		var got testEvent
 		if err := r.Read(&got); err != nil {
@@ -68,7 +68,7 @@ func TestWriter_GzipRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewGzipReader: %v", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	var got json.RawMessage
 	if err := r.Read(&got); err != nil {
 		t.Fatalf("Read: %v", err)
@@ -82,7 +82,7 @@ func TestReader_SchemaMajorMismatch(t *testing.T) {
 	// Write a v2 event, try to read with v1 reader.
 	line := `{"schema_version":"2.0","ts":"2026-04-26T00:00:00Z","event_type":"x"}` + "\n"
 	r := ndjson.NewReader(strings.NewReader(line), "1.0")
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	var got json.RawMessage
 	err := r.Read(&got)
 	if err == nil {
@@ -97,7 +97,7 @@ func TestReader_SameMinorOK(t *testing.T) {
 	// v1.5 is compatible with v1.0 (same major).
 	line := `{"schema_version":"1.5","ts":"2026-04-26T00:00:00Z","event_type":"x","value":42}` + "\n"
 	r := ndjson.NewReader(strings.NewReader(line), "1.0")
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	var got testEvent
 	if err := r.Read(&got); err != nil {
 		t.Fatalf("Read: %v", err)

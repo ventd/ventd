@@ -162,7 +162,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	)
 	if err := writeTarEntry(tw, "README.md", readme); err != nil {
 		f.Close()
-		os.Remove(bundlePath)
+		_ = os.Remove(bundlePath)
 		return "", err
 	}
 
@@ -186,7 +186,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		content := red.Apply(item.Content)
 		if err := writeTarEntry(tw, item.Path, content); err != nil {
 			f.Close()
-			os.Remove(bundlePath)
+			_ = os.Remove(bundlePath)
 			return "", err
 		}
 		manifest.AddFile(item.Path, content, item.Schema)
@@ -198,7 +198,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	reportData, err := report.Marshal()
 	if err != nil {
 		f.Close()
-		os.Remove(bundlePath)
+		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: marshal report: %w", err)
 	}
 	if err := writeTarEntry(tw, "REDACTION_REPORT.json", reportData); err != nil {
@@ -220,7 +220,10 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		return "", err
 	}
 
-	tw.Close()
+	if err := tw.Close(); err != nil {
+		_ = os.Remove(bundlePath)
+		return "", fmt.Errorf("diag: close tar writer: %w", err)
+	}
 	gz.Close()
 	f.Close()
 

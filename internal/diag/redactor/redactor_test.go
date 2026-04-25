@@ -339,8 +339,8 @@ func writeFakeBundleWithContent(t *testing.T, files map[string]string) string {
 			t.Fatalf("tar write %s: %v", name, err)
 		}
 	}
-	tw.Close()
-	gz.Close()
+	_ = tw.Close()
+	_ = gz.Close()
 	f.Close()
 	return path
 }
