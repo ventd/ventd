@@ -416,7 +416,8 @@ check_port_9999() {
             echo "" >&2
             echo "$occupant" >&2
             echo "" >&2
-            echo "  ventd's web UI binds 0.0.0.0:9999 by default. Stop the" >&2
+            echo "  ventd's web UI binds 127.0.0.1:9999 (localhost only) by default." >&2
+            echo "  Stop the" >&2
             echo "  process above, or set web.listen to a different port in" >&2
             echo "  /etc/ventd/config.yaml before re-running this installer." >&2
             exit 1
