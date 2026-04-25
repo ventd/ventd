@@ -26,7 +26,7 @@ func TestFingerprint_Goldens(t *testing.T) {
 		t.Fatalf("hash length = %d, want 16", len(want))
 	}
 	for _, c := range want {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Fatalf("hash %q contains non-lowercase-hex char %q", want, c)
 		}
 	}
