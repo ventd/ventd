@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
+	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/hal"
@@ -26,6 +28,7 @@ import (
 	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
+	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -60,6 +63,7 @@ func run() error {
 	doRecover := flag.Bool("recover", false, "reset every pwm_enable to 1 (automatic mode) and exit; runs as the OnFailure= oneshot if the main daemon exits unexpectedly")
 	doRescan := flag.Bool("rescan-hwmon", false, "rerun hwmon module probing for hardware added since the original install (modprobe + persist /etc/modules-load.d), then exit")
 	doListFans := flag.Bool("list-fans-probe", false, "validation helper: enumerate every hwmon device, classify, probe writability, and print PASS/FAIL")
+	doCalibrateProbe := flag.Bool("calibrate-probe", false, "run the PR 2b channel-validity probe (polarity, stall, BIOS-override) and write calibration JSON, then exit")
 	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
 	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
 	showVersion := flag.Bool("version", false, "print version information and exit")
@@ -111,6 +115,16 @@ func run() error {
 		// regression vs the pre-Tier-2 enumeration; the validation
 		// matrix uses the exit code as a PASS/FAIL gate.
 		os.Exit(runListFansProbe())
+	}
+
+	if *doCalibrateProbe {
+		// PR 2b channel-validity probe. Full channel discovery wiring lands
+		// in the setup wizard (PR 2c); this flag is the CLI entry-point hook.
+		// The store is initialised so the integration path is exercised at
+		// build time even before the wizard calls runCalibrationProbe.
+		_ = initCalibrationStore()
+		logger.Info("calibrate-probe: channel discovery wiring pending PR 2c setup wizard integration")
+		return nil
 	}
 
 	if *doPreflight {
@@ -478,6 +492,7 @@ func runDaemonInternal(
 
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
+		calMap := loadCalibrationByChannel(logger)
 		for _, ctrl := range cfg.Controls {
 			fanCfg, err := resolveControl(cfg, ctrl)
 			if err != nil {
@@ -489,14 +504,24 @@ func runDaemonInternal(
 				return fmt.Errorf("resolve control: %w", err)
 			}
 
-			c := controller.New(
-				ctrl.Fan, ctrl.Curve,
-				fanCfg.PWMPath, fanCfg.Type,
-				&liveCfg, wd, cal, logger,
+			opts := []controller.Option{
 				controller.WithSensorReadHook(func() {
 					readyState.MarkSensorRead(time.Now())
 				}),
 				controller.WithPanicChecker(webSrv),
+			}
+			if fanCfg.Type == "hwmon" {
+				if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
+					if calCh, found := calMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
+						opts = append(opts, controller.WithCalibration(calCh, 255))
+					}
+				}
+			}
+			c := controller.New(
+				ctrl.Fan, ctrl.Curve,
+				fanCfg.PWMPath, fanCfg.Type,
+				&liveCfg, wd, cal, logger,
+				opts...,
 			)
 			wg.Add(1)
 			go func(c *controller.Controller) {
@@ -599,6 +624,7 @@ func runDaemonInternal(
 				for _, fan := range newCfg.Fans {
 					wd.Register(fan.PWMPath, fan.Type)
 				}
+				reloadCalMap := loadCalibrationByChannel(logger)
 				for _, ctrl := range newCfg.Controls {
 					fanCfg, err := resolveControl(newCfg, ctrl)
 					if err != nil {
@@ -606,14 +632,24 @@ func runDaemonInternal(
 							"fan", ctrl.Fan, "err", err)
 						continue
 					}
-					c := controller.New(
-						ctrl.Fan, ctrl.Curve,
-						fanCfg.PWMPath, fanCfg.Type,
-						&liveCfg, wd, cal, logger,
+					reloadOpts := []controller.Option{
 						controller.WithSensorReadHook(func() {
 							readyState.MarkSensorRead(time.Now())
 						}),
 						controller.WithPanicChecker(webSrv),
+					}
+					if fanCfg.Type == "hwmon" {
+						if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
+							if calCh, found := reloadCalMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
+								reloadOpts = append(reloadOpts, controller.WithCalibration(calCh, 255))
+							}
+						}
+					}
+					c := controller.New(
+						ctrl.Fan, ctrl.Curve,
+						fanCfg.PWMPath, fanCfg.Type,
+						&liveCfg, wd, cal, logger,
+						reloadOpts...,
 					)
 					wg.Add(1)
 					go func(c *controller.Controller) {
@@ -834,4 +870,69 @@ func warnIfUnconfined(logger *slog.Logger) {
 			"current", current,
 			"hint", "check /var/log/ventd/install.log or run: sudo apparmor_parser -r "+profilePath)
 	}
+}
+
+// loadCalibrationByChannel reads the most recently written calibration run for
+// this machine from the default store path and returns a per-channel map keyed
+// by ChannelKey. A missing or empty store is not an error — it returns an empty
+// map so callers can treat uncalibrated channels identically to calibrated ones
+// with no data.
+func loadCalibrationByChannel(logger *slog.Logger) map[hwdb.ChannelKey]*hwdb.ChannelCalibration {
+	result := make(map[hwdb.ChannelKey]*hwdb.ChannelCalibration)
+
+	dmi, err := hwdb.ReadDMI(os.DirFS("/"))
+	if err != nil {
+		logger.Warn("calibration: cannot read DMI fingerprint, skipping calibration data", "err", err)
+		return result
+	}
+	fingerprint := hwdb.Fingerprint(dmi)
+
+	biosData, readErr := os.ReadFile("/sys/class/dmi/id/bios_version")
+	if readErr != nil {
+		logger.Warn("calibration: cannot read BIOS version, skipping calibration data", "err", readErr)
+		return result
+	}
+	biosVersion := strings.TrimRight(string(biosData), "\n\r")
+
+	store := calibstore.NewStore("/var/lib/ventd/calibration")
+	run, loadErr := store.Load(fingerprint, biosVersion)
+	if loadErr != nil {
+		logger.Warn("calibration: store load failed, skipping calibration data", "err", loadErr)
+		return result
+	}
+	if run == nil {
+		return result
+	}
+
+	for i := range run.Channels {
+		ch := &run.Channels[i]
+		key := hwdb.ChannelKey{Hwmon: ch.HwmonName, Index: ch.ChannelIndex}
+		result[key] = ch
+	}
+	return result
+}
+
+// parseHwmonChannel parses a sysfs PWM path of the form
+// /sys/class/hwmon/hwmonN/pwmM into the hwmon chip name (read from the
+// sibling "name" file) and channel index M. Returns ok=false when the path
+// does not match the expected shape or the chip name file cannot be read.
+func parseHwmonChannel(pwmPath string) (chipName string, idx int, ok bool) {
+	dir := filepath.Dir(pwmPath)
+	base := filepath.Base(pwmPath)
+	if !strings.HasPrefix(base, "pwm") {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(base, "pwm"))
+	if err != nil || n < 1 {
+		return "", 0, false
+	}
+	nameData, err := os.ReadFile(filepath.Join(dir, "name"))
+	if err != nil {
+		return "", 0, false
+	}
+	chip := strings.TrimRight(string(nameData), "\n\r")
+	if chip == "" {
+		return "", 0, false
+	}
+	return chip, n, true
 }
