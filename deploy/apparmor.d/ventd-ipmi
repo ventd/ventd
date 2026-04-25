@@ -1,0 +1,32 @@
+#include <tunables/global>
+
+profile ventd-ipmi /usr/libexec/ventd/ventd-ipmi {
+  #include <abstractions/base>
+
+  /usr/libexec/ventd/ventd-ipmi mr,
+
+  /run/ventd/                  rw,
+  /run/ventd/ipmi.sock         rw,
+
+  /dev/ipmi0                   rw,
+  /dev/ipmi1                   rw,
+  /dev/ipmidev/0               rw,
+
+  /etc/ventd/                  r,
+  /etc/ventd/**                r,
+
+  /var/lib/ventd/              r,
+  /var/lib/ventd/**            r,
+
+  capability sys_rawio,
+
+  deny /dev/mem        rwklx,
+  deny /dev/kmem       rwklx,
+  deny /sys/kernel/**  rwklx,
+  deny capability sys_admin,
+  deny capability net_admin,
+  deny capability sys_module,
+  deny capability dac_override,
+  deny network inet,
+  deny network inet6,
+}
