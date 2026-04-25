@@ -112,5 +112,17 @@ func TestInstallContract_WebListenDefault(t *testing.T) {
 // TestInstallContract_AppArmorProfileShipped — RULE-INSTALL-04
 // Every AppArmorProfile= directive must reference a profile in deploy/apparmor.d/.
 func TestInstallContract_AppArmorProfileShipped(t *testing.T) {
-	t.Skip("filled in PR 2")
+	units := []string{"ventd.service", "ventd-ipmi.service"}
+	for _, unit := range units {
+		u := loadUnit(t, unit)
+		for _, profile := range u["AppArmorProfile"] {
+			t.Run(unit+"/profile="+profile, func(t *testing.T) {
+				path := "apparmor.d/" + profile
+				if _, err := os.Stat(path); err != nil {
+					t.Errorf("AppArmorProfile=%s declared in %s but %s not found: %v",
+						profile, unit, path, err)
+				}
+			})
+		}
+	}
 }
