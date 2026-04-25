@@ -56,6 +56,21 @@ func main() {
 }
 
 func run() error {
+	// Positional subcommand dispatch must happen before flag.Parse() because
+	// "diag bundle" args include its own flag set that conflicts with main's.
+	if len(os.Args) >= 3 && os.Args[1] == "diag" && os.Args[2] == "bundle" {
+		logger := buildLogger("info")
+		return runDiagBundle(os.Args[3:], logger)
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "diag" {
+		fmt.Fprintln(os.Stderr, "Usage: ventd diag bundle [flags]")
+		sub := ""
+		if len(os.Args) >= 3 {
+			sub = os.Args[2]
+		}
+		return fmt.Errorf("unknown diag subcommand %q", sub)
+	}
+
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")
