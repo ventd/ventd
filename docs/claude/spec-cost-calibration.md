@@ -21,6 +21,7 @@ Tracks Claude Code spend per PR for ventd, used to estimate future spec PRs.
 | 2026-04-25 | v0.4.1 release total         | mixed  | $10–30    | $7–12   | under  | Under budget, no rework                            |
 | 2026-04-25 | spec-03 PR 1 (schema v1)     | Sonnet | $5–10     | ~$3.50  | -2×    | Renames + parallel schema, no breaking change      |
 | 2026-04-23 | Claude stack setup           | mixed  | —         | ~$3.50  | —      | MCP wiring, plugins, hooks, skills                 |
+| 2026-04-26 | claude-tooling-bundle #632   | Haiku  | $3–6      | ~$8*    | over   | 11 files, scripts+templates+skills, no Go. *block-level approx, not isolated |
 
 ## Rules of thumb (extracted)
 - **Tight Sonnet PR** (spec written + rules bindings + chat drift triage) → **$1–5 actual**
@@ -38,3 +39,24 @@ Tracks Claude Code spend per PR for ventd, used to estimate future spec PRs.
 ## Open questions (track here)
 - spec-05 predictive thermal Phase 0 — no analogue, expect 5–10× variance
 - spec-05-prep trace harness — drafted estimate $84–131, no actual yet
+
+## Spend velocity (rolling, ccnow block-level)
+
+Tracks total CC spend per day to surface burn rate vs $300/mo target ($10/day avg).
+
+| Date       | Spend  | Notes                                              |
+|------------|--------|----------------------------------------------------|
+| 2026-04-23 | $11.75 | Claude stack setup day                             |
+| 2026-04-24 | $30.62 | spec-01 IPMI polish + scaffolding (3 blocks)       |
+| 2026-04-25 | $27.62 | v0.4.0 + v0.4.1 ships + spec-03 PR 1 (3 blocks)    |
+| 2026-04-26 | $8.15* | spec-03 PR 2 chat work + #632 tooling bundle       |
+| **4-day**  | **~$78** | **~$19.5/day** — 2× target rate                |
+
+*Active block at time of logging; final daily total may differ.
+
+**Drivers of the spike:** compressed ship week (two releases + tooling bundle in 4 days). Not structural, but worth noting:
+- High-density ship weeks burn 2–3× target rate
+- Plan rest days between ships to amortize spend
+- spec-03/04/05 are larger scope — pace expectations accordingly
+
+**Update cadence:** end of each ship day, paste ccnow daily total into table.
