@@ -113,6 +113,7 @@ archives:
       - deploy/selinux/ventd.fc
       - deploy/selinux/Makefile
       - deploy/tmpfiles.d-ventd.conf
+      - deploy/sysusers.d-ventd.conf
       - deploy/sysusers.d-ventd-ipmi.conf
       - scripts/ventd.openrc
       - scripts/ventd.runit
@@ -142,6 +143,7 @@ archives:
       - deploy/selinux/ventd.fc
       - deploy/selinux/Makefile
       - deploy/tmpfiles.d-ventd.conf
+      - deploy/sysusers.d-ventd.conf
       - deploy/sysusers.d-ventd-ipmi.conf
       - scripts/ventd.openrc
       - scripts/ventd.runit

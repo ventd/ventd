@@ -134,6 +134,13 @@ that system account (nologin shell, no home directory) and owns
 stays **empty** — no capabilities are granted to compensate for the
 dropped root privilege. Pwm write access is DAC-driven instead.
 
+To create the account without running the full installer:
+
+```bash
+sudo install -m 0644 deploy/sysusers.d-ventd.conf /usr/lib/sysusers.d/ventd.conf
+sudo systemd-sysusers /usr/lib/sysusers.d/ventd.conf
+```
+
 The shipped udev rule at `deploy/90-ventd-hwmon.rules` is copied to
 `/etc/udev/rules.d/90-ventd-hwmon.rules` by the installer. It
 chgrp's `pwm<N>` and `pwm<N>_enable` to the `ventd` group with `g+w`
