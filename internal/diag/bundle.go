@@ -82,18 +82,44 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return "", fmt.Errorf("diag: mkdir %s: %w", outDir, err)
 	}
-	// Verify dir mode post-MkdirAll (umask may override).
-	if fi, err := os.Stat(outDir); err == nil {
+	// Verify dir mode post-MkdirAll; umask may override. Re-stat after chmod
+	// to confirm the mode actually took effect. RULE-DIAG-PR2C-10.
+	fi, err := os.Stat(outDir)
+	if err != nil {
+		return "", fmt.Errorf("diag: stat output dir: %w", err)
+	}
+	if fi.Mode().Perm() != 0o700 {
+		if err := os.Chmod(outDir, 0o700); err != nil {
+			return "", fmt.Errorf("diag: chmod output dir: %w", err)
+		}
+		fi, err = os.Stat(outDir)
+		if err != nil {
+			return "", fmt.Errorf("diag: re-stat output dir: %w", err)
+		}
 		if fi.Mode().Perm() != 0o700 {
-			// Best-effort chmod then re-verify.
-			_ = os.Chmod(outDir, 0o700)
+			return "", fmt.Errorf("diag: output dir mode %o, want 0700 (umask or filesystem override)", fi.Mode().Perm())
 		}
 	}
 
-	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
 	hostname, _ := os.Hostname()
-	hostID := "host"
-	bundleName := fmt.Sprintf("ventd-diag-%s-%s.tar.gz", hostID, timestamp)
+
+	// Build redactor early so we can use it for the bundle filename.
+	// RULE-DIAG-PR2C-08: the same store drives all content in this run.
+	store := opts.MappingStore
+	if store == nil {
+		store = redactor.NewMappingStore()
+	}
+	red := redactor.New(opts.RedactorCfg, store)
+
+	// Redact hostname unconditionally for the filename — even trusted-recipient
+	// and off profiles must not leak cleartext hostname via directory listing.
+	redactedHost := strings.TrimSpace(string(red.ApplyHostnameForce([]byte(hostname))))
+	if redactedHost == "" || redactedHost == hostname {
+		redactedHost = "obf_host"
+	}
+
+	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
+	bundleName := fmt.Sprintf("ventd-diag-%s-%s.tar.gz", redactedHost, timestamp)
 	bundlePath := filepath.Join(outDir, bundleName)
 
 	// Print resolved path before writing so the user always knows where it lands.
@@ -104,19 +130,8 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		return "", fmt.Errorf("diag: create bundle file: %w", err)
 	}
 
-	// Build redactor.
-	store := opts.MappingStore
-	if store == nil {
-		store = redactor.NewMappingStore()
-	}
-	red := redactor.New(opts.RedactorCfg, store)
-
 	// Build manifest.
 	manifest := NewManifest(opts.VentdVersion)
-	redactedHost := string(red.Apply([]byte(hostname)))
-	if redactedHost == "" {
-		redactedHost = "obf_host_1"
-	}
 	manifest.HostIDRedacted = redactedHost
 
 	// Run all collectors.
@@ -157,11 +172,11 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		opts.VentdVersion,
 		kernelVer,
 		opts.RedactorCfg.Profile,
-		string(manifest.HostIDRedacted),
+		manifest.HostIDRedacted,
 		manifest.CapturedAt,
 	)
 	if err := writeTarEntry(tw, "README.md", readme); err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = os.Remove(bundlePath)
 		return "", err
 	}
@@ -185,7 +200,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 		}
 		content := red.Apply(item.Content)
 		if err := writeTarEntry(tw, item.Path, content); err != nil {
-			f.Close()
+			_ = f.Close()
 			_ = os.Remove(bundlePath)
 			return "", err
 		}
@@ -197,44 +212,53 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	report.RedactionConsistent = true // tentative; corrected by self-check
 	reportData, err := report.Marshal()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: marshal report: %w", err)
 	}
 	if err := writeTarEntry(tw, "REDACTION_REPORT.json", reportData); err != nil {
-		f.Close()
-		os.Remove(bundlePath)
+		_ = f.Close()
+		_ = os.Remove(bundlePath)
 		return "", err
 	}
 
 	// Write manifest.json.
 	manifestData, err := manifest.Marshal()
 	if err != nil {
-		f.Close()
-		os.Remove(bundlePath)
+		_ = f.Close()
+		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: marshal manifest: %w", err)
 	}
 	if err := writeTarEntry(tw, "manifest.json", manifestData); err != nil {
-		f.Close()
-		os.Remove(bundlePath)
+		_ = f.Close()
+		_ = os.Remove(bundlePath)
 		return "", err
 	}
 
+	// Close write layers in order; each finalizes the stream and must be checked.
 	if err := tw.Close(); err != nil {
+		_ = f.Close()
 		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: close tar writer: %w", err)
 	}
-	gz.Close()
-	f.Close()
+	if err := gz.Close(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(bundlePath)
+		return "", fmt.Errorf("diag: close gzip writer: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(bundlePath)
+		return "", fmt.Errorf("diag: close bundle file: %w", err)
+	}
 
 	// Post-write: verify file mode 0o600. RULE-DIAG-PR2C-10.
-	fi, err := os.Stat(bundlePath)
+	fi, err = os.Stat(bundlePath)
 	if err != nil {
-		os.Remove(bundlePath)
+		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: stat bundle: %w", err)
 	}
 	if fi.Mode().Perm() != 0o600 {
-		os.Remove(bundlePath)
+		_ = os.Remove(bundlePath)
 		return "", fmt.Errorf("diag: bundle file mode %o, want 0600", fi.Mode().Perm())
 	}
 
@@ -249,7 +273,7 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 			if opts.AllowRedactionFails {
 				fmt.Fprintf(os.Stderr, "WARNING: self-check detected %d leak(s) in bundle\n", len(result.Leaks))
 			} else {
-				os.Remove(bundlePath)
+				_ = os.Remove(bundlePath)
 				var details strings.Builder
 				for _, l := range result.Leaks {
 					fmt.Fprintf(&details, "  %s: %q\n", l.File, l.String)
@@ -267,7 +291,7 @@ func resolveOutputDir(override string) string {
 	if override != "" {
 		return override
 	}
-	if os.Getegid() == 0 {
+	if os.Geteuid() == 0 {
 		return "/var/lib/ventd/diag-bundles"
 	}
 	xdg := os.Getenv("XDG_STATE_HOME")

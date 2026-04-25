@@ -119,7 +119,7 @@ func runDiagBundle(args []string, logger *slog.Logger) error {
 
 // mappingFilePath returns the path for the persistent redactor mapping file.
 func mappingFilePath() string {
-	if os.Getegid() == 0 {
+	if os.Geteuid() == 0 {
 		return "/var/lib/ventd/redactor-mapping.json"
 	}
 	xdg := os.Getenv("XDG_STATE_HOME")

@@ -54,3 +54,19 @@ func (r *Redactor) Report() *Report { return r.report }
 
 // SelfCheckNeedles returns the cleartext strings that must not survive in the bundle.
 func (r *Redactor) SelfCheckNeedles() []string { return r.selfCheckNeedles }
+
+// ApplyHostnameForce applies the P1 hostname primitive regardless of profile.
+// Used to obfuscate the hostname in the bundle filename, which must never
+// contain cleartext hostname even when using trusted-recipient or off profiles.
+func (r *Redactor) ApplyHostnameForce(content []byte) []byte {
+	host := r.cfg.Hostname
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+	if host == "" {
+		return content
+	}
+	p1 := NewP1HostnameFrom(host)
+	result, _ := p1.Redact(content, r.store)
+	return result
+}

@@ -201,6 +201,56 @@ func TestRuleDiagPR2C_09(t *testing.T) {
 	})
 }
 
+// --- ApplyHostnameForce ---
+
+func TestApplyHostnameForce(t *testing.T) {
+	t.Run("conservative_profile_redacts", func(t *testing.T) {
+		store := redactor.NewMappingStore()
+		cfg := redactor.Config{Profile: redactor.ProfileConservative, Hostname: "secret-host"}
+		r := redactor.New(cfg, store)
+		out := r.ApplyHostnameForce([]byte("kernel: secret-host booted"))
+		if bytes.Contains(out, []byte("secret-host")) {
+			t.Error("ApplyHostnameForce: hostname not redacted in conservative profile")
+		}
+	})
+	t.Run("off_profile_still_redacts", func(t *testing.T) {
+		// ApplyHostnameForce ignores profile — must redact even when profile=off.
+		store := redactor.NewMappingStore()
+		cfg := redactor.Config{Profile: redactor.ProfileOff, Hostname: "secret-host"}
+		r := redactor.New(cfg, store)
+		out := r.ApplyHostnameForce([]byte("kernel: secret-host booted"))
+		if bytes.Contains(out, []byte("secret-host")) {
+			t.Error("ApplyHostnameForce: hostname leaked under off profile")
+		}
+	})
+	t.Run("trusted_recipient_profile_still_redacts", func(t *testing.T) {
+		store := redactor.NewMappingStore()
+		cfg := redactor.Config{Profile: redactor.ProfileTrustedRecipient, Hostname: "secret-host"}
+		r := redactor.New(cfg, store)
+		out := r.ApplyHostnameForce([]byte("kernel: secret-host booted"))
+		if bytes.Contains(out, []byte("secret-host")) {
+			t.Error("ApplyHostnameForce: hostname leaked under trusted-recipient profile")
+		}
+	})
+	t.Run("token_is_consistent_with_apply", func(t *testing.T) {
+		// The token produced by ApplyHostnameForce must be the same as Apply
+		// for conservative profile (same store, same hostname → same token).
+		store := redactor.NewMappingStore()
+		cfg := redactor.Config{Profile: redactor.ProfileConservative, Hostname: "myhost"}
+		r := redactor.New(cfg, store)
+		out1 := r.Apply([]byte("a: myhost"))
+		out2 := r.ApplyHostnameForce([]byte("b: myhost"))
+		tok1 := extractToken(out1, "obf_host_")
+		tok2 := extractToken(out2, "obf_host_")
+		if tok1 == "" || tok2 == "" {
+			t.Fatalf("no obf_host_ token found: %q / %q", out1, out2)
+		}
+		if tok1 != tok2 {
+			t.Errorf("inconsistent tokens between Apply and ApplyHostnameForce: %q vs %q", tok1, tok2)
+		}
+	})
+}
+
 // --- Primitive unit tests ---
 
 func TestP1Hostname_Redacts(t *testing.T) {
