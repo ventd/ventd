@@ -97,7 +97,7 @@ jobs:
           echo "Downloaded SBOM files:"
           ls sboms/
 
-      - name: Validate CycloneDX 1.5 schema
+      - name: Validate CycloneDX 1.5/1.6 schema
         run: |
           python3 - <<'PY'
           import json, sys, glob
@@ -116,13 +116,13 @@ jobs:
               spec_version = doc.get('specVersion')
               if bom_format != 'CycloneDX':
                   errors.append(f'{f}: bomFormat={bom_format!r} (expected CycloneDX)')
-              if spec_version != '1.5':
-                  errors.append(f'{f}: specVersion={spec_version!r} (expected 1.5)')
+              if spec_version not in ('1.5', '1.6'):
+                  errors.append(f'{f}: specVersion={spec_version!r} (expected 1.5 or 1.6)')
           if errors:
               for e in errors:
                   print(f'FAIL: {e}')
               sys.exit(1)
-          print(f'PASS: {len(files)} CycloneDX SBOM(s) validated (specVersion=1.5)')
+          print(f'PASS: {len(files)} CycloneDX SBOM(s) validated (specVersion in 1.5/1.6)')
           PY
 
       - name: Validate SPDX 2.3 schema
