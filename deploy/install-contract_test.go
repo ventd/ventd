@@ -142,8 +142,6 @@ func TestInstallContract_AppArmorHILValidated(t *testing.T) {
 		}
 		profile := e.Name()
 		for _, distro := range distros {
-			distro := distro
-			profile := profile
 			t.Run(profile+"/"+distro, func(t *testing.T) {
 				pattern := "../validation/apparmor-smoke-" + distro + "-*.md"
 				matches, err := filepath.Glob(pattern)
