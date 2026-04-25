@@ -1,0 +1,10 @@
+name: bios_overridden_fan
+pwm_unit: duty_0_255
+pwm_unit_max: 255
+# BIOS reverts PWM to 128 within 200ms of any write.
+pwm_rpm_table:
+  - {pwm: 0,   rpm: 1200}
+  - {pwm: 128, rpm: 2400}
+  - {pwm: 255, rpm: 2400}
+polarity: normal
+bios_override: 128

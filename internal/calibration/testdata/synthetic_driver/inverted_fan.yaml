@@ -1,0 +1,13 @@
+name: inverted_fan
+pwm_unit: duty_0_255
+pwm_unit_max: 255
+# Inverted polarity: high PWM = low RPM, low PWM = high RPM.
+pwm_rpm_table:
+  - {pwm: 0,   rpm: 5500}
+  - {pwm: 50,  rpm: 4800}
+  - {pwm: 100, rpm: 3000}
+  - {pwm: 200, rpm: 800}
+  - {pwm: 225, rpm: 0}
+  - {pwm: 255, rpm: 0}
+polarity: inverted
+bios_override: ~

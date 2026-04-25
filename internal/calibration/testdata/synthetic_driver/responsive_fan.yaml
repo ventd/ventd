@@ -1,0 +1,14 @@
+name: responsive_fan
+pwm_unit: duty_0_255
+pwm_unit_max: 255
+# PWM→RPM table (interpolated between points). stall_pwm=30, min_responsive=50.
+pwm_rpm_table:
+  - {pwm: 0,   rpm: 0}
+  - {pwm: 29,  rpm: 0}
+  - {pwm: 30,  rpm: 0}
+  - {pwm: 50,  rpm: 1200}
+  - {pwm: 100, rpm: 2400}
+  - {pwm: 200, rpm: 4800}
+  - {pwm: 255, rpm: 5500}
+polarity: normal
+bios_override: ~
