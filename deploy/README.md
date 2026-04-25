@@ -14,7 +14,7 @@ even attempting to start it.
 
 ### Prerequisites
 
-1. **System account** — created by `sysusers.d-ventd.conf`:
+1. **System account** — created by `sysusers.d-ventd-ipmi.conf`:
    ```
    sudo systemd-sysusers /usr/lib/sysusers.d/ventd.conf
    # or on first install via postinstall.sh
@@ -33,7 +33,7 @@ even attempting to start it.
 sudo install -D -m 0755 ventd-ipmi /usr/libexec/ventd/ventd-ipmi
 
 # sysusers + tmpfiles
-sudo install -m 0644 deploy/sysusers.d-ventd.conf /usr/lib/sysusers.d/ventd.conf
+sudo install -m 0644 deploy/sysusers.d-ventd-ipmi.conf /usr/lib/sysusers.d/ventd.conf
 sudo install -m 0644 deploy/tmpfiles.d-ventd.conf /usr/lib/tmpfiles.d/ventd.conf
 sudo systemd-sysusers /usr/lib/sysusers.d/ventd.conf
 sudo systemd-tmpfiles --create /usr/lib/tmpfiles.d/ventd.conf
