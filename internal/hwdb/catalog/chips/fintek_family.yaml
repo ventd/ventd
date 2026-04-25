@@ -1,0 +1,60 @@
+schema_version: "1.0"
+
+# Fintek F71882FG family chip profiles.
+# All inherit from the f71882fg driver.
+# F8000 has a fixed channel-3 restriction (always mode 2).
+
+chip_profiles:
+  - name: "f71882fg"
+    inherits_driver: "f71882fg"
+    description: "Fintek F71882FG — older Asus/Foxconn boards (~2009-2014)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"
+
+  - name: "f71869"
+    inherits_driver: "f71882fg"
+    description: "Fintek F71869 — variant of F71882FG family."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"
+
+  - name: "f71869a"
+    inherits_driver: "f71882fg"
+    description: "Fintek F71869A — variant of F71882FG family."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"
+
+  - name: "f71889fg"
+    inherits_driver: "f71882fg"
+    description: "Fintek F71889FG — some embedded SBC boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"
+
+  - name: "f71808e"
+    inherits_driver: "f71882fg"
+    description: "Fintek F71808E — embedded boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"
+
+  - name: "f8000"
+    inherits_driver: "f71882fg"
+    description: "Fintek F8000 — older boards. Channel 3 is permanently locked to mode 2 (auto trip-points); cannot be set to manual."
+    overrides:
+      pwm_enable_modes:
+        "1": "manual"
+        "2": "auto_trip_points"
+        "3": "thermostat"
+    channel_overrides:
+      "3":
+        pwm_enable_modes_locked_to: "2"
+    citations:
+      - "https://docs.kernel.org/hwmon/f71882fg.html"

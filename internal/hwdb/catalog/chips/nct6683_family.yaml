@@ -1,0 +1,47 @@
+schema_version: "1.0"
+
+# OOT nct6683-derived chip profiles.
+# nct6687 and nct6686 are loaded by OOT DKMS forks (Fred78290/nct6687d and
+# s25g5d4/nct6686d respectively). Both expose RW fan control on hardware where
+# the mainline nct6683 driver is read-only.
+
+chip_profiles:
+  - name: "nct6683"
+    inherits_driver: "nct6683"
+    description: "Nuvoton NCT6683 — mainline read-only. MSI X670/B650/X870, ASRock X570/X670E. OOT nct6687d/nct6686d provides RW access."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nct6683.html"
+
+  - name: "nct6687"
+    inherits_driver: "nct6683"
+    description: "Nuvoton NCT6687D via Fred78290/nct6687d OOT DKMS — RW fan control on MSI AM5 boards. Supports fan_config=msi_alt1 for 36+ MSI boards."
+    overrides:
+      capability: "rw_quirk"
+      fan_control_capable: true
+      fan_control_via: null
+      pwm_polarity_reservation: "probe_required"
+      pwm_enable_modes:
+        "0": "full_speed"
+        "1": "manual"
+        "2": "bios_auto"
+    channel_overrides: {}
+    citations:
+      - "https://github.com/Fred78290/nct6687d"
+
+  - name: "nct6686"
+    inherits_driver: "nct6683"
+    description: "Nuvoton NCT6686D via s25g5d4/nct6686d OOT DKMS — RW fan control on newer ASRock AMD boards (A620I Lightning WiFi etc.)."
+    overrides:
+      capability: "rw_quirk"
+      fan_control_capable: true
+      fan_control_via: null
+      pwm_polarity_reservation: "probe_required"
+      pwm_enable_modes:
+        "0": "full_speed"
+        "1": "manual"
+        "2": "bios_auto"
+    channel_overrides: {}
+    citations:
+      - "https://github.com/s25g5d4/nct6686d"

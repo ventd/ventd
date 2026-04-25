@@ -1,0 +1,32 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "ideapad-laptop"
+    family: "lenovo-ideapad"
+    description: "Lenovo IdeaPad/Yoga/Flex platform driver — fan_mode toggle (0/1/2/4) on some models. Writes may be silently ignored by BIOS on some models. yogafan (kernel 7.1+) supersedes this for newer hardware."
+    capability: "rw_quirk"
+    pwm_unit: "step_0_N"
+    pwm_unit_max: 4
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "falls_to_auto_silently"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver:
+      module: "legion_hwmon"
+      source: "github.com/johnfanv2/LenovoLegionLinux"
+      install_method: "dkms"
+      package_hint: null
+      reason: "LenovoLegionLinux provides full PWM auto-point tables for Legion models. For non-Legion IdeaPad, NBFC-Linux provides EC-direct control."
+      applies_to_boards:
+        - "lenovo"
+      module_args_hint: []
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations: []

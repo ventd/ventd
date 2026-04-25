@@ -1,0 +1,37 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "it87"
+    family: "ite-superio"
+    description: "ITE IT87xx Super I/O — ASRock, Gigabyte, some MSI Intel boards (~20% of modern boards). Polarity inversion known on some BIOSes; probe required."
+    capability: "rw_quirk"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "auto_trip_points"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver:
+      module: "it87"
+      source: "github.com/frankcrawford/it87"
+      install_method: "dkms"
+      package_hint: null
+      reason: "OOT fork extends chip support to newer ITE variants (IT8606E, IT8689E, etc.) not in mainline. Required on many newer Gigabyte/ASRock boards."
+      applies_to_boards:
+        - "gigabyte"
+        - "asrock"
+      module_args_hint:
+        - "force_id=0x8689"
+        - "ignore_resource_conflict=1"
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "probe_required"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations:
+      - "https://docs.kernel.org/hwmon/it87.html"
+      - "https://github.com/frankcrawford/it87"

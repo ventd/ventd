@@ -1,0 +1,37 @@
+schema_version: "1.0"
+
+# Winbond W83627EHF family chip profiles — pre-2014 boards.
+# All inherit from the w83627ehf driver.
+
+chip_profiles:
+  - name: "w83627ehf"
+    inherits_driver: "w83627ehf"
+    description: "Winbond W83627EHF — older Intel boards (~2005-2012)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/w83627ehf.html"
+
+  - name: "w83627dhg"
+    inherits_driver: "w83627ehf"
+    description: "Winbond W83627DHG — legacy Intel boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/w83627ehf.html"
+
+  - name: "w83627uhg"
+    inherits_driver: "w83627ehf"
+    description: "Winbond W83627UHG — legacy boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/w83627ehf.html"
+
+  - name: "w83667hg"
+    inherits_driver: "w83627ehf"
+    description: "Winbond W83667HG — Intel P55/H55 era boards."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/w83627ehf.html"

@@ -1,0 +1,22 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "asus-wmi-sensors"
+    family: "asus-wmi-ro"
+    description: "ASUS WMI sensors — older ROG/Crosshair/Maximus boards. READ-ONLY board-level sensors (chipset, water-pump). No fan control; fan control via Super I/O."
+    capability: "ro_sensor_only"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes: {}
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: false
+    fan_control_via: "nct6775"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "bios_dependent"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations: []
