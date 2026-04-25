@@ -1,0 +1,15 @@
+name: step_0_N_fan
+pwm_unit: step_0_N
+pwm_unit_max: 7
+# 8-level thinkpad-style fan. Level 0 = stall, level 1 = min_responsive.
+pwm_rpm_table:
+  - {pwm: 0, rpm: 0}
+  - {pwm: 1, rpm: 600}
+  - {pwm: 2, rpm: 1200}
+  - {pwm: 3, rpm: 2400}
+  - {pwm: 4, rpm: 3600}
+  - {pwm: 5, rpm: 4200}
+  - {pwm: 6, rpm: 4800}
+  - {pwm: 7, rpm: 5400}
+polarity: normal
+bios_override: ~

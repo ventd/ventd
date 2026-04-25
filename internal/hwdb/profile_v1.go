@@ -2,9 +2,11 @@ package hwdb
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -212,25 +214,50 @@ type Catalog struct {
 	Chips   map[string]*ChipProfile   // keyed by chip name value
 }
 
-// CalibrationResult is the runtime-populated layer-4 data read from disk.
-// Written by PR 2b probe; schema is frozen in PR 2a for forward compatibility.
-type CalibrationResult struct {
-	CalibrationVersion string `yaml:"calibration_version"`
-	ChannelKey         string `yaml:"channel_key"`
-	CalibratedAt       string `yaml:"calibrated_at"`
-	FirmwareVersion    string `yaml:"firmware_version"`
-
-	PWMPolarity      *string `yaml:"pwm_polarity"`
-	MinResponsivePWM *int    `yaml:"min_responsive_pwm"`
-	MaxResponsivePWM *int    `yaml:"max_responsive_pwm"`
-	StallPWM         *int    `yaml:"stall_pwm"`
-	PhantomChannel   *bool   `yaml:"phantom_channel"`
-	BIOSOverridden   bool    `yaml:"bios_overridden"`
-
-	ProbeMethod       string `yaml:"probe_method"`
-	ProbeDurationMS   int    `yaml:"probe_duration_ms"`
-	ProbeObservations int    `yaml:"probe_observations"`
+// CalibrationRun is the top-level runtime probe result, written as JSON to disk
+// at /var/lib/ventd/calibration/<dmi_fingerprint>-<bios_safe>.json.
+// Unifies the previous parallel types (hwdb.CalibrationResult and
+// calibration.CalibrationResult) into a single authoritative definition.
+type CalibrationRun struct {
+	SchemaVersion   int                  `json:"schema_version" yaml:"schema_version"`
+	DMIFingerprint  string               `json:"dmi_fingerprint" yaml:"dmi_fingerprint"`
+	BIOSVersion     string               `json:"bios_version" yaml:"bios_version"`
+	BIOSReleaseDate string               `json:"bios_release_date,omitempty" yaml:"bios_release_date,omitempty"`
+	CalibratedAt    time.Time            `json:"calibrated_at" yaml:"calibrated_at"`
+	VentdVersion    string               `json:"ventd_version,omitempty" yaml:"ventd_version,omitempty"`
+	Channels        []ChannelCalibration `json:"channels" yaml:"channels"`
 }
+
+// ChannelCalibration is the per-channel runtime calibration data populated by
+// the probe (internal/calibration) and consumed by the controller apply path
+// (internal/controller). Keyed via ChannelKey on EffectiveControllerProfile.
+type ChannelCalibration struct {
+	HwmonName         string `json:"hwmon_name" yaml:"hwmon_name"`
+	ChannelIndex      int    `json:"channel_index" yaml:"channel_index"`
+	PolarityInverted  bool   `json:"polarity_inverted" yaml:"polarity_inverted"`
+	MinResponsivePWM  *int   `json:"min_responsive_pwm" yaml:"min_responsive_pwm"`
+	MaxResponsivePWM  *int   `json:"max_responsive_pwm,omitempty" yaml:"max_responsive_pwm,omitempty"`
+	MaxObservedRPM    *int   `json:"max_observed_rpm,omitempty" yaml:"max_observed_rpm,omitempty"`
+	StallPWM          *int   `json:"stall_pwm" yaml:"stall_pwm"`
+	Phantom           bool   `json:"phantom" yaml:"phantom"`
+	BIOSOverridden    bool   `json:"bios_overridden" yaml:"bios_overridden"`
+	ProbeMethod       string `json:"probe_method" yaml:"probe_method"`
+	ProbeDurationMS   int    `json:"probe_duration_ms" yaml:"probe_duration_ms"`
+	ProbeObservations int    `json:"probe_observations" yaml:"probe_observations"`
+}
+
+// ChannelKey is the lookup key for EffectiveControllerProfile.CalibrationByChannel.
+// Using Hwmon+Index together preserves chip identity when multiple chips are present.
+type ChannelKey struct {
+	Hwmon string // e.g. "hwmon4"
+	Index int    // e.g. 2 for pwm2
+}
+
+// Sentinel errors for the apply-path refusal. Returned by ShouldApplyCurve.
+var (
+	ErrPhantom        = errors.New("channel is monitor-only (phantom)")
+	ErrBIOSOverridden = errors.New("channel is monitor-only (bios_overridden: BIOS actively overrides PWM writes)")
+)
 
 // ErrCatalog is the sentinel for catalog validation failures.
 var ErrCatalog = fmt.Errorf("hwdb catalog")
@@ -420,19 +447,40 @@ func ShouldCalibrate(ecp *EffectiveControllerProfile) bool {
 	return ecp.FanControlCapable
 }
 
-// ShouldApplyCurve reports whether curve writes should proceed for a channel.
-// RULE-HWDB-PR2-08: bios_overridden:true → refuse curve writes.
-func ShouldApplyCurve(cal *CalibrationResult) (bool, error) {
+// ShouldApplyCurve returns (true, nil) if curve writes are permitted, or
+// (false, sentinel error) if the channel is phantom or BIOS-overridden.
+// Nil cal means no calibration data — returns (true, nil) so pre-calibration
+// channels operate without enforcement. RULE-HWDB-PR2-08.
+func ShouldApplyCurve(cal *ChannelCalibration) (bool, error) {
+	if cal == nil {
+		return true, nil
+	}
+	if cal.Phantom {
+		return false, ErrPhantom
+	}
 	if cal.BIOSOverridden {
-		return false, fmt.Errorf("channel %q: bios_overridden=true — BIOS actively overrides PWM writes; channel is monitor-only", cal.ChannelKey)
+		return false, ErrBIOSOverridden
 	}
 	return true, nil
 }
 
-// NeedsRecalibration reports whether a firmware version mismatch requires
-// recalibration. RULE-HWDB-PR2-09.
-func NeedsRecalibration(cal *CalibrationResult, currentBIOSVersion string) bool {
-	return cal.FirmwareVersion != currentBIOSVersion
+// NeedsRecalibration returns true if the calibration run's BIOS version
+// differs from the current BIOS version. Nil run returns true (calibration
+// needed). RULE-HWDB-PR2-09.
+func NeedsRecalibration(run *CalibrationRun, currentBIOSVersion string) bool {
+	if run == nil {
+		return true
+	}
+	return run.BIOSVersion != currentBIOSVersion
+}
+
+// InvertPWM applies polarity inversion if the channel calibration indicates it.
+// Returns pwm unchanged if cal is nil or PolarityInverted is false.
+func InvertPWM(cal *ChannelCalibration, pwm, pwmUnitMax int) int {
+	if cal == nil || !cal.PolarityInverted {
+		return pwm
+	}
+	return pwmUnitMax - pwm
 }
 
 // LoadCatalogFromFS is the same as LoadCatalog but reads from a caller-supplied

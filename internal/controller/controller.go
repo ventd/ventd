@@ -16,6 +16,7 @@ import (
 	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
+	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/watchdog"
@@ -82,16 +83,18 @@ func curveSigOf(c config.CurveConfig) curveSig {
 
 // Controller manages one fan channel.
 type Controller struct {
-	fanName   string
-	curveName string
-	pwmPath   string // sysfs path for hwmon; GPU index for nvidia
-	fanType   string // "hwmon" or "nvidia"
-	cfg       *atomic.Pointer[config.Config]
-	wd        *watchdog.Watchdog
-	cal       CalibrationChecker
-	panic     PanicChecker // nil-safe; nil → panic check skipped
-	logger    *slog.Logger
-	backend   hal.FanBackend // resolved from fanType at construction
+	fanName    string
+	curveName  string
+	pwmPath    string // sysfs path for hwmon; GPU index for nvidia
+	fanType    string // "hwmon" or "nvidia"
+	cfg        *atomic.Pointer[config.Config]
+	wd         *watchdog.Watchdog
+	cal        CalibrationChecker
+	panic      PanicChecker             // nil-safe; nil → panic check skipped
+	calCh      *hwdb.ChannelCalibration // nil if no calibration data for this channel
+	pwmUnitMax int                      // 255 for duty_0_255, N for step_0_N; 0 when calCh==nil
+	logger     *slog.Logger
+	backend    hal.FanBackend // resolved from fanType at construction
 	// onSensorRead is called after each completed tick that attempted a
 	// sensor read. Nil in tests; main.go wires it to web.ReadyState so the
 	// /readyz probe reflects whether the control loop is still ticking.
@@ -184,6 +187,17 @@ func WithPanicChecker(p PanicChecker) Option {
 	return func(c *Controller) { c.panic = p }
 }
 
+// WithCalibration installs per-channel calibration data for this controller.
+// pwmUnitMax is the upper bound of the PWM scale (255 for duty_0_255 channels).
+// When installed, writeWithRetry refuses phantom/BIOS-overridden channels and
+// applies polarity inversion to every outgoing PWM value.
+func WithCalibration(cal *hwdb.ChannelCalibration, pwmUnitMax int) Option {
+	return func(c *Controller) {
+		c.calCh = cal
+		c.pwmUnitMax = pwmUnitMax
+	}
+}
+
 func New(
 	fanName, curveName string,
 	pwmPath, fanType string,
@@ -233,36 +247,43 @@ func (c *Controller) signalFatal(err error) {
 // writeWithRetry performs a backend.Write with one 50ms retry. On
 // ErrNotPermitted it signals fatal immediately without retrying; on double
 // I/O failure it invokes watchdog.RestoreOne to hand the fan back to firmware
-// auto. Returns true iff the write eventually succeeded. kind is "curve" or
+// auto. Returns nil iff the write eventually succeeded. kind is "curve" or
 // "manual" for structured log fields.
-func (c *Controller) writeWithRetry(ch hal.Channel, pwm uint8, pwmPath, kind string) bool {
-	writeErr := c.backend.Write(ch, pwm)
+func (c *Controller) writeWithRetry(ch hal.Channel, pwm uint8, pwmPath, kind string) error {
+	// Calibration guard: refuse phantom channels and BIOS-overridden channels.
+	if _, err := hwdb.ShouldApplyCurve(c.calCh); err != nil {
+		c.logger.Warn("controller: write refused by calibration guard", "err", err, "pwm_path", pwmPath)
+		return err
+	}
+	adjusted := uint8(hwdb.InvertPWM(c.calCh, int(pwm), c.pwmUnitMax))
+
+	writeErr := c.backend.Write(ch, adjusted)
 	if writeErr == nil {
-		return true
+		return nil
 	}
 	if errors.Is(writeErr, hal.ErrNotPermitted) {
 		c.logger.Error("controller: manual-mode acquisition denied by OS; daemon exiting for systemd restart",
 			"channel", ch.ID, "err", writeErr)
 		c.signalFatal(writeErr)
-		return false
+		return writeErr
 	}
 	c.logger.Warn("controller: PWM write failed, retrying",
 		"event", "write_retry",
 		"pwm_path", pwmPath, "fan", c.fanName, "kind", kind, "err", writeErr)
 	time.Sleep(50 * time.Millisecond)
-	retryErr := c.backend.Write(ch, pwm)
+	retryErr := c.backend.Write(ch, adjusted)
 	if retryErr == nil {
 		c.logger.Info("controller: PWM write retry succeeded",
 			"event", "write_retry_succeeded",
 			"pwm_path", pwmPath, "fan", c.fanName, "kind", kind)
-		return true
+		return nil
 	}
 	c.logger.Error("controller: PWM write failed after retry, triggering restore",
 		"event", "write_failed_restore_triggered",
 		"pwm_path", pwmPath, "fan", c.fanName, "kind", kind,
 		"err1", writeErr, "err2", retryErr)
 	c.wd.RestoreOne(pwmPath)
-	return false
+	return retryErr
 }
 
 // Run starts the control loop. It takes manual control of the PWM channel
@@ -391,7 +412,7 @@ func (c *Controller) tick() {
 			c.logger.Error("controller: cannot build backend channel", "err", err)
 			return
 		}
-		if !c.writeWithRetry(ch, pwm, c.pwmPath, "manual") {
+		if err := c.writeWithRetry(ch, pwm, c.pwmPath, "manual"); err != nil {
 			return
 		}
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
@@ -532,7 +553,7 @@ func (c *Controller) tick() {
 		c.logger.Error("controller: cannot build backend channel", "err", err)
 		return
 	}
-	if !c.writeWithRetry(ch, pwm, c.pwmPath, "curve") {
+	if err := c.writeWithRetry(ch, pwm, c.pwmPath, "curve"); err != nil {
 		return
 	}
 

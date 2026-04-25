@@ -1,0 +1,9 @@
+name: phantom_channel
+pwm_unit: duty_0_255
+pwm_unit_max: 255
+# Phantom: no RPM at any PWM value. Not a physical fan.
+pwm_rpm_table:
+  - {pwm: 0,   rpm: 0}
+  - {pwm: 255, rpm: 0}
+polarity: phantom
+bios_override: ~

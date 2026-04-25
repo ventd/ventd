@@ -15,6 +15,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/curve"
 	"github.com/ventd/ventd/internal/hal"
+	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/watchdog"
 )
@@ -227,17 +228,19 @@ func TestTick_WriteRetryAndRestoreOnDoubleFailure(t *testing.T) {
 // fakeErrBackend is a hal.FanBackend whose Write returns pre-configured errors
 // for the first N calls, then succeeds. Other methods are no-ops.
 type fakeErrBackend struct {
-	writeCalls int
-	errs       []error
+	writeCalls  int
+	errs        []error
+	lastWritten uint8 // records the last PWM value passed to Write
 }
 
 func (b *fakeErrBackend) Enumerate(_ context.Context) ([]hal.Channel, error) {
 	return nil, nil
 }
 func (b *fakeErrBackend) Read(_ hal.Channel) (hal.Reading, error) { return hal.Reading{}, nil }
-func (b *fakeErrBackend) Write(_ hal.Channel, _ uint8) error {
+func (b *fakeErrBackend) Write(_ hal.Channel, v uint8) error {
 	i := b.writeCalls
 	b.writeCalls++
+	b.lastWritten = v
 	if i < len(b.errs) {
 		return b.errs[i]
 	}
@@ -509,3 +512,72 @@ func TestController_ManualWriteRetryAndRestore(t *testing.T) {
 
 // Verify PICurve implements StatefulCurve at compile time.
 var _ curve.StatefulCurve = (*curve.PICurve)(nil)
+
+// TestWriteWithRetry_RefusesBIOSOverridden verifies RULE-HWDB-PR2-08 at the
+// controller apply path: a channel with BIOSOverridden=true must cause
+// writeWithRetry to return hwdb.ErrBIOSOverridden without calling backend.Write.
+func TestWriteWithRetry_RefusesBIOSOverridden(t *testing.T) {
+	ff := newFakeFan(t)
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	c.calCh = &hwdb.ChannelCalibration{BIOSOverridden: true}
+	c.pwmUnitMax = 255
+
+	fb := &fakeErrBackend{}
+	c.backend = fb
+
+	ch := hal.Channel{ID: ff.pwmPath}
+	err := c.writeWithRetry(ch, 128, ff.pwmPath, "curve")
+	if !errors.Is(err, hwdb.ErrBIOSOverridden) {
+		t.Errorf("got %v, want hwdb.ErrBIOSOverridden", err)
+	}
+	if fb.writeCalls != 0 {
+		t.Errorf("backend.Write must not be called for BIOS-overridden channel, got %d calls", fb.writeCalls)
+	}
+}
+
+// TestWriteWithRetry_RefusesPhantom verifies RULE-CALIB-PR2B-07 at the apply
+// path: a phantom channel must cause writeWithRetry to return hwdb.ErrPhantom
+// without calling backend.Write.
+func TestWriteWithRetry_RefusesPhantom(t *testing.T) {
+	ff := newFakeFan(t)
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	c.calCh = &hwdb.ChannelCalibration{Phantom: true}
+	c.pwmUnitMax = 255
+
+	fb := &fakeErrBackend{}
+	c.backend = fb
+
+	ch := hal.Channel{ID: ff.pwmPath}
+	err := c.writeWithRetry(ch, 128, ff.pwmPath, "curve")
+	if !errors.Is(err, hwdb.ErrPhantom) {
+		t.Errorf("got %v, want hwdb.ErrPhantom", err)
+	}
+	if fb.writeCalls != 0 {
+		t.Errorf("backend.Write must not be called for phantom channel, got %d calls", fb.writeCalls)
+	}
+}
+
+// TestWriteWithRetry_AppliesPolarityInversion verifies RULE-CALIB-PR2B-09:
+// writeWithRetry must apply InvertPWM when PolarityInverted=true.
+// Fixture: pwmUnitMax=255, input PWM=200 → expected write=55 (255-200).
+func TestWriteWithRetry_AppliesPolarityInversion(t *testing.T) {
+	ff := newFakeFan(t)
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	c.calCh = &hwdb.ChannelCalibration{PolarityInverted: true}
+	c.pwmUnitMax = 255
+
+	fb := &fakeErrBackend{}
+	c.backend = fb
+
+	ch := hal.Channel{ID: ff.pwmPath}
+	err := c.writeWithRetry(ch, 200, ff.pwmPath, "curve")
+	if err != nil {
+		t.Fatalf("writeWithRetry returned unexpected error: %v", err)
+	}
+	if fb.lastWritten != 55 {
+		t.Errorf("inverted PWM: got %d, want 55 (255-200)", fb.lastWritten)
+	}
+}

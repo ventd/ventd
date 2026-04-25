@@ -25,12 +25,12 @@ func MatchV1(cat *Catalog, chipName string, dmi DMIFingerprint) (*EffectiveContr
 }
 
 // MatchV1WithCalibration is MatchV1 extended with a calibration results map
-// (keyed by channel index). The calibration layer is overlaid as layer 4.
+// (keyed by ChannelKey). The calibration layer is overlaid as layer 4.
 func MatchV1WithCalibration(
 	cat *Catalog,
 	chipName string,
 	dmi DMIFingerprint,
-	cal map[int]*CalibrationResult,
+	cal map[ChannelKey]*ChannelCalibration,
 	log *slog.Logger,
 ) (*EffectiveControllerProfile, error) {
 	return matchV1WithDiag(cat, chipName, dmi, cal, log)
@@ -48,7 +48,7 @@ func matchV1WithDiag(
 	cat *Catalog,
 	chipName string,
 	dmi DMIFingerprint, //nolint:unparam // board matching uses dmi in PR 2b
-	cal map[int]*CalibrationResult,
+	cal map[ChannelKey]*ChannelCalibration,
 	log *slog.Logger,
 ) (*EffectiveControllerProfile, error) {
 	var diag MatchDiagnostics

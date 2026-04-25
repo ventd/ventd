@@ -42,13 +42,13 @@ func TestRuleHwdbPR2_10(t *testing.T) {
 			},
 		}
 
-		// Calibration: channel 1 has PWMPolarity=inverted.
-		polarity := "inverted"
-		cal := map[int]*CalibrationResult{
-			1: {
-				ChannelKey:     "nct6798:pwm1",
-				PWMPolarity:    &polarity,
-				BIOSOverridden: false,
+		// Calibration: channel 1 has PolarityInverted=true.
+		cal := map[ChannelKey]*ChannelCalibration{
+			{Hwmon: "nct6798", Index: 1}: {
+				HwmonName:        "nct6798",
+				ChannelIndex:     1,
+				PolarityInverted: true,
+				BIOSOverridden:   false,
 			},
 		}
 
@@ -77,13 +77,13 @@ func TestRuleHwdbPR2_10(t *testing.T) {
 			t.Errorf("board ID: want %q, got %v", "asus_z790_a", ecp.BoardID)
 		}
 
-		// Layer 4: calibration is accessible by channel.
-		calCh1, hasCal := ecp.CalibrationByChannel[1]
+		// Layer 4: calibration is accessible by channel key.
+		calCh1, hasCal := ecp.CalibrationByChannel[ChannelKey{Hwmon: "nct6798", Index: 1}]
 		if !hasCal {
 			t.Fatal("layer-4 calibration: channel 1 should be present")
 		}
-		if calCh1.PWMPolarity == nil || *calCh1.PWMPolarity != "inverted" {
-			t.Errorf("layer-4 calibration: want PWMPolarity=inverted, got %v", calCh1.PWMPolarity)
+		if !calCh1.PolarityInverted {
+			t.Errorf("layer-4 calibration: want PolarityInverted=true, got false")
 		}
 
 		// Driver base values not overridden must pass through.
