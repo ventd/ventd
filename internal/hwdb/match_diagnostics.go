@@ -18,6 +18,7 @@ type MatchDiagnostics struct {
 	Confidence float64 // 0.0..1.0; 1.0 = exact DMI match, lower for partial/generic
 
 	// Fields that contributed to the match (non-empty means that field matched).
+	MatchedBoardID      string // v1.1: board catalog ID for tier-1 matches
 	MatchedBoardVendor  string
 	MatchedBoardName    string
 	MatchedChipName     string

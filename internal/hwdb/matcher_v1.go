@@ -36,30 +36,93 @@ func MatchV1WithCalibration(
 	return matchV1WithDiag(cat, chipName, dmi, cal, log)
 }
 
+// MatchV1WithDT is MatchV1 extended with device-tree signals for ARM/SBC systems.
+// livedt should be obtained via ReadDTData; dmiPresent via IsDMIPresent.
+// When dmiPresent is false, board entries with dt_fingerprint are considered for
+// tier-1 matching. RULE-FINGERPRINT-06, RULE-FINGERPRINT-07.
+func MatchV1WithDT(
+	cat *Catalog,
+	chipName string,
+	dmi DMIFingerprint,
+	livedt LiveDTData,
+	dmiPresent bool,
+	cal map[ChannelKey]*ChannelCalibration,
+	log *slog.Logger,
+) (*EffectiveControllerProfile, error) {
+	return matchV1Full(cat, chipName, dmi, livedt, dmiPresent, cal, log)
+}
+
 // DMIFingerprint holds the DMI/SMBIOS fields used for board matching.
+// v1.1 adds BoardVersion and BiosVersion for Lenovo Legion family dispatch.
 type DMIFingerprint struct {
-	SysVendor   string
-	ProductName string
-	BoardVendor string
-	BoardName   string
+	SysVendor    string
+	ProductName  string
+	BoardVendor  string
+	BoardName    string
+	BoardVersion string // v1.1: /sys/class/dmi/id/board_version
+	BiosVersion  string // v1.1: /sys/class/dmi/id/bios_version
 }
 
 func matchV1WithDiag(
 	cat *Catalog,
 	chipName string,
-	dmi DMIFingerprint, //nolint:unparam // board matching uses dmi in PR 2b
+	dmi DMIFingerprint,
+	cal map[ChannelKey]*ChannelCalibration,
+	log *slog.Logger,
+) (*EffectiveControllerProfile, error) {
+	dmiPresent := dmi.SysVendor != ""
+	return matchV1Full(cat, chipName, dmi, LiveDTData{}, dmiPresent, cal, log)
+}
+
+func matchV1Full(
+	cat *Catalog,
+	chipName string,
+	dmi DMIFingerprint,
+	livedt LiveDTData,
+	dmiPresent bool,
 	cal map[ChannelKey]*ChannelCalibration,
 	log *slog.Logger,
 ) (*EffectiveControllerProfile, error) {
 	var diag MatchDiagnostics
 	diag.DetectedChipName = chipName
 
-	// Tier 1 and 2: board/vendor matching via DMI fields is PR 2b scope. PR 2a
-	// seeds the driver/chip catalog only. The dmi parameter is accepted now so
-	// callers can pass it without a signature change in PR 2b.
-	_ = dmi
+	// Tier 1: board fingerprint match (DMI or DT depending on dmiPresent).
+	// Wildcard-only DMI entries (sys_vendor="*") are tier-3 generics — skip them here.
+	for _, entry := range cat.Boards {
+		if entry.DMIFingerprint != nil && isWildcardDMI(entry.DMIFingerprint) {
+			continue
+		}
+		if !MatchBoardEntry(entry, dmi, livedt, dmiPresent) {
+			continue
+		}
+		chip, ok := cat.Chips[entry.PrimaryController.Chip]
+		if !ok {
+			continue // board references unknown chip — skip rather than error
+		}
+		driver, ok := cat.Drivers[chip.InheritsDriver]
+		if !ok {
+			continue
+		}
+		diag.Tier = MatchTierBoard
+		diag.Confidence = 0.9
+		diag.MatchedBoardID = entry.ID
+		diag.MatchedChipName = chip.Name
+		diag.MatchedDriverModule = driver.Module
 
-	// Tier 3: chip-family fallback by name.
+		log.Debug("hwdb: tier-1 board match",
+			slog.String("board", entry.ID),
+			slog.String("chip", chip.Name),
+			slog.String("driver", driver.Module))
+
+		boardV2 := boardEntryToProfileV2(entry)
+		ecp := ResolveEffectiveProfile(driver, chip, boardV2, cal, diag)
+		if ecp.Unsupported {
+			LogUnsupportedOnce(entry.ID, log)
+		}
+		return ecp, nil
+	}
+
+	// Tier 3: chip-family fallback by detected hwmon chip name.
 	chip, ok := cat.Chips[chipName]
 	if !ok {
 		// Normalise common underscored/hyphenated variants.
@@ -86,6 +149,38 @@ func matchV1WithDiag(
 
 	ecp := ResolveEffectiveProfile(driver, chip, nil, cal, diag)
 	return ecp, nil
+}
+
+// isWildcardDMI reports whether a DMI fingerprint has all primary identifier
+// fields set to wildcard/empty values (indicating a tier-3 generic entry).
+func isWildcardDMI(fp *BoardDMIFingerprint) bool {
+	wild := func(s string) bool { return s == "" || s == "*" }
+	return wild(fp.SysVendor) && wild(fp.ProductName) && wild(fp.BoardVendor) && wild(fp.BoardName)
+}
+
+// boardEntryToProfileV2 converts a BoardCatalogEntry to the BoardProfileV2
+// shape consumed by ResolveEffectiveProfile.
+func boardEntryToProfileV2(entry *BoardCatalogEntry) *BoardProfileV2 {
+	bp := &BoardProfileV2{
+		ID:                    entry.ID,
+		PrimaryControllerChip: entry.PrimaryController.Chip,
+		Overrides: BoardOverrides{
+			CPUTINFloats:            entry.Overrides.CPUTINFloats,
+			Unsupported:             entry.Overrides.Unsupported,
+			CoolingDeviceMustDetach: entry.Overrides.CoolingDeviceMustDetach,
+		},
+	}
+	if entry.DMIFingerprint != nil {
+		bp.DMIBoardVendor = entry.DMIFingerprint.BoardVendor
+		bp.DMIBoardName = entry.DMIFingerprint.BoardName
+	}
+	for _, arg := range entry.RequiredModprobeArgs {
+		bp.RequiredModprobeArgs = append(bp.RequiredModprobeArgs, ModprobeArg{Arg: arg})
+	}
+	for _, daemon := range entry.ConflictsWithUserspace {
+		bp.ConflictsWithUserspace = append(bp.ConflictsWithUserspace, UserspaceConflict{Daemon: daemon})
+	}
+	return bp
 }
 
 // MigrateModuleProfileToECP resolves a PR 1 hardware.pwm_control string to an

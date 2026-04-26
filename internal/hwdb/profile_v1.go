@@ -208,10 +208,11 @@ type CatalogDocument struct {
 	ChipProfiles   []ChipProfile   `yaml:"chip_profiles,omitempty"`
 }
 
-// Catalog holds the full merged driver + chip catalog loaded from the embedded FS.
+// Catalog holds the full merged driver + chip + board catalog loaded from the embedded FS.
 type Catalog struct {
 	Drivers map[string]*DriverProfile // keyed by module name
 	Chips   map[string]*ChipProfile   // keyed by chip name value
+	Boards  []*BoardCatalogEntry      // ordered board profiles for tier-1/2 matching
 }
 
 // CalibrationRun is the top-level runtime probe result, written as JSON to disk
@@ -326,6 +327,13 @@ func LoadCatalog() (*Catalog, error) {
 			cat.Chips[cp.Name] = cp
 		}
 	}
+
+	// Load board catalog (embedded catalog/boards/*.yaml).
+	boards, err := LoadBoardCatalog()
+	if err != nil {
+		return nil, catalogErrorf("board catalog: %w", err)
+	}
+	cat.Boards = boards
 
 	return cat, nil
 }
@@ -537,6 +545,16 @@ func LoadCatalogFromFS(fsys fs.FS) (*Catalog, error) {
 				cat.Chips[cp.Name] = cp
 			}
 		}
+	}
+
+	// Optionally load boards from the "boards/" sub-directory.
+	boardsFS, err := fs.Sub(fsys, "boards")
+	if err == nil {
+		boards, err := LoadBoardCatalogFromFS(boardsFS)
+		if err != nil {
+			return nil, catalogErrorf("board catalog: %w", err)
+		}
+		cat.Boards = boards
 	}
 
 	return cat, nil

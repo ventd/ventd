@@ -1,0 +1,177 @@
+package hwdb
+
+import (
+	"embed"
+	"errors"
+	"fmt"
+	"io/fs"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+//go:embed catalog/boards/*.yaml
+var boardCatalogFS embed.FS
+
+// boardSupportedVersions is the set of schema_version strings accepted for
+// the board catalog. Empty string covers legacy entries from before versioning.
+var boardSupportedVersions = map[string]struct{}{
+	"":    {}, // absent → treated as 1.0
+	"1.0": {},
+	"1.1": {},
+}
+
+// BoardCatalogCurrentVersion is the schema_version this binary writes for
+// new board catalog entries.
+const BoardCatalogCurrentVersion = "1.1"
+
+// BoardCatalogDocument is the top-level shape of a catalog/boards/*.yaml file.
+type BoardCatalogDocument struct {
+	SchemaVersion string              `yaml:"schema_version,omitempty"`
+	BoardProfiles []BoardCatalogEntry `yaml:"board_profiles"`
+}
+
+// BoardCatalogEntry is one board profile in the board catalog. A board entry
+// must have exactly one of dmi_fingerprint or dt_fingerprint (RULE-HWDB-PR4-05).
+type BoardCatalogEntry struct {
+	ID                     string                `yaml:"id"`
+	DMIFingerprint         *BoardDMIFingerprint  `yaml:"dmi_fingerprint,omitempty"`
+	DTFingerprint          *DTFingerprint        `yaml:"dt_fingerprint,omitempty"` // v1.1
+	PrimaryController      BoardController       `yaml:"primary_controller"`
+	AdditionalControllers  []BoardController     `yaml:"additional_controllers"`
+	Overrides              BoardCatalogOverrides `yaml:"overrides"`
+	RequiredModprobeArgs   []string              `yaml:"required_modprobe_args"`
+	ConflictsWithUserspace []string              `yaml:"conflicts_with_userspace"`
+	Notes                  string                `yaml:"notes,omitempty"`
+	Citations              []string              `yaml:"citations"`
+	ContributedBy          string                `yaml:"contributed_by"`
+	CapturedAt             string                `yaml:"captured_at"`
+	Verified               bool                  `yaml:"verified"`
+	Defaults               *BoardDefaults        `yaml:"defaults,omitempty"`
+}
+
+// BoardDMIFingerprint is the DMI match pattern for a board catalog entry.
+// Fields support glob with '*' wildcards; empty or "*" matches anything.
+// v1.1 adds BiosVersion for Lenovo Legion family dispatch (RULE-HWDB-PR4-01).
+type BoardDMIFingerprint struct {
+	SysVendor    string `yaml:"sys_vendor"`
+	ProductName  string `yaml:"product_name"`
+	BoardVendor  string `yaml:"board_vendor"`
+	BoardName    string `yaml:"board_name"`
+	BoardVersion string `yaml:"board_version"`
+	BiosVersion  string `yaml:"bios_version,omitempty"` // v1.1
+}
+
+// DTFingerprint is the device-tree match pattern for ARM/SBC boards without
+// DMI (RULE-HWDB-PR4-03, RULE-HWDB-PR4-04). At least one field must be set.
+// Mutually exclusive with dmi_fingerprint (RULE-HWDB-PR4-05).
+type DTFingerprint struct {
+	Compatible string `yaml:"compatible,omitempty"`
+	Model      string `yaml:"model,omitempty"`
+}
+
+// BoardController identifies the hwmon chip for a board's fan controller.
+type BoardController struct {
+	Chip      string `yaml:"chip"`
+	SysfsHint string `yaml:"sysfs_hint,omitempty"`
+}
+
+// BoardCatalogOverrides holds board-specific overrides applied on top of the
+// chip and driver profile layers.
+type BoardCatalogOverrides struct {
+	CPUTINFloats            bool   `yaml:"cputin_floats,omitempty"`
+	Unsupported             bool   `yaml:"unsupported,omitempty"` // v1.1: sensors-only mode
+	ArmDeviceTree           bool   `yaml:"arm_device_tree,omitempty"`
+	CoolingDeviceMustDetach bool   `yaml:"cooling_device_must_detach,omitempty"`   // v1.1: ARM boards
+	BIOSOverriddenPWMWrites bool   `yaml:"bios_overridden_pwm_writes,omitempty"`   // Gigabyte X670E etc.
+	ROSensorOnly            bool   `yaml:"ro_sensor_only,omitempty"`               // Dell laptops: reads OK, no fan writes
+	BMCOverridesHwmon       bool   `yaml:"bmc_overrides_hwmon,omitempty"`          // Supermicro: hwmon writes ignored by BMC
+	PreferIPMIBackend       bool   `yaml:"prefer_ipmi_backend,omitempty"`          // Supermicro: use spec-01 IPMI path
+	FanModeOnly             bool   `yaml:"fan_mode_only,omitempty"`                // IdeaPad/Yoga: mode enum, not PWM
+	ModeCount               int    `yaml:"mode_count,omitempty"`                   // number of fan modes when fan_mode_only
+	DynamicEnumeration      bool   `yaml:"dynamic_enumeration,omitempty"`          // HP WMI: channels discovered at runtime
+	PWMScale                string `yaml:"pwm_scale,omitempty"`                    // ThinkPad: "0-7-mapped-to-0-255"
+	RequiresWatchdog        bool   `yaml:"requires_watchdog,omitempty"`            // Supermicro: BMC watchdog must be armed
+	WatchdogSecondsDefault  int    `yaml:"watchdog_seconds_default,omitempty"`     // default BMC watchdog interval
+	SecondaryFanUncontrol   bool   `yaml:"secondary_fan_uncontrollable,omitempty"` // ThinkPad P-series: 2nd fan read-only
+}
+
+// BoardDefaults holds optional default control curves for the board.
+// Curve shape is validated by the controller layer; the catalog stores them
+// as raw interface{} to avoid coupling to the curve schema here.
+type BoardDefaults struct {
+	Curves []any `yaml:"curves,omitempty"`
+}
+
+// LoadBoardCatalog loads all board catalog entries from the embedded FS.
+// Returns a slice of validated board entries; any validation failure aborts
+// the entire load (same policy as LoadCatalog for driver profiles).
+func LoadBoardCatalog() ([]*BoardCatalogEntry, error) {
+	return loadBoardCatalogFromFS(boardCatalogFS, "catalog/boards")
+}
+
+// LoadBoardCatalogFromFS loads board catalog entries from a caller-supplied FS.
+// Used in tests to inject synthetic board data without touching the embedded FS.
+func LoadBoardCatalogFromFS(fsys fs.FS) ([]*BoardCatalogEntry, error) {
+	return loadBoardCatalogFromFS(fsys, ".")
+}
+
+func loadBoardCatalogFromFS(fsys fs.FS, dir string) ([]*BoardCatalogEntry, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		// Treat a missing boards directory as an empty catalog — test MapFS
+		// fixtures that only seed drivers/chips don't need a boards/ dir.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("hwdb board catalog: read dir %q: %w", dir, err)
+	}
+
+	var all []*BoardCatalogEntry
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		path := dir + "/" + e.Name()
+		if dir == "." {
+			path = e.Name()
+		}
+		data, err := fs.ReadFile(fsys, path)
+		if err != nil {
+			return nil, fmt.Errorf("hwdb board catalog: read %s: %w", e.Name(), err)
+		}
+		var doc BoardCatalogDocument
+		dec := yaml.NewDecoder(strings.NewReader(string(data)))
+		dec.KnownFields(true)
+		if err := dec.Decode(&doc); err != nil {
+			return nil, fmt.Errorf("hwdb board catalog: parse %s: %w", e.Name(), err)
+		}
+		if _, ok := boardSupportedVersions[doc.SchemaVersion]; !ok {
+			return nil, fmt.Errorf("hwdb board catalog: %s: unknown schema_version %q", e.Name(), doc.SchemaVersion)
+		}
+		for i := range doc.BoardProfiles {
+			bp := &doc.BoardProfiles[i]
+			if err := validateBoardCatalogEntry(bp); err != nil {
+				return nil, fmt.Errorf("hwdb board catalog: %s: %w", e.Name(), err)
+			}
+			all = append(all, bp)
+		}
+	}
+	return all, nil
+}
+
+// validateBoardCatalogEntry enforces RULE-FINGERPRINT-08 / RULE-SCHEMA-08:
+// exactly one of dmi_fingerprint or dt_fingerprint must be set on each board
+// entry, and a dt_fingerprint must have at least one non-empty field.
+func validateBoardCatalogEntry(bp *BoardCatalogEntry) error {
+	if bp.DMIFingerprint != nil && bp.DTFingerprint != nil {
+		return fmt.Errorf("profile %q: both dmi_fingerprint and dt_fingerprint are set; exactly one is required", bp.ID)
+	}
+	if bp.DMIFingerprint == nil && bp.DTFingerprint == nil {
+		return fmt.Errorf("profile %q: neither dmi_fingerprint nor dt_fingerprint is set; exactly one is required", bp.ID)
+	}
+	if bp.DTFingerprint != nil && bp.DTFingerprint.Compatible == "" && bp.DTFingerprint.Model == "" {
+		return fmt.Errorf("profile %q: dt_fingerprint has no fields set; at least compatible or model is required", bp.ID)
+	}
+	return nil
+}
