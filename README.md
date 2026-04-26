@@ -33,6 +33,9 @@ It is also — to our knowledge — the only Linux fan daemon in its class that 
 * **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
 * **Native USB HID for AIO pumps.** Corsair Commander Core, Core XT, and Commander ST shipped in v0.4.0 — talking directly to the device through a pure-Go hidraw stack with no `liquidctl` Python sidecar. Read-only by default; writes opt-in behind `--enable-corsair-write`.
 * **IPMI for server BMCs.** ASRock Rack, Supermicro, and other server boards exposing IPMI fan control. Shipped in v0.3.1.
+* **Hardware database (52 boards, 6 vendors).** Curated catalog covering MSI, ASUS, Gigabyte, ASRock, Dell (consumer + PowerEdge), HP, HPE, Lenovo (IdeaPad/ThinkPad/Legion), Supermicro, and Raspberry Pi. Three-tier matcher: exact board match, then BIOS-version glob, then chip-family fallback. GPU vendor coverage: NVIDIA (NVML), AMD (amdgpu), Intel (i915/xe). Shipped in v0.5.0; controller auto-load lands in v0.6.
+* **Calibration safety: runtime probe + apply-path enforcement.** Calibration produces a real per-PWM probe result. The apply path refuses to write to channels that haven't been runtime-probed or are flagged unsupported in the catalog. Shipped in v0.5.0.
+* **Diagnostic bundle.** `ventd diag` produces a redacted NDJSON bundle for support and bug reports. Built-in redactor with fuzz-tested anonymisation. Shipped in v0.5.0.
 * **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI. The curve editor uses calibration data to draw the stall zone in red, so you can't accidentally set a curve below the fan's stop threshold.
 * **Hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
 * **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
@@ -63,8 +66,8 @@ ventd is being built to break that ceiling. **The v1.0 thesis is predictive ther
 
 The v0.5 → v1.0 roadmap is the march to that capability. Each release ships a layer of the stack as a usable feature on its own:
 
-* **v0.5 — Curated profile database.** First-boot zero-click on hardware ventd has seen before. The fingerprint-keyed profile schema landed in v0.3.0; v0.5 populates it.
-* **v0.6 — PI controller with autotune.** Replaces the curve as the inner control loop. Smoother fan response, less hunting, gives you a closed-loop controller you can run today instead of a lookup table.
+* **v0.5 — Curated profile database (shipped 2026-04-26).** Fingerprint-keyed catalog seeded with 52 boards, GPU vendor coverage, and OOT/BMC driver descriptors. Calibration emits pending profile YAMLs after each run. Auto-loading curated profiles at controller startup is v0.6 territory.
+* **v0.6 — PI controller with autotune.** Replaces the curve as the inner control loop. Smoother fan response, less hunting, gives you a closed-loop controller you can run today instead of a lookup table. Also adds catalog-driven profile auto-load at startup.
 * **v0.7 — Feedforward + safety latch.** Anticipates load from CPU/GPU utilisation, not just temperature. The first piece of "predictive" — but reactive enough to fall back safely if the model is wrong.
 * **v0.8 — Online thermal model identification (VFF-RLS + ARX).** ventd watches your machine for a few hours and learns its thermal time constants. The model that the v1.0 predictor will run on top of.
 * **v0.9 — Acoustic signatures.** Detect bearing wear from fan sound; dither synchronised fans to break beat frequencies.
@@ -74,7 +77,7 @@ Detailed design in [specs/spec-05-predictive-thermal.md](https://github.com/vent
 
 **Hardware coverage continues in parallel:** NZXT and Lian Li USB AIOs (v0.4.x), laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi. **Cross-platform** (Windows, macOS, FreeBSD) is post-v1.0.
 
-Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware database) shipped in v0.3.0. Phase 2 (multi-backend hardware support — IPMI in v0.3.1, Corsair AIO in v0.4.0) is underway.
+Phase 1 (HAL foundation, hot-loop optimisation, fingerprint-keyed hardware database) shipped in v0.3.0. Phase 2 (multi-backend hardware support — IPMI in v0.3.1, Corsair AIO in v0.4.0, hardware database with 52-board catalog and GPU vendor coverage in v0.5.0) is underway.
 
 ## Install
 
@@ -124,7 +127,7 @@ sudo cat /run/ventd/setup-token
 | IPMI for server BMCs | yes | no | no | no | no |
 | Hardware change detection | yes | no | no | no | no |
 | Predictive thermal control | v1.0 target | no | no | no | no |
-| Curated per-hardware profiles | v0.5 target | yes | no | partial | no |
+| Curated per-hardware profiles | yes (v0.5.0, catalog ships; auto-load v0.6) | yes | no | partial | no |
 | Native desktop GUI | no (web UI) | yes (Qt) | no | no | no |
 
 CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app today. ventd trades those for zero-config first boot, a browser-only workflow that works over the network, no runtime dependencies, an unprivileged daemon, and a roadmap pointed at predictive control.
