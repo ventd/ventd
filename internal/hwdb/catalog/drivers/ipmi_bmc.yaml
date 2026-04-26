@@ -1,0 +1,127 @@
+# IPMI BMC driver entry — spec-03 PR 3 scope-C.
+# Mainline kernel since 2.6 era. Provides /dev/ipmi0 character device
+# via ipmi_si.ko + ipmi_devintf.ko stack.
+#
+# Spec linkage: spec-01 IPMI polish (in-flight v0.3.x backend),
+# spec-03 §11 (driver catalog). Boards reference this driver via
+# `chip: "ipmi_bmc"` in primary_controller block.
+#
+# This entry formalizes the catalog presence so server-class board
+# YAMLs (Supermicro, Dell PowerEdge, HPE ProLiant, IBM/Lenovo) can
+# dispatch to the IPMI backend rather than hwmon Super-I/O when both
+# are available. BMCs override hwmon writes within seconds, so IPMI
+# is the only path that actually controls fans on these systems.
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+driver:
+  name: "ipmi_bmc"
+  module: "ipmi_si"
+  also_required_modules:
+    - "ipmi_devintf"            # creates /dev/ipmiN chardev
+    - "ipmi_msghandler"         # auto-loaded as dependency
+  kernel_module_source: "mainline"
+  license: "GPL-2.0"
+  dkms_required: false
+  mainline_status: "mainline-since-2.6"
+
+  capabilities:
+    - "fan_pwm_via_ipmi_raw"    # vendor-specific raw command (NOT in standard IPMI 2.0 spec)
+    - "fan_tach_via_ipmi_sensors"
+    - "temperature_via_ipmi_sensors"
+    - "fan_speed_threshold_alerts"
+    - "vendor_oem_passthrough"  # 0x30 netfn for OEM commands
+
+  device_path: "/dev/ipmi0"
+  alternative_device_paths:
+    - "/dev/ipmidev/0"          # some distros symlink here
+    - "/dev/bmc"                # SuSE convention
+
+  defaults:
+    curves: []
+
+  conflicts_with_userspace:
+    - "ipmitool"                # CLI userspace, mutually-exclusive runtime control
+    - "freeipmi"                # alternative IPMI userspace stack
+    - "OpenManage Server Administrator"  # Dell OMSA daemon
+    - "smfc"                    # petersulyok/smfc Supermicro fan control daemon
+    - "iLO Health Driver"       # HPE in-OS iLO agent
+    - "ipmiseld"                # FreeIPMI SEL daemon — read-only conflict only
+
+  required_modprobe_args: []
+  optional_modprobe_args:
+    - "type=kcs"                # KCS interface — most common, autodetected
+    - "type=bt"                 # Block Transfer — older boards
+    - "type=smic"               # Server Management — rare
+
+  notes: |
+    Backend for any board with on-die or socketed BMC. Common BMC
+    chips: ASPEED AST2400/AST2500/AST2600 (Supermicro, Asrock Rack,
+    most modern boards), Dell iDRAC8/iDRAC9 (PowerEdge 13G/14G/15G+),
+    HPE iLO 4/iLO 5/iLO 6 (ProLiant Gen8/Gen10/Gen10+/Gen11),
+    Nuvoton WPCM450 (older boards), IBM/Lenovo IMM2 (System x).
+
+    ARCHITECTURAL PRECEDENCE on server boards: ventd MUST prefer this
+    backend over hwmon Super-I/O backends (nct6775, nct7802, w83627hf
+    family) when both are detected on the same board. BMC firmware
+    actively manages fans independently of the OS and overrides hwmon
+    PWM writes within 1-5 seconds. The Super-I/O chip writes APPEAR to
+    succeed at the kernel hwmon layer (sysfs accepts the value), then
+    the BMC clobbers them.
+
+    VENDOR-SPECIFIC RAW COMMANDS (informational — backend implements,
+    not codified in driver YAML):
+
+    Supermicro (X9, X10, X11, X12, H11, H12, H13 generations):
+      Set full mode:    raw 0x30 0x45 0x01 0x01
+      Set zone PWM:     raw 0x30 0x70 0x66 0x01 <zone> <pwm_0_to_64_hex>
+      Read zone PWM:    raw 0x30 0x70 0x66 0x00 <zone>
+      Zone 0 = CPU/MB fans; Zone 1 = peripheral fans.
+      Some H13/EPYC variants also use raw 0x30 0x91 0x5A for HDD bay zones.
+
+    Dell PowerEdge 12G/13G (R720, R730, R420, T620, T720):
+      Enable manual:    raw 0x30 0x30 0x01 0x00
+      Disable manual:   raw 0x30 0x30 0x01 0x01  (returns to iDRAC auto)
+      Set fan PWM%:     raw 0x30 0x30 0x02 0xff <pct_hex>  (0x00-0x64 = 0-100%)
+
+    Dell PowerEdge 14G/15G+ (R640, R740, R740xd, R750, R660, R760):
+      Same commands work on iDRAC9 firmware <= 3.30.30.30. Dell
+      DELIBERATELY BLOCKED these in iDRAC9 firmware >= 3.34.34.34.
+      Newer firmware returns "Insufficient privilege level" (0xd4).
+      Workaround: downgrade iDRAC firmware (Dell explicitly permits
+      downgrade per KB 000225924); use Dell `racadm` thermal-offset API;
+      or accept loud-fan default. Document this clearly to user.
+
+    HPE ProLiant Gen10+/iLO5+:
+      iLO 5 emulates IPMI 2.0 KCS interface for STANDARD commands only.
+      Vendor-specific raw fan-control commands are NOT supported on
+      iLO 5/6/7. Confirmed by community tooling (alex3025/ilo-fans-controller
+      explicitly lists Gen10/11/12 as unsupported). Gen10+ servers
+      reported as `chip: "ipmi_bmc"` are READ-ONLY for fan control via
+      IPMI. ventd should mark these `fan_control_blocked_by_bmc: true`
+      in board YAML and route to telemetry-only.
+
+      iLO 4 (Gen8/Gen9) had a documented but undocumented community
+      workaround using XML configuration scripts — not via raw IPMI.
+      Out of scope for ventd v0.5.0; revisit if Gen8/Gen9 demand exists.
+
+    BACKEND OPTIONS:
+      In-band (KCS via /dev/ipmi0): zero-config on most servers, fastest,
+        but requires kernel modules loaded. ventd v0.5.0 default.
+      Out-of-band (lanplus over LAN to BMC IP): works without OS-side
+        ipmi modules, requires BMC user credentials. Useful when ventd
+        runs on a different host than the server (e.g. Proxmox host
+        managing a separate physical server). Deferred to v0.6.0+.
+
+  citations:
+    - "https://docs.kernel.org/driver-api/ipmi.html (IPMI subsystem doc)"
+    - "https://www.virtualbytes.io/dell-poweredge-ipmi-fan-control/ (Dell raw command reference)"
+    - "https://www.dell.com/community/en/conversations/poweredge-hardware-general/dell-eng-is-taking-away-fan-speed-control-away-from-users-idrac-3343434/647f8593f4ccf8a8de47aa9b (iDRAC 3.34 fan-control removal evidence)"
+    - "https://www.spxlabs.com/blog/2019/3/16/silence-your-dell-poweredge-server (Dell PowerEdge IPMI workflow + fan name conventions)"
+    - "https://www.mikesbytes.org/server/2019/03/01/ipmi-fan-control.html (Supermicro raw 0x30 0x91 0x5A 0x3 0x10 fan PWM evidence)"
+    - "https://b3n.org/supermicro-fan-speed-script/ (Supermicro raw 0x30 0x45 0x01 0x01 + zone-based control reference)"
+    - "https://github.com/alex3025/ilo-fans-controller (HPE iLO 5/6/7 NOT supported — confirms Gen10+ block)"
+
+  contributed_by: "anonymous"
+  captured_at: "2026-04-26"

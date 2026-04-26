@@ -1,0 +1,190 @@
+# Raspberry Pi additional ARM SBC catalog — spec-03 PR 3 scope-C entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# REQUIRES SCHEMA v1.1 (spec-03-amendment-schema-v1.1.md):
+#   - dt_fingerprint as alternative to dmi_fingerprint (§SCHEMA-DT)
+#   Without v1.1, these entries cannot match cleanly — the scope-B
+#   Pi 5 entry's `synthesize_fingerprint_from_dt` hack would be the
+#   only path, and that hack should be removed when v1.1 ships.
+#
+# COMPANION TO scope-B raspberry-pi.yaml (Pi 5 Model B).
+#
+# CRITICAL DEPARTURE FROM x86 PATTERN (recap from scope-B):
+#   ARM SBCs use Linux thermal-zones + cooling-device framework, not
+#   hwmon Super-I/O. Writes to pwm1 are IGNORED while a thermal zone
+#   has the cooling-device bound and step_wise governor active. ventd
+#   must detach cooling binding OR set thermal zone mode=disabled
+#   before pwm1 writes take effect.
+#
+# Pi 4B SPECIFIC: Two distinct fan-control paths exist depending on
+# which hardware the user has connected:
+#   1. Official Pi 4 Case Fan + GPIO header → gpio-fan overlay
+#      (binary on/off ONLY, no PWM). hwmon cooling_device cur_state
+#      0 or 1. ventd cannot do meaningful curve control here.
+#   2. Aftermarket PWM fan (Waveshare, generic) on GPIO12/14/18 →
+#      pwm-fan overlay. Provides full PWM via /sys/class/pwm/pwmchip0
+#      + hwmon cooling_device with multiple states. ventd CAN do real
+#      curves here.
+# Distinguishing the two requires inspecting /sys/class/thermal/
+# cooling_device*/type (gpio-fan vs pwm-fan) at runtime — ventd
+# autodetect, not encoded in board YAML.
+#
+# CM4 SPECIFIC: Fan path depends on CARRIER BOARD, not the CM4 itself.
+# CM4 module has no fan connector. Carrier boards add their own:
+#   - Official CM4 IO Board: EMC2301 over I2C bus 10 (videocore I2C),
+#     PWM control via mainline emc2301 driver (merged into rpi linux
+#     fork ~2022, in mainline kernel since 5.18).
+#   - Compute stick / aftermarket carriers: vary widely. Most use
+#     direct GPIO PWM (pwm-fan overlay) or no fan at all.
+# Scope-C YAML covers CM4-on-CM4IO specifically (most common homelab
+# CM4 deployment). Other carriers fall through to tier-3 generic.
+#
+# DRIVER REFERENCE:
+#   Pi 4B → existing pwm_fan_dt entry (referenced from Pi 5 scope-B);
+#     supplemented with gpio-fan path detection at runtime.
+#   CM4-on-CM4IO → new emc2301_cm4io entry needed if we want a
+#     dedicated chip name (currently using existing emc2301
+#     mainline driver via DT binding). For v0.5.0, reuse pwm_fan_dt
+#     and let the dt_fingerprint differentiate dispatch.
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+board_profiles:
+
+  - id: "raspberry-pi-4-model-b"
+    dt_fingerprint:
+      compatible: "raspberrypi,4-model-b"
+      model: "Raspberry Pi 4 Model B*"
+    primary_controller:
+      chip: "pwm_fan_dt"
+      sysfs_hint: "/sys/class/thermal/cooling_device*/type — `pwm-fan` for PWM fans, `gpio-fan` for official Case Fan"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      cooling_device_must_detach: true
+      no_dmi: true
+      requires_overlay_dtoverlay: "pwm-fan or gpio-fan"
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "rpi-fan-control"
+      - "fan2go (pi-mode)"
+    notes: |
+      Raspberry Pi 4 Model B. ARM device-tree dispatch, no DMI on
+      stock firmware. Supports both 4GB and 8GB SKUs (single
+      compatible string covers all RAM variants). Fan-control path
+      depends on user hardware:
+
+      OFFICIAL Pi 4 Case Fan + GPIO header (most common consumer setup):
+        - Overlay: gpio-fan (default in Raspberry Pi OS raspi-config
+          → Performance → Fan).
+        - Capability: BINARY on/off only. Single temperature setpoint
+          (default 60°C ON, 50°C OFF — 10°C hysteresis).
+        - cooling_device cur_state: 0 (off) or 1 (on).
+        - ventd action: register, report state. Curve control NOT
+          meaningfully possible — fan can only be on or off.
+        - User-facing message: "Official Pi 4 fan is binary on/off
+          only. ventd cannot run a fan curve. To get curves, use a
+          PWM fan on GPIO 12/14/18 with the pwm-fan overlay."
+
+      AFTERMARKET PWM fan (Waveshare PI4-FAN-PWM, Noctua 5V via
+      transistor circuit, etc):
+        - Overlay: pwm-fan (user adds dtoverlay=pwm-fan to config.txt).
+        - Capability: full PWM via 4-level cooling map (50/60/65/70°C
+          → PWM 75/128/192/255 typical default).
+        - cooling_device cur_state: 0..3.
+        - ventd action: detach cooling-device binding, write pwm1
+          directly. Real curve control available.
+
+      No tach feedback on either path — Pi 4 GPIO PWM channels do not
+      have RPM input. Tach-only input via aftermarket addon hardware
+      (PCA9685, EMC2301 on dedicated HAT) — not in scope here.
+
+      CM4-mode caveat: Pi 4B and CM4 share the BCM2711 SoC. CM4 entry
+      below uses different DT compatible string and different fan path
+      (EMC2301 on CM4IO board).
+    citations:
+      - "https://forums.raspberrypi.com/viewtopic.php?t=362312 (Pi 4B official fan = gpio-fan binary, aftermarket PWM = pwm-fan overlay distinction)"
+      - "https://forums.raspberrypi.com/viewtopic.php?t=363655 (Pi 4 official fan tacho confirmation: 'no tacho output, no speed monitoring' — read-only PWM only)"
+      - "https://www.raspberrypi.com/documentation/computers/raspberry-pi.html (Pi 4 Case Fan official documentation)"
+      - "https://www.waveshare.com/wiki/PI4-FAN-PWM (aftermarket Waveshare PWM fan — GPIO12/14/18 wiring)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "raspberry-pi-cm4-on-cm4io-board"
+    dt_fingerprint:
+      compatible: "raspberrypi,4-compute-module"
+      model: "Raspberry Pi Compute Module 4*"
+    primary_controller:
+      chip: "emc2301"
+      sysfs_hint: "/sys/class/hwmon/hwmonX (name=emc2301) via emc2301 mainline driver on I2C bus 10 (videocore I2C, 0x2f)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      cooling_device_must_detach: true
+      no_dmi: true
+      requires_overlay_dtoverlay: "cm4io-fan or upstream emc2301 binding"
+      requires_i2c_vc_enabled: true
+      i2c_address: "0x2f"
+      i2c_bus: "10"
+      carrier_board_dependent: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "rpi-fan-control"
+      - "cm4io-fan systemd service (legacy)"
+    notes: |
+      Raspberry Pi Compute Module 4 mounted on the official Compute
+      Module 4 IO Board (CM4IO, product code SC0287). NOT a
+      standalone Pi 4 — the CM4 itself has NO fan connector;
+      fan control is provided by the CARRIER BOARD's onboard EMC2301
+      fan controller chip, which ventd accesses via I2C.
+
+      DT compatible match: "raspberrypi,4-compute-module" (CM4
+      module) — does NOT match "raspberrypi,4-model-b" (Pi 4B). The
+      schema validator must allow dt_fingerprint.compatible to be a
+      glob that matches the module DT entry; carrier-board
+      identification at runtime (via I2C probe at 0x2f or via separate
+      DT overlay loaded) confirms CM4IO presence.
+
+      MANDATORY user setup (current state of upstream support, as of
+      kernel 6.13):
+        1. Edit /boot/config.txt:
+             dtparam=i2c_vc=on
+             dtoverlay=cm4io-fan,minrpm=1000,maxrpm=5000
+        2. Reboot.
+        3. Confirm `i2cdetect -y 10` shows device at 0x2f.
+
+      The cm4io-fan overlay was upstreamed to raspberrypi/linux fork
+      around 2022 (originally neg2led/neggles/cm4io-fan as DKMS).
+      EMC2301 mainline driver registers as cooling-device + hwmon.
+
+      Capability: full PWM via 8 fan speed steps (EMC2301 hardware
+      limitation), closed-loop RPM control by chip. RPM sensor
+      available — one of few ARM ventd targets where tach actually
+      works.
+
+      CM4-on-NOT-CM4IO carriers (Geekworm CM4 Stick, Seaberry,
+      RAKR314, etc.) are out of scope for this entry. Those need
+      their own per-carrier-board profiles or fall through to
+      tier-3 generic. ventd matcher should detect CM4 + absence of
+      EMC2301 at I2C 0x2f as "CM4 on unknown carrier" and emit a
+      diagnostic message asking the user to identify the carrier
+      hardware.
+
+      Some CM4IO board revisions exhibit minor PWM range reproducibility
+      issues with certain fans (small fans don't start below
+      ~minrpm=1500). Document this in user docs; not a ventd bug.
+    citations:
+      - "https://github.com/neggles/cm4io-fan (original DKMS driver — EMC2301 + Traverse Tech ten64 driver port; references mainline merge into raspberrypi/linux around 2022)"
+      - "https://www.jeffgeerling.com/blog/2021/controlling-pwm-fans-raspberry-pi-cm4-io-boards-emc2301/ (CM4IO + EMC2301 + I2C bus 10 + 0x2f address evidence)"
+      - "https://www.raspberrypi.com/documentation/computers/compute-module.html (CM4IO board fan connector official spec — 12V PWM)"
+      - "https://forums.raspberrypi.com/viewtopic.php?t=308787 (CM4IO EMC2301 + dtoverlay reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

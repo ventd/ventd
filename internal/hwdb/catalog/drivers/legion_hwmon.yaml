@@ -1,0 +1,100 @@
+# Lenovo Legion legion_laptop driver entry — spec-03 PR 3 scope-C.
+# OOT DKMS driver. Pattern matches nct6687d entry (Fred78290).
+# Required by Legion gaming laptop board catalog (lenovo-legion.yaml).
+#
+# Spec linkage: spec-03 §11 (driver catalog), spec-03 amendment v1.1
+# §SCHEMA-BIOSVER (boards reference this driver via bios_version match).
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+driver:
+  name: "legion_hwmon"
+  module: "legion_laptop"
+  kernel_module_source: "out_of_tree"
+  repository: "https://github.com/johnfanv2/LenovoLegionLinux"
+  license: "GPL-2.0-only"
+  dkms_required: true
+  mainline_status: "not-mainline-2026-04"
+  mainline_attempt_status: "in-progress-on-lkml"
+
+  capabilities:
+    - "fancurve_10point"        # debugfs RW — primary control surface, also spec-05 P4-HWCURVE prior art
+    - "powermode_4state"        # 0/1/2/3 = quiet/balanced/performance/custom (or similar — varies per gen)
+    - "platformprofile"         # standard ACPI platform_profile API mirror of powermode
+    - "minifancurve"            # secondary low-temp curve override (NOT all models)
+    - "lockfancontroller"       # bool — freezes fan to current state
+    - "fan_rpm_read_via_ec"     # EC-mapped fan tach, bypasses hwmon
+
+  sysfs_paths:
+    fancurve: "/sys/kernel/debug/legion/fancurve"
+    powermode: "/sys/module/legion_laptop/drivers/platform:legion/PNP0C09:00/powermode"
+    platformprofile: "/sys/firmware/acpi/platform_profile"
+    minifancurve: "/sys/module/legion_laptop/drivers/platform:legion/PNP0C09:00/mini_fancurve_enabled"
+    lockfan: "/sys/module/legion_laptop/drivers/platform:legion/PNP0C09:00/lockfancontroller"
+    hwmon_root: "/sys/class/hwmon/hwmonX (name=legion_hwmon)"
+
+  defaults:
+    curves: []
+
+  conflicts_with_userspace:
+    - "lenovo-legion-tools"     # KDE/Cinnamon GUI for the same kernel module
+    - "PlasmaVantage"
+    - "CinnamonVantage"
+
+  required_modprobe_args: []
+  optional_modprobe_args:
+    - "force=1"                 # bypass DMI allowlist for unsupported BIOS_VERSION
+
+  notes: |
+    OOT DKMS driver. Userspace must install via DKMS package (.deb/.rpm
+    in repo releases), Arch AUR, Fedora COPR (johnfanv2/LenovoLegionLinux),
+    or build from source with `sudo make reloadmodule`. Kernel
+    headers required for build.
+
+    Driver enforces a per-generation BIOS_VERSION allowlist (matches
+    on 4-char prefix: GKCN, EUCN, FSCN, H1CN, J2CN, JUCN, HHCN, M3CN,
+    LPCN, N0CN, Q7CN). Boards outside the allowlist refuse to load
+    with kernel msg "legion: probe of PNP0C09:00 failed with error -12"
+    unless `force=1` modparam is set. Forced loads "use configuration
+    for system: GKCN" as fallback — fan curve format may not match,
+    EC chip ID mismatch is logged and ignored.
+
+    EC chip ID variance (informational, ventd does not dispatch on this):
+      0x8227 — typical Gen 6/7/8 GKCN/H1CN/M3CN
+      0x5507 — Gen 8 LPCN (Pro 7 16ARX8H, Slim 5 Pro 16ARX8)
+      0x5508 — newer Gen 9+ variants
+      Mismatch reported in dmesg as "Expected EC chip id 0x8227 but
+      read 0x5507". Driver continues loading; some features (fan curve
+      slot count, e.g.) silently degrade.
+
+    Some Gen 8+ generations exhibit `Unexpected value in
+    maximumfanspeed register` warnings in dmesg even on supported
+    boards. ventd should treat read errors here as transient and not
+    flag the board as broken.
+
+    Linux mainline status: johnfanv2 has submitted partial upstreaming
+    patches to the platform/x86 maintainer mailing list. As of kernel
+    6.13, none merged. ventd assumes OOT for v0.5.0+; revisit when
+    mainline lands.
+
+    ventd integration approach (informational, not part of v0.5.0
+    catalog ship):
+      - v0.5.0: register driver, recognize Legion boards, fall through
+        to telemetry-only (curves: []) if ventd doesn't yet write to
+        debugfs/fancurve.
+      - v0.6.0+: ventd writes powermode + platform_profile (these are
+        single-value writes, low risk).
+      - v0.7.0 / spec-05 P4-HWCURVE: ventd uses 10-point fancurve as
+        backend — but designs its own curve, not the BIOS default.
+
+  citations:
+    - "https://github.com/johnfanv2/LenovoLegionLinux (driver source, README, supported model list)"
+    - "https://github.com/johnfanv2/LenovoLegionLinux/issues/76 (Slim 5 16APH8 — M3CN31WW dmesg evidence, EC 0x8227)"
+    - "https://github.com/johnfanv2/LenovoLegionLinux/issues/234 (Pro 7 16ARX8H — LPCN45WW + EC 0x5507 mismatch dmesg)"
+    - "https://github.com/johnfanv2/LenovoLegionLinux/issues/385 (Pro 7 Gen 10 16IAX10H — Q7CN44WW, force=1 workflow)"
+    - "https://github.com/johnfanv2/LenovoLegionLinux/issues/386 (15ACH6H GKCN65WW — maximumfanspeed register warning evidence)"
+    - "https://www.legionfancontrol.com/ (cross-vendor BIOS_VERSION → model family table)"
+
+  contributed_by: "anonymous"
+  captured_at: "2026-04-26"
