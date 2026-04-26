@@ -21,6 +21,11 @@ var (
 	ErrNotAvailable       = errors.New("nvml not available (built with -tags nonvidia)")
 )
 
+const (
+	FanPolicyTemperatureDiscrete  = 0
+	FanPolicyTemperatureContinuos = 1
+)
+
 func Init(logger *slog.Logger) error {
 	if logger != nil {
 		logger.Info("nvidia: compiled out (nonvidia build tag); GPU features disabled")
@@ -40,3 +45,8 @@ func ReadMetric(index uint, metric string) (float64, error) { return 0, ErrNotAv
 func ReadFanSpeed(index uint) (uint8, error)                { return 0, ErrNotAvailable }
 func WriteFanSpeed(index uint, pwm uint8) error             { return ErrNotAvailable }
 func ResetFanSpeed(index uint) error                        { return ErrNotAvailable }
+func SetFanControlPolicy(index uint, fanIdx int, policy int) (bool, error) {
+	return false, ErrNotAvailable
+}
+func DeviceUUID(index uint) (string, error) { return "", ErrNotAvailable }
+func DriverVersion() (string, error)        { return "", ErrNotAvailable }

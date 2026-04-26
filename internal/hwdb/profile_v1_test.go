@@ -369,6 +369,32 @@ func TestRuleHwdbPR2_14(t *testing.T) {
 	})
 }
 
+// TestHWDB_GPUEntriesV1Compatible verifies RULE-GPU-PR2D-04: all GPU driver YAML
+// entries validate against the existing schema v1.0 with no new fields.
+func TestHWDB_GPUEntriesV1Compatible(t *testing.T) {
+	cat := mustLoadEmbeddedCatalog(t)
+
+	gpuModules := []string{"nvidia", "amdgpu", "amdgpu_rdna3", "i915", "xe", "nouveau", "radeon"}
+	for _, mod := range gpuModules {
+		dp, ok := cat.Drivers[mod]
+		if !ok {
+			t.Errorf("GPU driver %q not found in embedded catalog", mod)
+			continue
+		}
+		if dp == nil {
+			t.Errorf("GPU driver %q has nil profile", mod)
+		}
+	}
+
+	// Chip profiles for GPU hwmon names must be present.
+	gpuChips := []string{"amdgpu", "nouveau", "i915", "xe", "radeon"}
+	for _, chip := range gpuChips {
+		if _, ok := cat.Chips[chip]; !ok {
+			t.Errorf("GPU chip profile %q not found in embedded catalog", chip)
+		}
+	}
+}
+
 // --- helpers ---
 
 func mustLoadEmbeddedCatalog(t *testing.T) *Catalog {

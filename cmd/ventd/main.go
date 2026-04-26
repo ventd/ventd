@@ -23,6 +23,7 @@ import (
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
+	halgpu "github.com/ventd/ventd/internal/hal/gpu"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halipmi "github.com/ventd/ventd/internal/hal/ipmi"
 	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
@@ -81,6 +82,7 @@ func run() error {
 	doCalibrateProbe := flag.Bool("calibrate-probe", false, "run the PR 2b channel-validity probe (polarity, stall, BIOS-override) and write calibration JSON, then exit")
 	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
 	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
+	enableGPUWrite := flag.Bool("enable-gpu-write", false, "enable fan write commands for NVIDIA/AMDGPU GPUs; requires per-device capability probe success (RULE-GPU-PR2D-01)")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	versionJSON := flag.Bool("json", false, "with --version: emit JSON instead of plain text")
 	flag.Parse()
@@ -293,6 +295,7 @@ func run() error {
 	// a single source of truth.
 	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
 	halcorsair.RegisterAll(logger, halcorsair.ProbeOptions{})
+	halgpu.RegisterAll(logger, halgpu.ProbeOptions{EnableGPUWrite: *enableGPUWrite})
 	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))

@@ -1,0 +1,25 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "radeon"
+    family: "amd-gpu"
+    description: "Legacy AMD GPU via radeon driver (pre-GCN4, HD 7xxx, R9 2xx/3xx, RX 4xx/5xx on non-amdgpu kernel). Read-only fan sensor on most cards; pwm1 may be writable on some GCN4 cards but is not reliably supported. fan_control_capable=false for safety — users who need fan control should switch to amdgpu driver."
+    capability: "ro_sensor_only"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes: {}
+    off_behaviour: "state_off"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver:
+      module: "amdgpu"
+      source: "https://wiki.archlinux.org/title/AMDGPU"
+    conflicts_with_userspace: []
+    fan_control_capable: false
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "bios_dependent"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.kernel.org/gpu/drm-internals.html"

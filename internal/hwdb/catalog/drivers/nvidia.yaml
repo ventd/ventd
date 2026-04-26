@@ -1,0 +1,26 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "nvidia"
+    family: "nvidia-gpu"
+    description: "NVIDIA GPU fan control via NVML (purego dlopen, no CGO). R515+ required for SetFanSpeed_v2; R520+ for SetFanControlPolicy. Read-only on pre-R515 and non-Maxwell architectures. pwm_unit is percentage_0_100 matching NVML's 0–100 scale. exit_behaviour=bios_dependent because nvmlDeviceSetDefaultFanSpeed_v2 is documented as broken — use SetFanControlPolicy(auto) on shutdown instead."
+    capability: "rw_full"
+    pwm_unit: "percentage_0_100"
+    pwm_unit_max: 100
+    pwm_enable_modes:
+      "manual": "manual"
+      "auto": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: "nvml"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "bios_dependent"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.nvidia.com/deploy/nvml-api/index.html"
+      - "https://forums.developer.nvidia.com/t/nvmldevicesetdefaultfanspeed-v2-does-not-resume-fan-speed-algorithm-please-fix/214430"
