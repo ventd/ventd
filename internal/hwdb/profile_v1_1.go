@@ -85,8 +85,8 @@ type BoardCatalogOverrides struct {
 	CoolingDeviceMustDetach bool   `yaml:"cooling_device_must_detach,omitempty"`   // v1.1: ARM boards
 	BIOSOverriddenPWMWrites bool   `yaml:"bios_overridden_pwm_writes,omitempty"`   // Gigabyte X670E etc.
 	ROSensorOnly            bool   `yaml:"ro_sensor_only,omitempty"`               // Dell laptops: reads OK, no fan writes
-	BMCOverridesHwmon       bool   `yaml:"bmc_overrides_hwmon,omitempty"`          // Supermicro: hwmon writes ignored by BMC
-	PreferIPMIBackend       bool   `yaml:"prefer_ipmi_backend,omitempty"`          // Supermicro: use spec-01 IPMI path
+	BMCOverridesHwmon       bool   `yaml:"bmc_overrides_hwmon,omitempty"`          // Supermicro/Dell: hwmon writes ignored by BMC
+	PreferIPMIBackend       bool   `yaml:"prefer_ipmi_backend,omitempty"`          // use spec-01 IPMI path
 	FanModeOnly             bool   `yaml:"fan_mode_only,omitempty"`                // IdeaPad/Yoga: mode enum, not PWM
 	ModeCount               int    `yaml:"mode_count,omitempty"`                   // number of fan modes when fan_mode_only
 	DynamicEnumeration      bool   `yaml:"dynamic_enumeration,omitempty"`          // HP WMI: channels discovered at runtime
@@ -94,6 +94,31 @@ type BoardCatalogOverrides struct {
 	RequiresWatchdog        bool   `yaml:"requires_watchdog,omitempty"`            // Supermicro: BMC watchdog must be armed
 	WatchdogSecondsDefault  int    `yaml:"watchdog_seconds_default,omitempty"`     // default BMC watchdog interval
 	SecondaryFanUncontrol   bool   `yaml:"secondary_fan_uncontrollable,omitempty"` // ThinkPad P-series: 2nd fan read-only
+	// Dell PowerEdge server overrides
+	FanBlockedByIDRAC9v334    bool     `yaml:"fan_control_blocked_by_idrac9_3_34,omitempty"`    // iDRAC9 3.34+ blocks raw fan commands
+	VendorRawCommandSet       string   `yaml:"vendor_raw_command_set,omitempty"`                // e.g. "dell_idrac_legacy", "supermicro_x11_x12"
+	VendorRawCommandExtra     []string `yaml:"vendor_raw_command_extra,omitempty"`              // additional vendor-specific command IDs
+	PCIeCardThermalAggressive bool     `yaml:"pcie_card_thermal_response_aggressive,omitempty"` // PCIe cards trigger aggressive fan response
+	// HPE ProLiant server overrides
+	FanBlockedByILO5Plus bool `yaml:"fan_control_blocked_by_ilo_5_plus,omitempty"` // iLO 5+ blocks user fan control
+	IPMITelemetryOnly    bool `yaml:"ipmi_telemetry_only,omitempty"`               // IPMI read-only for telemetry
+	// Supermicro server overrides
+	BMCPanicModeRisk bool `yaml:"bmc_panic_mode_risk,omitempty"` // BMC may enter forced-100%-fan panic mode
+	// Lenovo Legion overrides
+	ECChipID                 string `yaml:"ec_chip_id,omitempty"`                   // embedded controller chip ID
+	ECChipIDMismatchExpected bool   `yaml:"ec_chip_id_mismatch_expected,omitempty"` // known benign EC chip ID mismatch
+	FancurveFormat           string `yaml:"fancurve_format,omitempty"`              // e.g. "10-point-debugfs"
+	ForceLoadFallbackConfig  string `yaml:"force_load_fallback_config,omitempty"`   // fallback BIOS config name (e.g. "GKCN")
+	RequiresDKMS             bool   `yaml:"requires_dkms,omitempty"`                // requires OOT DKMS module
+	RequiresForceModparam    bool   `yaml:"requires_force_modparam,omitempty"`      // requires force=1 modparam
+	// Raspberry Pi / ARM SBC overrides
+	NoDMI                    bool   `yaml:"no_dmi,omitempty"`                     // no DMI/SMBIOS on this platform
+	CarrierBoardDependent    bool   `yaml:"carrier_board_dependent,omitempty"`    // fan path depends on carrier board
+	I2CAddress               string `yaml:"i2c_address,omitempty"`                // I2C address for fan controller
+	I2CBus                   string `yaml:"i2c_bus,omitempty"`                    // I2C bus number
+	RequiresI2CVCEnabled     bool   `yaml:"requires_i2c_vc_enabled,omitempty"`    // requires VideoCore I2C enabled
+	RequiresOverlayDTOverlay string `yaml:"requires_overlay_dtoverlay,omitempty"` // required DT overlay name
+	TachInputUnavailable     bool   `yaml:"tach_input_unavailable,omitempty"`     // no tach/RPM sensor input
 }
 
 // BoardDefaults holds optional default control curves for the board.

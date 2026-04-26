@@ -1,0 +1,189 @@
+# Dell PowerEdge server catalog — spec-03 PR 3 scope-C entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# CRITICAL CONTEXT FOR ALL DELL POWEREDGE 14G+ ENTRIES:
+#   Dell deliberately blocked IPMI raw fan-control commands in iDRAC9
+#   firmware >= 3.34.34.34. Servers shipped/updated past this firmware
+#   return "Insufficient privilege level" (0xd4) on raw 0x30 0x30 0x01
+#   and raw 0x30 0x30 0x02 commands, regardless of IPMI privilege level.
+#
+#   Dell's official position (from community thread response): "iDRAC
+#   privilege access was not removed until 3.34. Going forward access
+#   is not going to be allowed as it affects the thermal algorithms
+#   and cooling the system. The options will be to use fan offset
+#   options and racadm commands to adjust the fan speed as IPMI
+#   commands will no longer work."
+#
+#   Three workarounds for users:
+#     1. Downgrade iDRAC to 3.30.30.30 (Dell explicitly permits per KB
+#        000225924). Some users report this as the only viable path.
+#     2. Use `racadm set system.thermalsettings.FanSpeedOffset` —
+#        coarse +/- offset only, no per-fan or per-zone control.
+#     3. Accept default iDRAC thermal management (loud).
+#
+#   ventd v0.5.0 catalog policy:
+#     - Recognize the board, register IPMI backend.
+#     - Add `fan_control_blocked_by_idrac9_3_34: true` override.
+#     - Probe iDRAC firmware via `ipmitool mc info` at startup. If
+#       firmware >= 3.34.x, log clear warning, run telemetry-only.
+#     - Document the downgrade workaround in user-facing docs.
+#
+#   ventd v0.6.0+ may add a racadm-bridge backend for thermal-offset
+#   control on locked iDRAC9 firmware. Out of scope for v0.5.0 catalog.
+#
+# DRIVER REFERENCE:
+#   internal/hwdb/catalog/drivers/ipmi_bmc.yaml — mainline ipmi_si.ko +
+#   ipmi_devintf.ko stack, /dev/ipmi0.
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+board_profiles:
+
+  - id: "dell-poweredge-r740"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R740"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (iDRAC9 BMC)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — dual Xeon Scalable CPU temp (limited utility — BMC owns thermal)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "OpenManage Server Administrator"
+      - "iDRAC Service Module"
+    notes: |
+      Dell PowerEdge R740 (14th gen, 2U, dual-socket Xeon Scalable
+      Gen 1/Gen 2). Common homelab/datacenter target. iDRAC9 BMC
+      (ASPEED AST2500). Fan control via raw 0x30 0x30 IPMI commands
+      ON FIRMWARE <= 3.30.30.30 ONLY.
+
+      Default fan profile is loud; manual control was the standard
+      homelab workaround until Dell blocked it. ventd should:
+        1. Detect iDRAC firmware via `ipmitool mc info`.
+        2. If <= 3.30.30.30: full IPMI fan control available.
+        3. If >= 3.34.x: telemetry-only, log warning with clear
+           explanation that this is a Dell firmware policy choice,
+           offer downgrade-or-racadm-offset alternatives in docs.
+
+      DMI product_name match: "PowerEdge R740" exact (Dell sets DMI
+      product_name to the human-readable model code per
+      `dmidecode -s system-product-name`).
+    citations:
+      - "https://www.virtualbytes.io/dell-poweredge-ipmi-fan-control/ (R740 raw 0x30 0x30 fan control workflow)"
+      - "https://www.dell.com/community/en/conversations/poweredge-hardware-general/dell-eng-is-taking-away-fan-speed-control-away-from-users-idrac-3343434/647f8593f4ccf8a8de47aa9b (Dell community thread — Dell ENG confirms 14G fan-control removal at iDRAC 3.34)"
+      - "https://www.skywardtel.com/How-to-Identify-Dell-PowerEdge-Server-Generation.html (R740 = 14G generation confirmation)"
+      - "https://kovasky.me/blogs/fan_control/ (iDRAC 9 manual fan control workflow + 3.30.30.30 firmware ceiling)"
+      - "https://www.dell.com/support/kbdoc/en-us/000225924/rac0181-idrac9-firmware-downgrade-failures-on-14-15g-poweredge-servers (Dell KB on iDRAC9 firmware downgrade)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r640"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R640"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (iDRAC9 BMC)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — dual Xeon Scalable CPU temp"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "OpenManage Server Administrator"
+      - "iDRAC Service Module"
+    notes: |
+      Dell PowerEdge R640 (14th gen, 1U, dual-socket Xeon Scalable
+      Gen 1/Gen 2). 1U variant of R740 — compact homelab target.
+      iDRAC9 BMC. Same firmware-version-gating story as R740: raw
+      IPMI commands work on <= 3.30.30.30, blocked on >= 3.34.x.
+
+      Generally LOUDER than R740 by chassis design (1U has higher
+      static pressure requirement) — many homelab buyers explicitly
+      want IPMI fan control to make these usable in a residential
+      environment. The Dell firmware lockdown hits R640 owners
+      especially hard.
+    citations:
+      - "https://www.virtualbytes.io/dell-poweredge-ipmi-fan-control/ (general PowerEdge raw-command applicable to R640 14G)"
+      - "https://www.dell.com/support/kbdoc/en-us/000257346/poweredge-how-to-change-the-fan-speed-offset (Dell official R640 in supported list — racadm thermal offset workflow as Dell-blessed alternative)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r740xd"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R740XD"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (iDRAC9 BMC)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — dual Xeon Scalable CPU temp"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "OpenManage Server Administrator"
+      - "iDRAC Service Module"
+    notes: |
+      Dell PowerEdge R740xd (14th gen, 2U, dual-socket Xeon Scalable
+      Gen 1/Gen 2 + 24x or 32x SFF storage). The "xd" variant adds
+      front-rear-NVMe storage capacity vs base R740. Single most
+      popular homelab/TrueNAS target in this generation.
+
+      KNOWN ISSUE: 14G servers default to AGGRESSIVE thermal response
+      when non-Dell PCIe cards (NIC, HBA, GPU) are detected. Even
+      with iDRAC firmware <= 3.30, the "Default fan response" mode
+      ramps fans to 60-80% with third-party LSI/Broadcom HBAs that
+      lack TempPage SMBus thermal sensors. Workaround: run
+      `raw 0x30 0xce 0x00 0x16 0x05 0x00 0x00 0x00 0x05 0x00 0x01
+      0x00 0x00` to disable the third-party-PCIe thermal-override
+      response (works on 12G/13G, deprecated on 14G+).
+
+      Same iDRAC firmware policy as R740/R640: 3.34+ blocks raw fan
+      control entirely.
+    citations:
+      - "https://techmikeny.com/blogs/techtalk/how-to-lower-fan-speed-after-installing-third-party-card (R740xd third-party-PCIe thermal override + raw 0x30 0xce command + 14G blockage warning)"
+      - "https://www.virtualbytes.io/dell-poweredge-ipmi-fan-control/ (general 14G workflow)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

@@ -1,0 +1,146 @@
+# HPE ProLiant server catalog — spec-03 PR 3 scope-C entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# CRITICAL CONTEXT FOR ALL HPE PROLIANT GEN10+ ENTRIES:
+#   HPE iLO 5 (Gen10/Gen10+/Gen11) and iLO 6 (Gen11+) emulate IPMI 2.0
+#   KCS interface for STANDARD commands ONLY. Vendor-specific raw
+#   fan-control commands (analogous to Supermicro 0x30 0x45 / Dell
+#   0x30 0x30) are NOT supported on iLO 5/6/7.
+#
+#   This is confirmed by community tooling status: alex3025/ilo-fans-controller
+#   explicitly lists Gen10/11/12 with iLO 5/6/7 as unsupported with
+#   the note: "(and probably never will [be])".
+#
+#   What works on Gen10+:
+#     - IPMI standard sensor reads (fan tach, CPU/inlet/exhaust temps).
+#     - HPE Redfish API for thermal/fan READS (sensor data, not control).
+#     - HPE iLO web UI thermal profile selection (Optimal Cooling,
+#       Increased Cooling, Maximum Cooling, Enhanced CPU Cooling) —
+#       coarse, four buckets, no per-fan / per-zone control.
+#
+#   What does NOT work on Gen10+:
+#     - Direct fan PWM control via any open API (IPMI, Redfish, or
+#       iLO REST). HPE deliberately does not expose this.
+#
+#   ventd v0.5.0 catalog policy for HPE Gen10+:
+#     - Recognize the board, register IPMI backend.
+#     - Set `fan_control_blocked_by_ilo_5_plus: true`.
+#     - Telemetry-only mode at runtime.
+#     - Web UI explains: "HPE iLO 5+ does not expose fan control to
+#       the OS. ventd reports sensors. To adjust thermal behavior,
+#       use iLO web UI's thermal profile dropdown."
+#
+#   Gen8/Gen9 (iLO 4) had community workarounds via XML configuration
+#   scripts (hponcfg, NOT raw IPMI). Out of scope for v0.5.0; revisit
+#   if Gen8/Gen9 demand exists.
+#
+# DRIVER REFERENCE:
+#   internal/hwdb/catalog/drivers/ipmi_bmc.yaml — same backend as
+#   other server boards, just with read-only-for-fans semantics here.
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+board_profiles:
+
+  - id: "hpe-proliant-dl380-gen10"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL380 Gen10"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (iLO 5 BMC)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Xeon Scalable Gen 1/Gen 2 CPU temp"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "iLO Health Driver"
+      - "hp-health"
+      - "hponcfg"
+    notes: |
+      HPE ProLiant DL380 Gen10 (2U, dual-socket Xeon Scalable Gen 1
+      Skylake-SP / Gen 2 Cascade Lake-SP). Most popular HPE Gen10
+      homelab/datacenter target. iLO 5 BMC. NO USER FAN CONTROL via
+      IPMI — HPE deliberately omitted vendor-specific fan-write commands
+      from iLO 5's IPMI surface.
+
+      The iLO web UI's "Thermal Configuration" dropdown is the only
+      user-facing fan-policy knob. Choices:
+        - Optimal Cooling (default)
+        - Increased Cooling
+        - Maximum Cooling
+        - Enhanced CPU Cooling
+      None of these expose per-fan or per-PWM-percentage control.
+
+      ventd in this state: telemetry mode. Fan tach + temp sensors
+      visible; no curve apply. Diagnostic banner in Web UI explains
+      the blocker is HPE policy, not ventd.
+
+      Phase 4 thinking (post-v1.0): a Redfish-bridge backend could
+      drive `Power.PowerMode` and a few thermal-related properties,
+      but cannot reach per-fan PWM. Probably not worth the effort
+      vs accepting iLO defaults.
+    citations:
+      - "https://github.com/alex3025/ilo-fans-controller (Gen10/11/12 iLO 5/6/7 NOT supported — primary evidence)"
+      - "https://www.manualslib.com/manual/1436981/Hp-Hpe-Ilo-5.html?page=302 (HPE iLO 5 user manual — IPMI 2.0 standard commands, no vendor fan extension documented)"
+      - "https://support.hpe.com/hpesc/public/docDisplay?docId=a00105236en_us&page=GUID-1ECDFDE6-04BB-48B4-89B9-237064C4EC7C.html (HPE iLO 5 cooling features — web UI thermal profile selection only)"
+      - "https://buy.hpe.com/us/en/compute/rack-servers/proliant-dl300-servers/hpe-proliant-dl380-gen10-server/p/1010026818 (HPE official DL380 Gen10 + iLO 5 confirmation)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl360-gen10"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL360 Gen10"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (iLO 5 BMC)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Xeon Scalable Gen 1/Gen 2 CPU temp"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "iLO Health Driver"
+      - "hp-health"
+      - "hponcfg"
+    notes: |
+      HPE ProLiant DL360 Gen10 (1U, dual-socket Xeon Scalable Gen 1/Gen 2).
+      1U sibling of DL380 Gen10. Same iLO 5 BMC, same fan-control
+      blockage. Similar to Dell R640 vs R740, the 1U chassis is
+      especially loud at default thermal profiles, and the iLO
+      lockdown hurts homelab buyers more than it would in a colo.
+
+      Identical to DL380 Gen10 entry in every respect except DMI
+      product_name. Telemetry-only mode at runtime.
+    citations:
+      - "https://cloudninjas.com/collections/hpe-proliant-dl380-gen10-plus-ilo-licensing (DL360 Gen10 + iLO 5 confirmation)"
+      - "https://github.com/alex3025/ilo-fans-controller (Gen10 iLO 5 unsupported)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

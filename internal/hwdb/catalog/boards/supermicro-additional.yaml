@@ -1,0 +1,166 @@
+# Supermicro additional board catalog — spec-03 PR 3 scope-C entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# Companion to scope-B supermicro.yaml (X11SCH-F, X10SLH-F, H12SSL-i).
+# Scope-C adds X11SCH-LN4F (4-LAN variant of X11SCH-F), X12STH-F (LGA1200
+# Gen 11 generation), and H13SSL-N (SP5 Genoa generation).
+#
+# The same fundamental architecture applies as scope-B: BMC firmware
+# overrides hwmon writes within seconds. ventd defers to IPMI backend
+# via raw 0x30 0x45 / raw 0x30 0x70 0x66 command sequence.
+#
+# Unlike Dell iDRAC9 / HPE iLO 5+, Supermicro IPM/AST BMCs (AST2400
+# through AST2600) DO support vendor-specific raw fan-control commands
+# across all observed firmware versions through 2026-04. No deliberate
+# block analogous to Dell's iDRAC 3.34. This makes Supermicro the most
+# ventd-friendly server-class platform in scope-B + scope-C.
+#
+# DRIVER REFERENCE:
+#   internal/hwdb/catalog/drivers/ipmi_bmc.yaml — same backend, same
+#   raw command set. Note section in driver YAML enumerates Supermicro
+#   raw command syntax.
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+board_profiles:
+
+  - id: "supermicro-x11sch-ln4f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SCH-LN4F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY — AST2500 BMC)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 mainline driver (READS only — BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "smfc"
+    notes: |
+      Supermicro X11SCH-LN4F (LGA1151 Coffee Lake server, AST2500 BMC,
+      4x Intel I210 Gigabit LAN — pfSense/router-grade variant of
+      X11SCH-F). Common homelab firewall/router target. NCT6776
+      detected by mainline nct6775. Same BMC-overrides-hwmon dynamic
+      as X11SCH-F; raw IPMI commands (0x30 0x45 0x01 0x01 + 0x30 0x70
+      0x66) work normally.
+
+      DMI fingerprint pattern matches existing X11SCH-F entry. Match
+      key is `board_name: "X11SCH-LN4F"`.
+    citations:
+      - "https://www.supermicro.com/en/products/motherboard/X11SCH-LN4F (Supermicro official spec — AST2500 + 4x I210 LAN)"
+      - "https://www.beachaudio.com/supermicro-224266-mb-mbd-x11sch-ln4f-b-corei3-s1151-c246-pcie-sata-micro-atx-128g-dr4/ (full spec sheet — IPMI ASPEED AST2500 + NCT-family Super-I/O)"
+      - "https://www.thomas-krenn.com/en/wiki/Read_out_mainboard_name (Supermicro DMI baseboard convention — Manufacturer/Product Name format)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12sth-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12STH-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY — AST2600 BMC)"
+    additional_controllers:
+      - chip: "nct6796"
+        sysfs_hint: "name=nct6796 via nct6775 mainline driver (READS only — BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "smfc"
+    notes: |
+      Supermicro X12STH-F (LGA1200 Rocket Lake server, Xeon E-2300
+      family, AST2600 BMC). Successor to X11SCH-F generation. AST2600
+      is the newer ASPEED BMC with more aggressive fan-management
+      defaults than AST2500.
+
+      Super-I/O chip is NCT6796 (newer family than NCT6776). Detected
+      by mainline nct6775 driver.
+
+      Same BMC-overrides-hwmon dynamic. AST2600 BMC firmware on X12
+      generation is generally more conservative (louder defaults) than
+      AST2500 on X11 — manual IPMI control via ventd particularly
+      valuable here. Raw commands (0x30 0x45 / 0x30 0x70 0x66) work
+      same as X11.
+    citations:
+      - "https://www.supermicro.com/en/products/motherboard/X12STH-F (Supermicro official — AST2600 BMC, NCT6796D Super-I/O)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-h13ssl-n"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "*"
+      board_vendor: "Supermicro"
+      board_name: "H13SSL-N"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY — AST2600 BMC)"
+    additional_controllers:
+      - chip: "nct7802"
+        sysfs_hint: "name=nct7802 via nct7802 mainline driver (READS only — BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+      vendor_raw_command_extra:
+        - "supermicro_zone_per_hdd_via_0x30_0x91_0x5A"
+      bmc_panic_mode_risk: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+      - "smfc"
+    notes: |
+      Supermicro H13SSL-N (SP5 socket EPYC 9004/9005 Genoa/Bergamo
+      server, AST2600 BMC). High-end EPYC server target. NCT7802
+      (I2C-bus, NOT Super-I/O ISA) for thermal monitoring.
+
+      KNOWN ISSUE — BMC PANIC MODE: H13SSL-N BMC has been observed
+      entering "panic mode" (forced 100% fan speed, ignores all
+      manual commands AND mode changes) when:
+        - smfc or other userspace tools issue invalid IPMI parameter
+          combinations.
+        - Unsupported PCIe cards (some RTX consumer cards) trip the
+          BMC's PCIe thermal monitoring.
+      Recovery: `ipmitool mc reset cold` to reset BMC. ventd MUST NOT
+      issue speculative or out-of-range raw commands; bound parameters
+      to documented zones (0/1) and PWM range (0x00-0x64).
+
+      Some H13SSL revisions report fan tach via BMC IPMI sensors only
+      (no direct hwmon path through nct7802 for tach). ventd should
+      prefer `ipmitool sensor list | grep -i fan` for tach reads on
+      H13 generation.
+    citations:
+      - "https://www.experts-exchange.com/questions/29295680/Server-forces-optimal-fan-mode-ignores-user-chosen-standard-mode-GPU-not-visible-and-GPU-fans-not-spinning.html (H13SSL-N + RTX panic mode + BMC reset workflow + raw command reference)"
+      - "https://b3n.org/supermicro-fan-speed-script/ (general Supermicro raw 0x30 0x45 / 0x30 0x91 0x5A patterns — H13 inherits)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

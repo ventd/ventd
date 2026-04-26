@@ -1,0 +1,384 @@
+# Lenovo Legion gaming laptop catalog — spec-03 PR 3 scope-C entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# REQUIRES SCHEMA v1.1 (spec-03-amendment-schema-v1.1.md):
+#   - bios_version field on dmi_fingerprint (§SCHEMA-BIOSVER)
+#   Without v1.1, these entries cannot disambiguate Legion generations.
+#
+# CRITICAL CONTEXT FOR ALL LEGION ENTRIES:
+#   Lenovo Legion laptops dispatch on DMI BIOS_VERSION 4-character
+#   prefix, NOT product_name. Multiple Legion generations share product
+#   names (e.g. "82B1" can be Gen 5 ARH05H AMD with FSCN BIOS).
+#   Conversely, the same Legion generation can ship with several
+#   product_name codes (Gen 6 GKCN appears as 82JU, 82JQ, 82N6, etc.).
+#
+#   The fingerprint key is bios_version "<PREFIX>*" with product_name
+#   as a sanity check. legion_laptop kernel driver itself dispatches
+#   the same way — see LenovoLegionLinux/kernel_module/legion-laptop.c
+#   optimistic_allowlist DMI table.
+#
+#   Some BIOS_VERSION generations (M3CN, N0CN as of 2026-04) load
+#   under "GKCN" config via force=1 fallback. Driver explicitly logs
+#   "Using configuration for system: GKCN" — fan curve format may
+#   match or may not, EC chip ID variance handled gracefully.
+#
+# DRIVER REFERENCE:
+#   internal/hwdb/catalog/drivers/legion_hwmon.yaml — OOT DKMS,
+#   johnfanv2/LenovoLegionLinux. dkms_required: true.
+#
+# ventd integration phase:
+#   v0.5.0: registration only — telemetry mode, no fan write.
+#   v0.6.0+: powermode + platform_profile single-value writes.
+#   v0.7.0+: 10-point fancurve via debugfs (spec-05 P4-HWCURVE).
+#
+# See docs/research/2026-04-board-catalog-citations.md scope-C append
+# for source-per-field.
+
+board_profiles:
+
+  - id: "lenovo-legion-5-15arh05h"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82B1"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Lenovo Legion 5 15ARH05H"
+      bios_version: "FSCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module (johnfanv2/LenovoLegionLinux)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline driver — AMD Ryzen 4000-series Zen2 CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion 5 15ARH05H (Gen 5 AMD, 2020). Ryzen 4000 (Renoir) +
+      RTX 2060/2070. PRODUCT_NAME 82B1, BIOS_VERSION FSCN family
+      (FSCN14WW through FSCN26WW observed across BIOS revisions).
+      EC chip 0x8227.
+
+      NOTE: Legion 5 15ARH05 (without "H" suffix, lower-tier GPU)
+      uses PRODUCT_NAME 82B5 + EUCN BIOS family — this is a separate
+      board profile, see lenovo-legion-5-15arh05.yaml entry below if
+      added in scope-C wave 2.
+
+      legion_laptop driver in DMI allowlist, loads cleanly without
+      force=1.
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/110 (15ARH05H 82B1 dmidecode)"
+      - "https://linux-hardware.org/?log=dmidecode&probe=7244a526b1 (15ARH05H FSCN24WW probe)"
+      - "https://www.legionfancontrol.com/ (FSCN family → Legion 5 15ARH05H mapping)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-5-15ach6h"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82JU"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Lenovo Legion 5 15ACH6H"
+      bios_version: "GKCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 5000-series Zen3 CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion 5 15ACH6H (Gen 6 AMD, 2021 — VERY common homelab/dev
+      target). Ryzen 5000 (Cezanne) 5600H/5800H + RTX 3060/3070.
+      PRODUCT_NAME 82JU, BIOS_VERSION GKCN family (GKCN50WW through
+      GKCN65WW observed). EC chip 0x8227.
+
+      Several BIOS revisions (GKCN65WW notably) emit `Unexpected value
+      in maximumfanspeed register: 40` warnings — this is benign,
+      driver continues working. ventd should ignore these dmesg lines
+      during health checks.
+
+      First-class supported by legion_laptop allowlist. No force=1
+      needed.
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/386 (15ACH6H GKCN65WW dmidecode + maximumfanspeed warning)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/219 (15ACH6H GKCN50WW dmidecode)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux (README — 15ACH6H listed as supported, GKCN58WW/GKCN57WW)"
+      - "https://www.legionfancontrol.com/ (GKCN family → Legion 5/5 Pro/7 Series AMD Gen 6)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-5-pro-16ach6h"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82JQ"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Lenovo Legion 5 Pro 16ACH6H"
+      bios_version: "GKCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 5000-series CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion 5 Pro 16ACH6H (Gen 6 AMD Pro, 2021). Ryzen 5800H +
+      RTX 3060/3070/3070Ti, 16:10 165Hz panel. Pro tier =
+      higher-power-budget variant of Legion 5. PRODUCT_NAME 82JQ,
+      BIOS_VERSION GKCN. Same driver path, same EC, same fancurve
+      format as Legion 5 15ACH6H — only DMI fingerprint differs.
+
+      Allowlisted by legion_laptop. README explicitly lists this model
+      ("82JQ x 2" with GKCN58WW).
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux (README — Legion 5 Pro 16ACH6H 82JQ GKCN58WW)"
+      - "https://www.legionfancontrol.com/ (GKCN family inclusion)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-7-16ithg6"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82K6"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Lenovo Legion 7 16ITHg6"
+      bios_version: "H1CN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 11th gen Tiger Lake H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion 7 16ITHg6 (Gen 6 Intel flagship, 2021). i7/i9-11800H/11980HK
+      Tiger Lake H + RTX 3070/3080. 16:10 mini-LED panel. PRODUCT_NAME
+      82K6, BIOS_VERSION H1CN family (H1CN49WW, H1CN58WW observed).
+      EC chip 0x8227 expected.
+
+      Note disambiguation: Legion 7 has both Intel (16ITHg6, 82K6,
+      H1CN) and AMD (16ACHg6, 82N6, GKCN) variants from the same
+      generation — distinct DMI fingerprints required, hence
+      bios_version match is mandatory.
+
+      Allowlisted via H1CN config table.
+    citations:
+      - "https://www.legionfancontrol.com/ (H1CN family — Legion 5/5pro/7 Series Intel 2021)"
+      - "https://driverscollection.com/_574042214799cb0c7b13d399d84/Download-Lenovo-Legion-7-16ITHg6-Laptop-(Type-82K6)-BIOS-Update-v.H1CN58WW-for-Windows-10-64-bit-11-free (H1CN58WW BIOS for 82K6 — Lenovo official confirms code mapping)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux (README — Legion 5 15ITH6H H1CN49WW)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-slim-5-16aph8"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82Y9"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Lenovo Legion Slim 5 16APH8"
+      bios_version: "M3CN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7040-series Phoenix CPU temp"
+      - chip: "amdgpu"
+        sysfs_hint: "AMD Radeon 780M iGPU temp via amdgpu hwmon"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      requires_force_modparam: true
+      force_load_fallback_config: "GKCN"
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args:
+      - "force=1"
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion Slim 5 16APH8 (Gen 8 AMD slim, 2023). Ryzen 7840HS Phoenix
+      + RTX 4060. 16:10 165Hz. Slim-tier = thinner chassis vs Pro,
+      reduced cooling headroom. PRODUCT_NAME 82Y9, BIOS_VERSION M3CN
+      family (M3CN31WW observed).
+
+      REQUIRES force=1 modparam: M3CN is NOT in the legion_laptop
+      DMI allowlist as of 2026-04. Driver loads with `legion PNP0C09:00:
+      legion_laptop is forced to load... Using configuration for system:
+      GKCN`. Fan curve format and EC layout are GKCN-derived; M3CN may
+      have minor schema drift but core read/write paths work.
+
+      ventd packaging implication: when M3CN board is detected, ventd
+      installer should add `options legion_laptop force=1` to
+      /etc/modprobe.d/legion_laptop.conf. spec-06 install contract
+      should grow a per-board modprobe-options sidecar.
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/76 (Slim 5 16APH8 — 82Y9, M3CN31WW, force=1, GKCN fallback config, EC 0x8227)"
+      - "https://www.legionfancontrol.com/ (M3CN family classification)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-pro-7-16arx8h"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82WS"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Legion Pro 7 16ARX8H"
+      bios_version: "LPCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7045HX Dragon Range CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x5507"
+      ec_chip_id_mismatch_expected: true
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion Pro 7 16ARX8H (Gen 8 AMD flagship, 2023). Ryzen 9 7945HX
+      Dragon Range (Zen4 desktop-class) + RTX 4080/4090. 16:10 240Hz.
+      Highest-tier chassis. PRODUCT_NAME 82WS, BIOS_VERSION LPCN
+      family (LPCN42WW, LPCN45WW observed).
+
+      EC chip ID is 0x5507 — driver expects 0x8227 by default and
+      logs "Expected EC chip id 0x8227 but read 0x5507" but continues
+      loading. This is normal for LPCN/Pro 7. ventd should treat the
+      chip-ID mismatch dmesg line as informational, not an error
+      condition.
+
+      LPCN has its own config table entry in legion_laptop — driver
+      loads "Using configuration for system: LPCN" (NOT forced GKCN
+      fallback). First-class support.
+
+      Shared fingerprint family with Legion Pro 5 16ARX8 — same LPCN
+      BIOS, different product_name (82WT for Pro 5 — separate entry
+      in scope-C wave 2 if added).
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/133 (Pro 7 16ARX8H — 82WS, LPCN45WW)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/234 (Pro 7 16ARX8H — full dmesg with EC 0x5507 mismatch + LPCN config dispatch)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/84 (Legion 5 Pro 16ARX8 LPCN42WW + EC 0x5507 same family pattern)"
+      - "https://psref.lenovo.com/Product/Legion/Legion_Pro_7_16ARX8H (Lenovo PSREF — official 82WS confirmation)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-legion-pro-5-16irx9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83DF"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Legion Pro 5 16IRX9"
+      bios_version: "N0CN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS module"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 14th gen Raptor Lake HX-Refresh CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      requires_force_modparam: true
+      force_load_fallback_config: "GKCN"
+      fancurve_format: "10-point-debugfs"
+    required_modprobe_args:
+      - "force=1"
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Legion Pro 5 16IRX9 (Gen 9 Intel Pro, 2024). i7-14700HX /
+      i9-14900HX Raptor Lake HX-Refresh + RTX 4060/4070. PRODUCT_NAME
+      83DF, BIOS_VERSION N0CN family (N0CN24WW, N0CN29WW observed).
+
+      REQUIRES force=1 modparam as of 2026-04: N0CN is NOT in the
+      legion_laptop DMI allowlist. Driver loads under GKCN fallback
+      config. Issue #163 tracks user request to add 83DF to allowlist.
+
+      Note: roadmap doc previously inferred "NMCN*" for this board —
+      that was incorrect. Lenovo BIOS naming for 14th gen Intel
+      Raptor Lake HX-Refresh uses N0CN (note the zero), not NMCN.
+      Verified across Issue #163 dmidecode + Lenovo support pages
+      + Lenovo BIOS update file naming.
+
+      Common Intel-CPU-bug exposure: 14900HX is in the Raptor Lake
+      voltage-instability cohort — users may encounter EC log entries
+      related to thermal throttling / VID limit faults. Not a ventd
+      concern but worth flagging in logs.
+    citations:
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/163 (Pro 5 16IRX9 — 83DF, dmidecode evidence)"
+      - "https://bsd-hardware.info/?probe=3fa8964010&log=dmidecode (Pro 5 16IRX9 N0CN24WW BSD probe)"
+      - "https://support.lenovo.com/us/en/downloads/ds565729-bios-update-for-windows-11-64-bit-legion-pro-5-16irx9 (Lenovo official N0CN BIOS for 83DF)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
