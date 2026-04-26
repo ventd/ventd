@@ -1,0 +1,172 @@
+# Dell board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+# DMI strings sourced from primary references (linux-hardware.org probes,
+# Linux kernel patches, Dell user reports).
+# Driver: dell-smm-hwmon (mainline, x86 SMM BIOS interface).
+#
+# IMPORTANT: dell-smm-hwmon uses TWO-TIER matching:
+#   1. Generic prefix probe (i8k_dmi_table) — allows reads/temps for ALL
+#      Dell systems matching "Latitude", "Inspiron", "Vostro", "XPS",
+#      "Precision", etc.
+#   2. Per-model fan control whitelist (i8k_whitelist_fan_control) —
+#      ONLY entries on this list get pwm1_enable for write fan control.
+#
+# Boards NOT on the fan-control whitelist still load the driver and expose
+# fan1_input + temp*_input as RO. ventd should register these as
+# ro_sensor_only channels per spec-03 amendment.
+#
+# fan-control whitelist as of kernel 6.13 (verified from kernel sources):
+#   - Dell Studio
+#   - Dell Latitude D520, E6440
+#   - Dell Inspiron 3505
+#   - Dell XPS M140, XPS 13 9370, XPS 15 9560/9570
+#   - Dell G3 3590, G5 5587, G5 5590, G5 5505
+#   - Dell G15 5510/5511/5515
+#   - Dell Optiplex 7000
+#   - Dell Precision 7510
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "dell-latitude-7280"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Latitude 7280"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Phoenix box matrix #5 — i7-6600U Skylake business laptop.
+      Matches generic 'Dell Latitude' prefix in i8k_dmi_table → driver
+      loads, fan1_input + temp1-2_input populated. NOT on
+      i8k_whitelist_fan_control → pwm1_enable does NOT exist → ventd
+      cannot write fan speed. Register as ro_sensor_only. CPU temp via
+      coretemp.ko separately. Kernel module restricted=0 may be needed
+      for non-root reads on some distros."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table — 'Dell Latitude' prefix entry)"
+      - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html (driver doc, two-tier match model)"
+      - "https://patchew.org/linux/20240522210809.294488-1-W._5FArmin@gmx.de/ (whitelist additions over time)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-optiplex-7000"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "OptiPlex 7000"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell OptiPlex 7000 desktop. ON i8k_whitelist_fan_control →
+      pwm1_enable + pwm1 writable. Whitelist entry added in kernel 6.0
+      via Armin Wolf's WMI SMM patch series (was tested directly on this
+      OptiPlex 7000 + Inspiron 3505). Uses I8K_FAN_30A3_31A3 SMM call
+      pair for manual/auto toggle. Fan multiplier autodetected via
+      i8k_get_fan_nominal_speed(). Common in homelab single-board
+      'mini-tower' deployments — high relevance for ventd."
+    citations:
+      - "https://www.spinics.net/lists/linux-hwmon/msg22064.html (Armin Wolf v3 patch series adding OptiPlex 7000 to whitelist, tested directly)"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-inspiron-3505"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Inspiron 3505"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Inspiron 3505 — 2020 mid-range AMD Ryzen 3 3250U laptop.
+      ON whitelist. Reference implementation tested by Armin Wolf for
+      WMI SMM kernel 6.0 series. I8K_FAN_30A3_31A3 SMM pair."
+    citations:
+      - "https://www.spinics.net/lists/linux-hwmon/msg22064.html (Armin Wolf v3 patch tested on Inspiron 3505)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-xps-13-9370"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "XPS 13 9370"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell XPS 13 9370 (2018) — popular Linux developer laptop.
+      ON whitelist via Povilas Kanapickas patch (uses I8K_FAN_30A3_31A3
+      SMM pair, NOT the I8K_FAN_34A3_35A3 pair from initial draft)."
+    citations:
+      - "https://patchew.org/linux/6e6b7a47-d0e3-4c5a-8be2-dfc58852da8e@radix.lt/ (kernel patch v2 adding XPS 13 9370 to whitelist with corrected SMM pair)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g15-5511"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Dell G15 5511"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell G15 5511 gaming laptop. ON whitelist via Armin Wolf
+      patch. Note: PRODUCT_NAME has the literal 'Dell ' prefix (unlike
+      most other Dell entries which omit it). I8K_FAN_30A3_31A3."
+    citations:
+      - "https://patchew.org/linux/20240522210809.294488-1-W._5FArmin@gmx.de/ (kernel patch adding G15 5511 to whitelist, includes literal 'Dell G15 5511' DMI string)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

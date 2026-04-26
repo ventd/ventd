@@ -1,0 +1,131 @@
+# Supermicro board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# CRITICAL CAVEAT FOR ALL SUPERMICRO SERVER BOARDS:
+#   The on-board AST2400/AST2500 BMC firmware actively manages fans
+#   independently of the OS. The hwmon Super-I/O chip (NCT6776/NCT6779)
+#   IS exposed via nct6775.ko and writes to pwm{1..N} succeed at the
+#   hwmon layer, but the BMC firmware will OVERRIDE the value within
+#   ~1-5 seconds. To take real fan control, IPMI mode must be set to
+#   "Optimal Mode disabled" or "Full Mode" via raw IPMI commands, or
+#   the BMC must be configured via the IPMI web UI to release fan
+#   control to the OS.
+#
+# This is an architectural overlap with spec-01 IPMI work. Supermicro
+# server boards are best controlled via IPMI directly, not Super I/O.
+# These entries exist primarily to:
+#   1. Recognize Supermicro board fingerprints during DMI match.
+#   2. Document the Super-I/O chip identity for read-side telemetry.
+#   3. Direct ventd's matcher toward the IPMI backend (per spec-01)
+#      rather than the hwmon backend on these systems.
+#
+# Once spec-01 IPMI ships in v0.3.x, ventd should prefer IPMI for these
+# boards and use hwmon only as fallback / diagnostic.
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "supermicro-x11sch-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SCH-F"
+      board_version: "1.01"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 mainline driver (READS only — BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+    notes: "Supermicro X11SCH-F (LGA1151 Coffee Lake server, AST2500 BMC).
+      Common entry-level homelab Xeon E-series board. NCT6776 detected
+      by mainline nct6775 driver. Super-I/O fan PWM writes succeed at
+      hwmon layer but are clobbered by BMC firmware within seconds.
+      ventd should defer to IPMI backend (spec-01). For owners running
+      pre-spec-01 ventd: read-only telemetry via nct6776 is still
+      usable, but fan-control attempts will appear to succeed and then
+      revert. Document this in user-facing 'why isn't my fan
+      responding' diagnostics."
+    citations:
+      - "https://www.supermicro.com/manuals/motherboard/X11/MNL-2105.pdf (X11SCH-F user manual — confirms AST2500 BMC + Super-I/O)"
+      - "https://www.spinics.net/lists/lm-sensors/msg38863.html (lm-sensors X9SRL-F NCT6776F detection — same chip family pattern as X11SCH-F)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x10slh-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "*"
+      board_vendor: "Supermicro"
+      board_name: "X10SLH-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 mainline driver (READS only)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+    notes: "Supermicro X10SLH-F (LGA1150 Haswell Xeon E3 server, AST2400
+      BMC). Older but extremely common in second-hand homelab sales —
+      'TrueNAS starter board' tier. Same Super-I/O / BMC contention
+      as X11SCH-F. NCT6776 chip."
+    citations:
+      - "https://www.spinics.net/lists/lm-sensors/msg38863.html (NCT6776 + Supermicro X9 family — X10 inherits chip family)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-h12ssl-i"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "*"
+      board_vendor: "Supermicro"
+      board_name: "H12SSL-I"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct7802"
+        sysfs_hint: "name=nct7802 via nct7802 mainline driver (READS only — BMC overrides)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool"
+      - "freeipmi"
+    notes: "Supermicro H12SSL-i (SP3 EPYC 7002/7003 server, ASPEED BMC).
+      Higher-end homelab board for serious EPYC builds. NCT7802 chip
+      via I2C (not Super-I/O ISA), driver entry exists in catalog as
+      nct7802.yaml. Same BMC-overrides-hwmon dynamic — IPMI backend
+      preferred. Some H12SSL revisions report fan tach via BMC IPMI
+      sensors only (no direct hwmon path)."
+    citations:
+      - "https://sbexr.rabexc.org/latest/sources/56/28ba2371e0d4a5.html (kernel hwmon Kconfig — NCT7802 driver)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

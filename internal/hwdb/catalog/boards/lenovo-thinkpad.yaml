@@ -1,0 +1,157 @@
+# Lenovo ThinkPad board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# IMPORTANT: thinkpad_acpi exposes EC fan control via hwmon, but with
+# strict caveats:
+#   1. fan_control=1 modparam REQUIRED — driver disables write at module
+#      load otherwise (kernel mainline default = safety lockout).
+#   2. PWM SCALE: 0-7 firmware levels, mapped to 0-255 hwmon scale.
+#      Coarse — only 8 distinct fan levels exist at firmware level.
+#      Setting pwm1 to 0,32,64,96,128,160,192,224,255 = levels 0..7.
+#      Adjacent sub-values map to same level. ventd quantizes any
+#      input PWM accordingly.
+#   3. WATCHDOG: ventd must touch pwm1 at least every fan_watchdog
+#      seconds (default 120, configurable 1-120) or EC reverts fan to
+#      safe auto mode. ventd's existing fan-write loop must satisfy
+#      this; document as required.
+#   4. ec_auto MODE (pwm1_enable=2) is supported on most modern
+#      ThinkPads — EC firmware curve. Some older models return EINVAL.
+#   5. SECONDARY FAN: some T-series and P-series have fan2_input but
+#      cannot be controlled separately — pwm1 governs both.
+#
+# Driver matches on ACPI _HID, NOT DMI. Loads on every ThinkPad. Fan
+# write capability per-board can only be discovered by attempting to
+# write pwm1_enable=1 and checking for EINVAL.
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "lenovo-thinkpad-t490"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "20N20009MX"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "ThinkPad T490"
+    primary_controller:
+      chip: "thinkpad_acpi"
+      sysfs_hint: "name=thinkpad via thinkpad_acpi mainline driver"
+    additional_controllers: []
+    overrides:
+      pwm_scale: "0-7-mapped-to-0-255"
+      requires_watchdog: true
+      watchdog_seconds_default: 120
+    required_modprobe_args:
+      - "fan_control=1"
+    conflicts_with_userspace:
+      - "thinkfan"
+    notes: "ThinkPad T490 (Whiskey Lake). Single fan, reads + writes
+      both work. PRODUCT_NAME varies per machine-type-model (20N2xxx,
+      20RXxxx etc) — fingerprint match relies on product_name PREFIX
+      '20N2' or board_version full string 'ThinkPad T490'. fan_control=1
+      modparam mandatory. Quantize ventd PWM to 8 levels.
+      thinkfan/tp-fancontrol must NOT be running concurrently."
+    citations:
+      - "https://www.kernel.org/doc/Documentation/admin-guide/laptops/thinkpad-acpi.rst (driver doc — fan section, watchdog, fan_control modparam)"
+      - "https://www.thinkwiki.org/wiki/How_to_control_fan_speed (HFSP register encoding, 8-level scale)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-thinkpad-t14-gen3-amd"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "21CF"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "ThinkPad T14 Gen 3"
+    primary_controller:
+      chip: "thinkpad_acpi"
+      sysfs_hint: "name=thinkpad via thinkpad_acpi mainline driver"
+    additional_controllers: []
+    overrides:
+      pwm_scale: "0-7-mapped-to-0-255"
+      requires_watchdog: true
+      watchdog_seconds_default: 120
+    required_modprobe_args:
+      - "fan_control=1"
+    conflicts_with_userspace:
+      - "thinkfan"
+    notes: "ThinkPad T14 Gen 3 AMD (Ryzen 6850U / Pro 6850U). PRODUCT_NAME
+      machine type 21CF (AMD); 21AH for the Intel Gen 3. Fingerprint
+      match on product_name PREFIX. AMD Ryzen models have CPU temp via
+      k10temp.ko separately. fan_control=1 mandatory."
+    citations:
+      - "https://www.kernel.org/doc/Documentation/admin-guide/laptops/thinkpad-acpi.rst"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-thinkpad-x1-carbon-gen11"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "21HM"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "ThinkPad X1 Carbon Gen 11"
+    primary_controller:
+      chip: "thinkpad_acpi"
+      sysfs_hint: "name=thinkpad via thinkpad_acpi mainline driver"
+    additional_controllers: []
+    overrides:
+      pwm_scale: "0-7-mapped-to-0-255"
+      requires_watchdog: true
+      watchdog_seconds_default: 120
+    required_modprobe_args:
+      - "fan_control=1"
+    conflicts_with_userspace:
+      - "thinkfan"
+    notes: "ThinkPad X1 Carbon Gen 11 (Raptor Lake). Single fan. Note:
+      some X1C Gen 11 BIOS revisions exhibit pwm1 stuck-at-0 behavior
+      similar to X380 reports. ventd should validate write capability
+      via test-write-and-readback during calibration."
+    citations:
+      - "https://www.kernel.org/doc/Documentation/admin-guide/laptops/thinkpad-acpi.rst"
+      - "https://forums.linuxmint.com/viewtopic.php?t=420745 (X380 stuck-pwm1 evidence — same family pattern can recur on X1C)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-thinkpad-p15s-gen2"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "20W6"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "ThinkPad P15s Gen 2i"
+    primary_controller:
+      chip: "thinkpad_acpi"
+      sysfs_hint: "name=thinkpad via thinkpad_acpi mainline driver"
+    additional_controllers: []
+    overrides:
+      pwm_scale: "0-7-mapped-to-0-255"
+      requires_watchdog: true
+      watchdog_seconds_default: 120
+      secondary_fan_uncontrollable: true
+    required_modprobe_args:
+      - "fan_control=1"
+    conflicts_with_userspace:
+      - "thinkfan"
+    notes: "ThinkPad P15s Gen 2 mobile workstation (Tiger Lake + Quadro
+      T500). Has fan2_input but it is NOT independently controllable —
+      pwm1 governs both fans. ventd should expose fan2_input as a
+      tach-only channel and never attempt to write pwm2."
+    citations:
+      - "https://www.kernel.org/doc/Documentation/admin-guide/laptops/thinkpad-acpi.rst (secondary fan: 'cannot be controlled separately, shares the main fan control')"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

@@ -1,0 +1,90 @@
+# Raspberry Pi board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# CRITICAL DEPARTURE FROM x86 PATTERN:
+#   Pi 5 fan control is via Linux thermal-zones + cooling-device
+#   framework, not hwmon Super-I/O chips. The pwm-fan driver registers
+#   itself as a thermal cooling device, NOT as a freestanding PWM
+#   output by default. Writes to /sys/class/hwmon/hwmonX/pwm1 are
+#   IGNORED while the kernel thermal step_wise governor is active.
+#
+# To take real control, ventd must:
+#   1. Set thermal zone mode to 'disabled' on the cpu_thermal zone OR
+#   2. Detach the cooling-device binding via /sys/class/thermal/...
+#   3. Then write to pwm1 via the hwmon interface.
+#
+# Default Pi 5 device-tree cooling levels (from rpi-firmware repo):
+#   Level 1: 50.0°C → pwm 75   (fan_temp0)
+#   Level 2: 60.0°C → pwm 125  (fan_temp1)
+#   Level 3: 67.5°C → pwm 175  (fan_temp2)
+#   Level 4: 75.0°C → pwm 250  (fan_temp3)
+# Hysteresis 5°C per level by default.
+#
+# DMI does not exist on ARM device-tree systems. Match key is
+# /proc/device-tree/compatible (or DMI_PRODUCT_NAME = "Raspberry Pi 5
+# Model B Rev 1.0" if dmi_decode is available via UEFI firmware —
+# Pi 5 stock firmware does NOT provide DMI). For schema compatibility,
+# we synthesize a fingerprint using sys_vendor="Raspberry Pi
+# Foundation" and product_name="Raspberry Pi 5 Model B" derived from
+# /proc/device-tree.
+#
+# This requires schema work to support DT-only systems — see
+# 2026-04-driver-amendments-needed.md §SCHEMA-DT.
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "raspberry-pi-5-model-b"
+    dmi_fingerprint:
+      sys_vendor: "Raspberry Pi Foundation"
+      product_name: "Raspberry Pi 5 Model B"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "pwm_fan_dt"
+      sysfs_hint: "/sys/devices/platform/cooling_fan/hwmon/hwmonX/pwm1 (pwm-fan kernel driver, registered as cooling-device)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      cooling_device_must_detach: true
+      no_dmi: true
+      synthesize_fingerprint_from_dt: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "rpi-fan-control"
+    notes: "Raspberry Pi 5 Model B — flagship ARM target for ventd. NO
+      DMI on stock firmware; fingerprint synthesized from
+      /proc/device-tree/model + /proc/device-tree/compatible. Three
+      schema-level departures from x86 pattern:
+
+      1. ventd matcher must read DT model string when DMI is absent.
+      2. Kernel thermal step_wise governor must be neutralized before
+         pwm1 writes take effect — write 'disabled' to the cpu_thermal
+         thermal_zone mode attribute, OR re-target the cooling_map.
+      3. pwm-fan also surfaces fan1_input (RPM) on Pi5 via the same
+         hwmon node — one of ventd's few embedded targets where tach
+         actually works.
+
+      Default cooling-levels DT array sets PWM duty 75/125/175/250 at
+      50/60/67.5/75°C trips. ventd's autocurve should generate something
+      gentler given Pi5 thermals — silence at idle is highly valued.
+
+      Two physical fan SKUs: 'Active Cooler' (Pi 5 OEM 4-pin) and
+      'Case Fan' (older 3-pin via case header). Both expose identical
+      sysfs interface; ventd cannot distinguish without RPM-vs-PWM
+      response curve fingerprinting.
+
+      Userspace conflicts: rpi-fan-control (community daemon) and
+      rpi-rgb-led-matrix-PWM (uses same PWM hardware — incompatible)."
+    citations:
+      - "https://emlogic.no/2024/09/step-by-step-thermal-management/ (Pi 5 thermal-zones + cooling-device + pwm-fan walkthrough)"
+      - "https://forums.raspberrypi.com/viewtopic.php?t=359778 (RPi engineer-confirmed Pi5 dtparam fan_temp{0..3} interface, default PWM values)"
+      - "https://forums.raspberrypi.com/viewtopic.php?t=358188 (hwmon path /sys/devices/platform/cooling_fan/hwmon/hwmonX/pwm1 confirmed)"
+      - "https://dev.to/pfs/monitoring-and-controlling-cpu-temperature-on-raspberry-pi-5-using-buildroot-31gp (Buildroot Pi 5 thermal/PWM article — sysfs interaction patterns)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
