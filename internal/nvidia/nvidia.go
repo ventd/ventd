@@ -47,11 +47,16 @@ var (
 // NVML constants (see /usr/include/nvml.h).
 const (
 	nvmlSuccess                      = 0
+	nvmlErrorNotSupported            = 3 // NVML_ERROR_NOT_SUPPORTED
 	nvmlTemperatureGPU               = 0
 	nvmlTemperatureThresholdSlowdown = 1
 	nvmlClockGraphics                = 0
 	nvmlClockMem                     = 2
 	nvmlDeviceNameBufSize            = 96
+
+	// FanControlPolicy values (nvmlFanControlPolicy_t, R520+).
+	FanPolicyTemperatureDiscrete  = 0 // manual discrete set-point
+	FanPolicyTemperatureContinuos = 1 // vBIOS autonomous curve ("auto")
 )
 
 var (
@@ -76,6 +81,11 @@ var (
 	pDeviceSetFanSpeed_v2          uintptr
 	pDeviceSetDefaultFanSpeed_v2   uintptr
 	pErrorString                   uintptr
+
+	// Added for capability probe and stable GPU identification.
+	pDeviceSetFanControlPolicy uintptr // R520+ (may be 0 on older drivers)
+	pDeviceGetUUID             uintptr // R450+
+	pSystemGetDriverVersion    uintptr // R450+
 
 	// Init/Shutdown refcount.
 	initMu       sync.Mutex
@@ -389,6 +399,83 @@ func ResetFanSpeed(index uint) error {
 	return nil
 }
 
+// SetFanControlPolicy attempts to set the fan control policy for the given
+// (device, fan) pair. Returns (true, nil) when the call succeeds (rw_full,
+// R520+ driver). Returns (false, nil) when the symbol is absent (pre-R520)
+// or NVML_ERROR_NOT_SUPPORTED is returned (pre-Maxwell architecture).
+// All other NVML error codes are returned as errors.
+func SetFanControlPolicy(index uint, fanIdx int, policy int) (bool, error) {
+	if !Available() {
+		return false, ErrNotAvailable
+	}
+	if pDeviceSetFanControlPolicy == 0 {
+		return false, nil // R515-/R470: symbol absent → rw_quirk cap
+	}
+	dev, err := deviceHandle(index)
+	if err != nil {
+		return false, err
+	}
+	r, _, _ := purego.SyscallN(pDeviceSetFanControlPolicy,
+		dev,
+		uintptr(uint32(fanIdx)),
+		uintptr(uint32(policy)),
+	)
+	rc := int32(r)
+	if rc == nvmlSuccess {
+		return true, nil
+	}
+	if rc == nvmlErrorNotSupported {
+		return false, nil // arch < Maxwell → ro_sensor_only
+	}
+	return false, fmt.Errorf("nvml: set fan control policy device %d fan %d: %s", index, fanIdx, nvmlErrorString(rc))
+}
+
+// DeviceUUID returns the UUID string for the GPU at the given index.
+// UUID is stable across reboots and PCIe slot reordering.
+func DeviceUUID(index uint) (string, error) {
+	if !Available() {
+		return "", ErrNotAvailable
+	}
+	dev, err := deviceHandle(index)
+	if err != nil {
+		return "", err
+	}
+	var buf [96]byte
+	r, _, _ := purego.SyscallN(pDeviceGetUUID,
+		dev,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	if rc := int32(r); rc != nvmlSuccess {
+		return "", fmt.Errorf("nvml: get uuid device %d: %s", index, nvmlErrorString(rc))
+	}
+	n := 0
+	for n < len(buf) && buf[n] != 0 {
+		n++
+	}
+	return string(buf[:n]), nil
+}
+
+// DriverVersion returns the installed NVIDIA driver version string.
+func DriverVersion() (string, error) {
+	if !Available() {
+		return "", ErrNotAvailable
+	}
+	var buf [80]byte
+	r, _, _ := purego.SyscallN(pSystemGetDriverVersion,
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	if rc := int32(r); rc != nvmlSuccess {
+		return "", fmt.Errorf("nvml: get driver version: %s", nvmlErrorString(rc))
+	}
+	n := 0
+	for n < len(buf) && buf[n] != 0 {
+		n++
+	}
+	return string(buf[:n]), nil
+}
+
 // ─── internal helpers ────────────────────────────────────────────────────
 
 // loadLibrary dlopens libnvidia-ml.so.1 and resolves every NVML symbol we
@@ -424,6 +511,8 @@ func loadLibrary(logger *slog.Logger) error {
 		{"nvmlDeviceSetFanSpeed_v2", &pDeviceSetFanSpeed_v2},
 		{"nvmlDeviceSetDefaultFanSpeed_v2", &pDeviceSetDefaultFanSpeed_v2},
 		{"nvmlErrorString", &pErrorString},
+		{"nvmlDeviceGetUUID", &pDeviceGetUUID},
+		{"nvmlSystemGetDriverVersion", &pSystemGetDriverVersion},
 	}
 	for _, s := range syms {
 		p, err := purego.Dlsym(h, s.name)
@@ -435,6 +524,12 @@ func loadLibrary(logger *slog.Logger) error {
 			return fmt.Errorf("%w: symbol %q: %v", ErrInitFailed, s.name, err)
 		}
 		*s.out = p
+	}
+
+	// Optional symbols — present only on R520+ drivers. Absence is non-fatal;
+	// capability probe degrades to rw_quirk when missing.
+	if p, err := purego.Dlsym(h, "nvmlDeviceSetFanControlPolicy"); err == nil {
+		pDeviceSetFanControlPolicy = p
 	}
 	return nil
 }

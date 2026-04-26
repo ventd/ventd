@@ -1,0 +1,25 @@
+schema_version: "1.0"
+
+driver_profiles:
+  - module: "nouveau"
+    family: "nvidia-gpu"
+    description: "NVIDIA GPU via open-source nouveau driver. Read-only fan sensor — fan control requires proprietary NVIDIA driver and NVML. nouveau does not expose a writable pwm interface. fan_control_capable=false; direct users to NVIDIA proprietary driver for fan control."
+    capability: "ro_sensor_only"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes: {}
+    off_behaviour: "state_off"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver:
+      module: "nvidia"
+      source: "https://www.nvidia.com/en-us/drivers/"
+    conflicts_with_userspace: []
+    fan_control_capable: false
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "bios_dependent"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://nouveau.freedesktop.org/wiki/PowerManagement/"

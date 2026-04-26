@@ -1,0 +1,46 @@
+schema_version: "1.0"
+
+# GPU chip profiles — map hwmon /sys/class/hwmon/*/name values to their driver
+# profiles for tier-3 chip-family matching. GPU hwmon name values match the
+# kernel driver names directly.
+
+chip_profiles:
+  - name: "amdgpu"
+    inherits_driver: "amdgpu"
+    description: "AMD GPU hwmon — RDNA1/2 and earlier. hwmon name value for amdgpu kernel driver. RDNA3+ variant selected at runtime by detecting gpu_od/fan_ctrl/fan_curve presence."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/gpu/amdgpu/thermal.html"
+
+  - name: "nouveau"
+    inherits_driver: "nouveau"
+    description: "NVIDIA GPU via open-source nouveau driver. hwmon name value for nouveau kernel driver. Read-only sensor."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://nouveau.freedesktop.org/"
+
+  - name: "i915"
+    inherits_driver: "i915"
+    description: "Intel Arc DG2 GPU via i915 driver. hwmon name value for i915 kernel driver. Read-only fan RPM (kernel 6.12+)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/ABI/testing/sysfs-driver-intel-xe-hwmon"
+
+  - name: "xe"
+    inherits_driver: "xe"
+    description: "Intel Arc Battlemage (BMG) GPU via xe driver. hwmon name value for xe kernel driver. Read-only fan RPM (kernel 6.12+)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/ABI/testing/sysfs-driver-intel-xe-hwmon"
+
+  - name: "radeon"
+    inherits_driver: "radeon"
+    description: "Legacy AMD GPU via radeon driver (pre-GCN4). hwmon name value for radeon kernel driver. Read-only fan sensor."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/gpu/drm-internals.html"

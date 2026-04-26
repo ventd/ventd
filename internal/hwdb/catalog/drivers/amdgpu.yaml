@@ -3,19 +3,20 @@ schema_version: "1.0"
 driver_profiles:
   - module: "amdgpu"
     family: "amd-gpu"
-    description: "AMD GPU fan control via amdgpu hwmon — pwm1 writable when pwm1_enable=1. Standard duty_0_255 unit. Some boards boot with pwm=0 in stuck auto mode; manual/auto dance needed."
+    description: "AMD GPU fan control via amdgpu hwmon — RDNA1/2 and earlier. pwm1 writable when pwm1_enable=1 (duty_0_255). Some boards boot with pwm=0 in stuck-auto mode; manual/auto dance needed (AMD quirk Q1). OverDrive bit (0x4000) may be required in amdgpu.ppfeaturemask for full manual control."
     capability: "rw_quirk"
     pwm_unit: "duty_0_255"
     pwm_unit_max: null
     pwm_enable_modes:
+      "0": "disabled"
       "1": "manual"
       "2": "bios_auto"
     off_behaviour: "falls_to_min"
-    polling_latency_ms_hint: 50
+    polling_latency_ms_hint: 30
     recommended_alternative_driver: null
     conflicts_with_userspace: []
     fan_control_capable: true
-    fan_control_via: null
+    fan_control_via: "hwmon"
     required_modprobe_args: []
     pwm_polarity_reservation: "static_normal"
     exit_behaviour: "restore_auto"
@@ -23,3 +24,31 @@ driver_profiles:
     firmware_curve_offload_override: false
     citations:
       - "https://docs.kernel.org/gpu/amdgpu/thermal.html"
+
+  - module: "amdgpu_rdna3"
+    family: "amd-gpu"
+    description: "AMD GPU fan control via amdgpu — RDNA3/4 (RX 7xxx, RX 9xxx). Direct pwm1 writes blocked by firmware; use gpu_od/fan_ctrl/fan_curve 5-anchor-point interface. pwm_unit is percentage_0_100 matching the fan_curve format. firmware_curve_offload_capable=true for spec-05 P4-HWCURVE."
+    capability: "rw_quirk"
+    pwm_unit: "percentage_0_100"
+    pwm_unit_max: 100
+    pwm_enable_modes:
+      "firmware_curve": "manual"
+      "r": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: "amdgpu_fan_curve"
+    required_modprobe_args:
+      - arg: "amdgpu.ppfeaturemask=0x4000"
+        reason: "OverDrive bit required for RDNA3 fan_curve access on some boards"
+        risk: "low"
+        risk_detail: "taints kernel on Linux 6.14+ per commit b472b8d829c1"
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: true
+    citations:
+      - "https://docs.kernel.org/gpu/amdgpu/thermal.html"
+      - "https://wiki.archlinux.org/title/AMDGPU#Fan_speed"
