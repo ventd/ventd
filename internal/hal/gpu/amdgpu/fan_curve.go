@@ -26,19 +26,20 @@ func WriteFanCurve(cardPath string, points []FanCurvePoint) error {
 	if err != nil {
 		return fmt.Errorf("amdgpu: open fan_curve: %w", err)
 	}
-	defer f.Close()
 
 	for _, p := range points {
 		line := fmt.Sprintf("%d %d %d\n", p.Index, p.Temp, p.Pct)
 		if _, err := f.WriteString(line); err != nil {
+			_ = f.Close()
 			return fmt.Errorf("amdgpu: write fan_curve point %d: %w", p.Index, err)
 		}
 	}
 	// Commit the curve.
 	if _, err := f.WriteString("c\n"); err != nil {
+		_ = f.Close()
 		return fmt.Errorf("amdgpu: commit fan_curve: %w", err)
 	}
-	return nil
+	return f.Close()
 }
 
 // resetFanCurve resets the RDNA3+ fan curve to firmware default via "r".
