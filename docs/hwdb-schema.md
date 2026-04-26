@@ -225,7 +225,79 @@ when the v1 struct types are removed in a future cleanup pass.
 
 ---
 
-## 6. Adding a new profile
+## 6. Board catalog schema v1.1 (spec-03 PR 4)
+
+The board catalog (`internal/hwdb/catalog/boards/*.yaml`) uses a separate
+schema versioning track from the legacy `profiles-v1.yaml`. Board catalog
+files declare `schema_version: "1.0"` or `"1.1"` as a string.
+
+### New in v1.1
+
+**`bios_version` glob on `dmi_fingerprint`** (RULE-FINGERPRINT-04/05)
+
+```yaml
+dmi_fingerprint:
+  sys_vendor: "LENOVO"
+  product_name: "82WS"
+  board_vendor: "LENOVO"
+  board_name: "*"
+  board_version: "*"
+  bios_version: "GKCN*"   # optional — absent means match any version
+```
+
+Enables per-generation dispatch for Lenovo Legion and similar families where
+multiple hardware generations share the same `product_name` but differ in
+their BIOS family prefix. The glob uses `*` as a wildcard suffix. Absent or
+empty `bios_version` matches any live BIOS version (v1.0 behaviour preserved).
+
+**`dt_fingerprint` block** (RULE-SCHEMA-08, RULE-FINGERPRINT-06/07)
+
+Mutually exclusive with `dmi_fingerprint`. Used for ARM/SBC systems that
+have no DMI/SMBIOS table (Raspberry Pi, Compute Module 4, etc.).
+
+```yaml
+dt_fingerprint:
+  compatible: "raspberrypi,5-model-b"   # glob matched against any entry in
+                                         # /proc/device-tree/compatible list
+  model: "Raspberry Pi 5 Model B*"      # glob matched against
+                                         # /proc/device-tree/model (optional)
+```
+
+Both fields are optional individually, but at least one must be non-empty.
+A profile with both `dmi_fingerprint` and `dt_fingerprint` set is rejected
+at load time with `"exactly one is required"`.
+
+DMI-first dispatch: `dt_fingerprint` profiles are never evaluated when the
+live system has a readable `/sys/class/dmi/id/sys_vendor` file.
+
+**`overrides.unsupported: true`** (RULE-OVERRIDE-UNSUPPORTED-01/02)
+
+```yaml
+overrides:
+  unsupported: true   # consumer-class boards with no Linux fan-control path
+```
+
+When matched, the tier-1 matcher emits exactly one `slog.LevelInfo` message
+containing `"no Linux fan-control driver"` per board ID per process lifetime.
+`hwdb.ShouldSkipCalibration(ecp)` returns `true` — the calibration
+orchestrator must skip the entire probe sweep for affected boards. Sensor
+reads (telemetry-only mode) are unaffected.
+
+### Adding a board catalog entry
+
+1. Choose the appropriate file under `internal/hwdb/catalog/boards/` or
+   create a new one for a new vendor.
+2. Set `schema_version: "1.1"` if using `bios_version`, `dt_fingerprint`,
+   or `overrides.unsupported`; otherwise `"1.0"` is fine.
+3. Run `go test ./internal/hwdb/...` — `KnownFields(true)` strict decode
+   will report unknown fields; validation rejects dual-fingerprint profiles
+   and unresolvable chip/driver references.
+4. Open a PR. `TestHWDB_GPUEntriesV1Compatible` and the PR4 subtests in
+   `profile_v1_1_test.go` are the acceptance gate.
+
+---
+
+## 7. Adding a new profile
 
 Contributors who want to add a board profile:
 
@@ -235,6 +307,8 @@ Contributors who want to add a board profile:
    schema errors with the rule name and failing field.
 4. Open a PR. The nine invariant subtests in `TestSchema_Invariants` are the
    acceptance gate; CI must be green before merge.
+
+For board catalog entries see §6 above.
 
 The `contributed_by` field accepts `"anonymous"` or your GitHub handle. Real
 names and email addresses are rejected by the PII gate (`RULE-HWDB-06`) before
