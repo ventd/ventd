@@ -1,8 +1,9 @@
 # 2026-04 — Driver Catalog Amendments Needed for Scope-C
 
-**Status:** Research doc. No code. Surfaces driver-catalog work blocking
-the next wave of board entries (Legion gaming laptops, Framework
-laptops, full IPMI server-class catalog, ARM device-tree systems).
+**Status:** §SCHEMA-BIOSVER, §SCHEMA-DT, §HP-CONSUMER, §LEGION-1, and §IPMI-1
+delivered in spec-03 PR 4 (schema v1.1) and PR 5 (scope-C catalog seed).
+§FW-1 (Framework) remains open — requires new ventd backend, not a catalog
+amendment. See §FW-1 below.
 
 **Audience:** Phoenix + future Claude Code spec implementation chats.
 
@@ -13,14 +14,14 @@ PWM-controllability, spec-01 IPMI polish.
 
 ## Summary table
 
-| Amendment | Type | Schema impact | Spec | Priority |
+| Amendment | Type | Schema impact | Spec | Status |
 |---|---|---|---|---|
-| §LEGION-1: legion_hwmon driver entry | NEW driver YAML | YES — bios_version field | spec-03 amend | P1 |
-| §FW-1: cros_ec_lpcs driver entry | NEW driver YAML | NO | spec-03 amend | P2 |
-| §IPMI-1: ipmi_bmc driver entry | NEW driver YAML | NO | spec-01 / spec-03 | P1 |
-| §SCHEMA-DT: device-tree fingerprint | Schema-v1.1 | YES — dt fields | spec-03 amend | P2 |
-| §SCHEMA-BIOSVER: bios_version field | Schema-v1.1 | YES — top-level | spec-03 amend | P1 (gates Legion) |
-| §HP-CONSUMER: 'unsupported' marker | Tier-3 fallback | minor | spec-03 amend | P3 |
+| §LEGION-1: legion_hwmon driver entry | NEW driver YAML | YES — bios_version field | spec-03 amend | ✅ DELIVERED PR 5 |
+| §FW-1: cros_ec_lpcs driver entry | NEW driver YAML | NO | spec-03 amend | ⏳ open — needs new backend |
+| §IPMI-1: ipmi_bmc driver entry | NEW driver YAML | NO | spec-01 / spec-03 | ✅ DELIVERED PR 5 |
+| §SCHEMA-DT: device-tree fingerprint | Schema-v1.1 | YES — dt fields | spec-03 amend | ✅ DELIVERED PR 4 |
+| §SCHEMA-BIOSVER: bios_version field | Schema-v1.1 | YES — top-level | spec-03 amend | ✅ DELIVERED PR 4 |
+| §HP-CONSUMER: 'unsupported' marker | Tier-3 fallback | minor | spec-03 amend | ✅ DELIVERED PR 4 |
 
 P1 = blocks Legion/IPMI scope-C, ship before scope-C tag.
 P2 = improves coverage, can ship in v0.6.0.

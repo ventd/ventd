@@ -11,6 +11,8 @@ and frozen.
 
 ### Added
 
+- Board catalog schema v1.1: optional `bios_version` glob on `dmi_fingerprint` for per-generation Lenovo Legion dispatch; new `dt_fingerprint` block (mutually exclusive with `dmi_fingerprint`) for ARM/SBC systems without DMI; `overrides.unsupported: true` semantics with once-per-lifetime INFO log and calibration skip (`ShouldSkipCalibration`). Raspberry Pi 5 entry migrated from synthesized-DMI hack to `dt_fingerprint` (spec-03 PR 4).
+- Board catalog scope-C seed: 8 Lenovo Legion entries (GKCN/EUCN/H1CN/LPCN/M3CN/N0CN BIOS families); Dell PowerEdge R640/R740/R740XD; HPE ProLiant DL360/DL380 Gen10; Supermicro X11SCH-LN4F/X12STH-F/H13SSL-N; Raspberry Pi 4B + Compute Module 4. New driver descriptors: `legion_hwmon` (OOT DKMS) and `ipmi_bmc` (spec-03 PR 5).
 - Hardware profile board catalog seed: 15 entries across MSI, ASUS, Gigabyte,
   ASRock, and 3 generic chip-family fallbacks. All entries `verified: false`
   with empty curves; v0.5.x patches will validate one board at a time
