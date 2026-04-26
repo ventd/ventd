@@ -1,0 +1,143 @@
+# ASUS board catalog — spec-03 PR 3 seed entries.
+# All entries verified: false. Curves intentionally empty.
+# Chip identity sourced from asus-board-dsdt comprehensive board table:
+# https://github.com/asus-wmi-boards-sensors/asus-board-dsdt
+# DMI strings validated against linux-hardware.org probes where available.
+
+board_profiles:
+
+  - id: "asus-rog-strix-x670e-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "ROG STRIX X670E-E GAMING WIFI"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X670E-E GAMING WIFI"
+      board_version: "Rev 1.xx"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver (kernel 6.5+ required)"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary nct6799 for VRM/EC temps"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asus-nb-wmi"
+    notes: "ASUS ROG STRIX X670E-E. NCT6799D-R per asus-board-dsdt table.
+      CPUTIN sensor floats (ASUS pattern) — use PECI Agent 0 / TSI 0 instead.
+      Linux 6.5+ required for proper NCT6799D support."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (table entry: ROG STRIX X670E-E GAMING WIFI -> NCT6799D-R)"
+      - "https://www.phoronix.com/news/Linux-6.5-NCT6799D (kernel 6.5 NCT6799D support)"
+      - "https://www.phoronix.com/forums/forum/hardware/processors-memory/1375298 (CPUTIN floats discussion, ASUS Nuvoton pattern)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-prime-b650m-a-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "PRIME B650M-A WIFI"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "PRIME B650M-A WIFI"
+      board_version: "Rev 1.xx"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline (kernel 6.5+)"
+    additional_controllers: []
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS Prime B650M-A WIFI. NCT6799D-R per asus-board-dsdt.
+      Mid-range AM5, large install base. CPUTIN floats — same ASUS pattern."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (PRIME B650M-A WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z790-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "ROG STRIX Z790-E GAMING WIFI"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z790-E GAMING WIFI"
+      board_version: "Rev 1.xx"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers: []
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asus-nb-wmi"
+    notes: "ASUS ROG STRIX Z790-E. NCT6798D per asus-board-dsdt.
+      Intel Z790, well-documented in Libre Hardware Monitor PR #1474.
+      Voltage scaling: NCT6798 family uses 1.11x for Vcore on ASUS boards."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (ROG STRIX Z790-E GAMING WIFI -> NCT6798D)"
+      - "https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/pull/1474 (Z790 NCT6798D voltage scaling)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-tuf-gaming-x670e-plus-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "TUF GAMING X670E-PLUS WIFI"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "TUF GAMING X670E-PLUS WIFI"
+      board_version: "Rev 1.xx"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline (kernel 6.5+)"
+    additional_controllers: []
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS TUF X670E-PLUS WIFI. NCT6799D-R per asus-board-dsdt.
+      Common AM5 build choice."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (TUF GAMING X670E-PLUS WIFI -> NCT6799D-R)"
+      - "https://www.phoronix.com/news/Linux-6.5-NCT6799D (kernel ABI, this board explicitly named)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-proart-x670e-creator-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "ProArt X670E-CREATOR WIFI"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ProArt X670E-CREATOR WIFI"
+      board_version: "Rev 1.xx"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline (kernel 6.5+)"
+    additional_controllers: []
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ProArt X670E-CREATOR. NCT6799D-R per asus-board-dsdt.
+      Confirmed via Linux Mint forum thread (BIOS 0805, kernel 6.5)."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (ProArt X670E-CREATOR WIFI -> NCT6799D-R)"
+      - "https://forums.linuxmint.com/viewtopic.php?t=419158 (user dmidecode output, BIOS 0805 11/04/2022)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

@@ -1,0 +1,88 @@
+# ASRock board catalog — spec-03 PR 3 seed entries.
+# All entries verified: false. Curves intentionally empty.
+# ASRock boards often have dual Nuvoton chips (Super I/O + EC) where
+# one is supported by nct6775 and the other by nct6683 mainline.
+
+board_profiles:
+
+  - id: "asrock-x670e-taichi"
+    dmi_fingerprint:
+      sys_vendor: "ASRock"
+      product_name: "X670E Taichi"
+      board_vendor: "ASRock"
+      board_name: "X670E Taichi"
+      board_version: ""
+    primary_controller:
+      chip: "nct6796"
+      sysfs_hint: "name=nct6796 via nct6775 mainline (NCT6796D-S, primary fan controller)"
+    additional_controllers:
+      - chip: "nct6686"
+        sysfs_hint: "name=nct6683 via nct6683 mainline (kernel 6.7+ for X670E Taichi support)"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASRock X670E Taichi. Dual Nuvoton: NCT6796D-S (primary, fans + most
+      sensors, supported by nct6775 since baseline) + NCT6686D (secondary, more
+      sensors via nct6683 in kernel 6.7+). Some users report fans show 0 RPM
+      via nct6683 — primary fan readings come from nct6796 path. ventd should
+      prefer nct6775 channel for fan control, use nct6683 only for additional
+      temperature sensors."
+    citations:
+      - "https://www.phoronix.com/news/Linux-6.7-HWMON (kernel 6.7 nct6683 X670E Taichi support)"
+      - "https://forum.level1techs.com/t/asrock-x670e-taichi-no-sensors-on-linux/199354 (community workaround thread)"
+      - "https://www.phoronix.com/forums/forum/hardware/motherboards-chipsets/1418593 (dual-chip clarification: NCT6796D-S + NCT6686D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asrock-b650m-pg-lightning"
+    dmi_fingerprint:
+      sys_vendor: "ASRock"
+      product_name: "B650M PG Lightning"
+      board_vendor: "ASRock"
+      board_name: "B650M PG Lightning"
+      board_version: ""
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASRock B650M PG Lightning. NCT6798D per asus-board-dsdt cross-reference
+      table (B650E PG Riptide WiFi -> nct6775 driver, family pattern). Common
+      AM5 mATX choice. UNVERIFIED chip identity — confirm via sensors-detect
+      against an actual board before flipping verified: true."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (ASRock B650E PG Riptide WiFi family pattern)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asrock-x570-taichi"
+    dmi_fingerprint:
+      sys_vendor: "ASRock"
+      product_name: "X570 Taichi"
+      board_vendor: "ASRock"
+      board_name: "X570 Taichi"
+      board_version: ""
+    primary_controller:
+      chip: "nct6796"
+      sysfs_hint: "name=nct6796 via nct6775 mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASRock X570 Taichi (predecessor to X670E Taichi). Single-chip
+      NCT6796D per asus-board-dsdt cross-reference. nct6775 mainline driver."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (ASRock X570 Taichi family)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

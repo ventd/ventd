@@ -34,6 +34,14 @@ chip_profiles:
     channel_overrides: {}
     citations: []
 
+  - name: "asus-ec-sensors"
+    inherits_driver: "asus-ec-sensors"
+    description: "ASUS EC sensors (board profile reference name, hyphenated form). Same driver as asus_ec; referenced by board profiles in additional_controllers. Read-only supplementary temps; fan control via primary Super I/O."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/asus_ec.html"
+
   - name: "hp_wmi"
     inherits_driver: "hp-wmi-sensors"
     description: "HP WMI sensors — /sys/class/hwmon/*/name value. Read-only on all HP consumer/business models."

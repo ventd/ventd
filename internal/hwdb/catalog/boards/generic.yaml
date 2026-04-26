@@ -1,0 +1,103 @@
+# Generic heuristic board catalog — spec-03 PR 3 seed entries.
+# These are tier-3 fallback "boards" — they don't exist as physical hardware.
+# When DMI matches NO specific board entry but the chip family is recognised,
+# the matcher falls back to one of these generics. The runtime behaviour is
+# defined entirely by the chip catalog driver entry; these are pure pointers.
+# Per spec-03 amendment §11 tier-3 fallback semantics.
+
+board_profiles:
+
+  - id: "generic-nct6798"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Generic heuristic profile for any board exposing NCT6798D via
+      hwmon name=nct6798. Most common modern Super I/O chip — found on
+      AMD X570/B550/B560/X670/B650 AM4/AM5 boards from ASUS Pro, ASUS Prime,
+      ASRock, Gigabyte (older Z690), and on Intel Z690/Z790. Activated when
+      tier-1 (board fingerprint) and tier-2 (vendor regex) fail but the
+      chip name is in the allowlist. Behaviour entirely driven by
+      internal/hwdb/catalog/drivers/nct6775.yaml."
+    citations:
+      - "specs/spec-03-amendment-pwm-controllability.md §11 (tier-3 generic-fallback semantics)"
+      - "internal/hwdb/catalog/drivers/nct6775.yaml (driver-level defaults)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (NCT6798D listed on 100+ boards across vendors)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "generic-nct6799"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver (kernel 6.5+)"
+    additional_controllers: []
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Generic heuristic profile for any board exposing NCT6799D via
+      hwmon name=nct6799. Found on most AMD X670/X870/B650/B850 boards from
+      ASUS Prime/ROG STRIX/TUF/ProArt families and ASRock X670E PG Lighting.
+      Linux 6.5+ required — support added by Denis Pauk + Ahmad Khalifa,
+      see kernel commit referenced in citations. The cputin_floats override
+      is set true because every documented NCT6799D-bearing ASUS board
+      exhibits the floating-CPUTIN issue (workaround: use PECI/TSI sensors)."
+    citations:
+      - "https://www.phoronix.com/news/Linux-6.5-NCT6799D (kernel 6.5 ABI support)"
+      - "https://www.spinics.net/lists/kernel/msg4644521.html (kernel patch v2 listing supported boards)"
+      - "https://www.phoronix.com/forums/forum/hardware/processors-memory/1375298 (CPUTIN floats discussion, ASUS Nuvoton family)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "generic-nct6687d"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 (Fred78290 OOT driver) — fallback to name=nct6683 (mainline RO) if OOT not installed"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "fan_config=msi_alt1"
+    conflicts_with_userspace: []
+    notes: "Generic heuristic profile for any board exposing NCT6687D. Found
+      on MSI MPG/MAG B550/B650/B660/X670/Z590/Z690/Z790 boards and on some
+      ASUS B550 boards. Mainline kernel (nct6683) detects the chip but only
+      exposes voltages and temperatures — fan control requires the OOT
+      Fred78290/nct6687d DKMS module. Without OOT installed, ventd should
+      register channels as ro_sensor_only. fan_config=msi_alt1 is the
+      universal MSI default — auto-detected by recent OOT versions."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (OOT DKMS module, supported board list)"
+      - "https://github.com/lm-sensors/lm-sensors/issues/446 (mainline nct6683 detects NCT6687D but lacks fan control)"
+      - "https://wiki.archlinux.org/title/Lm_sensors (lm_sensors ArchWiki guidance for nct6687d)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

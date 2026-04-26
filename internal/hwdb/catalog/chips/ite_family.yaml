@@ -66,6 +66,15 @@ chip_profiles:
       - "https://docs.kernel.org/hwmon/it87.html"
       - "https://github.com/frankcrawford/it87"
 
+  - name: "it8792"
+    inherits_driver: "it87"
+    description: "ITE IT8792E — secondary Super I/O on Gigabyte dual-chip boards (X670E Aorus Master, B550 Aorus Master). Accompanies a primary IT8689/IT8688 chip. Requires frankcrawford/it87 OOT driver."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/frankcrawford/it87"
+      - "https://github.com/frankcrawford/it87/issues/96"
+
   - name: "it8705"
     inherits_driver: "it87"
     description: "ITE IT8705F — legacy Super I/O, pre-2010 boards."
