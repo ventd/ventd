@@ -11,6 +11,14 @@ and frozen.
 
 ### Added
 
+- Hardware profile board catalog seed: 15 entries across MSI, ASUS, Gigabyte,
+  ASRock, and 3 generic chip-family fallbacks. All entries `verified: false`
+  with empty curves; v0.5.x patches will validate one board at a time
+  (spec-03 PR 3).
+- Documented Gigabyte IT8689E rev 1 BIOS-override write-block quirk on X670E
+  Aorus Master and B650 Aorus Elite AX entries — calibration probe will
+  detect via writes-accepted-but-ineffective pattern and route affected
+  channels to monitor-only mode.
 - Hardware profile library schema v1 (`internal/hwdb/schema.go`): per-board YAML descriptors with strict-decode PII gate, monotonic curve validation, kernel-module allowlist, and reserved predictive-thermal hints for spec-05 consumers (spec-03 PR 1).
 - DMI fingerprint hash function with frozen v1 input tuple (sys_vendor, product_name, board_vendor, board_name, board_version, cpu_model_name, cpu_core_count). 16-char hex SHA-256 prefix.
 - Documented per-platform state directory layout under `/var/lib/ventd/platform/<fingerprint>/` and the user-mode fallback at `$XDG_STATE_HOME/ventd/`. Reserved layout for capture (PR 4) and predictive (spec-05) writes.

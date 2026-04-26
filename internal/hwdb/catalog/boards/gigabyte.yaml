@@ -1,0 +1,103 @@
+# Gigabyte board catalog — spec-03 PR 3 seed entries.
+# All entries verified: false. Curves intentionally empty.
+# Several Gigabyte boards exhibit the "BIOS-overridden" write pattern (PWM writes
+# accepted but ignored by EC/BIOS) — flagged in notes per board.
+
+board_profiles:
+
+  - id: "gigabyte-x670e-aorus-master"
+    dmi_fingerprint:
+      sys_vendor: "Gigabyte Technology Co., Ltd."
+      product_name: "X670E AORUS MASTER"
+      board_vendor: "Gigabyte Technology Co., Ltd."
+      board_name: "X670E AORUS MASTER"
+      board_version: ""
+    primary_controller:
+      chip: "it8689"
+      sysfs_hint: "name=it8689 via frankcrawford/it87 OOT driver (mmio=on for AMD ECIO H2RAM)"
+    additional_controllers:
+      - chip: "it8792"
+        sysfs_hint: "name=it8792 secondary chip at 0xa60, also via frankcrawford/it87"
+    overrides:
+      bios_overridden_pwm_writes: true
+    required_modprobe_args:
+      - "ignore_resource_conflict=1"
+      - "force_id=0x8689"
+      - "mmio=on"
+    conflicts_with_userspace: []
+    notes: "Gigabyte X670E AORUS MASTER. Dual ITE chips: IT8689E (primary, fans)
+      + IT8792E (secondary). frankcrawford/it87 OOT driver required (not mainline).
+      KNOWN ISSUE: IT8689E revision 1 accepts PWM writes without error but they
+      have NO EFFECT on actual fan speed. Issue tracked at
+      frankcrawford/it87#96. Until upstream fix, ventd's calibration probe
+      should detect this as bios_overridden=true and route to monitor-only.
+      Revision 2 of IT8689E (e.g. on B650 Eagle AX) has BIOS workaround that
+      makes writes work."
+    citations:
+      - "https://github.com/frankcrawford/it87/issues/96 (X670E AORUS MASTER, IT8689E rev 1, write-blocked)"
+      - "https://github.com/frankcrawford/it87 (OOT driver source)"
+      - "https://gist.github.com/bakman2/e801f342aaa7cade62d7bd54fd3eabd8 (Gigabyte Aorus Linux fan control walkthrough)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "gigabyte-b650-aorus-elite-ax"
+    dmi_fingerprint:
+      sys_vendor: "Gigabyte Technology Co., Ltd."
+      product_name: "B650 AORUS ELITE AX"
+      board_vendor: "Gigabyte Technology Co., Ltd."
+      board_name: "B650 AORUS ELITE AX"
+      board_version: ""
+    primary_controller:
+      chip: "it8689"
+      sysfs_hint: "name=it8689 via frankcrawford/it87 OOT driver"
+    additional_controllers: []
+    overrides:
+      bios_overridden_pwm_writes: true
+    required_modprobe_args:
+      - "ignore_resource_conflict=1"
+      - "force_id=0x8689"
+    conflicts_with_userspace: []
+    notes: "Gigabyte B650 Aorus Elite AX rev 1.2. IT8689E. Per frankcrawford/it87
+      issue #68: sensors visible, RPMs visible, but PWM writes have NO effect
+      on actual fan speed. Same BIOS-overridden pattern as X670E Master rev 1.
+      ventd should detect via calibration probe and route to monitor-only."
+    citations:
+      - "https://github.com/frankcrawford/it87/issues/68 (B650 AORUS ELITE AX rev 1.2, IT8689E, write blocked)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "gigabyte-x570-aorus-master"
+    dmi_fingerprint:
+      sys_vendor: "Gigabyte Technology Co., Ltd."
+      product_name: "X570 AORUS MASTER"
+      board_vendor: "Gigabyte Technology Co., Ltd."
+      board_name: "X570 AORUS MASTER"
+      board_version: ""
+    primary_controller:
+      chip: "it8688"
+      sysfs_hint: "name=it8688 via frankcrawford/it87 OOT driver (mmio=1 for dual-chip)"
+    additional_controllers:
+      - chip: "it8792"
+        sysfs_hint: "name=it8792 secondary chip"
+    overrides: {}
+    required_modprobe_args:
+      - "mmio=1"
+    conflicts_with_userspace: []
+    notes: "Gigabyte X570 Aorus Master. Older X570 series uses IT8688E, NOT
+      IT8689E. Confirmed dual-chip: IT8688 + IT8792. mmio=1 module param
+      required to expose both. PWM writes work (no BIOS-override pattern
+      reported on this generation, unlike X670E successor)."
+    citations:
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt#supported-boards (Gigabyte X570 AORUS MASTER -> IT8688E)"
+      - "https://gist.github.com/bakman2/e801f342aaa7cade62d7bd54fd3eabd8 (X570 Aorus Master mmio=1 walkthrough)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

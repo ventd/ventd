@@ -1,0 +1,113 @@
+# MSI board catalog — spec-03 PR 3 seed entries.
+# All entries verified: false. Curves intentionally empty.
+# DMI strings sourced from primary references (linux-hardware.org probes,
+# upstream lm-sensors issues, kernel forum reports).
+# Chip identity sourced from sensors-detect output and Fred78290/nct6687d
+# supported-boards list.
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "msi-mag-x670e-tomahawk-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E12"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG X670E TOMAHAWK WIFI (MS-7E12)"
+      board_version: "1.0"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 (OOT Fred78290 driver) or name=nct6683 (mainline RO fallback)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "fan_config=msi_alt1"
+    conflicts_with_userspace: []
+    notes: "MSI X670E. Mainline kernel detects NCT6687D as nct6683 (read-only).
+      Writable fan control requires Fred78290/nct6687d OOT DKMS module.
+      msi_alt1 fan_config auto-detected on recent Fred78290 versions."
+    citations:
+      - "https://linux-hardware.org/?probe=c3b398c792 (MS-7E12 dmidecode)"
+      - "https://forums.fedoraforum.org/archive/index.php/t-334444.html (Fedora 42 user confirms nct6683 detects, OOT driver needed for control)"
+      - "https://github.com/Fred78290/nct6687d (OOT driver supported boards)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-b650-tomahawk-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E26"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG B650 TOMAHAWK WIFI (MS-7E26)"
+      board_version: "1.0"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 (OOT) or name=nct6683 (RO mainline)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "fan_config=msi_alt1"
+    conflicts_with_userspace: []
+    notes: "MSI B650 Tomahawk family. Same NCT6687D chip pattern as X670E sibling.
+      Confirmed via Arch Linux user posting nct6687-isa-0a20 sensors output."
+    citations:
+      - "https://bbs.archlinux.org/viewtopic.php?id=289550 (sensors output, nct6687-isa-0a20)"
+      - "https://github.com/Fred78290/nct6687d (msi_alt1 supported list includes B650 Tomahawk)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-z790-edge-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7D91"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG Z790 EDGE WIFI (MS-7D91)"
+      board_version: "1.0"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 (OOT) or name=nct6683 (RO mainline)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "fan_config=msi_alt1"
+    conflicts_with_userspace: []
+    notes: "MSI MPG Z790 EDGE WIFI. Confirmed NCT6687D via lm-sensors issue #446.
+      Mainline nct6683 detects but only voltages/temps; fan control requires OOT."
+    citations:
+      - "https://github.com/lm-sensors/lm-sensors/issues/446 (dmidecode + nct6683 detection log)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-x570s-tomahawk-max-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7D54"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG X570S TOMAHAWK MAX WIFI (MS-7D54)"
+      board_version: "1.0"
+    primary_controller:
+      chip: "nct6797"
+      sysfs_hint: "name=nct6797 via nct6775 mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Older X570S Tomahawk uses NCT6797D, NOT the newer NCT6687D family.
+      Mainline nct6775 driver supports it. Distinct from the X670E Tomahawk
+      which uses NCT6687D. Fingerprint disambiguates the two on chip identity."
+    citations:
+      - "https://github.com/openhardwaremonitor/openhardwaremonitor/issues/1479 (LHM report shows MS-7D54 + Nuvoton NCT6797D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
