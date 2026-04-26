@@ -337,7 +337,7 @@ Estimate **$5–12**.
 If `Overrides` strict-decode rejects scope-C-rich override fields and CC must coerce them into `notes:` prose, add **+$3-5** for the field-by-field stripping. Pre-flight grep checks above catch this early so CC isn't hunting blind.
 
 ---
-
+> **As-built deviation (2026-04-26, PR #647):** scope-C entries shipped as separate files `supermicro-additional.yaml` and `raspberry-pi-additional.yaml` rather than being appended to the existing scope-B files. Functionally equivalent for the matcher. A polish PR may consolidate these in v0.5.0; tracked at the file-naming convention level, not as a defect.
 ## Why this PR is cheap
 
 Everything load-bearing was decided in chat (Opus, flat-rate). Schema enforcement is in PR 4 (already merged). PR 5 is data-only; CC's job is paste, verify, commit. The expensive parts (BIOS_VERSION research, iDRAC firmware lockdown investigation, Pi DT compatible string verification, EMC2301 carrier-board mechanics) are baked into the YAMLs and citation doc. CC doesn't redo any of that.

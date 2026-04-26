@@ -5,7 +5,7 @@
 (driver catalog), §11.6 (tier-3 fallback semantics — NEW).
 **Predecessor:** Schema v1 frozen in spec-03 PR 1 (#629, merged
 2026-04-25). Migration skeleton already in place.
-
+> **2026-04-26 update:** Rule names finalised during PR #646 implementation. Two rules originally drafted (PR4-06 DMI-precedence, PR4-07 null-migration) were dropped as redundant against pre-existing RULE-HWDB-PR2-* matcher dispatch and RULE-HWDB-07 migration chain integrity invariants.
 ---
 
 ## Why this amendment exists
