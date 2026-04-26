@@ -1,0 +1,16 @@
+- id: "community-000000000000004b"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "ASUS"
+    dmi_product_name: "PRIME Z690-A"
+  hardware:
+    fan_count: 2
+    pwm_control: "nct6775"
+
+  contributed_by: "anonymous"
+  captured_at: "2026-04-26"
+  verified: false
+sensor_trust:
+  - sensor: coretemp
+    trust: high
+    reason: "config at /home/eve/Desktop/board-profile.yaml"
