@@ -278,6 +278,29 @@ func run() error {
 	// diagnostics will surface the same finding to the operator.
 	hwmon.DiagnoseHwmon(logger)
 
+	// Provision the profiles-pending directory and register the post-calibration
+	// capture hook. Capture is best-effort: directory creation failure is logged
+	// but does not abort startup. RULE-HWDB-CAPTURE-01.
+	pendingDir := hwdb.CaptureDir()
+	if mkErr := os.MkdirAll(pendingDir, 0o750); mkErr != nil {
+		logger.Warn("capture: cannot create profiles-pending dir", "dir", pendingDir, "err", mkErr)
+	}
+	captureDMI, capDMIErr := hwdb.ReadDMI(os.DirFS("/"))
+	captureCat, capCatErr := hwdb.LoadCatalog()
+	if capDMIErr != nil || capCatErr != nil {
+		logger.Warn("capture: hook disabled (DMI or catalog unavailable)",
+			"dmi_err", capDMIErr, "cat_err", capCatErr)
+	} else {
+		calibstore.SetCaptureHook(func(run *hwdb.CalibrationRun) {
+			path, err := hwdb.Capture(run, captureDMI, captureCat, pendingDir)
+			if err != nil {
+				logger.Warn("capture: failed to write pending profile", "err", err)
+				return
+			}
+			logger.Info("capture: wrote pending profile", "path", path)
+		})
+	}
+
 	// NVML init is always attempted. The shim silently disables GPU
 	// features when libnvidia-ml.so.1 is absent or nvmlInit_v2 fails, and
 	// logs the outcome. Never fatal: hwmon fan control must keep working

@@ -1,0 +1,15 @@
+- id: "community-0000000000000023"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "ASUS"
+    dmi_product_name: "PRIME Z690-A"
+  hardware:
+    fan_count: 2
+    pwm_control: "nct6775"
+    fans:
+      - id: 1
+        label: "Fan attached to NIC 08:00:27:5E:F9:A0"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-26"
+  verified: false
+

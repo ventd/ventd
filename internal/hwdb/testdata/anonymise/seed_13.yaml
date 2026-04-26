@@ -1,0 +1,15 @@
+- id: "community-000000000000000d"
+  schema_version: 1
+  fingerprint:
+    dmi_board_vendor: "ASUS"
+    dmi_product_name: "PRIME Z690-A"
+  hardware:
+    fan_count: 2
+    pwm_control: "nct6775"
+    fans:
+      - id: 1
+        label: "home-server CPU Fan"
+  contributed_by: "anonymous"
+  captured_at: "2026-04-26"
+  verified: false
+
