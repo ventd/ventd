@@ -313,3 +313,55 @@ For board catalog entries see §6 above.
 The `contributed_by` field accepts `"anonymous"` or your GitHub handle. Real
 names and email addresses are rejected by the PII gate (`RULE-HWDB-06`) before
 they touch any code path.
+
+---
+
+## 8. Capture pipeline
+
+After a successful calibration run, ventd automatically writes a **candidate
+hardware profile** to the pending directory for later review and submission.
+
+### Output location
+
+| Mode | Path |
+|------|------|
+| root (systemd) | `/var/lib/ventd/profiles-pending/<fingerprint>.yaml` |
+| user mode | `$XDG_STATE_HOME/ventd/profiles-pending/<fingerprint>.yaml` |
+
+The filename is the 16-character hex DMI fingerprint hash from §3.
+A second capture for the same board overwrites the previous pending file.
+
+### Anonymisation (PII strip)
+
+Anonymisation runs **before** the file is written. No cleartext PII is ever
+written to disk, even transiently. The pipeline:
+
+1. Forces `contributed_by: anonymous` and `verified: false`.
+2. **Clears** user-set text fields: fan labels, sensor trust reasons. These
+   are not needed for catalog matching and could contain arbitrary text.
+3. Applies text-level redaction (hostname, MAC, IP, username, home paths,
+   USB physical paths) to vendor-attributed identification fields
+   (sys_vendor, product_name, board_vendor, board_name).
+4. Validates via a strict YAML round-trip (`KnownFields(true)`) — rejects
+   any field not in the v1 schema struct (RULE-HWDB-CAPTURE-03).
+
+### Fail-closed semantics (RULE-HWDB-CAPTURE-02)
+
+If the anonymiser fails for any reason, `Capture()` returns an error and
+writes nothing. Calibration's primary outputs (the JSON under
+`/var/lib/ventd/calibration/`) are unaffected — capture is best-effort.
+
+### Invariant bindings
+
+| Rule | Statement |
+|------|-----------|
+| RULE-HWDB-CAPTURE-01 | Capture writes only to profiles-pending, never to the live catalog |
+| RULE-HWDB-CAPTURE-02 | Fail-closed: anonymise error → no file written |
+| RULE-HWDB-CAPTURE-03 | Output YAML contains only schema-allowlisted fields |
+
+### What happens next
+
+Pending profiles accumulate in the pending directory. They are **not**
+automatically merged into the live catalog. Future work (P5-PROF-03) will
+add `ventd --submit-profile` to let users review and submit pending profiles
+to the upstream catalog for community validation.
