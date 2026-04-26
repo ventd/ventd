@@ -32,8 +32,10 @@ type EffectiveControllerProfile struct {
 	ChannelOverrides map[string]ChannelOverride
 
 	// From board profile (layer 3)
-	BoardID      *string
-	CPUTINFloats bool
+	BoardID                 *string
+	CPUTINFloats            bool
+	Unsupported             bool // v1.1: overrides.unsupported true → sensors-only mode
+	CoolingDeviceMustDetach bool // ARM boards that need cooling-device detach before PWM
 
 	// From calibration (layer 4 — per channel; nil map means no calibration loaded)
 	CalibrationByChannel map[ChannelKey]*ChannelCalibration
@@ -86,6 +88,8 @@ func ResolveEffectiveProfile(
 	if board != nil {
 		ecp.BoardID = &board.ID
 		ecp.CPUTINFloats = board.Overrides.CPUTINFloats
+		ecp.Unsupported = board.Overrides.Unsupported
+		ecp.CoolingDeviceMustDetach = board.Overrides.CoolingDeviceMustDetach
 		// Board-level modprobe args and conflicts are additive.
 		ecp.RequiredModprobeArgs = append(ecp.RequiredModprobeArgs, board.RequiredModprobeArgs...)
 		ecp.ConflictsWithUserspace = append(ecp.ConflictsWithUserspace, board.ConflictsWithUserspace...)
@@ -170,6 +174,8 @@ type BoardProfileV2 struct {
 // BoardOverrides holds board-specific overrides merged on top of chip/driver.
 type BoardOverrides struct {
 	DriverProfileOverrides
-	CPUTINFloats         bool `yaml:"cputin_floats,omitempty"`
-	PollingLatencyMSHint *int `yaml:"polling_latency_ms_hint,omitempty"`
+	CPUTINFloats            bool `yaml:"cputin_floats,omitempty"`
+	PollingLatencyMSHint    *int `yaml:"polling_latency_ms_hint,omitempty"`
+	Unsupported             bool `yaml:"unsupported,omitempty"`                // v1.1: sensors-only mode
+	CoolingDeviceMustDetach bool `yaml:"cooling_device_must_detach,omitempty"` // ARM boards
 }
