@@ -1,0 +1,122 @@
+# Lenovo IdeaPad / Yoga board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# IMPORTANT: ideapad-laptop driver exposes MODE-BASED fan control, NOT
+# continuous PWM. Four enum modes via /sys/bus/platform/devices/VPC2004:*/fan_mode:
+#   0 → Super Silent
+#   1 → Standard
+#   2 → Dust Cleaning (forced full speed for dust ejection)
+#   4 → Efficient Thermal Dissipation (max performance)
+# (state==3 is invalid)
+#
+# This is fundamentally different from hwmon pwm1 semantics. ventd cannot
+# write a 0-255 PWM byte — it can only switch between 4 firmware modes.
+# Encoding via overrides.fan_mode_only: true.
+#
+# Driver matches on ACPI _HID PNP0C09 + VPC2004 ACPI device, NOT DMI.
+# It probes VPCCMD_R_FAN at module load and lights up fan_mode only on
+# success. No per-board DMI fan whitelist exists.
+#
+# Reading fan tach (RPM) is NOT exposed by ideapad-laptop. tach must come
+# from coretemp/acpitz.
+#
+# Lenovo Legion gaming laptops use the SEPARATE legion-laptop OOT driver
+# (not ideapad-laptop). See lenovo-legion.yaml (DEFERRED — see
+# 2026-04-driver-amendments-needed.md).
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "lenovo-ideapad-flex5-14itl05"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82HU"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "IdeaPad Flex 5 14ITL05"
+    primary_controller:
+      chip: "ideapad_laptop"
+      sysfs_hint: "/sys/bus/platform/devices/VPC2004:*/fan_mode (mode-based, not PWM)"
+    additional_controllers: []
+    overrides:
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Phoenix box matrix #7 — Pentium 7505 IdeaPad Flex5 hybrid.
+      ideapad-laptop driver exposes 4 firmware fan modes (0/1/2/4 — note
+      gap), NOT continuous PWM. ventd must register this as a discrete-
+      level controller, not a PWM channel. Fan tach RPM NOT exposed by
+      this driver — RPM reading would require EC raw access (out of
+      ventd's scope). DMI: Lenovo encodes the marketing model name in
+      board_version (e.g. 'IdeaPad Flex 5 14ITL05') while product_name
+      is the machine type code (82HU). Fingerprint match key is the
+      machine type, not the marketing name. partner-machine →
+      preserve-Win dual-boot, sign-off required before any write
+      experiment."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/Documentation/ABI/testing/sysfs-platform-ideapad-laptop (fan_mode ABI: 0/1/2/4 enum, state==3 invalid)"
+      - "https://github.com/endlessm/linux/blob/master/drivers/platform/x86/ideapad-laptop.c (driver source, VPCCMD_R_FAN/VPCCMD_W_FAN probe model)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-ideapad-3-15iil05"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "81WE"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "IdeaPad 3 15IIL05"
+    primary_controller:
+      chip: "ideapad_laptop"
+      sysfs_hint: "/sys/bus/platform/devices/VPC2004:*/fan_mode (mode-based, not PWM)"
+    additional_controllers: []
+    overrides:
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Lenovo IdeaPad 3 15IIL05 (Ice Lake i3/i5). Common volume-tier
+      consumer IdeaPad. Same VPCCMD model as Flex5. Some BIOS revisions
+      report fan_mode as unavailable — driver gracefully hides the
+      attribute."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/Documentation/ABI/testing/sysfs-platform-ideapad-laptop"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-yoga-7-14iru9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83JL"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "Yoga 7 14IRU9"
+    primary_controller:
+      chip: "ideapad_laptop"
+      sysfs_hint: "/sys/bus/platform/devices/VPC2004:*/fan_mode (mode-based, not PWM)"
+    additional_controllers: []
+    overrides:
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Lenovo Yoga 7 14IRU9 (2024 Meteor Lake) — also routed through
+      ideapad-laptop. Yoga family branding sits in board_version.
+      machine_type 83JL. Note: Yoga laptops sometimes additionally carry
+      conservation_mode + dytc — those are battery / platform-profile
+      controls, not relevant to fan."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/Documentation/ABI/testing/sysfs-platform-ideapad-laptop"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []

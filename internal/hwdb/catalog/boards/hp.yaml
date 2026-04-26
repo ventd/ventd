@@ -1,0 +1,143 @@
+# HP board catalog — spec-03 PR 3 scope-B seed entries.
+# All entries verified: false. Curves intentionally empty.
+#
+# IMPORTANT: hp-wmi-sensors driver is BUSINESS-CLASS only (EliteBook,
+# ProBook, Z-series workstations). It does NOT match by DMI — it probes
+# WMI GUIDs at module load and lights up only if HPBIOS_BIOSNumericSensor
+# objects exist in firmware.
+#
+# Consumer HP machines (Pavilion, Envy, Spectre, Stream) DO NOT have
+# HPBIOS_BIOSNumericSensor. They use the unrelated `hp-wmi` driver
+# (drivers/platform/x86/hp-wmi.c) which handles hotkeys/rfkill, NOT
+# fan control or hwmon sensors. Such machines have NO Linux fan control
+# path through ventd's hwmon backend.
+#
+# Discovery is fully dynamic — sensor count, types, and labels vary
+# wildly per machine. ventd cannot enumerate ahead of probe.
+#
+# See docs/research/2026-04-board-catalog-citations.md for source-per-field.
+
+board_profiles:
+
+  - id: "hp-pavilion-x360-15-cr0xxx"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "HP Pavilion x360 Convertible 15-cr0xxx"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no hwmon path — consumer-class HP, no HPBIOS_BIOSNumericSensor"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Phoenix box matrix #6 — i5-8250U Pavilion x360 convertible
+      (consumer-class). hp-wmi-sensors driver does NOT support consumer
+      Pavilion line because the firmware lacks the HPBIOS_BIOSNumericSensor
+      WMI namespace. The hp-wmi driver loads (hotkeys, rfkill, ALS) but
+      does NOT expose fan/temp hwmon. CPU temp is available via
+      coretemp.ko independently. NO writable fan-control path exists for
+      this hardware in mainline Linux. Recorded here as ground truth so
+      ventd's matcher returns 'unsupported' rather than falling through
+      to a generic profile. Workaround for owners: BIOS auto-control
+      only, or buy supported business-class HP hardware."
+    citations:
+      - "https://docs.kernel.org/hwmon/hp-wmi-sensors.html (driver scope: business-class HP only)"
+      - "https://github.com/kangtastic/hp-wmi-sensors (OOT predecessor — same business-class restriction)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-elitebook-840-g5"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "HP EliteBook 840 G5"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "hp_wmi_sensors"
+      sysfs_hint: "name=hp_wmi via hp-wmi-sensors mainline driver — sensors created dynamically per WMI probe"
+    additional_controllers: []
+    overrides:
+      dynamic_enumeration: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP EliteBook 840 G5 business laptop (Whiskey Lake / Coffee Lake
+      refresh). Business-class → has HPBIOS_BIOSNumericSensor →
+      hp-wmi-sensors should expose fan + temp readings. Sensor count and
+      labels vary per BIOS version. Note: alarm attributes may be
+      unavailable if hp-wmi (hotkey driver) is loaded first because it
+      claims the same WMI event GUID. Voltage/current sensor support is
+      provisional per kernel docs. ventd should treat exposed channels as
+      readonly unless WMI write methods are present (not always the case
+      — many HP business systems are sensor-readonly even via WMI)."
+    citations:
+      - "https://docs.kernel.org/hwmon/hp-wmi-sensors.html (driver scope, sensor enumeration model)"
+      - "https://www.badcaps.net/forum/troubleshooting-hardware-devices-and-electronics-theory/troubleshooting-laptops-tablets-and-mobile-devices/bios-requests-only/93391-hp-dmi-data-tool (DMI dump confirming PRODUCT_NAME 'HP EliteBook 840 G5')"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-elitebook-845-g7"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "HP EliteBook 845 G7 Notebook PC"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "hp_wmi_sensors"
+      sysfs_hint: "name=hp_wmi via hp-wmi-sensors mainline driver"
+    additional_controllers: []
+    overrides:
+      dynamic_enumeration: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP EliteBook 845 G7 (AMD Renoir Ryzen Pro). Business-class.
+      hp-wmi-sensors lights up at module probe. PRODUCT_NAME observed as
+      'HP EliteBook 845 G7 Notebook PC' (with the literal 'Notebook PC'
+      suffix). HP business AMD-platform Linux compatibility is generally
+      good across this generation."
+    citations:
+      - "https://docs.kernel.org/hwmon/hp-wmi-sensors.html (driver scope)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-probook-450-g7"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "HP ProBook 450 G7"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "hp_wmi_sensors"
+      sysfs_hint: "name=hp_wmi via hp-wmi-sensors mainline driver"
+    additional_controllers: []
+    overrides:
+      dynamic_enumeration: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP ProBook 450 G7 — sub-business-class line that still ships
+      HPBIOS_BIOSNumericSensor and is supported by hp-wmi-sensors.
+      ProBook is the value-tier business line — typical purchase for
+      small homelab admin desktop. Sensor enumeration dynamic per BIOS
+      version."
+    citations:
+      - "https://docs.kernel.org/hwmon/hp-wmi-sensors.html (driver scope, WMI dynamic discovery)"
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+    defaults:
+      curves: []
