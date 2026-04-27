@@ -1024,7 +1024,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
-	_, _ = w.Write(readNewIndex())
+	_, _ = w.Write(readUI("index.html"))
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>
