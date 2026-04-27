@@ -136,6 +136,12 @@ type Server struct {
 	// touch /.dockerenv. See rebootEnvironmentBlocker for the real
 	// detection logic.
 	rebootBlocker func() string
+
+	// kvWiper is called by handleSetupReset to wipe the wizard and probe
+	// KV namespaces so the next daemon start treats the system as freshly
+	// installed (RULE-PROBE-09). Nil in tests that don't need KV teardown;
+	// set via SetKVWiper in main.go after Server construction.
+	kvWiper func() error
 }
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
@@ -383,6 +389,11 @@ func (s *Server) SetVersionInfo(v VersionInfo) { s.version = v }
 // SetReadyState wires the /healthz + /readyz probes to main.go's readiness
 // tracking. Must be called before ListenAndServe; nil-safe in tests.
 func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
+
+// SetKVWiper registers the function called by handleSetupReset to wipe the
+// wizard and probe KV namespaces on "Reset to initial setup" (RULE-PROBE-09).
+// Pass probe.WipeNamespaces(st.KV) from main.go.
+func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
 
 // expireSetupToken wipes the first-boot token from memory when its TTL
 // lapses or the daemon shuts down. Safe against races with consumption —
@@ -1157,6 +1168,13 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
 		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// Wipe the wizard and probe KV namespaces so the next daemon start
+	// treats this system as freshly installed (RULE-PROBE-09).
+	if s.kvWiper != nil {
+		if err := s.kvWiper(); err != nil {
+			s.logger.Warn("setup reset: kv wipe failed", "err", err)
+		}
 	}
 	s.logger.Info("setup: config removed; triggering reload (daemon continues until next restart)", "path", s.configPath)
 

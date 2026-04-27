@@ -34,6 +34,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/state"
@@ -333,7 +334,19 @@ func run() error {
 			logger.Error("state close", "err", err)
 		}
 	}()
-	_ = st // consumers wired in subsequent PRs
+	// Run the catalog-less hardware probe on first boot. Subsequent starts
+	// consult the persisted wizard outcome directly (RULE-PROBE-08).
+	if _, ok, _ := probe.LoadWizardOutcome(st.KV); !ok {
+		if r, probeErr := probe.New(probe.Config{Logger: logger}).Probe(context.Background()); probeErr != nil {
+			logger.Warn("probe: hardware probe failed; continuing", "err", probeErr)
+		} else if persistErr := probe.PersistOutcome(st.KV, r); persistErr != nil {
+			logger.Warn("probe: persist failed", "err", persistErr)
+		}
+	}
+	// Gate on the persisted outcome (RULE-PROBE-08).
+	if outcome, ok, err := probe.LoadWizardOutcome(st.KV); err == nil && ok && outcome == probe.OutcomeRefuse {
+		return fmt.Errorf("probe: hardware unsupported (virtualised, containerised, or no sensors): %s", outcome)
+	}
 
 	// NVML init is always attempted. The shim silently disables GPU
 	// features when libnvidia-ml.so.1 is absent or nvmlInit_v2 fails, and
@@ -368,7 +381,8 @@ func run() error {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags)
+	kvWiper := func() error { return probe.WipeNamespaces(st.KV) }
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper)
 }
 
 // runDaemon runs the daemon lifecycle: watchdog registration, hwmon watcher,
@@ -394,9 +408,10 @@ func runDaemon(
 	setupToken string,
 	sigCh <-chan os.Signal,
 	expFlags experimental.Flags,
+	kvWiper func() error,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper)
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -420,6 +435,7 @@ func runDaemonInternal(
 	sigCh <-chan os.Signal,
 	restartCh chan struct{},
 	expFlags experimental.Flags,
+	kvWiper func() error,
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -571,6 +587,7 @@ func runDaemonInternal(
 	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
+	webSrv.SetKVWiper(kvWiper)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
