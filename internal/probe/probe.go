@@ -11,6 +11,7 @@ import (
 	"context"
 	"io/fs"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -150,6 +151,15 @@ type prober struct {
 
 // New constructs a Prober with injected dependencies.
 func New(cfg Config) Prober {
+	if cfg.SysFS == nil {
+		cfg.SysFS = os.DirFS("/sys")
+	}
+	if cfg.ProcFS == nil {
+		cfg.ProcFS = os.DirFS("/proc")
+	}
+	if cfg.RootFS == nil {
+		cfg.RootFS = os.DirFS("/")
+	}
 	if cfg.ExecFn == nil {
 		cfg.ExecFn = defaultExec
 	}
