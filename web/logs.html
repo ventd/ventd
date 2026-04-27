@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — logs</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="logs.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- ────────────── sidebar ────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono">0.4.1</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="dashboard.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="curve-editor.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Curves
+      </a>
+      <a class="nav-item" href="schedule.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>
+        Schedule
+      </a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="devices.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        Devices
+        <span class="nav-badge">8</span>
+      </a>
+      <a class="nav-item" href="sensors.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        Sensors
+      </a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item active" href="logs.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+        Logs
+        <span class="nav-badge">2</span>
+      </a>
+      <a class="nav-item" href="settings.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true"></div>
+      <span>daemon running · 4d 12h</span>
+    </div>
+  </aside>
+
+  <!-- ────────────── main ────────────── -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">System</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Logs</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Download .log
+        </button>
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+          Clear buffer
+        </button>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="logs-page">
+
+      <!-- ─────── filter rail ─────── -->
+      <aside class="logs-rail">
+
+        <div class="logs-rail-section">
+          <div class="logs-rail-label">Level <span class="count">14 384 / day</span></div>
+          <div class="logs-rail-levels">
+            <div class="logs-level-row is-on" data-level="debug"><span class="lvl-dot lvl-debug"></span><span class="lvl-name">debug</span><span class="lvl-ct">8 211</span></div>
+            <div class="logs-level-row is-on" data-level="info"><span class="lvl-dot lvl-info"></span><span class="lvl-name">info</span><span class="lvl-ct">5 904</span></div>
+            <div class="logs-level-row is-on" data-level="warn"><span class="lvl-dot lvl-warn"></span><span class="lvl-name">warn</span><span class="lvl-ct">214</span></div>
+            <div class="logs-level-row is-on" data-level="error"><span class="lvl-dot lvl-error"></span><span class="lvl-name">error</span><span class="lvl-ct">52</span></div>
+            <div class="logs-level-row is-on" data-level="fatal"><span class="lvl-dot lvl-fatal"></span><span class="lvl-name">fatal</span><span class="lvl-ct">3</span></div>
+          </div>
+        </div>
+
+        <div class="logs-rail-section">
+          <div class="logs-rail-label">Source <span class="count">9 active</span></div>
+          <div class="logs-rail-sources">
+            <div class="logs-source is-active" data-source="daemon"><span class="src-name">daemon</span><span class="src-ct">412</span></div>
+            <div class="logs-source is-active" data-source="hwmon"><span class="src-name">hwmon</span><span class="src-ct">3 124</span></div>
+            <div class="logs-source is-active" data-source="nvml"><span class="src-name">nvml</span><span class="src-ct">2 011</span></div>
+            <div class="logs-source is-active" data-source="curve"><span class="src-name">curve</span><span class="src-ct">5 488</span></div>
+            <div class="logs-source is-active" data-source="schedule"><span class="src-name">schedule</span><span class="src-ct">96</span></div>
+            <div class="logs-source is-active" data-source="calibrate"><span class="src-name">calibrate</span><span class="src-ct">142</span></div>
+            <div class="logs-source is-active" data-source="api"><span class="src-name">api</span><span class="src-ct">2 891</span></div>
+            <div class="logs-source is-active" data-source="auth"><span class="src-name">auth</span><span class="src-ct">38</span></div>
+            <div class="logs-source is-active" data-source="panic"><span class="src-name">panic</span><span class="src-ct">12</span></div>
+          </div>
+        </div>
+
+        <div class="logs-rail-section">
+          <div class="logs-rail-label">Range</div>
+          <div class="logs-rail-time">
+            <button class="logs-time-btn" type="button">15 m</button>
+            <button class="logs-time-btn is-active" type="button">1 h</button>
+            <button class="logs-time-btn" type="button">6 h</button>
+            <button class="logs-time-btn" type="button">24 h</button>
+            <button class="logs-time-btn" type="button">7 d</button>
+            <button class="logs-time-btn" type="button">all</button>
+          </div>
+        </div>
+
+        <div class="logs-rail-section">
+          <div class="logs-rail-label">Saved</div>
+          <div class="logs-rail-sources">
+            <div class="logs-source is-active"><span class="src-name">errors only</span></div>
+            <div class="logs-source"><span class="src-name">curve evaluator</span></div>
+            <div class="logs-source"><span class="src-name">corsair pump</span></div>
+            <div class="logs-source"><span class="src-name">api 5xx</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ─────── tail ─────── -->
+      <section class="logs-tail">
+
+        <!-- toolbar -->
+        <div class="logs-toolbar">
+          <label class="logs-search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input id="logs-search-input" type="text" placeholder="filter — try msg=&quot;stop_pwm&quot; or src:hwmon" />
+            <span class="kbd">/</span>
+          </label>
+
+          <div class="logs-tail-meta">
+            <span><span class="mono" id="logs-visible-count">28</span> shown</span>
+            <span>of <span class="mono">14&nbsp;384</span></span>
+          </div>
+
+          <button class="logs-follow" id="logs-follow" type="button" aria-pressed="true">
+            <span class="follow-dot"></span>
+            <span class="follow-label">live · following</span>
+          </button>
+        </div>
+
+        <!-- list -->
+        <div class="logs-list">
+
+          <div class="logs-time-sep">11:42 — last 60 s · <span style="color:var(--teal)">live</span></div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:42:08.142</span>
+            <span class="src">curve.eval</span>
+            <span class="msg"><span class="key">fan</span>=<span class="str">cpu_pump</span> <span class="key">temp</span>=<span class="num">62.4</span> <span class="key">pwm</span>=<span class="num">71%</span> <span class="key">profile</span>=<span class="str">balanced</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:42:08.144</span>
+            <span class="src">curve.eval</span>
+            <span class="msg"><span class="key">fan</span>=<span class="str">rad_top_1</span> <span class="key">temp</span>=<span class="num">39.1</span> <span class="key">pwm</span>=<span class="num">38%</span> hysteresis=<span class="num">2.0</span></span>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:42:08.151</span>
+            <span class="src">hwmon.read</span>
+            <span class="msg">tachometer pulse <span class="key">chan</span>=<span class="str">/sys/class/hwmon/hwmon3/fan2_input</span> <span class="key">rpm</span>=<span class="num">1430</span></span>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="nvml">
+            <span class="lvl"></span>
+            <span class="ts">11:42:08.158</span>
+            <span class="src">nvml.gpu0</span>
+            <span class="msg"><span class="key">temp</span>=<span class="num">58.0</span> <span class="key">power</span>=<span class="num">214 W</span> <span class="key">util</span>=<span class="num">41%</span></span>
+          </div>
+
+          <div class="log-row lvl-warn" data-level="warn" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:42:09.022</span>
+            <span class="src">hwmon.write</span>
+            <span class="msg">refused to lower <span class="hl">cpu_pump</span> below <span class="num">40%</span> — pump floor enforced (<span class="key">min_pwm</span>=<span class="num">40</span>)</span>
+            <pre class="log-detail">{
+  "level":   <span class="str">"warn"</span>,
+  "ts":      <span class="str">"2026-01-12T11:42:09.022Z"</span>,
+  "src":     <span class="str">"hwmon.write"</span>,
+  "fan":     <span class="str">"cpu_pump"</span>,
+  "request": <span class="num">31</span>,
+  "applied": <span class="num">40</span>,
+  "reason":  <span class="str">"floor_enforced"</span>,
+  "rule":    <span class="str">"profiles[balanced].fans[cpu_pump].min_pwm"</span>
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Open fan in dashboard</button>
+  <button type="button">Mute rule (1 h)</button>
+</div></pre>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="api">
+            <span class="lvl"></span>
+            <span class="ts">11:42:09.401</span>
+            <span class="src">api.http</span>
+            <span class="msg"><span class="key">method</span>=<span class="str">GET</span> <span class="key">path</span>=<span class="str">/api/v1/state</span> <span class="key">status</span>=<span class="num">200</span> <span class="key">dur</span>=<span class="num">3 ms</span></span>
+          </div>
+
+          <div class="log-row lvl-info is-open" data-level="info" data-source="schedule">
+            <span class="lvl"></span>
+            <span class="ts">11:42:00.001</span>
+            <span class="src">schedule.tick</span>
+            <span class="msg">profile <span class="hl">balanced</span> remains active · next switch <span class="hl">silent</span> at 22:00 (in 10 h 18 m)</span>
+            <pre class="log-detail">{
+  "level":  <span class="str">"info"</span>,
+  "ts":     <span class="str">"2026-01-12T11:42:00.001Z"</span>,
+  "src":    <span class="str">"schedule.tick"</span>,
+  "active": <span class="str">"balanced"</span>,
+  "next":   { <span class="key">"profile"</span>: <span class="str">"silent"</span>, <span class="key">"in_s"</span>: <span class="num">37080</span> },
+  "rules":  [<span class="str">"weekday-day"</span>, <span class="str">"override:none"</span>]
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Open Schedule page</button>
+</div></pre>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:42:10.143</span>
+            <span class="src">curve.eval</span>
+            <span class="msg"><span class="key">fan</span>=<span class="str">case_front_1</span> <span class="key">src</span>=<span class="str">cpu_die</span> <span class="key">temp</span>=<span class="num">62.4</span> <span class="key">pwm</span>=<span class="num">52%</span> Δ=<span class="num">+1</span></span>
+          </div>
+
+          <div class="log-row lvl-error" data-level="error" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:42:11.789</span>
+            <span class="src">hwmon.corsair</span>
+            <span class="msg">PWM write rejected: hidraw EACCES on <span class="hl">/dev/hidraw3</span> · pump value cached, not applied</span>
+            <pre class="log-detail">{
+  "level":     <span class="str">"error"</span>,
+  "ts":        <span class="str">"2026-01-12T11:42:11.789Z"</span>,
+  "src":       <span class="str">"hwmon.corsair"</span>,
+  "device":    <span class="str">"H150i Elite Capellix"</span>,
+  "device_id": <span class="str">"1b1c:0c39"</span>,
+  "syscall":   <span class="str">"write"</span>,
+  "errno":     <span class="num">13</span>,
+  "errstr":    <span class="str">"EACCES"</span>,
+  "remediation": <span class="str">"start daemon with --enable-corsair-write or load HID-CORSAIR module"</span>
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Show device</button>
+  <button type="button">Mute (1 h)</button>
+</div></pre>
+          </div>
+
+          <div class="logs-time-sep">11:41 — 1 min ago</div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="auth">
+            <span class="lvl"></span>
+            <span class="ts">11:41:32.004</span>
+            <span class="src">auth.session</span>
+            <span class="msg">session <span class="hl">8a4b…f102</span> renewed for ua=<span class="str">Firefox/132.0</span> ip=<span class="num">192.168.1.42</span> ttl=<span class="num">24h</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="api">
+            <span class="lvl"></span>
+            <span class="ts">11:41:30.118</span>
+            <span class="src">api.http</span>
+            <span class="msg"><span class="key">method</span>=<span class="str">POST</span> <span class="key">path</span>=<span class="str">/api/v1/fans/cpu_pump/override</span> <span class="key">status</span>=<span class="num">200</span> <span class="key">dur</span>=<span class="num">9 ms</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:41:30.124</span>
+            <span class="src">curve.override</span>
+            <span class="msg">manual override <span class="hl">cpu_pump</span> = 65% by user (expires in 30 min)</span>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:41:08.142</span>
+            <span class="src">hwmon.read</span>
+            <span class="msg">batch read complete · 21 channels · <span class="num">2.4 ms</span></span>
+          </div>
+
+          <div class="log-row lvl-warn" data-level="warn" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:40:58.901</span>
+            <span class="src">hwmon.discover</span>
+            <span class="msg">channel <span class="hl">/sys/class/hwmon/hwmon4/temp7_input</span> reads as <span class="num">-50.0 °C</span> for 4 polls — marking <span class="hl">stale</span></span>
+            <pre class="log-detail">{
+  "level":   <span class="str">"warn"</span>,
+  "ts":      <span class="str">"2026-01-12T11:40:58.901Z"</span>,
+  "src":     <span class="str">"hwmon.discover"</span>,
+  "channel": <span class="str">"/sys/class/hwmon/hwmon4/temp7_input"</span>,
+  "label":   <span class="str">"unknown_temp7"</span>,
+  "value":   <span class="num">-50.0</span>,
+  "stale_polls": <span class="num">4</span>,
+  "action":  <span class="str">"excluded_from_curves"</span>
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Open Sensors</button>
+</div></pre>
+          </div>
+
+          <div class="logs-time-sep">11:40 — 2 min ago</div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="calibrate">
+            <span class="lvl"></span>
+            <span class="ts">11:40:14.022</span>
+            <span class="src">calibrate.run</span>
+            <span class="msg">scheduled sweep complete · 14 fans calibrated · drift max=<span class="num">+1.2%</span> on case_rear_1</span>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:40:08.143</span>
+            <span class="src">curve.eval</span>
+            <span class="msg"><span class="key">fan</span>=<span class="str">vrm_aux</span> <span class="key">temp</span>=<span class="num">53.7</span> <span class="key">pwm</span>=<span class="num">46%</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">11:40:00.000</span>
+            <span class="src">daemon.tick</span>
+            <span class="msg">poll #<span class="num">192 048</span> · 21 sensors · 14 fans · loop=<span class="num">5.1 ms</span> · cpu=<span class="num">0.4%</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="api">
+            <span class="lvl"></span>
+            <span class="ts">11:39:48.221</span>
+            <span class="src">api.http</span>
+            <span class="msg"><span class="key">method</span>=<span class="str">GET</span> <span class="key">path</span>=<span class="str">/api/v1/sensors</span> <span class="key">status</span>=<span class="num">200</span> <span class="key">dur</span>=<span class="num">2 ms</span></span>
+          </div>
+
+          <div class="logs-time-sep">11:34 — 8 min ago</div>
+
+          <div class="log-row lvl-error" data-level="error" data-source="panic">
+            <span class="lvl"></span>
+            <span class="ts">11:34:18.401</span>
+            <span class="src">panic.engaged</span>
+            <span class="msg">PANIC LATCH ENGAGED · trigger=<span class="hl">cpu_die &gt; 92 °C for 3 s</span> · all fans → <span class="num">100%</span> · cleared at 11:34:39 (21 s)</span>
+            <pre class="log-detail">{
+  "level":      <span class="str">"error"</span>,
+  "ts":         <span class="str">"2026-01-12T11:34:18.401Z"</span>,
+  "src":        <span class="str">"panic.engaged"</span>,
+  "trigger": {
+    <span class="key">"sensor"</span>:  <span class="str">"cpu_die"</span>,
+    <span class="key">"value"</span>:   <span class="num">92.4</span>,
+    <span class="key">"limit"</span>:   <span class="num">92.0</span>,
+    <span class="key">"duration"</span>: <span class="str">"3s"</span>
+  },
+  "duration_s":   <span class="num">21</span>,
+  "fans_touched": <span class="num">14</span>,
+  "released_by":  <span class="str">"auto"</span>
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Open Schedule (panic rule)</button>
+</div></pre>
+          </div>
+
+          <div class="log-row lvl-warn" data-level="warn" data-source="curve">
+            <span class="lvl"></span>
+            <span class="ts">11:34:15.118</span>
+            <span class="src">curve.eval</span>
+            <span class="msg"><span class="key">fan</span>=<span class="str">cpu_pump</span> <span class="key">temp</span>=<span class="num">91.8</span> climbing — pre-spool to <span class="num">100%</span> within 3 s</span>
+          </div>
+
+          <div class="logs-time-sep">11:18 — 24 min ago</div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="schedule">
+            <span class="lvl"></span>
+            <span class="ts">11:18:00.000</span>
+            <span class="src">schedule.fire</span>
+            <span class="msg">profile <span class="hl">balanced</span> activated by rule <span class="str">weekday-day</span> (07:00–22:00 mon-fri)</span>
+          </div>
+
+          <div class="log-row lvl-debug" data-level="debug" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">11:17:58.142</span>
+            <span class="src">hwmon.write</span>
+            <span class="msg">apply <span class="key">fan</span>=<span class="str">case_front_1</span> <span class="key">pwm</span>=<span class="num">52%</span> · 1.1 ms</span>
+          </div>
+
+          <div class="logs-time-sep">07:42 — 4 h 0 m ago</div>
+
+          <div class="log-row lvl-fatal" data-level="fatal" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.094</span>
+            <span class="src">daemon.boot</span>
+            <span class="msg">previous instance exited <span class="hl">SIGSEGV</span> · core <span class="num">/var/lib/ventd/core.20260112-074131</span> · auto-restart by systemd · ↑ <span class="num">11.4 s</span> downtime</span>
+            <pre class="log-detail">{
+  "level":     <span class="str">"fatal"</span>,
+  "ts":        <span class="str">"2026-01-12T07:42:11.094Z"</span>,
+  "src":       <span class="str">"daemon.boot"</span>,
+  "previous": {
+    <span class="key">"exit_signal"</span>:  <span class="str">"SIGSEGV"</span>,
+    <span class="key">"exit_code"</span>:    <span class="num">139</span>,
+    <span class="key">"core_dump"</span>:    <span class="str">"/var/lib/ventd/core.20260112-074131"</span>,
+    <span class="key">"goroutines"</span>:   <span class="num">42</span>,
+    <span class="key">"last_subsys"</span>:  <span class="str">"hwmon.corsair"</span>
+  },
+  "downtime_s":  <span class="num">11.4</span>,
+  "fans_during": <span class="str">"motherboard_default"</span>,
+  "restart_by":  <span class="str">"systemd"</span>
+}<div class="log-detail-actions">
+  <button type="button">Copy as JSON</button>
+  <button type="button">Send crash report…</button>
+  <button type="button">Open core in dlv</button>
+</div></pre>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.218</span>
+            <span class="src">daemon.boot</span>
+            <span class="msg">ventd <span class="num">0.4.1</span> (commit <span class="hl">2ff9ea3</span>) starting · go1.23.4 linux/amd64 · pid <span class="num">4128</span></span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.224</span>
+            <span class="src">daemon.boot</span>
+            <span class="msg">loaded <span class="key">config</span>=<span class="str">/etc/ventd/config.yaml</span> · schema=<span class="num">v3</span> · 14 fans · 21 sensors · 4 profiles</span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.398</span>
+            <span class="src">daemon.boot</span>
+            <span class="msg">hardware fingerprint matched: <span class="hl">a4f2c8d1</span> · profile DB hit</span>
+          </div>
+
+          <div class="log-row lvl-warn" data-level="warn" data-source="hwmon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.512</span>
+            <span class="src">hwmon.corsair</span>
+            <span class="msg">corsair pump opened <span class="hl">read-only</span> · daemon launched without --enable-corsair-write</span>
+          </div>
+
+          <div class="log-row lvl-info" data-level="info" data-source="daemon">
+            <span class="lvl"></span>
+            <span class="ts">07:42:11.601</span>
+            <span class="src">daemon.boot</span>
+            <span class="msg">listening on <span class="hl">0.0.0.0:9999</span> · TLS=<span class="str">off</span> · curves applied · ready</span>
+          </div>
+
+        </div>
+
+        <!-- footer status -->
+        <div class="logs-foot">
+          <span><span class="mono">14 384</span> entries · last 24 h</span>
+          <span><span class="mono">214</span> warn · <span class="mono">52</span> error · <span class="mono">3</span> fatal</span>
+          <span class="logs-foot-spacer"></span>
+          <span class="logs-foot-rate">
+            <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/></svg>
+            <span><span class="mono">~6/s</span> ingest</span>
+          </span>
+          <span>buffer <span class="mono">87 MB</span> / <span class="mono">256 MB</span></span>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="shared/brand.js"></script>
+<script src="logs.js"></script>
+</body>
+</html>

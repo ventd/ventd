@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — settings</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="settings.css?v=2">
+<style>
+  /* inline override — ensures section visibility behavior even if cached CSS is stale */
+  .set-section { display: none; }
+  .set-section.is-active { display: block; flex: 1 1 auto; min-height: 0; overflow: auto; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ────────────── sidebar (canonical) ────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono">0.4.1</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="dashboard.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="curve-editor.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Curves
+      </a>
+      <a class="nav-item" href="schedule.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>
+        Schedule
+      </a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="devices.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        Devices
+        <span class="nav-badge">8</span>
+      </a>
+      <a class="nav-item" href="sensors.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        Sensors
+      </a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="logs.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+        Logs
+      </a>
+      <a class="nav-item active" href="settings.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true"></div>
+      <span>daemon running · 4d 12h</span>
+    </div>
+  </aside>
+
+  <!-- ────────────── main ────────────── -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">System</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Settings</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M9 13h6M9 17h4"/></svg>
+          Export config
+        </button>
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Import…
+        </button>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ────────── settings page ────────── -->
+    <div class="settings-page">
+
+      <!-- ─────── left rail ─────── -->
+      <nav class="set-toc" aria-label="Settings sections">
+        <div class="set-toc-label">Settings</div>
+        <a href="#sec-display"  class="is-current">Display</a>
+        <a href="#sec-profiles">Profile schedules</a>
+        <a href="#sec-daemon">Daemon</a>
+        <a href="#sec-security" class="has-warn"><span>Security</span><span class="set-toc-dot"></span></a>
+        <a href="#sec-status">System status<span class="set-toc-meta">7/8</span></a>
+        <a href="#sec-notify">Notifications</a>
+        <a href="#sec-about">About</a>
+        <a href="#sec-danger">Danger zone</a>
+      </nav>
+
+      <!-- ─────── right column: section panels ─────── -->
+      <div class="set-content">
+
+        <!-- ── DISPLAY ── -->
+        <section class="set-section" id="sec-display">
+          <div class="set-section-head"><h2>Display</h2></div>
+          <p class="set-section-sub">Theme and unit preferences. Stored per-browser; not synced to other clients.</p>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Theme</div>
+              <div class="set-row-sub">Auto follows your operating system preference.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-seg" data-target="theme">
+                <button data-value="auto" type="button">Auto</button>
+                <button data-value="light" type="button">Light</button>
+                <button data-value="dark" class="is-active" type="button">Dark</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Temperature unit</div>
+              <div class="set-row-sub">Applied to every reading on Sensors, Devices, and the Dashboard.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-seg">
+                <button class="is-active" type="button">°C</button>
+                <button type="button">°F</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Compact density</div>
+              <div class="set-row-sub">Tighter card padding and smaller sparklines. Useful at &lt; 1280 px.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle" role="switch" aria-checked="false" tabindex="0"></div>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Reduce motion</div>
+              <div class="set-row-sub">Honours <code>prefers-reduced-motion</code> by default. Force-on disables propeller spin and pulse rings.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-seg">
+                <button class="is-active" type="button">System</button>
+                <button type="button">Off</button>
+                <button type="button">On</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── PROFILE SCHEDULES ── -->
+        <section class="set-section" id="sec-profiles">
+          <div class="set-section-head">
+            <h2>Profile schedules</h2>
+            <div class="set-section-actions">
+              <button class="btn" type="button">
+                <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Add profile
+              </button>
+            </div>
+          </div>
+          <p class="set-section-sub">
+            Time grammar: <code>HH:MM-HH:MM</code> with optional weekday spec like <code>mon-fri</code> or <code>sat,sun</code>.
+            Multiple windows may be space-separated. Leave blank for manual-only.
+          </p>
+
+          <div class="sched-row-edit is-ok">
+            <div class="sched-row-edit-name">
+              <span class="name">silent</span>
+              <span class="desc">Silent fan profile · weeknights + late.</span>
+            </div>
+            <div>
+              <input class="sched-row-edit-grammar" value="22:00-07:00 mon-fri  23:00-08:00 sat,sun" />
+              <div class="sched-row-edit-status">parsed · 2 windows · next ⇢ today 22:00</div>
+            </div>
+            <div><button class="btn btn--ghost" type="button" aria-label="Remove">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button></div>
+          </div>
+
+          <div class="sched-row-edit is-ok">
+            <div class="sched-row-edit-name">
+              <span class="name">balanced</span>
+              <span class="desc">Default daytime profile.</span>
+            </div>
+            <div>
+              <input class="sched-row-edit-grammar" value="07:00-22:00 mon-fri  09:00-23:00 sat,sun" />
+              <div class="sched-row-edit-status">parsed · 2 windows · active now</div>
+            </div>
+            <div><button class="btn btn--ghost" type="button" aria-label="Remove">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button></div>
+          </div>
+
+          <div class="sched-row-edit has-error">
+            <div class="sched-row-edit-name">
+              <span class="name">performance</span>
+              <span class="desc">Manual / event-driven only.</span>
+            </div>
+            <div>
+              <input class="sched-row-edit-grammar mono" value="weekdays 08-18" />
+              <div class="sched-row-edit-status">unrecognised token “weekdays” · expected <code>mon-fri</code></div>
+            </div>
+            <div><button class="btn btn--ghost" type="button" aria-label="Remove">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button></div>
+          </div>
+
+          <div class="sched-row-edit">
+            <div class="sched-row-edit-name">
+              <span class="name">calibrate</span>
+              <span class="desc">Weekly fan-curve recalibration sweep.</span>
+            </div>
+            <div>
+              <input class="sched-row-edit-grammar" value="03:00-04:40 sun" />
+              <div class="sched-row-edit-status">parsed · 1 window · next ⇢ Sun 03:00</div>
+            </div>
+            <div><button class="btn btn--ghost" type="button" aria-label="Remove">
+              <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button></div>
+          </div>
+
+          <div class="set-hint">
+            Schedules drive curve-set switches only. Per-fan manual overrides on <strong>Dashboard</strong>
+            outrank the active profile until you clear them. The Schedule page shows the timeline
+            and the priority order rules fire in.
+          </div>
+        </section>
+
+        <!-- ── DAEMON ── -->
+        <section class="set-section" id="sec-daemon">
+          <div class="set-section-head"><h2>Daemon</h2></div>
+          <p class="set-section-sub">
+            Live process settings. Changes here write to <code>/etc/ventd/config.yaml</code> and
+            are applied on next poll — no restart required unless noted.
+          </p>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Listen address</div>
+              <div class="set-row-sub">
+                Default <code>0.0.0.0:9999</code> binds all interfaces.
+                Restrict to <code>127.0.0.1</code> if behind a reverse proxy.
+              </div>
+            </div>
+            <div class="set-row-control">
+              <input class="set-input mono set-input--w-200" value="0.0.0.0:9999" />
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Poll interval</div>
+              <div class="set-row-sub">How often the daemon reads sensors and recomputes curves. Lower values cost more CPU.</div>
+            </div>
+            <div class="set-row-control">
+              <input class="set-input mono set-input--w-120" value="2s" />
+              <span class="set-pill">min 250ms</span>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Session TTL</div>
+              <div class="set-row-sub">How long a browser stays signed in. Shorter values reduce risk if a workstation is left unlocked.</div>
+            </div>
+            <div class="set-row-control">
+              <input class="set-input mono set-input--w-120" value="24h" />
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Auto-recover from crashes</div>
+              <div class="set-row-sub">Restart the daemon under systemd if it exits abnormally. Always-on in production builds.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle is-on" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Rescan hardware on boot</div>
+              <div class="set-row-sub">Re-runs hwmon + nvml discovery before applying curves. Slower boot, safer after kernel upgrades.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle is-on" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── SECURITY ── -->
+        <section class="set-section" id="sec-security">
+          <div class="set-section-head"><h2>Security</h2></div>
+          <p class="set-section-sub">
+            ventd uses a single shared password; access is tied to an HTTP session cookie.
+            Bind to <code>127.0.0.1</code> + a reverse proxy if you need multi-user auth.
+          </p>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Web password</div>
+              <div class="set-row-sub">
+                Hashed with argon2id and stored in the config's
+                <code>web.password_hash</code> field.
+                Last changed <span class="mono">2025-09-04</span>.
+              </div>
+            </div>
+            <div class="set-row-control">
+              <button class="btn" type="button">Change…</button>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">TLS</div>
+              <div class="set-row-sub">
+                Currently disabled — UI is served over plain HTTP.
+                Provide <code>tls_cert</code> and <code>tls_key</code> paths to terminate TLS in-process.
+              </div>
+            </div>
+            <div class="set-row-control">
+              <span class="status-pill warn">off</span>
+              <button class="btn" type="button">Configure…</button>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Setup-token recovery file</div>
+              <div class="set-row-sub">
+                <code>/run/ventd/setup-token</code> rotates on every daemon restart.
+                A copy survives in <code>/var/lib/ventd/setup-token</code> after the service stops.
+              </div>
+            </div>
+            <div class="set-row-control">
+              <span class="status-pill ok">readable · root only</span>
+            </div>
+          </div>
+
+          <div class="set-row-stack">
+            <div class="set-row-title">Active sessions <span class="mono" style="color:var(--fg2);font-weight:400">3</span></div>
+            <div>
+              <div class="set-sess is-current">
+                <div class="set-sess-ic"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+                <div class="set-sess-info">
+                  <span class="ua">Firefox 132 · macOS</span>
+                  <div class="meta">192.168.1.42 · signed in 2 h 14 m ago · expires in 21 h</div>
+                </div>
+                <button class="btn btn--ghost" disabled type="button">Revoke</button>
+              </div>
+              <div class="set-sess">
+                <div class="set-sess-ic"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+                <div class="set-sess-info">
+                  <span class="ua">Mobile Safari · iOS</span>
+                  <div class="meta">192.168.1.71 · signed in 6 h ago · expires in 17 h 58 m</div>
+                </div>
+                <button class="btn btn--ghost" type="button">Revoke</button>
+              </div>
+              <div class="set-sess">
+                <div class="set-sess-ic"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+                <div class="set-sess-info">
+                  <span class="ua">Chromium 130 · Linux</span>
+                  <div class="meta">10.0.0.4 · signed in 18 h ago · expires in 5 h 33 m</div>
+                </div>
+                <button class="btn btn--ghost" type="button">Revoke</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="set-hint warn">
+            Daemon is bound to <code>0.0.0.0:9999</code>. If this host is reachable from outside your LAN,
+            put it behind a reverse proxy with TLS — the password protects the UI but does not encrypt traffic.
+          </div>
+        </section>
+
+        <!-- ── SYSTEM STATUS ── -->
+        <section class="set-section" id="sec-status">
+          <div class="set-section-head">
+            <h2>System status</h2>
+            <div class="set-section-actions">
+              <button class="btn" type="button">
+                <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg>
+                Re-check
+              </button>
+            </div>
+          </div>
+          <p class="set-section-sub">Diagnostics surface from the same probe that drives the dashboard banner. 7 of 8 checks pass.</p>
+
+          <div class="set-status-grid">
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">Daemon</span><span class="val">running · pid 4128 · 4d 12h</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">hwmon driver</span><span class="val">nct6798d v0.7.1 (DKMS)</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">NVML</span><span class="val">libnvidia-ml.so.560.35 · 1 GPU</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">Sensors active</span><span class="val">21 / 21 (3 sources)</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">Fans calibrated</span><span class="val">14 / 14</span>
+            </div>
+            <div class="set-status-row warn">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.7 3.86a2 2 0 00-3.4 0z"/></svg>
+              <span class="lbl">Writable channels</span><span class="val">12 / 14 (corsair r/o)</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">Config schema</span><span class="val">v3 · valid</span>
+            </div>
+            <div class="set-status-row ok">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+              <span class="lbl">Hardware fingerprint</span><span class="val">a4f2c8d1 · matches profile</span>
+            </div>
+          </div>
+
+          <div class="set-hint warn">
+            <strong>Corsair H150i Elite write disabled.</strong>
+            The hidraw driver requires <code>--enable-corsair-write</code> at daemon launch and a kernel build with HID-CORSAIR enabled.
+            Pump and AIO fans currently report RPM but ignore PWM writes from ventd.
+          </div>
+        </section>
+
+        <!-- ── NOTIFICATIONS ── -->
+        <section class="set-section" id="sec-notify">
+          <div class="set-section-head"><h2>Notifications</h2></div>
+          <p class="set-section-sub">In-browser toasts and optional webhook delivery for daemon events.</p>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Toast: panic engaged</div>
+              <div class="set-row-sub">Show a toast when any caller engages or cancels panic mode.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle is-on" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Toast: profile change</div>
+              <div class="set-row-sub">A scheduled profile switch fires.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle is-on" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Toast: sensor disconnect</div>
+              <div class="set-row-sub">A configured sensor stops reporting for &gt; 3 polls.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle is-on" role="switch" aria-checked="true" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Toast: dashboard "stale data"</div>
+              <div class="set-row-sub">Live polling drops below the threshold and the dashboard flips to its frozen state.</div>
+            </div>
+            <div class="set-row-control">
+              <div class="set-toggle" role="switch" aria-checked="false" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Webhook</div>
+              <div class="set-row-sub">POST a JSON event to this URL on every notifying event. Empty disables.</div>
+            </div>
+            <div class="set-row-control">
+              <input class="set-input mono set-input--w-280" value="" placeholder="https://hooks.example.com/ventd" />
+            </div>
+          </div>
+        </section>
+
+        <!-- ── ABOUT ── -->
+        <section class="set-section" id="sec-about">
+          <div class="set-section-head"><h2>About</h2></div>
+          <dl class="set-about">
+            <dt>Host</dt>          <dd>homelab-01</dd>
+            <dt>Version</dt>       <dd>0.4.1 (commit <span style="color:var(--teal)">2ff9ea3</span>)</dd>
+            <dt>Built</dt>         <dd>2026-01-12 · go1.23.4 · linux/amd64</dd>
+            <dt>Schema</dt>        <dd>v3</dd>
+            <dt>Config path</dt>   <dd>/etc/ventd/config.yaml</dd>
+            <dt>State path</dt>    <dd>/var/lib/ventd/</dd>
+            <dt>Log path</dt>      <dd>/var/log/ventd/ventd.log</dd>
+            <dt>Hardware FP</dt>   <dd>a4f2c8d1</dd>
+            <dt>License</dt>       <dd>GPL-3.0-or-later</dd>
+            <dt>Source</dt>        <dd><a href="#">github.com/ventd/ventd</a></dd>
+            <dt>Profiles DB</dt>   <dd><a href="#">github.com/ventd/hardware-profiles</a> · synced 2 d ago</dd>
+          </dl>
+        </section>
+
+        <!-- ── DANGER ZONE ── -->
+        <section class="set-section is-danger" id="sec-danger">
+          <div class="set-section-head"><h2>Danger zone</h2></div>
+          <p class="set-section-sub">Operations that touch your config or restart the daemon. Read the fine print.</p>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Restart daemon</div>
+              <div class="set-row-sub">Drops fans to motherboard defaults for ~2 s while the service comes back up. Curves resume once polling restarts.</div>
+            </div>
+            <div class="set-row-control">
+              <button class="btn" type="button">Restart</button>
+            </div>
+          </div>
+
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Re-run setup wizard</div>
+              <div class="set-row-sub">Re-detects hardware and rebuilds curve defaults. Your existing curves are kept; mappings may change.</div>
+            </div>
+            <div class="set-row-control">
+              <button class="btn" type="button">Run wizard</button>
+            </div>
+          </div>
+
+          <div class="set-row danger">
+            <div>
+              <div class="set-row-title">Reset to factory config</div>
+              <div class="set-row-sub">Removes <code>/etc/ventd/config.yaml</code>, every profile schedule, and your password. Setup wizard runs on next boot.</div>
+            </div>
+            <div class="set-row-control">
+              <button class="btn btn--danger" type="button">Reset…</button>
+            </div>
+          </div>
+
+          <div class="set-row danger">
+            <div>
+              <div class="set-row-title">Wipe calibration data</div>
+              <div class="set-row-sub">Drops every fan's recorded stop/start PWM and min-stable RPM. Curves keep working but lose their floor estimates.</div>
+            </div>
+            <div class="set-row-control">
+              <button class="btn btn--danger" type="button">Wipe…</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── unsaved-changes bar (sticky at bottom of last section) ── -->
+        <div class="set-section">
+          <div class="set-bar">
+            <div class="set-bar-msg">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+              3 unsaved changes — listen address, session TTL, performance schedule grammar.
+            </div>
+            <div class="set-bar-actions">
+              <button class="btn btn--ghost" type="button">Discard</button>
+              <button class="btn btn--primary" type="button">
+                <svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>
+                Apply &amp; reload
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.set-content -->
+    </div><!-- /.settings-page -->
+  </main>
+</div>
+
+<script src="shared/brand.js"></script>
+<script src="settings.js?v=2"></script>
+</body>
+</html>

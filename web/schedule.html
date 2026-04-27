@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — schedule</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="schedule.css">
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono">0.4.1</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="dashboard.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="curve-editor.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Curves
+      </a>
+      <a class="nav-item active" href="schedule.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>
+        Schedule
+      </a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="devices.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        Devices
+        <span class="nav-badge">8</span>
+      </a>
+      <a class="nav-item" href="sensors.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        Sensors
+      </a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="logs.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+        Logs
+      </a>
+      <a class="nav-item" href="settings.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true"></div>
+      <span>daemon running · 4d 12h</span>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">Control</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Schedule</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg>
+          Reload rules
+        </button>
+        <button class="btn btn--primary" type="button">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          New rule
+        </button>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- live status strip — what is active right now -->
+    <div class="sched-status">
+      <div class="sched-status-cell sched-status-now">
+        <div class="sched-status-label">
+          <span class="sched-status-dot sched-dot-amber"></span>
+          Active now · manual override
+        </div>
+        <div class="sched-status-value sched-value-amber">Performance</div>
+        <div class="sched-status-meta">
+          set 22 min ago by <span class="mono">root@homelab-01</span> ·
+          <span class="mono">expires 14:42 (in 38 min)</span>
+        </div>
+      </div>
+      <div class="sched-status-cell">
+        <div class="sched-status-label">
+          <span class="sched-status-dot sched-dot-blue"></span>
+          On override expiry
+        </div>
+        <div class="sched-status-value sched-value-blue">Balanced</div>
+        <div class="sched-status-meta">
+          from <span class="mono">weekday workhours</span> · until 18:00
+        </div>
+      </div>
+      <div class="sched-status-cell">
+        <div class="sched-status-label">
+          <span class="sched-status-dot sched-dot-teal"></span>
+          Next change
+        </div>
+        <div class="sched-status-value sched-value-teal">Silent</div>
+        <div class="sched-status-meta">
+          tonight · <span class="mono">22:00</span> · weeknight quiet
+        </div>
+      </div>
+      <div class="sched-status-cell">
+        <div class="sched-status-label">
+          <span class="sched-status-dot sched-dot-muted"></span>
+          Schedule health
+        </div>
+        <div class="sched-status-value">7 rules · <span class="mono">1 paused</span></div>
+        <div class="sched-status-meta">
+          last edit 2 days ago · no conflicts
+        </div>
+      </div>
+    </div>
+
+    <!-- main body: timeline (left) + rule list (right) -->
+    <div class="sched-page">
+
+      <!-- LEFT: 7×24 timeline heatmap -->
+      <section class="sched-tl card">
+        <div class="card-title">
+          <span class="card-title-accent"></span>
+          Weekly timeline
+          <div class="card-title-actions">
+            <div class="sched-tl-legend">
+              <span class="sched-legend-chip silent"><span></span>silent</span>
+              <span class="sched-legend-chip balanced"><span></span>balanced</span>
+              <span class="sched-legend-chip performance"><span></span>performance</span>
+              <span class="sched-legend-chip calibrate"><span></span>calibration</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- hour ruler -->
+        <div class="sched-tl-ruler" aria-hidden="true">
+          <span class="sched-tl-ruler-corner"></span>
+          <span class="sched-tl-tick">00</span>
+          <span class="sched-tl-tick">03</span>
+          <span class="sched-tl-tick">06</span>
+          <span class="sched-tl-tick">09</span>
+          <span class="sched-tl-tick">12</span>
+          <span class="sched-tl-tick">15</span>
+          <span class="sched-tl-tick">18</span>
+          <span class="sched-tl-tick">21</span>
+          <span class="sched-tl-tick">24</span>
+        </div>
+
+        <!-- 7 rows × 24 cells. Each cell = 1 hour. Today (Wed) is highlighted; 13:00 column has a "now" marker. -->
+        <div class="sched-tl-grid">
+
+          <!-- MON -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Mon</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span>
+            </div>
+          </div>
+
+          <!-- TUE -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Tue</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell performance is-event" data-event="coolant 41° spike — 14:08 → 14:23"></span><span class="sched-cell performance is-event"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span>
+            </div>
+          </div>
+
+          <!-- WED — today -->
+          <div class="sched-tl-row is-today">
+            <div class="sched-tl-day">Wed<span class="sched-today-tag">today</span></div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell silent past"></span><span class="sched-cell balanced past"></span><span class="sched-cell balanced past"></span><span class="sched-cell balanced past"></span><span class="sched-cell balanced past"></span><span class="sched-cell balanced past"></span><span class="sched-cell balanced past"></span><span class="sched-cell performance is-override is-now"></span><span class="sched-cell performance is-override"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span>
+            </div>
+            <div class="sched-now-line" aria-hidden="true"><span class="sched-now-label">now · 13:04</span></div>
+          </div>
+
+          <!-- THU -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Thu</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span>
+            </div>
+          </div>
+
+          <!-- FRI -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Fri</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell silent"></span><span class="sched-cell silent"></span>
+            </div>
+          </div>
+
+          <!-- SAT -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Sat</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span>
+            </div>
+          </div>
+
+          <!-- SUN -->
+          <div class="sched-tl-row">
+            <div class="sched-tl-day">Sun</div>
+            <div class="sched-tl-cells">
+              <span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell calibrate"></span><span class="sched-cell calibrate"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell balanced"></span><span class="sched-cell idle"></span><span class="sched-cell idle"></span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- timeline footnote -->
+        <div class="sched-tl-foot">
+          <div class="sched-tl-foot-block">
+            <span class="sched-tl-foot-label">Hover</span>
+            a cell to see which rule owns that hour.
+          </div>
+          <div class="sched-tl-foot-block">
+            <span class="sched-tl-foot-label">Idle</span>
+            unscheduled hours fall back to the
+            <span class="mono">default</span> curve set.
+          </div>
+          <div class="sched-tl-foot-block">
+            <span class="sched-tl-foot-label">Tue 14:08</span>
+            shows a real <span class="mono">coolant&nbsp;&gt;&nbsp;40°</span> trip — event triggers paint over the time-of-day baseline.
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: rule list, priority-ordered -->
+      <section class="sched-rules">
+        <div class="sched-rules-head">
+          <span class="card-title-accent"></span>
+          <span class="sched-rules-title">Rules</span>
+          <span class="sched-rules-sub mono">priority · top wins</span>
+          <button class="btn btn--ghost sched-rules-add" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add
+          </button>
+        </div>
+
+        <ol class="sched-rule-list">
+
+          <!-- 1. ACTIVE OVERRIDE -->
+          <li class="sched-rule is-active is-override">
+            <div class="sched-rule-rank mono">1</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">manual override</span>
+                <span class="status-pill warn">active</span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/></svg>
+                expires 14:42 · auto-revert
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag performance">Performance</span>
+                <span class="sched-rule-scope">global · 14 fans</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 2. WEEKNIGHT QUIET -->
+          <li class="sched-rule">
+            <div class="sched-rule-rank mono">2</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">weeknight quiet</span>
+                <span class="sched-rule-toggle is-on" aria-label="enabled"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+                Mon–Fri · 22:00 → 07:00
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag silent">Silent</span>
+                <span class="sched-rule-scope">global · 14 fans</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 3. WEEKEND DAYTIME -->
+          <li class="sched-rule">
+            <div class="sched-rule-rank mono">3</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">weekend daytime</span>
+                <span class="sched-rule-toggle is-on" aria-label="enabled"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+                Sat–Sun · 09:00 → 22:00
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag balanced">Balanced</span>
+                <span class="sched-rule-scope">global · 14 fans</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 4. THERMAL GUARD -->
+          <li class="sched-rule is-selected">
+            <div class="sched-rule-rank mono">4</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">gpu thermal guard</span>
+                <span class="sched-rule-toggle is-on" aria-label="enabled"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4M12 8a4 4 0 010 8M12 16v6M4 12h4M16 12h4"/></svg>
+                event · coolant &gt; 40° for 5 min
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag performance">Performance</span>
+                <span class="sched-rule-scope">global · 14 fans · last fired Tue 14:08</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 5. WEEKLY CALIBRATION -->
+          <li class="sched-rule">
+            <div class="sched-rule-rank mono">5</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">weekly calibration</span>
+                <span class="sched-rule-toggle is-on" aria-label="enabled"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                Sun · 03:00 (≈ 1h 40m)
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag calibrate">Calibrate sweep</span>
+                <span class="sched-rule-scope">scoped · 6 fans (intake + exhaust)</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 6. WEEKDAY WORKHOURS — paused -->
+          <li class="sched-rule is-disabled">
+            <div class="sched-rule-rank mono">6</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">weekday workhours</span>
+                <span class="sched-rule-toggle" aria-label="paused"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+                Mon–Fri · 09:00 → 18:00
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag balanced">Balanced</span>
+                <span class="sched-rule-scope">paused · "PTO until Fri"</span>
+              </div>
+            </div>
+          </li>
+
+          <!-- 7. BOOT WARMUP -->
+          <li class="sched-rule">
+            <div class="sched-rule-rank mono">7</div>
+            <div class="sched-rule-body">
+              <div class="sched-rule-head">
+                <span class="sched-rule-name">boot warmup</span>
+                <span class="sched-rule-toggle is-on" aria-label="enabled"><span></span></span>
+              </div>
+              <div class="sched-rule-trigger mono">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10M5 8l7-6 7 6M5 22h14"/></svg>
+                on-boot · for 60s
+              </div>
+              <div class="sched-rule-target">
+                <span class="sched-curve-tag balanced">Balanced</span>
+                <span class="sched-rule-scope">global · settles fan tach</span>
+              </div>
+            </div>
+          </li>
+
+        </ol>
+
+        <!-- selected rule details -->
+        <div class="sched-detail">
+          <div class="sched-detail-head">
+            <span class="sched-detail-label">selected rule</span>
+            <span class="sched-detail-name">gpu thermal guard</span>
+          </div>
+          <dl class="sched-detail-grid">
+            <dt>trigger</dt>
+            <dd>
+              <span class="mono">when(</span>coolant<span class="mono"> &gt; 40°</span> for <span class="mono">5m</span><span class="mono">)</span>
+            </dd>
+            <dt>source</dt>
+            <dd class="mono">corsair-h150i / coolant_temp</dd>
+            <dt>action</dt>
+            <dd>switch curve set → <span class="sched-curve-tag inline performance">Performance</span></dd>
+            <dt>scope</dt>
+            <dd>global · 14 fans (writable: 12)</dd>
+            <dt>cool-down</dt>
+            <dd>release after coolant <span class="mono">&lt; 36°</span> for 5m</dd>
+            <dt>last fired</dt>
+            <dd>Tue 14:08 → 14:23 · 15m run · peak 41.4°</dd>
+            <dt>fires (30d)</dt>
+            <dd>4 · all under stress-test windows</dd>
+          </dl>
+          <div class="sched-detail-foot">
+            <button class="btn btn--ghost" type="button">View YAML</button>
+            <button class="btn" type="button">Edit</button>
+            <button class="btn btn--danger" type="button">Disable</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="shared/brand.js"></script>
+<script src="schedule.js"></script>
+</body>
+</html>

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — sensors</title>
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/brand.css">
+<link rel="stylesheet" href="sensors.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- ────────────── sidebar (canonical) ────────────── -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono">0.4.1</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="dashboard.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="curve-editor.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Curves
+      </a>
+      <a class="nav-item" href="schedule.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>
+        Schedule
+      </a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="devices.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+        Devices
+        <span class="nav-badge">8</span>
+      </a>
+      <a class="nav-item active" href="sensors.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>
+        Sensors
+        <span class="nav-badge">21</span>
+      </a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="logs.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+        Logs
+      </a>
+      <a class="nav-item" href="settings.html">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true"></div>
+      <span>daemon running · 4d 12h</span>
+    </div>
+  </aside>
+
+  <!-- ────────────── main ────────────── -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">Hardware</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Sensors</span>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg>
+          Re-scan
+        </button>
+        <button class="btn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M9 13h6M9 17h4"/></svg>
+          Export CSV
+        </button>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="sensors-page">
+
+      <!-- ─────── left rail ─────── -->
+      <aside class="sensors-rail">
+        <div class="s-rail-section">
+          <div class="s-rail-label">Source</div>
+          <div class="s-source is-active">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+            <span>hwmon</span><span class="ct">17</span>
+          </div>
+          <div class="s-source is-active">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M7 10h2M7 14h2"/></svg>
+            <span>nvml</span><span class="ct">3</span>
+          </div>
+          <div class="s-source is-active">
+            <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+            <span>corsair</span><span class="ct">1</span>
+          </div>
+        </div>
+
+        <div class="s-rail-section">
+          <div class="s-rail-label">Status</div>
+          <div class="s-stat ok">
+            <span class="lbl">Active</span><span class="val">21</span>
+          </div>
+          <div class="s-stat warn">
+            <span class="lbl">Stale (≥3 polls)</span><span class="val">1</span>
+          </div>
+          <div class="s-stat">
+            <span class="lbl">Hidden</span><span class="val">0</span>
+          </div>
+        </div>
+
+        <div class="s-rail-section">
+          <div class="s-rail-label">Used by curves</div>
+          <div class="s-stat ok">
+            <span class="lbl">Mapped</span><span class="val">11</span>
+          </div>
+          <div class="s-stat">
+            <span class="lbl">Unmapped</span><span class="val">10</span>
+          </div>
+        </div>
+
+        <div class="s-rail-section">
+          <div class="s-rail-label">Poll loop</div>
+          <div class="s-stat">
+            <span class="lbl">Interval</span><span class="val">2.0 s</span>
+          </div>
+          <div class="s-stat">
+            <span class="lbl">Avg read</span><span class="val">2.4 ms</span>
+          </div>
+          <div class="s-stat">
+            <span class="lbl">Last read</span><span class="val">0.3 s ago</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ─────── center: filter bar + table ─────── -->
+      <section class="sensors-main">
+
+        <div class="sensors-bar">
+          <label class="sensors-search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input id="sensors-search-input" type="text" placeholder="filter by name or path…" />
+          </label>
+          <span class="meta"><span class="mono">21</span> sensors · <span class="mono">3</span> sources · refresh <span class="mono">2 s</span></span>
+          <span class="grow"></span>
+          <button class="btn" type="button">
+            <svg viewBox="0 0 24 24"><path d="M3 7h18M6 12h12M10 17h4"/></svg>
+            Group by source
+          </button>
+        </div>
+
+        <!-- ── group: hwmon / NCT6798D ── -->
+        <div class="sensors-table">
+          <div class="s-grouphead">
+            <span class="name">nct6798d</span>
+            <span class="meta">/sys/class/hwmon/hwmon3 · 14 channels · superio probe</span>
+            <span class="grow"></span>
+            <span class="meta">writable</span>
+          </div>
+
+          <!-- temp1: cpu_die -->
+          <div class="s-row is-selected">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>cpu_die</div>
+              <div class="path">hwmon3/temp1_input · CPU package</div>
+            </div>
+            <div class="s-reading"><span class="v">62.4</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <line class="grid" x1="0" y1="14" x2="100" y2="14"/>
+                <path class="area" d="M0,18 L4,17 8,16 12,18 16,15 20,14 24,12 28,10 32,11 36,9 40,8 44,7 48,9 52,12 56,14 60,11 64,9 68,7 72,6 76,8 80,10 84,9 88,8 92,7 96,6 100,8 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,18 L4,17 8,16 12,18 16,15 20,14 24,12 28,10 32,11 36,9 40,8 44,7 48,9 52,12 56,14 60,11 64,9 68,7 72,6 76,8 80,10 84,9 88,8 92,7 96,6 100,8"/>
+                <line class="threshline" x1="0" y1="6" x2="100" y2="6"/>
+              </svg>
+              <div class="minmax"><span>54.1</span><span class="gap">↔ 30 min</span><span>91.8</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar">
+                <div class="s-thresh-cur" style="left:62%"></div>
+              </div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">80</span><span class="err-tick">92</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-cpu">cpu_pump</span>
+              <span class="s-use-pill ic-cpu">rad_top_1</span>
+              <span class="s-use-pill ic-cpu">rad_top_2</span>
+              <span class="s-use-pill ic-cpu">rad_top_3</span>
+              <span class="s-use-pill ic-case">+1</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp2: vrm -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>vrm_main</div>
+              <div class="path">hwmon3/temp2_input · CPU VRM</div>
+            </div>
+            <div class="s-reading"><span class="v">58.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,16 L8,15 16,17 24,14 32,13 40,11 48,10 56,12 64,14 72,12 80,10 88,11 96,9 100,10 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,16 L8,15 16,17 24,14 32,13 40,11 48,10 56,12 64,14 72,12 80,10 88,11 96,9 100,10"/>
+              </svg>
+              <div class="minmax"><span>52.0</span><span class="gap">↔ 30 min</span><span>71.2</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:58%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">85</span><span class="err-tick">100</span><span>120°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-cpu">vrm_aux</span>
+              <span class="s-use-pill ic-cpu">case_rear_1</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp3: chipset -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>chipset</div>
+              <div class="path">hwmon3/temp3_input · X670E PCH</div>
+            </div>
+            <div class="s-reading"><span class="v">44.5</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,18 L10,18 20,17 30,18 40,17 50,16 60,17 70,18 80,17 90,16 100,17 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,18 L10,18 20,17 30,18 40,17 50,16 60,17 70,18 80,17 90,16 100,17"/>
+              </svg>
+              <div class="minmax"><span>42.0</span><span class="gap">↔ 30 min</span><span>47.1</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:44%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">75</span><span class="err-tick">95</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">unmapped</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp4: dimm -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>dimm_a</div>
+              <div class="path">hwmon3/temp4_input · DDR5 chan A</div>
+            </div>
+            <div class="s-reading"><span class="v">41.2</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,20 L20,19 40,18 60,19 80,18 100,18 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,20 L20,19 40,18 60,19 80,18 100,18"/>
+              </svg>
+              <div class="minmax"><span>39.8</span><span class="gap">↔ 30 min</span><span>43.4</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:41%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">75</span><span class="err-tick">90</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">unmapped</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp5: dimm_b -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>dimm_b</div>
+              <div class="path">hwmon3/temp5_input · DDR5 chan B</div>
+            </div>
+            <div class="s-reading"><span class="v">42.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,19 L20,18 40,18 60,17 80,18 100,17 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,19 L20,18 40,18 60,17 80,18 100,17"/>
+              </svg>
+              <div class="minmax"><span>40.1</span><span class="gap">↔ 30 min</span><span>43.9</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:42%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">75</span><span class="err-tick">90</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">unmapped</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp6: nvme primary -->
+          <div class="s-row lvl-warn">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>nvme0_composite</div>
+              <div class="path">hwmon3/temp6_input · Samsung 990 Pro 2 TB</div>
+            </div>
+            <div class="s-reading"><span class="v">71.4</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,16 L10,15 20,12 30,9 40,7 50,5 60,4 70,3 80,5 90,7 100,8 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,16 L10,15 20,12 30,9 40,7 50,5 60,4 70,3 80,5 90,7 100,8"/>
+                <line class="threshline" x1="0" y1="7" x2="100" y2="7"/>
+              </svg>
+              <div class="minmax"><span>54.0</span><span class="gap">↔ 30 min</span><span>74.8</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:71%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">70</span><span class="err-tick">82</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-case">m2_blower</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp7: stale -->
+          <div class="s-row is-stale">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>unknown_temp7</div>
+              <div class="path">hwmon3/temp7_input · stale · −50.0 °C × 4 polls</div>
+            </div>
+            <div class="s-reading"><span class="v">—</span><span class="u">stale</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="line" d="M0,14 L100,14"/>
+              </svg>
+              <div class="minmax"><span>—</span><span class="gap">excluded from curves</span><span>—</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">—</span><span class="err-tick">—</span><span>—</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">hidden</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- temp8: nvme secondary -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>nvme1_composite</div>
+              <div class="path">hwmon3/temp8_input · WD SN850X 4 TB</div>
+            </div>
+            <div class="s-reading"><span class="v">48.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,18 L20,17 40,16 60,17 80,16 100,17 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,18 L20,17 40,16 60,17 80,16 100,17"/>
+              </svg>
+              <div class="minmax"><span>45.1</span><span class="gap">↔ 30 min</span><span>50.2</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:48%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">70</span><span class="err-tick">82</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">unmapped</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <!-- ambient -->
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>ambient_intake</div>
+              <div class="path">hwmon3/temp9_input · 3-pin probe header</div>
+            </div>
+            <div class="s-reading"><span class="v">23.1</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,21 L20,21 40,20 60,21 80,20 100,21 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,21 L20,21 40,20 60,21 80,20 100,21"/>
+              </svg>
+              <div class="minmax"><span>22.4</span><span class="gap">↔ 30 min</span><span>23.8</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:23%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">35</span><span class="err-tick">45</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-case">case_front_1</span>
+              <span class="s-use-pill ic-case">case_front_2</span>
+              <span class="s-use-pill ic-case">+2</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+
+        <!-- ── group: NVML ── -->
+        <div class="sensors-table">
+          <div class="s-grouphead">
+            <span class="name">nvml.gpu0</span>
+            <span class="meta">NVIDIA RTX 4090 · driver 560.35 · 1 GPU</span>
+            <span class="grow"></span>
+            <span class="meta">read-only</span>
+          </div>
+
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>gpu0_edge</div>
+              <div class="path">nvml/gpu0/temp_edge · die hotspot</div>
+            </div>
+            <div class="s-reading"><span class="v">58.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,17 L10,16 20,14 30,11 40,9 50,8 60,9 70,10 80,12 90,11 100,12 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,17 L10,16 20,14 30,11 40,9 50,8 60,9 70,10 80,12 90,11 100,12"/>
+              </svg>
+              <div class="minmax"><span>40.0</span><span class="gap">↔ 30 min</span><span>72.4</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:58%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">80</span><span class="err-tick">88</span><span>100°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-gpu">gpu0_fan0</span>
+              <span class="s-use-pill ic-gpu">gpu0_fan1</span>
+              <span class="s-use-pill ic-case">case_side_1</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>gpu0_memory</div>
+              <div class="path">nvml/gpu0/temp_memory · GDDR6X junction</div>
+            </div>
+            <div class="s-reading"><span class="v">68.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,15 L10,14 20,12 30,10 40,8 50,7 60,8 70,9 80,11 90,10 100,11 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,15 L10,14 20,12 30,10 40,8 50,7 60,8 70,9 80,11 90,10 100,11"/>
+              </svg>
+              <div class="minmax"><span>52.0</span><span class="gap">↔ 30 min</span><span>78.4</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:68%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">90</span><span class="err-tick">102</span><span>110°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-gpu">gpu0_fan0</span>
+              <span class="s-use-pill ic-gpu">gpu0_fan1</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>gpu0_hotspot</div>
+              <div class="path">nvml/gpu0/temp_hotspot · die internal max</div>
+            </div>
+            <div class="s-reading"><span class="v">72.0</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,14 L10,13 20,11 30,9 40,7 50,6 60,7 70,8 80,10 90,9 100,10 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,14 L10,13 20,11 30,9 40,7 50,6 60,7 70,8 80,10 90,9 100,10"/>
+              </svg>
+              <div class="minmax"><span>49.0</span><span class="gap">↔ 30 min</span><span>84.2</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:72%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">95</span><span class="err-tick">105</span><span>110°C</span></div>
+            </div>
+            <div class="s-uses col-uses"><span class="s-use-pill empty">unmapped</span></div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+
+        <!-- ── group: Corsair ── -->
+        <div class="sensors-table">
+          <div class="s-grouphead">
+            <span class="name">corsair.h150i</span>
+            <span class="meta">/dev/hidraw3 · H150i Elite Capellix · vid:pid 1b1c:0c39</span>
+            <span class="grow"></span>
+            <span class="meta">read-only · firmware lock</span>
+          </div>
+
+          <div class="s-row">
+            <div class="s-name">
+              <div class="label"><span class="lvl-dot"></span>coolant_loop</div>
+              <div class="path">corsair/h150i/coolant · liquid temp probe</div>
+            </div>
+            <div class="s-reading"><span class="v">34.2</span><span class="u">°C</span></div>
+            <div class="s-spark">
+              <svg viewBox="0 0 100 28" preserveAspectRatio="none">
+                <path class="area" d="M0,19 L10,18 20,16 30,14 40,13 50,14 60,15 70,17 80,18 90,17 100,17 L100,28 L0,28 Z"/>
+                <path class="line" d="M0,19 L10,18 20,16 30,14 40,13 50,14 60,15 70,17 80,18 90,17 100,17"/>
+              </svg>
+              <div class="minmax"><span>30.1</span><span class="gap">↔ 30 min</span><span>38.7</span></div>
+            </div>
+            <div class="s-thresh col-thresh">
+              <div class="s-thresh-bar"><div class="s-thresh-cur" style="left:34%"></div></div>
+              <div class="s-thresh-labels"><span>0</span><span class="warn-tick">55</span><span class="err-tick">65</span><span>80°C</span></div>
+            </div>
+            <div class="s-uses col-uses">
+              <span class="s-use-pill ic-cpu">cpu_pump</span>
+              <span class="s-use-pill ic-cpu">rad_top_1</span>
+              <span class="s-use-pill ic-cpu">rad_top_2</span>
+              <span class="s-use-pill ic-cpu">rad_top_3</span>
+            </div>
+            <svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ─────── right detail rail ─────── -->
+      <aside class="sensors-detail">
+        <h3><span class="lvl-dot"></span>cpu_die</h3>
+        <div class="sd-path">/sys/class/hwmon/hwmon3/temp1_input</div>
+
+        <div class="sd-now">
+          <span class="v">62.4</span><span class="u">°C</span>
+          <span class="delta">+1.2 °C / 30 s</span>
+        </div>
+
+        <div class="sd-chart">
+          <svg viewBox="0 0 280 90">
+            <!-- y-axis labels -->
+            <text class="axis" x="2"  y="10">100</text>
+            <text class="axis" x="2"  y="32">80</text>
+            <text class="axis" x="2"  y="56">60</text>
+            <text class="axis" x="2"  y="80">40</text>
+            <line class="grid" x1="22" y1="8"  x2="278" y2="8"/>
+            <line class="grid" x1="22" y1="30" x2="278" y2="30"/>
+            <line class="grid" x1="22" y1="54" x2="278" y2="54"/>
+            <line class="grid" x1="22" y1="78" x2="278" y2="78"/>
+            <!-- warn/err zones (above thresholds) -->
+            <rect class="warn-zone" x="22" y="8"  width="256" height="22"/>
+            <rect class="err-zone"  x="22" y="2"  width="256" height="6"/>
+            <line class="err-line"  x1="22" y1="8"  x2="278" y2="8"/>
+            <line class="warn-line" x1="22" y1="30" x2="278" y2="30"/>
+            <!-- data: small history of cpu_die -->
+            <path class="area" d="M22,60 L34,58 46,52 58,46 70,42 82,38 94,40 106,46 118,52 130,55 142,40 154,16 166,4 178,18 190,42 202,52 214,46 226,40 238,44 250,48 262,46 274,42 278,44 L278,90 L22,90 Z"/>
+            <path class="line" d="M22,60 L34,58 46,52 58,46 70,42 82,38 94,40 106,46 118,52 130,55 142,40 154,16 166,4 178,18 190,42 202,52 214,46 226,40 238,44 250,48 262,46 274,42 278,44"/>
+          </svg>
+        </div>
+
+        <div class="sd-grid">
+          <div><div class="lbl">min · 30 m</div><div class="val ok">54.1 °C</div></div>
+          <div><div class="lbl">max · 30 m</div><div class="val warn">91.8 °C</div></div>
+          <div><div class="lbl">avg · 30 m</div><div class="val">66.4 °C</div></div>
+          <div><div class="lbl">poll lag</div><div class="val">0.3 s</div></div>
+        </div>
+
+        <div class="sensors-detail-section">
+          <div class="head">Thresholds</div>
+          <div class="sd-thresh">
+            <div class="sd-thresh-row"><span class="dot warn"></span><span class="lbl">warn</span><span class="val">≥ 80 °C</span></div>
+            <div class="sd-thresh-row"><span class="dot err"></span><span class="lbl">error</span><span class="val">≥ 92 °C</span></div>
+            <div class="sd-thresh-row"><span class="dot panic"></span><span class="lbl">panic latch</span><span class="val">≥ 92 °C / 3 s</span></div>
+          </div>
+        </div>
+
+        <div class="sensors-detail-section">
+          <div class="head">Curve consumers <span class="ct">5</span></div>
+          <div class="sd-uses-list">
+            <div class="sd-use-row"><span class="name">cpu_pump</span><span class="role is-primary">primary</span></div>
+            <div class="sd-use-row"><span class="name">rad_top_1</span><span class="role is-primary">primary</span></div>
+            <div class="sd-use-row"><span class="name">rad_top_2</span><span class="role is-primary">primary</span></div>
+            <div class="sd-use-row"><span class="name">rad_top_3</span><span class="role is-primary">primary</span></div>
+            <div class="sd-use-row"><span class="name">case_rear_1</span><span class="role">aux · max</span></div>
+          </div>
+        </div>
+
+        <div class="sd-actions">
+          <button class="btn" type="button">
+            <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/></svg>
+            Open in Curves
+          </button>
+          <button class="btn" type="button">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add to fan…
+          </button>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<script src="shared/brand.js"></script>
+<script src="sensors.js"></script>
+</body>
+</html>

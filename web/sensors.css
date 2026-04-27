@@ -1,0 +1,385 @@
+/* ─────────────────────────────────────────────────────────────
+ * sensors.css — Sensors page
+ * Two-column: filter rail (sources) + sensor table (right).
+ * Each sensor row: name + reading + sparkline + thresholds + fan-uses.
+ * Detail rail (right) opens when a row is selected.
+ * ───────────────────────────────────────────────────────────── */
+
+.sensors-page {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) 320px;
+  gap: 16px;
+  padding: 16px 20px 60px;
+  align-items: start;
+}
+@media (max-width: 1280px) {
+  .sensors-page { grid-template-columns: 200px minmax(0, 1fr); }
+  .sensors-detail { display: none; }
+}
+@media (max-width: 900px) {
+  .sensors-page { grid-template-columns: 1fr; }
+}
+
+/* ── source rail ────────────────────────────────────────── */
+.sensors-rail {
+  position: sticky; top: 80px;
+  display: flex; flex-direction: column; gap: 18px;
+  font-size: 0.85rem;
+}
+.s-rail-section { display: flex; flex-direction: column; gap: 6px; }
+.s-rail-label {
+  font-size: 0.62rem;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--fg3);
+  margin-bottom: 4px;
+}
+.s-source {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px; align-items: center;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--fg1);
+}
+.s-source:hover { border-color: var(--fg3); }
+.s-source.is-active { border-color: var(--teal); background: var(--teal-bg); }
+.s-source .ic {
+  width: 12px; height: 12px;
+  stroke: currentColor; fill: none; stroke-width: 1.8;
+  color: var(--fg2);
+}
+.s-source.is-active .ic { color: var(--teal); }
+.s-source .ct { font-family: var(--font-mono); font-size: 0.72rem; color: var(--fg2); }
+
+/* tiny stat blocks */
+.s-stat {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.s-stat + .s-stat { margin-top: 6px; }
+.s-stat .lbl { color: var(--fg2); font-size: 0.78rem; flex: 1; }
+.s-stat .val { color: var(--fg1); font-family: var(--font-mono); font-size: 0.85rem; }
+.s-stat.ok    .val { color: var(--teal); }
+.s-stat.warn  .val { color: var(--amber); }
+.s-stat.err   .val { color: var(--red); }
+
+/* ── center: header strip + table ───────────────────────── */
+.sensors-main {
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 0;
+}
+
+.sensors-bar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.sensors-search {
+  flex: 1; max-width: 320px;
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.sensors-search:focus-within { border-color: var(--teal); }
+.sensors-search svg { width: 12px; height: 12px; stroke: var(--fg3); fill: none; stroke-width: 1.8; }
+.sensors-search input {
+  background: transparent; border: 0; outline: none;
+  flex: 1; min-width: 0;
+  color: var(--fg1); font: inherit;
+}
+.sensors-search input::placeholder { color: var(--fg3); }
+.sensors-bar .grow { flex: 1; }
+.sensors-bar .meta { color: var(--fg2); font-size: 0.78rem; }
+.sensors-bar .meta .mono { color: var(--fg1); font-family: var(--font-mono); }
+
+/* ── sensor table ───────────────────────────────────────── */
+.sensors-table {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.s-grouphead {
+  padding: 9px 16px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.78rem;
+  color: var(--fg2);
+}
+.s-grouphead .name {
+  font-family: var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--fg1); font-weight: 600; font-size: 0.72rem;
+}
+.s-grouphead .meta { color: var(--fg3); font-size: 0.72rem; font-family: var(--font-mono); }
+.s-grouphead .grow { flex: 1; }
+
+.s-row {
+  display: grid;
+  grid-template-columns: 240px 90px minmax(110px, 1fr) 220px 1fr 28px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.s-row:hover { background: var(--bg); }
+.s-row.is-selected { background: var(--bg); box-shadow: inset 3px 0 0 var(--teal); }
+.s-row.is-stale { opacity: 0.6; }
+
+@media (max-width: 1100px) {
+  .s-row { grid-template-columns: 200px 80px 1fr 28px; }
+  .s-row .col-thresh, .s-row .col-uses { display: none; }
+}
+
+.s-name {
+  display: flex; flex-direction: column; gap: 3px;
+  min-width: 0;
+}
+.s-name .label {
+  color: var(--fg1);
+  font-size: 0.86rem;
+  font-weight: 500;
+  display: flex; align-items: center; gap: 6px;
+}
+.s-name .label .lvl-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
+}
+.s-row.lvl-warn .s-name .lvl-dot { background: var(--amber); }
+.s-row.lvl-err  .s-name .lvl-dot { background: var(--red); }
+.s-row.is-stale .s-name .lvl-dot { background: var(--fg3); }
+.s-name .path  {
+  color: var(--fg3); font-family: var(--font-mono); font-size: 0.7rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.s-reading {
+  display: flex; align-items: baseline; gap: 4px;
+  font-family: var(--font-mono);
+}
+.s-reading .v { font-size: 1.18rem; color: var(--fg1); font-weight: 500; }
+.s-reading .u { font-size: 0.75rem; color: var(--fg2); }
+.s-row.lvl-warn .s-reading .v { color: var(--amber); }
+.s-row.lvl-err  .s-reading .v { color: var(--red); }
+.s-row.is-stale .s-reading .v { color: var(--fg3); }
+
+/* sparkline + min/max */
+.s-spark {
+  display: flex; flex-direction: column; gap: 3px;
+  min-width: 0;
+}
+.s-spark svg {
+  width: 100%; height: 28px;
+  display: block;
+}
+.s-spark svg .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+.s-spark svg .area { fill: var(--teal); opacity: 0.10; }
+.s-spark svg .line { fill: none; stroke: var(--teal); stroke-width: 1.4; }
+.s-spark svg .threshline { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.55; }
+.s-row.lvl-warn .s-spark svg .line { stroke: var(--amber); }
+.s-row.lvl-warn .s-spark svg .area { fill: var(--amber); opacity: 0.1; }
+.s-row.lvl-err  .s-spark svg .line { stroke: var(--red); }
+.s-row.lvl-err  .s-spark svg .area { fill: var(--red); opacity: 0.12; }
+.s-row.is-stale .s-spark svg .line { stroke: var(--fg3); stroke-dasharray: 2 3; }
+.s-spark .minmax {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 0.66rem;
+  color: var(--fg3);
+}
+.s-spark .minmax .gap { font-size: 0.65rem; color: var(--fg3); }
+
+/* threshold bar — three-zone  ok / warn / err */
+.s-thresh {
+  display: flex; flex-direction: column; gap: 3px;
+}
+.s-thresh-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right,
+    var(--teal-bg) 0%, var(--teal-bg) 60%,
+    var(--amber-bg) 60%, var(--amber-bg) 85%,
+    var(--red-bg) 85%, var(--red-bg) 100%);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.s-thresh-cur {
+  position: absolute; top: -2px;
+  width: 2px; height: 10px;
+  background: var(--fg1);
+  border-radius: 1px;
+}
+.s-thresh-labels {
+  display: flex; justify-content: space-between;
+  font-family: var(--font-mono); font-size: 0.66rem;
+  color: var(--fg3);
+}
+.s-thresh-labels .warn-tick { color: var(--amber); }
+.s-thresh-labels .err-tick  { color: var(--red); }
+
+/* uses pills */
+.s-uses {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.s-use-pill {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--fg2);
+  background: var(--bg);
+  white-space: nowrap;
+}
+.s-use-pill.ic-cpu  { border-color: var(--teal); color: var(--teal); }
+.s-use-pill.ic-gpu  { border-color: var(--blue); color: var(--blue); }
+.s-use-pill.ic-case { color: var(--fg2); }
+.s-use-pill.empty   { color: var(--fg3); border-style: dashed; }
+
+.s-row .chev {
+  width: 14px; height: 14px;
+  stroke: var(--fg3); fill: none; stroke-width: 1.8;
+}
+.s-row.is-selected .chev { stroke: var(--teal); transform: rotate(90deg); }
+
+/* ── detail rail (right) ────────────────────────────────── */
+.sensors-detail {
+  position: sticky; top: 80px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+  display: flex; flex-direction: column; gap: 14px;
+  font-size: 0.85rem;
+}
+.sensors-detail h3 {
+  font-size: 0.95rem;
+  color: var(--fg1);
+  font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.sensors-detail h3 .lvl-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--teal);
+}
+.sd-path {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--fg2);
+  word-break: break-all;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.sd-now {
+  display: flex; align-items: baseline; gap: 8px;
+  font-family: var(--font-mono);
+}
+.sd-now .v { font-size: 2rem; color: var(--fg1); font-weight: 500; }
+.sd-now .u { font-size: 0.85rem; color: var(--fg2); }
+.sd-now .delta { margin-left: auto; font-size: 0.72rem; color: var(--teal); }
+.sd-now .delta.dn { color: var(--blue); }
+
+.sd-chart {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px 6px;
+}
+.sd-chart svg { display: block; width: 100%; height: 90px; }
+.sd-chart .axis { fill: var(--fg3); font-family: var(--font-mono); font-size: 8.5px; }
+.sd-chart .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+.sd-chart .area { fill: var(--teal); opacity: 0.13; }
+.sd-chart .line { fill: none; stroke: var(--teal); stroke-width: 1.6; }
+.sd-chart .warn-zone { fill: var(--amber); opacity: 0.05; }
+.sd-chart .err-zone  { fill: var(--red); opacity: 0.05; }
+.sd-chart .warn-line { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.sd-chart .err-line  { stroke: var(--red);   stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+
+.sd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.sd-grid > div {
+  background: var(--bg2);
+  padding: 7px 9px;
+}
+.sd-grid .lbl { color: var(--fg2); font-size: 0.7rem; }
+.sd-grid .val { color: var(--fg1); font-family: var(--font-mono); font-size: 0.85rem; margin-top: 2px; }
+.sd-grid .val.ok   { color: var(--teal); }
+.sd-grid .val.warn { color: var(--amber); }
+.sd-grid .val.err  { color: var(--red); }
+
+.sd-thresh {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.sd-thresh-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px; align-items: center;
+  font-size: 0.8rem;
+}
+.sd-thresh-row .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.sd-thresh-row .dot.warn { background: var(--amber); }
+.sd-thresh-row .dot.err  { background: var(--red); }
+.sd-thresh-row .dot.panic { background: var(--red); box-shadow: 0 0 0 3px var(--red-bg); }
+.sd-thresh-row .lbl { color: var(--fg2); }
+.sd-thresh-row .val { font-family: var(--font-mono); color: var(--fg1); }
+
+.sd-uses-list {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sd-use-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px; align-items: center;
+  padding: 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 0.8rem;
+}
+.sd-use-row .name { color: var(--fg1); }
+.sd-use-row .role {
+  font-family: var(--font-mono); font-size: 0.7rem; color: var(--fg2);
+}
+.sd-use-row .role.is-primary { color: var(--teal); }
+
+.sd-actions {
+  display: flex; gap: 6px;
+  flex-wrap: wrap;
+}
+.sd-actions .btn { flex: 1; }
+
+.sensors-detail-section { display: flex; flex-direction: column; gap: 6px; }
+.sensors-detail-section .head {
+  font-size: 0.62rem;
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--fg3);
+  display: flex; align-items: center; gap: 6px;
+}
+.sensors-detail-section .head .ct { color: var(--fg2); margin-left: auto; font-family: var(--font-mono); }
