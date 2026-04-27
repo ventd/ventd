@@ -44,6 +44,15 @@ const (
 	CurrentVersion      = 1
 )
 
+// ExperimentalConfig holds the config-file opt-in flags for experimental features.
+// Each field maps 1:1 to an experimental.Flags field. Absent keys default to false.
+type ExperimentalConfig struct {
+	AMDOverdrive    bool `yaml:"amd_overdrive,omitempty" json:"amd_overdrive,omitempty"`
+	NVIDIACoolbits  bool `yaml:"nvidia_coolbits,omitempty" json:"nvidia_coolbits,omitempty"`
+	ILO4Unlocked    bool `yaml:"ilo4_unlocked,omitempty" json:"ilo4_unlocked,omitempty"`
+	IDRAC9LegacyRaw bool `yaml:"idrac9_legacy_raw,omitempty" json:"idrac9_legacy_raw,omitempty"`
+}
+
 type Config struct {
 	Version       int                `yaml:"version" json:"version"`
 	PollInterval  Duration           `yaml:"poll_interval" json:"poll_interval"`
@@ -56,6 +65,7 @@ type Config struct {
 	Controls      []Control          `yaml:"controls" json:"controls"`
 	Profiles      map[string]Profile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 	ActiveProfile string             `yaml:"active_profile,omitempty" json:"active_profile,omitempty"`
+	Experimental  ExperimentalConfig `yaml:"experimental,omitempty" json:"experimental,omitempty"`
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can

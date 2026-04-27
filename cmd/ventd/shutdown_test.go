@@ -12,6 +12,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/experimental"
 )
 
 // TestShutdownSequence is the regression guard for SIGTERM / ctx-cancel
@@ -100,7 +101,7 @@ func TestShutdownSequence(t *testing.T) {
 	// runDaemon returns via errCh → a single-slot channel we select on below.
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemon(ctx, cfg, cfgPath, "", logger, "", nil)
+		done <- runDaemon(ctx, cfg, cfgPath, "", logger, "", nil, experimental.Flags{})
 	}()
 
 	// Wait for at least one tick so the watchdog is registered, the
