@@ -62,3 +62,6 @@ release-notes/*-dryrun.txt
 
 *:Zone.Identifier
 *:Zone.Identifier:Zone.Identifier
+
+# Git worktrees (local dev isolation)
+/.worktrees/
