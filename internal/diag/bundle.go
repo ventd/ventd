@@ -20,6 +20,7 @@ import (
 
 	"github.com/ventd/ventd/internal/diag/detection"
 	"github.com/ventd/ventd/internal/diag/redactor"
+	"github.com/ventd/ventd/internal/experimental"
 )
 
 // ErrDenied is returned when a caller attempts to add an architecturally
@@ -71,6 +72,9 @@ type Options struct {
 	IncludeTrace bool
 	// AllowRedactionFails downgrades self-check failures to warnings.
 	AllowRedactionFails bool
+	// ExperimentalFlags is the resolved set of active experimental feature flags.
+	// CollectExperimental uses this to include the snapshot in the bundle.
+	ExperimentalFlags experimental.Flags
 }
 
 // Generate runs all detection collectors, applies the redactor, assembles a
@@ -153,6 +157,9 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 			missingTools = append(missingTools, m.Name+": "+m.Reason)
 		}
 	}
+	// Experimental flags snapshot is collected separately (not context-bound).
+	expResult := detection.CollectExperimental(opts.ExperimentalFlags)
+	allItems = append(allItems, expResult.Items...)
 	manifest.MissingTools = missingTools
 
 	// Write tar.gz.

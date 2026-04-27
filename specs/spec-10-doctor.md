@@ -1,6 +1,6 @@
 # spec-10 — `ventd doctor` preflight diagnostic command
 
-**Status:** draft, target v0.5.0.
+**Status:** draft, target v0.6.0 (slipped from v0.5.0; v0.5.0 shipped 2026-04-26 without doctor).
 **Predecessor:** spec-06 (install-contract), spec-03 PR 2a/2b (catalog + calibration).
 **Successor consumer:** spec-11 (first-run web UI wizard) calls `ventd doctor --json` as its first step.
 **Memory anchor:** desktop pre-flight gap surfaced in chat 2026-04-26 (Phoenix's 13900K + RTX 4090 + Phanteks 14-fan + Arctic LFII 420 dual-boot install pending). spec-10 is the install-time + first-run answer to "will I see errors clearly enough to debug this on my own hardware".
@@ -47,14 +47,14 @@ Single PR. Mostly read-only code paths reusing existing hwdb + calibration store
 - `internal/doctor/checks/gpu.go` — NVML present? amdgpu controllable? Check driver versions against minimum supported.
 - `internal/doctor/runner_test.go` — synthetic-fixture subtests, one per check. Bind to RULE-DOCTOR-* invariants.
 - `internal/doctor/bios_known_bad.go` — known-bad BIOS regex/string list with `(vendor, BIOS string regex, severity, message)` tuples. Maintained alongside catalog.
-- `.claude/rules/doctor.md` — RULE-DOCTOR-01..09 invariants.
+- `.claude/rules/doctor.md` — RULE-DOCTOR-01..10 invariants.
 - `docs/doctor.md` — user-facing reference: how to read the output, severity meanings, exit codes, JSON schema.
 
 **Files (modified):**
 - `cmd/ventd/main.go` — register `doctor` subcommand.
 - `internal/hwdb/matcher_v1.go` — expose `MatchDryRun(dmi DMI) MatchDiagnostics` if it isn't already exported by spec-03 PR 2a (likely already there, verify before duplicating).
 - `Makefile` or release build — ensure doctor invocation works in distro packaging context (no shared-library regressions).
-- `CHANGELOG.md` — v0.5.0 entry.
+- `CHANGELOG.md` — v0.6.0 entry.
 
 **Files (out of scope, not touched):**
 - `internal/calibration/*` — frozen post-PR-2b. Doctor reads on-disk JSON via `*hwdb.CalibrationRun`, never imports the calibration package.
@@ -80,7 +80,19 @@ Single PR. Mostly read-only code paths reusing existing hwdb + calibration store
 
 8. `RULE-DOCTOR-08` — Doctor's JSON output schema is versioned. spec-11 wizard pins `schema_version: "1"`. Schema bump is breaking change requiring spec amendment. **Binds to:** `TestDoctor_JSONSchemaVersioned`.
 
-9. `RULE-DOCTOR-09` — Doctor runs in <2 seconds wall-clock on the dev container with no hardware, executing checks serially. Every check has a 200ms timeout; checks that need longer must be opt-in via flag. Rationale: 9 checks × 200ms = 1.8s worst case fits the 2s budget without goroutine fan-out (which would double test surface for marginal speedup). All current checks are sub-50ms in practice (sysfs reads, systemctl is-active, DMI parse) — 200ms is 4× headroom. **Binds to:** `TestDoctor_LatencyBudget`.
+9. `RULE-DOCTOR-09` — Doctor runs in <2 seconds wall-clock on the dev container with no hardware, executing checks serially. Every check has a 200ms timeout; checks that need longer must be opt-in via flag. Rationale: 10 checks × 200ms = 2.0s worst case fits the 2s budget without goroutine fan-out (which would double test surface for marginal speedup). All current checks are sub-50ms in practice (sysfs reads, systemctl is-active, DMI parse) — 200ms is 4× headroom. **Binds to:** `TestDoctor_LatencyBudget`.
+
+10. `RULE-DOCTOR-10` — Doctor's experimental-flags check MUST read from `hwdiag.Store` via `ComponentExperimental`, not by parsing config or re-implementing flag resolution. **Binds to:** `TestDoctor_ExperimentalFlagsFromHwdiag`.
+
+### Pre-existing hwdiag.Store consumers
+
+`internal/hwdiag` already ships `ComponentExperimental` (spec-15 PR 1).
+`ventd doctor` MUST reuse `hwdiag.Store.Snapshot(hwdiag.FilterComponent(hwdiag.ComponentExperimental))`
+to read the live experimental-flags entries rather than re-implementing the lookup.
+
+This is an integration point, not an ownership boundary: doctor reads the store,
+spec-15 writes to it. The coupling is intentional and documented here so the impl
+session does not accidentally introduce a parallel lookup path.
 
 ### Output design
 
@@ -196,7 +208,7 @@ ventd doctor [flags]
 ## Definition of done
 
 - [ ] `cmd/ventd/doctor.go` registers the subcommand. `ventd doctor --help` prints usage.
-- [ ] All 9 RULE-DOCTOR-* rules bound to subtests under `internal/doctor/`. `tools/rulelint` returns 0.
+- [ ] All 10 RULE-DOCTOR-* rules bound to subtests under `internal/doctor/`. `tools/rulelint` returns 0.
 - [ ] `bios_known_bad.go` seeded with at least 15 entries covering Gigabyte Z690/Z790, MSI Z690/Z790, ASUS ROG (Q-Fan), known ThinkPad EC overrides, and Lenovo Legion firmware curve cases (cross-ref hwmon-research §17 and controllability map).
 - [ ] Text output renders correctly on a TTY without ANSI support (test with `--no-color`).
 - [ ] JSON output validates against `docs/doctor-schema.json` (a JSON-schema file shipped in the repo).
@@ -206,8 +218,8 @@ ventd doctor [flags]
 - [ ] Conflict-detect logic shared with spec-03 amendment `conflicts_with_userspace` resolver — confirmed by `go list -deps ./internal/doctor | grep <shared-package>`.
 - [ ] DMI fingerprint logic shared with hwdb — RULE-DOCTOR-05 subtest confirms identical output for identical input.
 - [ ] `docs/doctor.md` covers: synopsis, all flag meanings, output format with examples, exit codes, JSON schema reference, "how to contribute a known-bad BIOS entry" workflow.
-- [ ] CHANGELOG entry under v0.5.0 `### Added`: `ventd doctor` preflight diagnostic command.
-- [ ] Conventional commit at boundaries: `feat(doctor): preflight subcommand with 9 read-only checks`.
+- [ ] CHANGELOG entry under v0.6.0 `### Added`: `ventd doctor` preflight diagnostic command.
+- [ ] Conventional commit at boundaries: `feat(doctor): preflight subcommand with 10 read-only checks`.
 - [ ] PR description explicitly notes: "spec-11 first-run wizard depends on `--json` schema_version 1; bumping schema is a breaking change requiring spec amendment."
 
 ---
@@ -252,6 +264,7 @@ Key invariants:
 - RULE-DOCTOR-06 reuse spec-03 amendment conflicts_with_userspace resolver
 - RULE-DOCTOR-08 JSON schema_version "1" pinned (spec-11 wizard consumes)
 - RULE-DOCTOR-09 <2s wall-clock total, 200ms per-check timeout, serial execution (no goroutine fan-out)
+- RULE-DOCTOR-10 experimental-flags check reads from hwdiag.Store ComponentExperimental (no parallel impl)
 
 Stop and surface to Phoenix if:
 - BIOS known-bad list grows past 50 entries

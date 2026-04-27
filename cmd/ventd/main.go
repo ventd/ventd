@@ -20,6 +20,7 @@ import (
 	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
@@ -83,6 +84,10 @@ func run() error {
 	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
 	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
 	enableGPUWrite := flag.Bool("enable-gpu-write", false, "enable fan write commands for NVIDIA/AMDGPU GPUs; requires per-device capability probe success (RULE-GPU-PR2D-01)")
+	enableAMDOverdrive := flag.Bool("enable-amd-overdrive", false, "enable AMD OverDrive fan curve interface (experimental; requires amd_overdrive precondition)")
+	enableNVIDIACoolbits := flag.Bool("enable-nvidia-coolbits", false, "enable NVIDIA Coolbits fan control (experimental; requires nvidia_coolbits precondition)")
+	enableILO4Unlocked := flag.Bool("enable-ilo4-unlocked", false, "enable HPE iLO4 unlocked fan control (experimental; requires ilo4_unlocked precondition)")
+	enableIDRAC9LegacyRaw := flag.Bool("enable-idrac9-legacy-raw", false, "enable Dell iDRAC9 legacy raw IPMI fan commands (experimental; requires idrac9_legacy_raw precondition)")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	versionJSON := flag.Bool("json", false, "with --version: emit JSON instead of plain text")
 	flag.Parse()
@@ -177,6 +182,15 @@ func run() error {
 	} else {
 		logger.Info("config loaded", "path", *configPath, "controls", len(cfg.Controls))
 	}
+
+	// Resolve active experimental flags: CLI > config > default (all-false).
+	cliExpFlags := experimental.Flags{
+		AMDOverdrive:    *enableAMDOverdrive,
+		NVIDIACoolbits:  *enableNVIDIACoolbits,
+		ILO4Unlocked:    *enableILO4Unlocked,
+		IDRAC9LegacyRaw: *enableIDRAC9LegacyRaw,
+	}
+	expFlags := experimental.Merge(cliExpFlags, experimental.ParseConfig(cfg.Experimental))
 
 	// On first-boot, auto-generate a self-signed cert under the config dir
 	// so the setup wizard (passwords + tokens in flight) runs over TLS
@@ -334,7 +348,7 @@ func run() error {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags)
 }
 
 // runDaemon runs the daemon lifecycle: watchdog registration, hwmon watcher,
@@ -359,9 +373,10 @@ func runDaemon(
 	logger *slog.Logger,
 	setupToken string,
 	sigCh <-chan os.Signal,
+	expFlags experimental.Flags,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags)
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -384,6 +399,7 @@ func runDaemonInternal(
 	setupToken string,
 	sigCh <-chan os.Signal,
 	restartCh chan struct{},
+	expFlags experimental.Flags,
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -461,6 +477,18 @@ func runDaemonInternal(
 	// surfaces it via /api/hwdiag.
 	diagStore := hwdiag.NewStore()
 	cal.SetDiagnosticStore(diagStore)
+
+	// Publish active experimental flags to the diagnostic store and log once per 24h.
+	experimental.Publish(diagStore, expFlags)
+	expStatePath := "/var/lib/ventd/experimental-startup.state"
+	if os.Getuid() != 0 {
+		xdgState := os.Getenv("XDG_STATE_HOME")
+		if xdgState == "" {
+			xdgState = filepath.Join(os.Getenv("HOME"), ".local/state")
+		}
+		expStatePath = filepath.Join(xdgState, "ventd/experimental-startup.state")
+	}
+	experimental.LogActiveFlagsOnce(expFlags, expStatePath, logger, time.Now)
 
 	// Resolve hwmon sysfs paths in case hwmonX indices changed since last boot.
 	// Done after cal is created so stale keys in calibration.json can be remapped.
