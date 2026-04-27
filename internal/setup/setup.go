@@ -25,23 +25,26 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/polarity"
+	"github.com/ventd/ventd/internal/probe"
 )
 
 // FanState describes a single fan during/after the setup process.
 type FanState struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"` // "hwmon" or "nvidia"
-	PWMPath     string `json:"pwm_path"`
-	RPMPath     string `json:"rpm_path,omitempty"`
-	ControlKind string `json:"control_kind,omitempty"` // "rpm_target" for fan*_target channels
-	DetectPhase string `json:"detect_phase"`           // "pending","detecting","found","none","n/a"
-	CalPhase    string `json:"cal_phase"`              // "pending","calibrating","done","skipped","error"
-	StartPWM    uint8  `json:"start_pwm,omitempty"`
-	StopPWM     uint8  `json:"stop_pwm,omitempty"`
-	MaxRPM      int    `json:"max_rpm,omitempty"`
-	IsPump      bool   `json:"is_pump,omitempty"`
-	CalProgress int    `json:"cal_progress"` // 0–100, live during calibrate phase
-	Error       string `json:"error,omitempty"`
+	Name          string `json:"name"`
+	Type          string `json:"type"` // "hwmon" or "nvidia"
+	PWMPath       string `json:"pwm_path"`
+	RPMPath       string `json:"rpm_path,omitempty"`
+	ControlKind   string `json:"control_kind,omitempty"`   // "rpm_target" for fan*_target channels
+	DetectPhase   string `json:"detect_phase"`             // "pending","detecting","found","none","n/a"
+	PolarityPhase string `json:"polarity_phase,omitempty"` // "pending","testing","normal","inverted","phantom"
+	CalPhase      string `json:"cal_phase"`                // "pending","calibrating","done","skipped","error"
+	StartPWM      uint8  `json:"start_pwm,omitempty"`
+	StopPWM       uint8  `json:"stop_pwm,omitempty"`
+	MaxRPM        int    `json:"max_rpm,omitempty"`
+	IsPump        bool   `json:"is_pump,omitempty"`
+	CalProgress   int    `json:"cal_progress"` // 0–100, live during calibrate phase
+	Error         string `json:"error,omitempty"`
 }
 
 // Progress is the JSON payload returned by GET /api/setup/status.
@@ -86,25 +89,26 @@ type HWProfile struct {
 
 // Manager owns all setup wizard state.
 type Manager struct {
-	mu            sync.Mutex
-	fans          []FanState
-	running       bool
-	done          bool
-	applied       bool
-	errMsg        string
-	rebootNeeded  bool
-	rebootMessage string
-	phase         string
-	phaseMsg      string
-	board         string
-	chipName      string
-	installLog    []string
-	result        *config.Config
-	profile       *HWProfile
-	cal           *calibrate.Manager
-	logger        *slog.Logger
-	cancel        context.CancelFunc // fired by Abort; nil until Start wires it
-	diagStore     *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
+	mu             sync.Mutex
+	fans           []FanState
+	running        bool
+	done           bool
+	applied        bool
+	errMsg         string
+	rebootNeeded   bool
+	rebootMessage  string
+	phase          string
+	phaseMsg       string
+	board          string
+	chipName       string
+	installLog     []string
+	result         *config.Config
+	profile        *HWProfile
+	cal            *calibrate.Manager
+	logger         *slog.Logger
+	cancel         context.CancelFunc // fired by Abort; nil until Start wires it
+	diagStore      *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
+	polarityProber polarity.Prober    // nil = skip polarity probe (tests); set by SetPolarityProber
 
 	// Sysfs/procfs roots. Defaults resolve to the production paths; tests use
 	// NewWithRoots to inject a t.TempDir()-rooted fixture tree. Keeping these
@@ -130,6 +134,16 @@ const (
 func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
 	m.mu.Lock()
 	m.diagStore = s
+	m.mu.Unlock()
+}
+
+// SetPolarityProber attaches a polarity.Prober used to classify each fan
+// channel as normal/inverted/phantom during the probing_polarity wizard phase.
+// When nil (the default), the polarity probe phase is skipped and PolarityPhase
+// is left empty — existing tests rely on this skip behaviour.
+func (m *Manager) SetPolarityProber(p polarity.Prober) {
+	m.mu.Lock()
+	m.polarityProber = p
 	m.mu.Unlock()
 }
 
@@ -552,15 +566,83 @@ func (m *Manager) run(ctx context.Context) {
 	}
 	detWg.Wait()
 
+	// --- Phase 5b: polarity probe (spec-v0_5_2) ---
+	// Run after RPM sensor detection so TachPath is available. Skipped when
+	// no prober is wired (nil = tests / non-control-mode paths).
+	m.mu.Lock()
+	prober := m.polarityProber
+	m.mu.Unlock()
+	if prober != nil {
+		m.setPhase("probing_polarity",
+			fmt.Sprintf("Testing fan response on %d channel(s). This takes about 3 seconds per channel.", len(fans)))
+		for i := range fans {
+			if fans[i].Type != "hwmon" || fans[i].DetectPhase == "none" || fans[i].DetectPhase == "n/a" {
+				fans[i].PolarityPhase = "phantom"
+				continue
+			}
+			fans[i].PolarityPhase = "pending"
+		}
+		m.syncFans(fans)
+
+		for i := range fans {
+			if ctx.Err() != nil {
+				break
+			}
+			if fans[i].PolarityPhase == "phantom" {
+				continue
+			}
+			fans[i].PolarityPhase = "testing"
+			m.syncFans(fans)
+
+			ch := &probe.ControllableChannel{
+				SourceID: fans[i].Name,
+				PWMPath:  fans[i].PWMPath,
+				TachPath: fans[i].RPMPath,
+				Driver:   "hwmon",
+				Polarity: "unknown",
+			}
+			res, err := prober.ProbeChannel(ctx, ch)
+			if err != nil && ctx.Err() != nil {
+				break
+			}
+			if err != nil {
+				fans[i].PolarityPhase = "phantom"
+			} else {
+				fans[i].PolarityPhase = res.Polarity
+			}
+			m.syncFans(fans)
+		}
+
+		// Demote to monitor-only when every controllable channel is phantom
+		// (Dell PE 14G firmware-locked, HPE iLO5 profile-only, etc.).
+		allPhantom := true
+		for _, f := range fans {
+			if f.Type == "hwmon" && f.DetectPhase == "found" && f.PolarityPhase != "phantom" {
+				allPhantom = false
+				break
+			}
+		}
+		if allPhantom {
+			m.mu.Lock()
+			m.errMsg = "All fan channels are firmware-locked or unresponsive. " +
+				"Ventd will run in monitor-only mode — temperatures are visible " +
+				"but fan speeds are managed by the system firmware."
+			m.mu.Unlock()
+			return
+		}
+	}
+
 	// --- Phase 6: calibrate all fans in parallel ---
 	// Each fan now reads from its own RPMPath (or NVML for nvidia), so
 	// simultaneous ramps don't interfere with each other's readings.
 	m.setPhase("calibrating", "Calibrating fans — finding minimum and maximum speeds...")
 	var wg sync.WaitGroup
 	for i := range fans {
-		if fans[i].DetectPhase == "none" || fans[i].DetectPhase == "heuristic" || fans[i].ControlKind == "rpm_target" {
+		if fans[i].DetectPhase == "none" || fans[i].DetectPhase == "heuristic" || fans[i].ControlKind == "rpm_target" ||
+			fans[i].PolarityPhase == "phantom" {
 			// "heuristic" fans have no reliable RPM sensor so calibration cannot run;
-			// they are still included in the final config via doneFans below.
+			// phantom channels are firmware-locked or unresponsive.
+			// Both are still included in the final config via doneFans below.
 			fans[i].CalPhase = "skipped"
 		} else {
 			fans[i].CalPhase = "calibrating"
