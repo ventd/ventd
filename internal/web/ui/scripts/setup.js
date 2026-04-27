@@ -174,7 +174,7 @@ function ensureChipExplainer(){
 function renderSetupProgress(p){
   // ── Phase status line ───────────────────────────────────────────────────
   const phaseArea = document.getElementById('setup-phase-area');
-  const fanTablePhases = ['scanning_fans','detecting_rpm','calibrating','finalizing'];
+  const fanTablePhases = ['scanning_fans','detecting_rpm','probing_polarity','calibrating','finalizing'];
   const showingFans = fanTablePhases.includes(p.phase) || (p.done && !p.error);
 
   if(p.running || (p.phase && !p.done)){
@@ -260,6 +260,18 @@ function renderSetupProgress(p){
         calHtml += '<div class="setup-prog-bar"><div class="fill" data-width="'+pct+'"></div></div>';
       }
 
+      let polHtml = '';
+      if(f.polarity_phase){
+        switch(f.polarity_phase){
+          case 'pending':  polHtml = setupPhaseBadge('pending','pending'); break;
+          case 'testing':  polHtml = setupPhaseBadge('detecting','testing…'); break;
+          case 'normal':   polHtml = setupPhaseBadge('found','normal'); break;
+          case 'inverted': polHtml = setupPhaseBadge('found','inverted'); break;
+          case 'phantom':  polHtml = setupPhaseBadge('none','phantom'); break;
+          default:         polHtml = setupPhaseBadge('pending', f.polarity_phase);
+        }
+      }
+
       let result = '—';
       if(f.cal_phase==='done'){
         result = 'start '+f.start_pwm+'/255 ('+Math.round(f.start_pwm/255*100)+'%)';
@@ -268,7 +280,7 @@ function renderSetupProgress(p){
         result = '<span class="cal-err">'+esc(f.error)+'</span>';
       }
 
-      row.innerHTML = '<td>'+esc(f.name)+'</td><td>'+esc(f.type)+'</td><td>'+detectHtml+'</td><td>'+calHtml+'</td><td>'+result+'</td>';
+      row.innerHTML = '<td>'+esc(f.name)+'</td><td>'+esc(f.type)+'</td><td>'+detectHtml+'</td>'+(polHtml?'<td>'+polHtml+'</td>':'<td>—</td>')+'<td>'+calHtml+'</td><td>'+result+'</td>';
       tbody.appendChild(row);
     }
     // Dynamic widths (cal-prog-bar fills) are applied here rather

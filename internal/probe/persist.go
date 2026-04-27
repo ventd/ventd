@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	nsProbe  = "probe"
-	nsWizard = "wizard"
+	nsProbe       = "probe"
+	nsWizard      = "wizard"
+	nsCalibration = "calibration" // also wiped on reset (RULE-POLARITY-09)
 )
 
 // PersistOutcome writes the full ProbeResult and wizard outcome to the KV store
@@ -72,8 +73,9 @@ func LoadWizardOutcome(db *state.KVDB) (Outcome, bool, error) {
 	}
 }
 
-// WipeNamespaces deletes all keys under the wizard and probe KV namespaces.
-// Called by "Reset to initial setup" (RULE-PROBE-09).
+// WipeNamespaces deletes all keys under the wizard, probe, and calibration
+// KV namespaces. Called by "Reset to initial setup" (RULE-PROBE-09,
+// RULE-POLARITY-09).
 func WipeNamespaces(db *state.KVDB) error {
 	if db == nil {
 		return nil
@@ -87,6 +89,10 @@ func WipeNamespaces(db *state.KVDB) error {
 	if err != nil {
 		return fmt.Errorf("probe wipe: list probe: %w", err)
 	}
+	calibKeys, err := db.List(nsCalibration)
+	if err != nil {
+		return fmt.Errorf("probe wipe: list calibration: %w", err)
+	}
 
 	return db.WithTransaction(func(tx *state.KVTx) error {
 		for k := range wizardKeys {
@@ -94,6 +100,9 @@ func WipeNamespaces(db *state.KVDB) error {
 		}
 		for k := range probeKeys {
 			tx.Delete(nsProbe, k)
+		}
+		for k := range calibKeys {
+			tx.Delete(nsCalibration, k)
 		}
 		return nil
 	})

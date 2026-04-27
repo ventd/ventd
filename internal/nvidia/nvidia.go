@@ -83,9 +83,10 @@ var (
 	pErrorString                   uintptr
 
 	// Added for capability probe and stable GPU identification.
-	pDeviceSetFanControlPolicy uintptr // R520+ (may be 0 on older drivers)
-	pDeviceGetUUID             uintptr // R450+
-	pSystemGetDriverVersion    uintptr // R450+
+	pDeviceSetFanControlPolicy    uintptr // R520+ (may be 0 on older drivers)
+	pDeviceGetFanControlPolicy_v2 uintptr // R520+ (may be 0 on older drivers)
+	pDeviceGetUUID                uintptr // R450+
+	pSystemGetDriverVersion       uintptr // R450+
 
 	// Init/Shutdown refcount.
 	initMu       sync.Mutex
@@ -430,6 +431,37 @@ func SetFanControlPolicy(index uint, fanIdx int, policy int) (bool, error) {
 	return false, fmt.Errorf("nvml: set fan control policy device %d fan %d: %s", index, fanIdx, nvmlErrorString(rc))
 }
 
+// GetFanControlPolicy reads the current fan control policy for the given
+// (device, fan) pair. Returns (policy, true, nil) on success (R520+).
+// Returns (0, false, nil) when the symbol is absent (pre-R520).
+// policy is one of the FanPolicy* constants.
+func GetFanControlPolicy(index uint, fanIdx int) (int, bool, error) {
+	if !Available() {
+		return 0, false, ErrNotAvailable
+	}
+	if pDeviceGetFanControlPolicy_v2 == 0 {
+		return 0, false, nil // pre-R520: symbol absent
+	}
+	dev, err := deviceHandle(index)
+	if err != nil {
+		return 0, false, err
+	}
+	var policy uint32
+	r, _, _ := purego.SyscallN(pDeviceGetFanControlPolicy_v2,
+		dev,
+		uintptr(uint32(fanIdx)),
+		uintptr(unsafe.Pointer(&policy)),
+	)
+	rc := int32(r)
+	if rc == nvmlSuccess {
+		return int(policy), true, nil
+	}
+	if rc == nvmlErrorNotSupported {
+		return 0, false, nil
+	}
+	return 0, false, fmt.Errorf("nvml: get fan control policy device %d fan %d: %s", index, fanIdx, nvmlErrorString(rc))
+}
+
 // DeviceUUID returns the UUID string for the GPU at the given index.
 // UUID is stable across reboots and PCIe slot reordering.
 func DeviceUUID(index uint) (string, error) {
@@ -530,6 +562,9 @@ func loadLibrary(logger *slog.Logger) error {
 	// capability probe degrades to rw_quirk when missing.
 	if p, err := purego.Dlsym(h, "nvmlDeviceSetFanControlPolicy"); err == nil {
 		pDeviceSetFanControlPolicy = p
+	}
+	if p, err := purego.Dlsym(h, "nvmlDeviceGetFanControlPolicy_v2"); err == nil {
+		pDeviceGetFanControlPolicy_v2 = p
 	}
 	return nil
 }
