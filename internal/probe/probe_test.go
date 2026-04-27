@@ -151,6 +151,8 @@ func TestProbe_Rules(t *testing.T) {
 	// RULE-PROBE-03: Containerisation requires ≥2 independent sources.
 	// 1 source (/.dockerenv only) MUST NOT set Containerised=true.
 	// 2 sources (/.dockerenv + /proc/1/cgroup:docker) MUST set it.
+	// 2 sources (/.dockerenv + overlay root in /proc/mounts) MUST set it
+	//   (cgroup v2 path where /proc/1/cgroup has no docker keyword).
 	t.Run("RULE-PROBE-03_container_requires_2_sources", func(t *testing.T) {
 		dockerenvOnly := fstest.MapFS{
 			".dockerenv": {},
@@ -158,7 +160,7 @@ func TestProbe_Rules(t *testing.T) {
 		noCgroup := fstest.MapFS{"1/cgroup": {Data: []byte("0::/init.scope\n")}}
 		dockerCgroup := fstest.MapFS{"1/cgroup": {Data: []byte("12:memory:/docker/abc123\n")}}
 
-		// 1 source: only /.dockerenv; cgroup has no docker.
+		// 1 source: only /.dockerenv; cgroup has no docker keyword; no overlay mounts.
 		p1 := probe.New(probe.Config{
 			SysFS:      fixtures.SysWithThermalAndPWM(),
 			ProcFS:     noCgroup,
@@ -171,7 +173,7 @@ func TestProbe_Rules(t *testing.T) {
 			t.Error("1 container source should not be sufficient: Containerised must be false")
 		}
 
-		// 2 sources: /.dockerenv + /proc/1/cgroup mentions docker.
+		// 2 sources (cgroup v1 path): /.dockerenv + /proc/1/cgroup mentions docker.
 		p2 := probe.New(probe.Config{
 			SysFS:      fixtures.SysWithThermalAndPWM(),
 			ProcFS:     dockerCgroup,
@@ -181,7 +183,22 @@ func TestProbe_Rules(t *testing.T) {
 		})
 		r2, _ := p2.Probe(context.Background())
 		if !r2.RuntimeEnvironment.Containerised {
-			t.Error("2 container sources must set Containerised=true")
+			t.Error("cgroup v1: 2 container sources must set Containerised=true")
+		}
+
+		// 2 sources (cgroup v2 path): /.dockerenv + overlay root in /proc/mounts.
+		// On Ubuntu 22.04+ / Debian 12+, /proc/1/cgroup only has "0::/" (no docker
+		// keyword), but Docker containers always have an overlay root filesystem.
+		p3 := probe.New(probe.Config{
+			SysFS:      fixtures.SysWithThermalAndPWM(),
+			ProcFS:     fixtures.ProcForDockerCgroupV2(),
+			RootFS:     dockerenvOnly,
+			ExecFn:     makeExecFn("none", "none"),
+			WriteCheck: stubWriteCheck(false, new([]string)),
+		})
+		r3, _ := p3.Probe(context.Background())
+		if !r3.RuntimeEnvironment.Containerised {
+			t.Error("cgroup v2: /.dockerenv + overlay root must set Containerised=true")
 		}
 	})
 
