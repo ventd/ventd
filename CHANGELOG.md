@@ -11,6 +11,7 @@ and frozen.
 
 ### Added
 
+- feat(web): install design system foundation (tokens, shell, brand) and new landing page
 - Hardware profile capture pipeline (`internal/hwdb/capture.go`,
   `internal/hwdb/anonymise.go`): after successful calibration, ventd writes a
   candidate profile to `/var/lib/ventd/profiles-pending/<fingerprint>.yaml` (or
