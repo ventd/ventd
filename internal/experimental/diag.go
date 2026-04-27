@@ -20,7 +20,7 @@ func Snapshot(flags Flags) DiagSnapshot {
 	prec := make(map[string]PreconditionJSON, len(all))
 	for _, name := range all {
 		p := Check(name)
-		prec[name] = PreconditionJSON{Met: p.Met, Detail: p.Detail}
+		prec[name] = PreconditionJSON(p)
 	}
 	return DiagSnapshot{
 		Active:        flags.Active(),

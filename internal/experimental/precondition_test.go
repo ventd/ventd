@@ -11,7 +11,7 @@ func TestCheck_ReturnsNotMetForAllKnownFlags(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := experimental.Check(name)
 			if p.Met {
-				t.Errorf("Check(%q).Met = true, want false (stub must return not-met)", name)
+				t.Errorf("Check(%q).Met = true, want false (precondition should not be met in test env)", name)
 			}
 			if p.Detail == "" {
 				t.Errorf("Check(%q).Detail is empty", name)

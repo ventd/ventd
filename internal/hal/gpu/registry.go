@@ -9,6 +9,7 @@ package gpu
 import (
 	"log/slog"
 
+	"github.com/ventd/ventd/internal/hal/gpu/amdgpu"
 	gpunvml "github.com/ventd/ventd/internal/hal/gpu/nvml"
 	"github.com/ventd/ventd/internal/nvidia"
 )
@@ -19,6 +20,11 @@ type ProbeOptions struct {
 	// capability probe succeeds. Without this flag all GPU channels are
 	// registered read-only. Mirrors --unsafe-corsair-writes (RULE-LIQUID-06).
 	EnableGPUWrite bool
+
+	// AMDOverdrive mirrors the --enable-amd-overdrive experimental flag.
+	// AMD GPU writes are blocked unless both EnableGPUWrite and AMDOverdrive
+	// are true (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
+	AMDOverdrive bool
 
 	// SysRoot is the sysfs root, used for AMD/Intel discovery and laptop
 	// detection. Defaults to "/sys" when empty.
@@ -35,6 +41,24 @@ func RegisterAll(logger *slog.Logger, opts ProbeOptions) {
 	}
 
 	registerNVIDIA(logger, opts)
+	registerAMD(logger, opts)
+}
+
+func registerAMD(logger *slog.Logger, opts ProbeOptions) {
+	cards, err := amdgpu.Enumerate(opts.SysRoot)
+	if err != nil {
+		logger.Debug("gpu: AMD enumeration failed", "err", err)
+		return
+	}
+	for i := range cards {
+		cards[i].AMDOverdrive = opts.AMDOverdrive
+		writable := opts.EnableGPUWrite && opts.AMDOverdrive
+		logger.Info("gpu: AMD GPU registered",
+			"card", cards[i].CardPath,
+			"has_fan_curve", cards[i].HasFanCurve,
+			"writable", writable,
+			"amd_overdrive", opts.AMDOverdrive)
+	}
 }
 
 func registerNVIDIA(logger *slog.Logger, opts ProbeOptions) {

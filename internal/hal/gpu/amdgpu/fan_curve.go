@@ -42,6 +42,19 @@ func WriteFanCurve(cardPath string, points []FanCurvePoint) error {
 	return f.Close()
 }
 
+// WriteFanCurveGated is a CardInfo method that applies the amd_overdrive gate
+// (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01) and the RDNA4 kernel-version gate
+// (RULE-EXPERIMENTAL-AMD-OVERDRIVE-04) before delegating to WriteFanCurve.
+func (c *CardInfo) WriteFanCurveGated(points []FanCurvePoint) error {
+	if !c.AMDOverdrive {
+		return ErrAMDOverdriveDisabled
+	}
+	if err := checkRDNA4KernelGate(c.CardPath, osReleasePath); err != nil {
+		return err
+	}
+	return WriteFanCurve(c.CardPath, points)
+}
+
 // resetFanCurve resets the RDNA3+ fan curve to firmware default via "r".
 func resetFanCurve(cardPath string) error {
 	curvePath := filepath.Join(cardPath, "device", "gpu_od", "fan_ctrl", "fan_curve")
