@@ -328,7 +328,11 @@ func run() error {
 	if stErr != nil {
 		return fmt.Errorf("open state: %w", stErr)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			logger.Error("state close", "err", err)
+		}
+	}()
 	_ = st // consumers wired in subsequent PRs
 
 	// NVML init is always attempted. The shim silently disables GPU

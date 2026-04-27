@@ -339,14 +339,14 @@ func iteratePath(path string, fn func([]byte) error) error {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if strings.HasSuffix(path, ".gz") {
 		gz, err := gzip.NewReader(f)
 		if err != nil {
 			return nil // treat unreadable gzip as empty
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }()
 		return readRecords(gz, fn)
 	}
 	return readRecords(f, fn)
@@ -398,7 +398,7 @@ func compressFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	dstPath := path + ".gz"
 	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)

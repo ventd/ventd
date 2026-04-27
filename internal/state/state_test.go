@@ -128,7 +128,9 @@ func TestRULE_STATE_02_BlobSHA256Verification(t *testing.T) {
 	if _, err := f.WriteAt(corrupted, corruptOffset); err != nil {
 		t.Fatalf("WriteAt: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close corrupted blob: %v", err)
+	}
 
 	// Read after corruption: must return found=false.
 	_, _, found, err = b.Read("thermal.dat")
@@ -185,9 +187,9 @@ func TestRULE_STATE_04_LogTornRecordSkip(t *testing.T) {
 		crc.Write(payload)
 		var crcBuf [4]byte
 		binary.BigEndian.PutUint32(crcBuf[:], crc.Sum32())
-		w.Write(lenBuf[:])
-		w.Write(payload)
-		w.Write(crcBuf[:])
+		_, _ = w.Write(lenBuf[:])
+		_, _ = w.Write(payload)
+		_, _ = w.Write(crcBuf[:])
 	}
 
 	f, err := os.Create(logPath)
@@ -208,9 +210,9 @@ func TestRULE_STATE_04_LogTornRecordSkip(t *testing.T) {
 	crc.Write(corruptPayload)
 	var crcBuf [4]byte
 	binary.BigEndian.PutUint32(crcBuf[:], crc.Sum32()^0xDEADBEEF) // flip CRC
-	f.Write(lenBuf[:])
-	f.Write(corruptPayload)
-	f.Write(crcBuf[:])
+	_, _ = f.Write(lenBuf[:])
+	_, _ = f.Write(corruptPayload)
+	_, _ = f.Write(crcBuf[:])
 	// Records 6-9: valid after corrupt.
 	for i := 6; i < 10; i++ {
 		writeRawRecord(f, []byte(fmt.Sprintf("record-%02d", i)))
@@ -218,20 +220,22 @@ func TestRULE_STATE_04_LogTornRecordSkip(t *testing.T) {
 	// Torn record: write only the length prefix for record 10 (no payload/CRC).
 	var tornLen [4]byte
 	binary.BigEndian.PutUint32(tornLen[:], 20) // claims 20-byte payload that never arrives
-	f.Write(tornLen[:])
+	_, _ = f.Write(tornLen[:])
 	// Records 11-14 after the torn record — these will NOT be returned because
 	// the torn length prefix consumed the byte stream.
 	for i := 11; i < 15; i++ {
 		writeRawRecord(f, []byte(fmt.Sprintf("record-%02d", i)))
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close log file: %v", err)
+	}
 
 	// Collect records via readRecords.
 	rf, err := os.Open(logPath)
 	if err != nil {
 		t.Fatalf("open log: %v", err)
 	}
-	defer rf.Close()
+	defer func() { _ = rf.Close() }()
 
 	var got []string
 	err = readRecords(rf, func(p []byte) error {
@@ -441,7 +445,7 @@ func TestRULE_STATE_07_TransactionAtomicCommit(t *testing.T) {
 func TestRULE_STATE_08_LogRotationNoRecordLoss(t *testing.T) {
 	dir := t.TempDir()
 	db := newLogDB(dir, discardLogger())
-	defer db.closeAll()
+	defer func() { _ = db.closeAll() }()
 
 	// Use a policy with no auto-rotation and no compression to keep the test
 	// deterministic and fast.
@@ -553,7 +557,7 @@ func TestRULE_STATE_10_DirectoryBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open on missing dir: %v", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// All three subdirectories must have been created.
 	for _, sub := range []string{stateDir, filepath.Join(stateDir, "models"), filepath.Join(stateDir, "logs")} {

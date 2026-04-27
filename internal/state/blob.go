@@ -41,7 +41,7 @@ func (b *BlobDB) Read(name string) (payload []byte, schemaVersion uint16, found 
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("open blob %s: %w", name, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Header: [0:4] magic  [4:6] schema_version  [6:8] reserved  [8:16] length
 	var hdr [blobHeaderSize]byte
