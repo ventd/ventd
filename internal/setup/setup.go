@@ -506,12 +506,14 @@ func (m *Manager) run(ctx context.Context) {
 					frozen = append(frozen, savedFan{fans[i].PWMPath, orig})
 				}
 			}
-			// Restore all to automatic control when detection for this chip is done.
-			defer func() {
-				for _, f := range frozen {
-					_ = hwmonpkg.WritePWMEnable(f.path, 2)
-				}
-			}()
+			// Leave channels in manual mode (pwm_enable=1) after detection so
+			// the calibration stall probe can write pwm=0 without EBUSY.
+			// On some chips (e.g. it8772) writing 0 in auto mode (pwm_enable=2)
+			// returns EBUSY. The backend's acquired map already marks these
+			// channels as manually acquired from the DetectRPMSensor sweep; if
+			// we restore to auto mode here, ensureManualMode short-circuits on
+			// the first calibration write and the chip refuses pwm=0. The
+			// watchdog handles emergency restore if the wizard is aborted.
 
 			// Within this chip, detect serially.
 			for _, i := range idxs {
