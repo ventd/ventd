@@ -23,6 +23,7 @@ Tracks Claude Code spend per PR for ventd, used to estimate future spec PRs.
 | 2026-04-23 | Claude stack setup           | mixed  | —         | ~$3.50  | —      | MCP wiring, plugins, hooks, skills                 |
 | 2026-04-26 | claude-tooling-bundle #632   | Haiku  | $3–6      | ~$8*    | over   | 11 files, scripts+templates+skills, no Go. *block-level approx, not isolated |
 | 2026-04-27 | spec-12 PR 1 (design system + landing page) | Sonnet 4.6 | $5–8 | $4.41 | under | 309/-7 LoC, 24m API, 4 subtests 1:1 with rules. Tight greenfield: empty web/, prompt under 200 lines. No drift triage needed. |
+| 2026-04-27 | spec-15 PR 1 (experimental framework) | Sonnet 4.6 | $5–8 | $9.78 | 1.2× over | 759/-26 LoC, 32m API, 23 subtests, 4 rules. Cross-package wiring (config, hwdiag, diag, main) drove cost above tight-spec baseline. Adjust estimate to $8–12 for similar PRs. |
 
 ## Rules of thumb (extracted)
 - **Tight Sonnet PR** (spec written + rules bindings + chat drift triage) → **$1–5 actual**
