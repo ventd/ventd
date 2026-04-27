@@ -62,7 +62,8 @@ type ControllableChannel struct {
 	PWMPath        string // sysfs pwm file path
 	TachPath       string // sysfs fan*_input path; "" for tach-less fans
 	Driver         string
-	Polarity       string   // always "unknown" in v0.5.1; disambiguated by v0.5.2
+	Polarity       string   // closed set: "unknown"|"normal"|"inverted"|"phantom" (RULE-PROBE-06)
+	PhantomReason  string   // set when Polarity=="phantom"; see polarity.PhantomReason* constants
 	InitialPWM     int      // current PWM value 0-255; 0 if unreadable
 	InitialRPM     int      // current RPM; 0 if no tach or unreadable
 	CapabilityHint string   // from catalog overlay; "" if no match
