@@ -26,12 +26,3 @@ func sharedSubFS() fs.FS {
 func (s *Server) registerSharedAssets() {
 	s.mux.Handle("/shared/", http.StripPrefix("/shared/", uiStaticHandler(sharedSubFS())))
 }
-
-// readNewIndex reads the new design-system index.html from the embedded FS.
-func readNewIndex() []byte {
-	b, err := webstatic.FS.ReadFile("index.html")
-	if err != nil {
-		panic("web: embedded web/index.html missing: " + err.Error())
-	}
-	return b
-}
