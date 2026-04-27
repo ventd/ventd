@@ -1,4 +1,4 @@
-schema_version: "1.0"
+schema_version: "1.2"
 
 # Nuvoton NCT6775 family chip profiles — modern AMD/Intel desktops.
 # Each chip name corresponds to the value in /sys/class/hwmon/*/name.

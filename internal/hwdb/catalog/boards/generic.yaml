@@ -1,3 +1,4 @@
+schema_version: "1.2"
 # Generic heuristic board catalog — spec-03 PR 3 seed entries.
 # These are tier-3 fallback "boards" — they don't exist as physical hardware.
 # When DMI matches NO specific board entry but the chip family is recognised,

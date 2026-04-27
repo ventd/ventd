@@ -292,3 +292,160 @@ func mustLoadCatalogWithBoards(t *testing.T, driverYAML, chipYAML, boardYAML str
 	}
 	return cat
 }
+
+// experimentalDriverYAML builds a complete driver YAML with an injected experimental block.
+func experimentalDriverYAML(expBlock string) string {
+	return `schema_version: "1.2"
+driver_profiles:
+  - module: "test-drv"
+    family: "test"
+    description: "test driver"
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations: []
+` + expBlock
+}
+
+// countWarnHandler counts slog WARN records containing a target substring.
+type countWarnHandler struct {
+	target string
+	count  *int
+}
+
+func (h *countWarnHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *countWarnHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level == slog.LevelWarn && strings.Contains(r.Message, h.target) {
+		*h.count++
+	}
+	return nil
+}
+func (h *countWarnHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *countWarnHandler) WithGroup(_ string) slog.Handler      { return h }
+
+// TestSchemaValidator_ExperimentalBlock_AcceptsRecognizedKeys verifies RULE-EXPERIMENTAL-SCHEMA-01:
+// a recognized experimental key with a bool value is accepted and parsed into ExperimentalBlock.
+func TestSchemaValidator_ExperimentalBlock_AcceptsRecognizedKeys(t *testing.T) {
+	drvYAML := experimentalDriverYAML("    experimental:\n      amd_overdrive: true\n")
+	chipYAML := validChipYAML("test-chip", "test-drv")
+	fsys := buildValidCatalogFS(t, drvYAML, chipYAML)
+	cat, err := LoadCatalogFromFS(fsys)
+	if err != nil {
+		t.Fatalf("LoadCatalogFromFS: %v", err)
+	}
+	dp, ok := cat.Drivers["test-drv"]
+	if !ok {
+		t.Fatal("driver test-drv not found")
+	}
+	if !dp.Experimental.AMDOverdrive {
+		t.Error("AMDOverdrive should be true")
+	}
+	if dp.Experimental.ILO4Unlocked || dp.Experimental.NvidiaCoolbits || dp.Experimental.IDRAC9LegacyRaw {
+		t.Error("other experimental fields should be false")
+	}
+}
+
+// TestSchemaValidator_ExperimentalBlock_RejectsNonBoolValue verifies RULE-EXPERIMENTAL-SCHEMA-02:
+// a recognized experimental key with a non-bool value causes a load error.
+func TestSchemaValidator_ExperimentalBlock_RejectsNonBoolValue(t *testing.T) {
+	drvYAML := experimentalDriverYAML("    experimental:\n      amd_overdrive: \"yes\"\n")
+	chipYAML := validChipYAML("test-chip", "test-drv")
+	fsys := buildValidCatalogFS(t, drvYAML, chipYAML)
+	_, err := LoadCatalogFromFS(fsys)
+	if err == nil {
+		t.Fatal("expected error for non-bool experimental value, got nil")
+	}
+	if !strings.Contains(err.Error(), "expected bool") {
+		t.Errorf("error %q should contain \"expected bool\"", err.Error())
+	}
+}
+
+// TestSchemaValidator_ExperimentalBlock_RejectsTypoWithSuggestion verifies RULE-EXPERIMENTAL-SCHEMA-03:
+// an unknown experimental key with Levenshtein distance ≤ 2 is rejected with a "Did you mean:" hint.
+func TestSchemaValidator_ExperimentalBlock_RejectsTypoWithSuggestion(t *testing.T) {
+	// "amd_overdiv" is distance 2 from "amd_overdrive" (two missing chars: 'r' and 'e').
+	drvYAML := experimentalDriverYAML("    experimental:\n      amd_overdiv: true\n")
+	chipYAML := validChipYAML("test-chip", "test-drv")
+	fsys := buildValidCatalogFS(t, drvYAML, chipYAML)
+	_, err := LoadCatalogFromFS(fsys)
+	if err == nil {
+		t.Fatal("expected error for near-typo experimental key, got nil")
+	}
+	if !strings.Contains(err.Error(), "Did you mean:") {
+		t.Errorf("error %q should contain \"Did you mean:\"", err.Error())
+	}
+}
+
+// TestSchemaValidator_ExperimentalBlock_WarnsUnknownKeyOnce verifies RULE-EXPERIMENTAL-SCHEMA-04:
+// an unrecognized key with Levenshtein distance > 2 emits exactly one WARN per process lifetime.
+func TestSchemaValidator_ExperimentalBlock_WarnsUnknownKeyOnce(t *testing.T) {
+	resetWarnedExperimentalKeysForTest()
+	t.Cleanup(func() { resetWarnedExperimentalKeysForTest() })
+
+	var warnCount int
+	log := slog.New(&countWarnHandler{target: "unknown key ignored", count: &warnCount})
+
+	// "future_feature_xyz" is far from every known key (distance >> 2).
+	raw := map[string]any{"future_feature_xyz": true}
+	for i := 0; i < 2; i++ {
+		if _, err := validateExperimental(raw, log); err != nil {
+			t.Fatalf("call %d: unexpected error: %v", i+1, err)
+		}
+	}
+	if warnCount != 1 {
+		t.Errorf("WARN count = %d, want exactly 1", warnCount)
+	}
+}
+
+// TestSchemaValidator_ExperimentalBlockAbsent_BehavesAsV1_1 verifies RULE-EXPERIMENTAL-SCHEMA-05:
+// a profile without an experimental block has all-false ExperimentalBlock (v1.1 behavior preserved).
+func TestSchemaValidator_ExperimentalBlockAbsent_BehavesAsV1_1(t *testing.T) {
+	fsys := buildValidCatalogFS(t, validDriverYAML("test-drv"), validChipYAML("test-chip", "test-drv"))
+	cat, err := LoadCatalogFromFS(fsys)
+	if err != nil {
+		t.Fatalf("LoadCatalogFromFS: %v", err)
+	}
+	dp, ok := cat.Drivers["test-drv"]
+	if !ok {
+		t.Fatal("driver test-drv not found")
+	}
+	if dp.Experimental != (ExperimentalBlock{}) {
+		t.Errorf("Experimental should be zero value, got %+v", dp.Experimental)
+	}
+}
+
+// TestMatcher_ExperimentalEligibility_OrsBoardAndGPU verifies RULE-EXPERIMENTAL-MERGE-01:
+// CatalogMatch.ExperimentalEligibility OR-merges flags from board and driver profiles.
+func TestMatcher_ExperimentalEligibility_OrsBoardAndGPU(t *testing.T) {
+	boardEntry := &BoardCatalogEntry{
+		Experimental: ExperimentalBlock{ILO4Unlocked: true},
+	}
+	driverProfile := &DriverProfile{
+		Experimental: ExperimentalBlock{NvidiaCoolbits: true},
+	}
+	m := &CatalogMatch{Board: boardEntry, Driver: driverProfile}
+	got := m.ExperimentalEligibility()
+	if !got.ILO4Unlocked {
+		t.Error("ILO4Unlocked should be true (asserted by board)")
+	}
+	if !got.NvidiaCoolbits {
+		t.Error("NvidiaCoolbits should be true (asserted by driver)")
+	}
+	if got.AMDOverdrive || got.IDRAC9LegacyRaw {
+		t.Errorf("AMDOverdrive and IDRAC9LegacyRaw should be false, got AMDOverdrive=%v IDRAC9LegacyRaw=%v",
+			got.AMDOverdrive, got.IDRAC9LegacyRaw)
+	}
+}

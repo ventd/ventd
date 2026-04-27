@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -165,6 +166,8 @@ type DriverProfile struct {
 	RuntimeConflictDetectionSupported *bool               `yaml:"runtime_conflict_detection_supported"` // pointer to detect absence
 	FirmwareCurveOffloadOverride      *bool               `yaml:"firmware_curve_offload_override"`
 	Citations                         []string            `yaml:"citations"`
+	ExperimentalRaw                   map[string]any      `yaml:"experimental,omitempty"`
+	Experimental                      ExperimentalBlock   `yaml:"-"`
 }
 
 // ChannelOverride captures per-channel restrictions on a chip.
@@ -412,6 +415,14 @@ func validateDriverProfile(dp *DriverProfile) error {
 	// RULE-HWDB-PR2-06: ro_pending_oot requires recommended alternative
 	if dp.Capability == CapabilityROPendingOOT && dp.RecommendedAlternativeDriver == nil {
 		return catalogErrorf("driver %q: capability ro_pending_oot requires non-null recommended_alternative_driver", mod)
+	}
+	// v1.2: validate experimental block if present
+	if dp.ExperimentalRaw != nil {
+		eb, err := validateExperimental(dp.ExperimentalRaw, slog.Default())
+		if err != nil {
+			return catalogErrorf("driver %q: %w", mod, err)
+		}
+		dp.Experimental = eb
 	}
 	return nil
 }

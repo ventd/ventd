@@ -1,3 +1,4 @@
+schema_version: "1.2"
 # Dell board catalog — spec-03 PR 3 scope-B seed entries.
 # All entries verified: false. Curves intentionally empty.
 # DMI strings sourced from primary references (linux-hardware.org probes,

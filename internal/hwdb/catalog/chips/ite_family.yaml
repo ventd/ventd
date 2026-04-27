@@ -1,4 +1,4 @@
-schema_version: "1.0"
+schema_version: "1.2"
 
 # ITE IT87xx chip profiles — ASRock, Gigabyte, some MSI Intel boards.
 # All inherit from the it87 driver (mainline or OOT frankcrawford/it87).

@@ -1,4 +1,4 @@
-schema_version: "1.1"
+schema_version: "1.2"
 # Raspberry Pi board catalog — spec-03 PR 4 (schema v1.1 DT fingerprint).
 # Pi 5 uses device-tree fingerprint; no DMI/SMBIOS present on ARM SBCs.
 # Cooling path: kernel pwm-fan driver + thermal zone (cooling-device detach required).
