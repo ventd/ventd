@@ -41,6 +41,16 @@ func (f Flags) Active() []string {
 	return out
 }
 
+// RestartRequiredFlags returns the names of active flags that require a daemon
+// restart (or kernel reboot) for the change to take effect.
+func (f Flags) RestartRequiredFlags() []string {
+	var out []string
+	if f.AMDOverdrive {
+		out = append(out, "amd_overdrive")
+	}
+	return out
+}
+
 // Get returns the bool value for a flag name and ok=true for known names.
 // Returns (false, false) for unknown names.
 func (f Flags) Get(name string) (value, ok bool) {

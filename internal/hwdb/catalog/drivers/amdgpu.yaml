@@ -4,6 +4,8 @@ driver_profiles:
   - module: "amdgpu"
     family: "amd-gpu"
     description: "AMD GPU fan control via amdgpu hwmon — RDNA1/2 and earlier. pwm1 writable when pwm1_enable=1 (duty_0_255). Some boards boot with pwm=0 in stuck-auto mode; manual/auto dance needed (AMD quirk Q1). OverDrive bit (0x4000) may be required in amdgpu.ppfeaturemask for full manual control."
+    experimental:
+      amd_overdrive: true
     capability: "rw_quirk"
     pwm_unit: "duty_0_255"
     pwm_unit_max: null
@@ -28,6 +30,8 @@ driver_profiles:
   - module: "amdgpu_rdna3"
     family: "amd-gpu"
     description: "AMD GPU fan control via amdgpu — RDNA3/4 (RX 7xxx, RX 9xxx). Direct pwm1 writes blocked by firmware; use gpu_od/fan_ctrl/fan_curve 5-anchor-point interface. pwm_unit is percentage_0_100 matching the fan_curve format. firmware_curve_offload_capable=true for spec-05 P4-HWCURVE."
+    experimental:
+      amd_overdrive: true
     capability: "rw_quirk"
     pwm_unit: "percentage_0_100"
     pwm_unit_max: 100

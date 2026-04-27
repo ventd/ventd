@@ -80,9 +80,10 @@ func TestAMD_RDNA3UsesFanCurve(t *testing.T) {
 	}
 
 	card := &CardInfo{
-		CardPath:    cardPath,
-		HwmonPath:   hwmonPath,
-		HasFanCurve: true,
+		CardPath:     cardPath,
+		HwmonPath:    hwmonPath,
+		HasFanCurve:  true,
+		AMDOverdrive: true, // gate enabled; this test covers RDNA routing, not the overdrive gate
 	}
 
 	t.Run("direct_pwm1_write_refused", func(t *testing.T) {
@@ -127,9 +128,10 @@ func TestAMD_RDNA3UsesFanCurve(t *testing.T) {
 
 	t.Run("rdna12_card_accepts_pwm1_write", func(t *testing.T) {
 		rdna2Card := &CardInfo{
-			CardPath:    cardPath,
-			HwmonPath:   hwmonPath,
-			HasFanCurve: false, // no fan_curve → RDNA1/2 path
+			CardPath:     cardPath,
+			HwmonPath:    hwmonPath,
+			HasFanCurve:  false, // no fan_curve → RDNA1/2 path
+			AMDOverdrive: true,  // gate enabled; this test covers RDNA routing, not the overdrive gate
 		}
 		err := rdna2Card.WritePWM(150)
 		if err != nil {

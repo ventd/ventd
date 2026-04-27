@@ -15,6 +15,11 @@ import (
 // on an RDNA3/4 device that requires the fan_curve interface (RULE-GPU-PR2D-07).
 var ErrRDNA3UseFanCurve = errors.New("amdgpu: RDNA3+ requires fan_curve interface, not pwm1 writes")
 
+// ErrAMDOverdriveDisabled is returned when a write is attempted without the
+// amd_overdrive experimental flag (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
+var ErrAMDOverdriveDisabled = errors.New("amdgpu: AMD GPU fan control requires --enable-amd-overdrive " +
+	"(sets amdgpu.ppfeaturemask kernel taint; see docs/experimental/amd-overdrive.md)")
+
 // CardInfo holds sysfs paths for a discovered AMD GPU card.
 type CardInfo struct {
 	// CardPath is the /sys/class/drm/card* directory.
@@ -23,6 +28,9 @@ type CardInfo struct {
 	HwmonPath string
 	// HasFanCurve reports whether gpu_od/fan_ctrl/fan_curve is present (RDNA3+).
 	HasFanCurve bool
+	// AMDOverdrive mirrors the --enable-amd-overdrive experimental flag. All
+	// write paths check this before touching hardware (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
+	AMDOverdrive bool
 }
 
 // Enumerate discovers AMD GPU cards by scanning /sys/class/drm/card*/device/uevent
@@ -99,8 +107,12 @@ func (c *CardInfo) ReadFanRPM() (int, error) {
 }
 
 // WritePWM writes a duty-cycle value (0–255) to pwm1 for RDNA1/2 cards.
+// Returns ErrAMDOverdriveDisabled when --enable-amd-overdrive is not set.
 // Returns ErrRDNA3UseFanCurve when called on an RDNA3+ card.
 func (c *CardInfo) WritePWM(value uint8) error {
+	if !c.AMDOverdrive {
+		return ErrAMDOverdriveDisabled
+	}
 	if c.HasFanCurve {
 		return ErrRDNA3UseFanCurve
 	}
