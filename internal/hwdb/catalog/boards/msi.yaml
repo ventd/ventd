@@ -1,3 +1,4 @@
+schema_version: "1.2"
 # MSI board catalog — spec-03 PR 3 seed entries.
 # All entries verified: false. Curves intentionally empty.
 # DMI strings sourced from primary references (linux-hardware.org probes,

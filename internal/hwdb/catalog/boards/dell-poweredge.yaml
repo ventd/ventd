@@ -1,3 +1,4 @@
+schema_version: "1.2"
 # Dell PowerEdge server catalog — spec-03 PR 3 scope-C entries.
 # All entries verified: false. Curves intentionally empty.
 #

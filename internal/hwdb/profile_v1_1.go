@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -19,11 +20,12 @@ var boardSupportedVersions = map[string]struct{}{
 	"":    {}, // absent → treated as 1.0
 	"1.0": {},
 	"1.1": {},
+	"1.2": {},
 }
 
 // BoardCatalogCurrentVersion is the schema_version this binary writes for
 // new board catalog entries.
-const BoardCatalogCurrentVersion = "1.1"
+const BoardCatalogCurrentVersion = "1.2"
 
 // BoardCatalogDocument is the top-level shape of a catalog/boards/*.yaml file.
 type BoardCatalogDocument struct {
@@ -48,6 +50,8 @@ type BoardCatalogEntry struct {
 	CapturedAt             string                `yaml:"captured_at"`
 	Verified               bool                  `yaml:"verified"`
 	Defaults               *BoardDefaults        `yaml:"defaults,omitempty"`
+	ExperimentalRaw        map[string]any        `yaml:"experimental,omitempty"`
+	Experimental           ExperimentalBlock     `yaml:"-"`
 }
 
 // BoardDMIFingerprint is the DMI match pattern for a board catalog entry.
@@ -197,6 +201,14 @@ func validateBoardCatalogEntry(bp *BoardCatalogEntry) error {
 	}
 	if bp.DTFingerprint != nil && bp.DTFingerprint.Compatible == "" && bp.DTFingerprint.Model == "" {
 		return fmt.Errorf("profile %q: dt_fingerprint has no fields set; at least compatible or model is required", bp.ID)
+	}
+	// v1.2: validate experimental block if present
+	if bp.ExperimentalRaw != nil {
+		eb, err := validateExperimental(bp.ExperimentalRaw, slog.Default())
+		if err != nil {
+			return fmt.Errorf("profile %q: %w", bp.ID, err)
+		}
+		bp.Experimental = eb
 	}
 	return nil
 }

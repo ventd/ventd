@@ -1,4 +1,4 @@
-schema_version: "1.0"
+schema_version: "1.2"
 
 # GPU chip profiles — map hwmon /sys/class/hwmon/*/name values to their driver
 # profiles for tier-3 chip-family matching. GPU hwmon name values match the

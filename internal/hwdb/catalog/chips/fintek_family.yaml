@@ -1,4 +1,4 @@
-schema_version: "1.0"
+schema_version: "1.2"
 
 # Fintek F71882FG family chip profiles.
 # All inherit from the f71882fg driver.

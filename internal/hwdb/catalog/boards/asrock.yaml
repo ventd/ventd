@@ -1,3 +1,4 @@
+schema_version: "1.2"
 # ASRock board catalog — spec-03 PR 3 seed entries.
 # All entries verified: false. Curves intentionally empty.
 # ASRock boards often have dual Nuvoton chips (Super I/O + EC) where
