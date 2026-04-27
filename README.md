@@ -24,9 +24,30 @@ It is also — to our knowledge — the only Linux fan daemon in its class that 
 
 *Dashboard: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.*
 
-[![ventd first-boot setup — token + password, no config yet](https://github.com/ventd/ventd/raw/main/docs/images/first-boot-setup.png)](/ventd/ventd/blob/main/docs/images/first-boot-setup.png)
+[![ventd first-boot setup — step-by-step wizard, no config yet](https://github.com/ventd/ventd/raw/main/docs/images/setup.png)](/ventd/ventd/blob/main/docs/images/setup.png)
 
-*First boot: ventd serves a setup page on `https://<host>:9999` the moment the daemon starts. Enter the one-time token, set a password, done.*
+*First boot: a step-by-step setup wizard walks you through hardware detection, calibration, and curve review. No config file, no terminal.*
+
+### More pages
+
+<table>
+<tr>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/devices.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/devices.png" width="440" alt="Devices" /></a><br /><sub>Devices — all fans and controllers enumerated</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/sensors.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/sensors.png" width="440" alt="Sensors" /></a><br /><sub>Sensors — temperature and voltage readings</sub></td>
+</tr>
+<tr>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/curve-editor.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/curve-editor.png" width="440" alt="Curve editor" /></a><br /><sub>Curve editor — drag-to-edit with stall zone overlay</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress</sub></td>
+</tr>
+<tr>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based curve switching</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/logs.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/logs.png" width="440" alt="Logs" /></a><br /><sub>Logs — live log stream with level filtering</sub></td>
+</tr>
+<tr>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/settings.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/settings.png" width="440" alt="Settings" /></a><br /><sub>Settings — daemon config, TLS, and webhooks</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/dashboard-stale.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/dashboard-stale.png" width="440" alt="Dashboard stale state" /></a><br /><sub>Dashboard — stale-data banner when daemon is unreachable</sub></td>
+</tr>
+</table>
 
 ## Features
 
