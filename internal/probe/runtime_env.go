@@ -75,6 +75,26 @@ func (p *prober) detectEnvironment(ctx context.Context) (RuntimeEnvironment, []D
 		containerRuntime = append(containerRuntime, out)
 	}
 
+	// Source 4: overlay root filesystem in /proc/mounts (Docker on cgroup v2 hosts).
+	// On cgroup v2 (Ubuntu 22.04+, Debian 12+) /proc/1/cgroup shows only "0::/" with
+	// no container keywords, so this signal catches Docker containers that Source 2
+	// would miss. Bare-metal systems never use overlay as their root filesystem.
+	if p.cfg.ProcFS != nil {
+		if data, err := fs.ReadFile(p.cfg.ProcFS, "mounts"); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				fields := strings.Fields(line)
+				if len(fields) >= 3 && fields[1] == "/" && fields[2] == "overlay" {
+					containerScore++
+					containerSignals = append(containerSignals, "/proc/mounts:overlay-root")
+					if len(containerRuntime) == 0 {
+						containerRuntime = append(containerRuntime, "docker")
+					}
+					break
+				}
+			}
+		}
+	}
+
 	if containerScore >= 2 {
 		env.Containerised = true
 		if len(containerRuntime) > 0 {

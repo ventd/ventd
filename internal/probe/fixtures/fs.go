@@ -112,3 +112,19 @@ func ProcForBareMetal() fstest.MapFS {
 		)},
 	}
 }
+
+// ProcForDockerCgroupV2 is a synthetic /proc subtree for a Docker container
+// running on a cgroup v2 host (Ubuntu 22.04+, Debian 12+). /proc/1/cgroup
+// contains only "0::/" (no docker keyword — cgroup v2 namespace hides it),
+// but /proc/mounts shows an overlay root filesystem, which is the second
+// independent container signal required by RULE-PROBE-03.
+func ProcForDockerCgroupV2() fstest.MapFS {
+	return fstest.MapFS{
+		"1/cgroup": {Data: []byte("0::/\n")},
+		"mounts": {Data: []byte("overlay / overlay rw,relatime," +
+			"lowerdir=/var/lib/docker/overlay2/abc/diff," +
+			"upperdir=/var/lib/docker/overlay2/abc/merged," +
+			"workdir=/var/lib/docker/overlay2/abc/work 0 0\n" +
+			"proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0\n")},
+	}
+}
