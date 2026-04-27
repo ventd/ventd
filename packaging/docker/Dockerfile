@@ -78,7 +78,13 @@ RUN apk add --no-cache ca-certificates tzdata \
  && addgroup -S -g "${VENTD_GID}" ventd \
  && adduser -S -D -H -u 472 -G ventd -s /sbin/nologin ventd \
  && mkdir -p /etc/ventd \
- && chown ventd:ventd /etc/ventd
+ && chown ventd:ventd /etc/ventd \
+ && mkdir -p /var/lib/ventd/models /var/lib/ventd/logs \
+ && chown -R ventd:ventd /var/lib/ventd \
+ && chmod 755 /var/lib/ventd /var/lib/ventd/models /var/lib/ventd/logs \
+ && mkdir -p /run/ventd \
+ && chown ventd:ventd /run/ventd \
+ && chmod 750 /run/ventd
 
 COPY --from=builder /out/ventd /usr/local/bin/ventd
 

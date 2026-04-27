@@ -11,6 +11,16 @@ and frozen.
 
 ### Added
 
+- Persistent state foundation (`internal/state`): KV YAML store (atomic
+  tempfile+rename, `WithTransaction`), binary blob store (16-byte header with
+  SHA-256 integrity), and append-only log store (`O_APPEND|O_DSYNC`, CRC32
+  records, rotation with optional gzip). Schema version sentinel with
+  downgrade refusal and migration chain. PID-file multi-process detection via
+  `kill(0)` liveness check. All state files created mode `0640`; directories
+  `0755`; mode-repair on open. Daemon acquires PID lock and opens state at
+  startup; consumers (calibration RLS, predictive thermal) wired in subsequent
+  PRs. Ten invariant bindings: RULE-STATE-01..10. `deploy/tmpfiles.d-ventd.conf`
+  updated to provision `/var/lib/ventd/{models,logs}` at boot (spec-16 PR 1).
 - feat(web): install design system foundation (tokens, shell, brand) and new landing page
 - Hardware profile capture pipeline (`internal/hwdb/capture.go`,
   `internal/hwdb/anonymise.go`): after successful calibration, ventd writes a

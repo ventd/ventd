@@ -36,6 +36,7 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
+	"github.com/ventd/ventd/internal/state"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -314,6 +315,25 @@ func run() error {
 			logger.Info("capture: wrote pending profile", "path", path)
 		})
 	}
+
+	// Persistent state (KV, blob, log stores). AcquirePID prevents two
+	// daemon instances from racing over the same files (RULE-STATE-06).
+	// Open bootstraps the directory hierarchy on first boot (RULE-STATE-10).
+	releasePID, pidErr := state.AcquirePID(state.DefaultDir)
+	if pidErr != nil {
+		return fmt.Errorf("acquire pid: %w", pidErr)
+	}
+	defer releasePID()
+	st, stErr := state.Open(state.DefaultDir, logger)
+	if stErr != nil {
+		return fmt.Errorf("open state: %w", stErr)
+	}
+	defer func() {
+		if err := st.Close(); err != nil {
+			logger.Error("state close", "err", err)
+		}
+	}()
+	_ = st // consumers wired in subsequent PRs
 
 	// NVML init is always attempted. The shim silently disables GPU
 	// features when libnvidia-ml.so.1 is absent or nvmlInit_v2 fails, and
