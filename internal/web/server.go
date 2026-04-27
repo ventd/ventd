@@ -222,6 +222,11 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	// that return real data are auth-gated separately.
 	s.mux.Handle("/ui/", http.StripPrefix("/ui/", uiStaticHandler(uiSubFS())))
 
+	// Design system: /shared/* serves tokens, shell, brand assets with a
+	// 1-hour cache ceiling. sidebar.html and canon.md are test fixtures —
+	// they are not embedded so requests for them return 404.
+	s.registerSharedAssets()
+
 	// Every /api/* route is registered twice: once under /api/<name> for
 	// existing clients and once under /api/v1/<name> so future clients can
 	// pin to a version. The helper wraps auth once and shares the wrapped
@@ -1006,9 +1011,9 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Cache-Control", "no-store")
+	h.Set("Cache-Control", "no-cache")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
-	_, _ = w.Write(readUI("index.html"))
+	_, _ = w.Write(readNewIndex())
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>

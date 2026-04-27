@@ -1,0 +1,57 @@
+/* ─────────────────────────────────────────────────────────────
+ * shared/brand.css — propeller logo styles
+ * loaded AFTER shell.css to override the legacy gradient mark
+ * ───────────────────────────────────────────────────────────── */
+
+.brand-mark {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  background: radial-gradient(circle at 50% 50%, #0e2730 0%, #08151a 70%, #050d11 100%);
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px rgba(26, 209, 181, 0.14);
+}
+
+/* nuke the legacy ::before quarter-arc spinner from shell.css */
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(26, 209, 181, 0.22);
+  border-radius: 50%;
+  pointer-events: none;
+  /* explicitly clear the legacy properties */
+  background: transparent;
+  transform: none;
+  animation: none;
+  border-top-color: rgba(26, 209, 181, 0.22);
+  border-right-color: rgba(26, 209, 181, 0.22);
+}
+
+/* the propeller (injected by shared/brand.js) */
+.brand-mark > svg.brand-prop {
+  width: 78%;
+  height: 78%;
+  display: block;
+  transform-origin: 50% 50%;
+  animation: ventd-prop-spin 6s linear infinite;
+  position: relative;
+  z-index: 1;
+}
+
+.brand-mark.spinning > svg.brand-prop {
+  animation-duration: 1.2s;
+}
+
+@keyframes ventd-prop-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark > svg.brand-prop { animation: none; }
+}

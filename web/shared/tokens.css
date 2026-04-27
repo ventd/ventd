@@ -1,0 +1,46 @@
+/* ─────────────────────────────────────────────────────────────
+ * ventd · design tokens
+ * Mirrors internal/web/ui/styles/tokens.css 1:1.
+ * Only colour values + font stacks. No semantic drift.
+ * Used by every screen via <link rel="stylesheet" href="…/tokens.css">.
+ * ───────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: light dark;
+
+  /* type */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* dark — default */
+  --bg:#0d1117; --bg2:#161b22; --bg3:#21262d; --bg4:#1a1f26;
+  --border:#30363d; --border2:#1a1f26;
+  --fg:#c9d1d9; --fg1:#e6edf3; --fg2:#8b949e; --fg3:#484f58; --fg4:#2a3a4a;
+
+  --teal:#4fc3a1; --teal-h:#3da88a; --teal-bg:#1a3a2a; --teal-bg2:#2a4a3a;
+  --amber:#e6a23c; --amber-bg:#2a2a1a;
+  --red:#f85149; --red-bg:#3a1a1a; --red2:#f97583;
+  --blue:#58a6ff; --blue-bg:#1a2a3a;
+  --purple:#d2a8ff; --cyan:#79c0ff;
+
+  --btn-pri-fg:#0d1117;
+}
+
+:root[data-theme="dark"]  { color-scheme: only dark; }
+:root[data-theme="light"] { color-scheme: only light; }
+
+[data-theme="light"] {
+  /* subtle blue tint instead of pure white — feedback from Phoenix */
+  --bg:#eef2f7; --bg2:#f7f9fc; --bg3:#e4eaf2; --bg4:#dfe6ef;
+  --border:#c7d0dc; --border2:#dde3ec;
+  --fg:#24292f; --fg1:#1f2328; --fg2:#57606a; --fg3:#8c959f; --fg4:#afb8c1;
+
+  --teal:#0b8a6e; --teal-h:#096e57; --teal-bg:#d1f5ee; --teal-bg2:#b8e8de;
+  --amber:#b54708; --amber-bg:#fef0c7;
+  --red:#cf222e; --red-bg:#ffebe9; --red2:#d73a49;
+  --blue:#0969da; --blue-bg:#ddf4ff;
+  --purple:#8250df; --cyan:#0550ae;
+
+  --btn-pri-fg:#ffffff;
+  --brand-mark-bg: radial-gradient(circle at 50% 50%, #d6e4f0 0%, #b9c9dc 70%, #9eb1c6 100%);
+}
