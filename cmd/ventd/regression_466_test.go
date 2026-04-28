@@ -287,6 +287,16 @@ func TestRegression_Issue466_ReloadFailureIsNonFatal(t *testing.T) {
 	}
 
 	// Assert: fan is still being controlled at the original curve value.
+	// Poll rather than a single read: os.WriteFile is O_TRUNC then write, so a
+	// readFile that lands between those two steps returns "".  The polling window
+	// is long enough to guarantee ≥2 controller ticks at the 50ms poll interval.
+	deadline = time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if b, _ := os.ReadFile(pwmPath); strings.TrimSpace(string(b)) == "64" {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 	if got := readTrim(t, pwmPath); got != "64" {
 		t.Fatalf("daemon stopped controlling fan after failed reload: pwm1=%q (want 64)", got)
 	}
