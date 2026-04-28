@@ -494,16 +494,10 @@ func (m *Manager) run(ctx context.Context) {
 			// Freeze all fans on this chip at their current PWM before detecting.
 			// This prevents other BIOS-controlled fans from fluctuating and causing
 			// false correlations when we ramp the target channel.
-			type savedFan struct {
-				path string
-				pwm  uint8
-			}
-			var frozen []savedFan
 			for _, i := range idxs {
 				if orig, err := hwmonpkg.ReadPWM(fans[i].PWMPath); err == nil {
 					_ = hwmonpkg.WritePWMEnable(fans[i].PWMPath, 1)
 					_ = hwmonpkg.WritePWM(fans[i].PWMPath, orig)
-					frozen = append(frozen, savedFan{fans[i].PWMPath, orig})
 				}
 			}
 			// Leave channels in manual mode (pwm_enable=1) after detection so
