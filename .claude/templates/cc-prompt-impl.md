@@ -76,3 +76,16 @@ If CC encounters any of these, stop and surface to Phoenix:
 .claude/scripts/preflight.sh <spec-id>
 ```
 Must pass before CC writes a single line.
+
+## Scope discipline
+
+If you discover bugs in already-shipped code that block your work,
+surface them in chat. Do not fix them as part of this PR. Open a
+separate hotfix PR with a clear scope boundary.
+
+If your work appears to need changes outside the spec's named files,
+stop and surface in chat before proceeding.
+
+If a task that was estimated at $X is approaching $X (50% over the
+low estimate, 25% over the high estimate), surface in chat before
+continuing. Do not silently overrun.
