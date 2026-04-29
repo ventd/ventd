@@ -23,13 +23,15 @@ import (
 // so tests can hit auth-gated endpoints.
 func newSecuritySrv(t *testing.T) (*Server, string) {
 	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
 	sm := setupmgr.New(cal, logger)
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	srv := New(context.Background(), &liveCfg, t.TempDir()+"/config.yaml", "", logger, cal, sm, restartCh, "", hwdiag.NewStore())
+	srv := New(ctx, &liveCfg, t.TempDir()+"/config.yaml", "", logger, cal, sm, restartCh, "", hwdiag.NewStore())
 	tok, err := srv.sessions.create()
 	if err != nil {
 		t.Fatalf("create session: %v", err)

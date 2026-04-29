@@ -44,7 +44,8 @@ func newPatch483Harness(t *testing.T) (srv *Server, tok string) {
 	sm := setupmgr.New(cal, logger)
 	var cfgPtr atomic.Pointer[config.Config]
 	restart := make(chan struct{}, 1)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 
 	minPct := uint8(20) // 20% → raw ≈ 51
 	maxPct := uint8(80) // 80% → raw ≈ 204

@@ -25,6 +25,10 @@ func clockAt(t *testing.T, iso string) time.Time {
 func newScheduledTestServer(t *testing.T, profiles map[string]config.Profile, active string) *Server {
 	t.Helper()
 	srv := newVersionTestServer(t)
+	// Anchor the mock clock before storing profiles so any concurrent
+	// background scheduler tick uses deterministic time rather than
+	// real wall time. Tests override this via srv.SetNowFn per-tick.
+	srv.SetNowFn(func() time.Time { return clockAt(t, "2026-01-12T12:00") })
 	live := *srv.cfg.Load()
 	live.Profiles = profiles
 	live.ActiveProfile = active
