@@ -1,7 +1,6 @@
 package envelope
 
 import (
-	"math"
 	"time"
 )
 
@@ -73,15 +72,4 @@ func copyTemps(src map[string]float64) map[string]float64 {
 		out[k] = v
 	}
 	return out
-}
-
-// maxTemp returns the maximum value in the map or math.NaN() if empty.
-func maxTemp(temps map[string]float64) float64 {
-	max := math.NaN()
-	for _, v := range temps {
-		if math.IsNaN(max) || v > max {
-			max = v
-		}
-	}
-	return max
 }

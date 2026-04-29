@@ -24,8 +24,8 @@ type Thresholds struct {
 	AmbientHeadroomMin float64
 	// PWMSteps is the ordered list of PWM values to probe (Envelope C: descending, Envelope D: ascending above baseline).
 	PWMSteps []uint8
-	// HoldSeconds is the settle time at each step before sampling.
-	HoldSeconds time.Duration
+	// Hold is the settle time at each step before sampling.
+	Hold time.Duration
 	// SampleHz is the sensor read rate during the hold window.
 	SampleHz int
 	// BMCGated: Envelope C requires --allow-server-probe when BMC is present.
@@ -42,7 +42,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 15.0,
 		AmbientHeadroomMin:   60.0,
 		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		HoldSeconds:          30 * time.Second,
+		Hold:                 30 * time.Second,
 		SampleHz:             10,
 	},
 	sysclass.ClassHEDTAIO: {
@@ -50,7 +50,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 15.0,
 		AmbientHeadroomMin:   60.0,
 		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		HoldSeconds:          45 * time.Second,
+		Hold:                 45 * time.Second,
 		SampleHz:             10,
 	},
 	sysclass.ClassMidDesktop: {
@@ -58,7 +58,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 12.0,
 		AmbientHeadroomMin:   55.0,
 		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		HoldSeconds:          30 * time.Second,
+		Hold:                 30 * time.Second,
 		SampleHz:             10,
 	},
 	sysclass.ClassServer: {
@@ -66,7 +66,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 20.0,
 		AmbientHeadroomMin:   50.0,
 		PWMSteps:             []uint8{200, 170, 140, 120, 100},
-		HoldSeconds:          30 * time.Second,
+		Hold:                 30 * time.Second,
 		SampleHz:             10,
 		BMCGated:             true,
 	},
@@ -75,7 +75,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 15.0,
 		AmbientHeadroomMin:   55.0,
 		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		HoldSeconds:          30 * time.Second,
+		Hold:                 30 * time.Second,
 		SampleHz:             10,
 		ECHandshakeRequired:  true,
 	},
@@ -84,7 +84,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		TAbsOffsetBelowTjmax: 20.0,
 		AmbientHeadroomMin:   55.0,
 		PWMSteps:             []uint8{180, 140, 110, 90, 70},
-		HoldSeconds:          30 * time.Second,
+		Hold:                 30 * time.Second,
 		SampleHz:             10,
 	},
 	sysclass.ClassNASHDD: {
@@ -92,7 +92,7 @@ var classThresholds = map[sysclass.SystemClass]Thresholds{
 		DTDtWindow:       5 * time.Minute,
 		TAbsAbsolute:     50.0,
 		PWMSteps:         []uint8{200, 170, 140, 120, 100},
-		HoldSeconds:      5 * time.Minute,
+		Hold:             5 * time.Minute,
 		SampleHz:         1,
 	},
 }

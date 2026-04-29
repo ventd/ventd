@@ -247,7 +247,7 @@ func (p *Prober) runProbeC(ctx context.Context, ch *probe.ControllableChannel, c
 		}
 
 		// Hold and sample.
-		holdEnd := time.Now().Add(thr.HoldSeconds)
+		holdEnd := time.Now().Add(thr.Hold)
 		ticker := time.NewTicker(time.Second / time.Duration(thr.SampleHz))
 		defer ticker.Stop()
 		var aborted bool
@@ -390,7 +390,7 @@ func (p *Prober) runProbeD(ctx context.Context, ch *probe.ControllableChannel, c
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(thr.HoldSeconds):
+		case <-time.After(thr.Hold):
 		}
 
 		curTemps, _ := p.sensorFn(ctx)

@@ -28,7 +28,7 @@ func fastThr() Thresholds {
 		TAbsOffsetBelowTjmax: 12.0,
 		AmbientHeadroomMin:   40.0,
 		PWMSteps:             []uint8{180, 140, 110, 90},
-		HoldSeconds:          1 * time.Millisecond,
+		Hold:                 1 * time.Millisecond,
 		SampleHz:             1000,
 	}
 }
@@ -56,7 +56,9 @@ func pwmFile(t *testing.T, v uint8) (path string, writeFn func(uint8) error) {
 	if _, err := fmt.Fprintf(f, "%d", v); err != nil {
 		t.Fatalf("write initial pwm: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close pwm file: %v", err)
+	}
 
 	writeFn = func(val uint8) error {
 		return os.WriteFile(path, []byte(fmt.Sprintf("%d", val)), 0o644)
@@ -92,23 +94,6 @@ func normalChannel(pwmPath string) *probe.ControllableChannel {
 		PWMPath:  pwmPath,
 		Polarity: "normal",
 	}
-}
-
-// fastProber constructs a Prober with fast test thresholds, ambient=25, tjmax=100.
-func fastProber(t *testing.T, st *state.State, sensorFn SensorFn, rpmFn RPMFn, idleGate IdleGateFn) *Prober {
-	t.Helper()
-	thr := fastThr()
-	return NewProber(ProberConfig{
-		State:      st,
-		Class:      sysclass.ClassMidDesktop,
-		Tjmax:      100.0,
-		Ambient:    25.0,
-		SensorFn:   sensorFn,
-		RPMFn:      rpmFn,
-		IdleGate:   idleGate,
-		Logger:     slog.Default(),
-		Thresholds: &thr,
-	})
 }
 
 // TestRULE_ENVELOPE_01_WritePWMViaHelper verifies that channelWriter.Write routes
@@ -218,8 +203,8 @@ func TestRULE_ENVELOPE_03_ClassThresholdLookup(t *testing.T) {
 		if len(thr.PWMSteps) == 0 {
 			t.Errorf("class %v: PWMSteps is empty", cls)
 		}
-		if thr.HoldSeconds == 0 {
-			t.Errorf("class %v: HoldSeconds is 0", cls)
+		if thr.Hold == 0 {
+			t.Errorf("class %v: Hold is 0", cls)
 		}
 	}
 	// ClassUnknown must return MidDesktop thresholds.
