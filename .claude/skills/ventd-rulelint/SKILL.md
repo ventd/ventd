@@ -1,129 +1,139 @@
 ---
 name: ventd-rulelint
-description: >
-  Enforces ventd's 1:1 rule-binding contract between .claude/rules/*.md
-  entries and their bound subtests in Go test files. ALWAYS invoke before
-  claiming any task complete that touched cmd/ or internal/. ALWAYS invoke
-  when the user mentions rulelint, project rules, RULE-* identifiers,
-  rule files, or bound subtests. ALWAYS invoke when adding, editing, or
-  deleting any ## RULE-* section in a .claude/rules/*.md file. Runs
-  tools/rulelint to verify every rule has a live bound subtest and surfaces
-  both forward errors (missing bound) and reverse warnings (unclaimed
-  subtests).
+description: |
+  Use after any edit to .claude/rules/*.md, after any rename or move of
+  a Go test function or t.Run subtest, and BEFORE declaring any task
+  complete that touched cmd/ or internal/. Triggers on: "rulelint",
+  "RULE-*", "rule binding", "bound subtest", "orphan rule", "orphan
+  subtest", any mention of project rules. Runs tools/rulelint to
+  verify every rule has a live bound subtest. Surfaces forward errors
+  (missing bound) and reverse warnings (unclaimed subtests). Do NOT
+  use for: writing new rules from scratch (use ventd-specs Mode C),
+  implementing the test logic itself, or fixing the underlying invariant
+  the rule pins.
 ---
 
 # ventd-rulelint
 
+Validates the 1:1 binding contract between `.claude/rules/*.md` and Go subtests.
+
+## Current state
+
+<!-- VERIFY CC SUPPORTS !`...` INJECTION; remove if not -->
+Rule files: !`ls .claude/rules/*.md 2>/dev/null | wc -l` files
+
+Latest rulelint result: !`go run ./tools/rulelint -root . 2>&1 | tail -5`
+
+## Run
+
+```bash
+bash .claude/skills/ventd-rulelint/scripts/run-rulelint.sh
+# or direct:
+go run ./tools/rulelint -root .
+```
+
+Exit 0 → `ok: N rule(s), M bound(s) verified`.
+Exit 1 → one or more `ERROR:` lines; do not claim complete.
+
+`make safety-run` runs the controller safety subtests but NOT
+rulelint. Different commands.
+
 ## What rulelint enforces
 
-Every `## RULE-<ID>: <description>` heading in `.claude/rules/*.md` must be
-paired with a `Bound:` line pointing to a live subtest:
+Every `## RULE-<ID>: <description>` heading in `.claude/rules/*.md`
+pairs with a `Bound:` line:
 
 ```
 Bound: internal/controller/safety_test.go:allow_stop/disabled_refuses_zero
 ```
 
-The tool (`tools/rulelint/main.go`) does two checks:
+Two checks:
 
-1. **Forward** (errors): every bound file exists AND contains the named
-   `t.Run("…")` literal. Any mismatch is an `ERROR` and exits non-zero.
-2. **Reverse** (warnings): any `t.Run("…")` in a bound file that no rule
-   claims is printed as `WARN`. These don't fail the build but signal an
+1. **Forward** (errors): every bound file exists AND contains the
+   named `t.Run("…")` literal. Mismatch → `ERROR`, exit 1.
+2. **Reverse** (warnings): any `t.Run("…")` in a bound file that no
+   rule claims → `WARN`. Doesn't fail the build but signals an
    orphaned subtest.
 
-## Running the linter
+`Bound:` line format:
+- Path is repo-relative (no leading `./`)
+- Subtest name is the exact string from `t.Run()`
+- Nested subtests use `/` separator
+- Multiple `Bound:` lines per rule allowed (one per line)
 
-```bash
-bash .claude/skills/ventd-rulelint/scripts/run-rulelint.sh
-```
+## Gotchas (real failure modes)
 
-Or directly:
+- **Nested subtest names need slashes.**
+  `Bound: x_test.go:parent/child` — not `parent_child`. Case-sensitive.
+- **`<!-- rulelint:allow-orphan -->` is a docs-first PR marker.** It
+  MUST be removed when the binding resolves. rulelint errors on
+  present-but-resolved markers. This has shipped to CI before.
+- **Backend can build+test but never register.** A backend file can
+  pass go test in isolation while not being wired into
+  `cmd/ventd`. Verify with
+  `go list -deps ./cmd/ventd | grep <pkg>` before declaring done.
+  rulelint does NOT catch ghost code; it only checks subtest binding.
+- **Unused-symbol golangci-lint errors on load-bearing types** =
+  architectural drift, not a lint nitpick. Fix the wiring, don't add
+  `//nolint:unused`.
+- **Path drift after `git mv`.** Renaming a test file mass-breaks
+  every `Bound:` line that referenced it. Run rulelint immediately
+  after any `git mv internal/...` to catch this in the same commit.
+- **rulelint discovery is hardcoded.** New rule files in
+  `.claude/rules/` are picked up automatically, but if rulelint has
+  ever been extended with a hardcoded list (check
+  `tools/rulelint/main.go`), a new file may need explicit listing.
 
-```bash
-go run ./tools/rulelint -root .
-```
+## Adding a new rule
 
-Exit 0 → `ok: N rule(s), M bound(s) verified`
-Exit 1 → one or more `ERROR:` lines; do not claim the task complete.
-
-`make safety-run` runs the controller safety subtests but does NOT run
-rulelint — they are separate steps.
-
-## When to run
-
-Run rulelint whenever you:
-
-- Add a new `## RULE-*` section to any `.claude/rules/*.md` file
-- Edit an existing `Bound:` line
-- Rename or move a test function or `t.Run` subtest
-- Delete a rule or its bound subtest
-- Are about to write "task complete" / "done" after modifying `cmd/` or
-  `internal/`
-
-## Rule file → bound test mapping
-
-See `references/rules-catalog.md` for a one-paragraph summary of each of
-the 9 rule files and the RULE-* IDs they own.
-
-## Common mistakes and fixes
-
-See `references/common-violations.md` for annotated before/after examples
-of every violation pattern rulelint catches.
-
-## Adding a new rule correctly
-
-A complete rule entry looks like this (all three parts required):
+A complete rule entry needs three parts:
 
 ```markdown
 ## RULE-HWMON-NEWFEATURE: brief invariant statement
 
-Prose description of the invariant and why it matters.
+Prose description of why this invariant matters and what fails if it
+doesn't hold.
 
-Bound: internal/controller/safety_test.go:hwmon_newfeature_subtest_name
+Bound: internal/controller/safety_test.go:hwmon_newfeature_subtest
 ```
 
-Then in the Go test file:
-
+Matching Go:
 ```go
-t.Run("hwmon_newfeature_subtest_name", func(t *testing.T) {
+t.Run("hwmon_newfeature_subtest", func(t *testing.T) {
     // ...
 })
 ```
 
-The subtest name in the rule file and in the Go source must match exactly
-(case-sensitive, including slashes for nested subtests).
+Names match exactly. Rule and subtest land in the same PR.
 
-## Bound line format
-
-```
-Bound: <repo-relative-path>:<subtest-name>
-```
-
-- Path is relative to the repo root (no leading `./`)
-- Subtest name is the exact string passed to `t.Run()`
-- Nested subtests use `/` as separator:
-  `Bound: internal/controller/safety_test.go:allow_stop/disabled_refuses_zero`
-- Multiple `Bound:` lines under one rule are allowed (one per line)
-
-## If rulelint reports errors
+## Common error shapes
 
 ```
-ERROR: .claude/rules/hwmon-safety.md: RULE-HWMON-CLAMP: subtest "clamp/below_min_pwm" not found in internal/controller/safety_test.go
+ERROR: ... subtest "X" not found in <file>
 ```
-
-1. Find the subtest in the test file — it may have been renamed.
-2. Either restore the original name or update the `Bound:` line to match.
-3. Re-run rulelint to confirm clean.
+→ Subtest renamed or never existed. Either restore the name or update
+the `Bound:` line.
 
 ```
-ERROR: .claude/rules/hwmon-safety.md: RULE-HWMON-CLAMP: bound file not found: internal/controller/safety_test.go
+ERROR: ... bound file not found: <path>
 ```
-
-1. The test file was moved or the path is wrong.
-2. Update the `Bound:` line to the current file path.
+→ File moved or path is wrong.
 
 ```
-ERROR: .claude/rules/hwmon-safety.md: RULE-HWMON-CLAMP: malformed Bound line (no colon separator): "Bound: internal/controller/safety_test.go"
+ERROR: ... malformed Bound line (no colon separator)
 ```
+→ Add the `:` between path and subtest name.
 
-1. Add the colon separator: `Bound: internal/controller/safety_test.go:subtest_name`
+## Reference material
+
+- `references/rules-catalog.md` — one-paragraph summary of each rule
+  file and the RULE-* IDs it owns.
+- `references/common-violations.md` — annotated before/after examples
+  of every violation pattern.
+
+## Out of scope
+
+- Writing new rules (use ventd-specs Mode C)
+- Implementing the underlying invariant the rule pins
+- Auto-fixing violations
+- Running the full test suite (use ci-verify-local)
