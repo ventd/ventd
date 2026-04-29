@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+
+### Added
+- System class detection (`internal/sysclass`) — seven classes (NAS, MiniPC, Laptop, Server, HEDT-AIO, HEDT-Air, MidDesktop) with precedence chain, KV persistence, ambient sensor identification, AmbientBoundsOK gate, ServerProbeAllowed gate, and laptop EC handshake (spec-v0_5_3 PR-A)
+- Idle predicate foundation (`internal/idle`) — PSI-primary/loadavg-fallback, durability-gated StartupGate, hard battery/container refusals, process blocklist with SetExtraBlocklist, RuntimeCheck baseline-delta, exponential backoff with daily cap (spec-v0_5_3 PR-A)
+- AppArmor: add /proc/pressure/*, /proc/mdstat, /proc/loadavg, /proc/uptime, /proc/spl/kstat/zfs/**, /sys/fs/btrfs/**, /proc/sys/kernel/osrelease
+
 ## [v0.5.2] - 2026-04-27
 
 ### Added
