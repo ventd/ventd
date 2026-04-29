@@ -1,9 +1,8 @@
 # spec-16 — Persistent runtime state foundation
 
-**Status:** DESIGN. Drafted 2026-04-27 (un-deferred from
-`spec-16-persistent-state-DEFERRED.md`).
-**Ships as:** v0.5.0.1 (hotfix-style infrastructure patch, first in
-smart-mode patch sequence).
+**Status:** SHIPPED in v0.5.1 (PR #669, commit 4983278).
+Drafted 2026-04-27 (un-deferred from `spec-16-persistent-state-DEFERRED.md`).
+Originally planned as v0.5.0.1; bundled into v0.5.1 release tag.
 **Supersedes:** `spec-16-persistent-state-DEFERRED.md`.
 **Consumed by:** v0.5.4 passive observation logging (primary new
 consumer); v0.5.6 workload signature library; v0.5.8 Layer C RLS
@@ -279,6 +278,14 @@ type RotationPolicy struct {
 `Iterate` is for offline analysis. The hot path (append-and-forget) is
 the `Append` call; iteration runs from background goroutines or
 diagnostic tools, never the control loop.
+
+`Iterate` MUST traverse rotated files within retention transparently:
+when `since` predates the active file's first record, the
+implementation reads matching rotated files (including gzip-compressed
+`.gz` siblings) in chronological order before reaching the active
+file. Files whose mtime is older than `since` are skipped. This is
+required for `Stream(since=72h)` semantics in the v0.5.4 observation
+log consumer.
 
 ### 6.4 Crash safety
 
