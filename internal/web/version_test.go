@@ -25,6 +25,8 @@ import (
 // triage.
 func newVersionTestServer(t *testing.T) *Server {
 	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
 	diag := hwdiag.NewStore()
@@ -34,7 +36,7 @@ func newVersionTestServer(t *testing.T) *Server {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	return New(context.Background(), &liveCfg, "", "", logger, cal, sm, restartCh, "", diag)
+	return New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, "", diag)
 }
 
 // TestHealthzStateTransitions walks /healthz across the startup boundary:
