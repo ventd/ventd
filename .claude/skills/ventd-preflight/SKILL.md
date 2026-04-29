@@ -1,53 +1,84 @@
 ---
 name: ventd-preflight
-description: Use BEFORE creating any PR or pushing any tag in the ventd repo. Runs .claude/scripts/preflight.sh with the active spec ID to validate: correct remote, on a feature branch, clean tree, spec committed, rulelint green, no stale PRs. Blocks on FAIL, surfaces WARN. Triggers on intents like "ready to merge", "open a PR", "push the tag", "cut a release".
+description: |
+  Use BEFORE creating any PR or pushing any tag in the ventd repo.
+  Triggers on: "ready to merge", "open a PR", "push the tag", "cut a
+  release", "is this ready", "preflight". Runs
+  .claude/scripts/preflight.sh against the active spec ID and blocks on
+  FAIL, surfaces WARN. Do NOT use for diagnosing CI failures (use
+  ci-triage). Do NOT use as a substitute for ci-verify-local — verify
+  runs `go test`, preflight does not.
 ---
 
 # ventd-preflight
 
-Validates the ventd repository state before creating a PR or pushing a tag.
+Validates repo state before a PR or tag push. Read-only.
 
-## Usage
+## Current state
 
-Run this skill before:
-- Opening a PR
-- Pushing a branch
-- Tagging a release
-- Any `git push` operation
+<!-- VERIFY CC SUPPORTS !`...` INJECTION; remove if not -->
+Branch: !`git branch --show-current`
 
-Example invocation:
+Tree: !`git status --short | head -10`
+
+Remote: !`git remote get-url origin`
+
+## Run
+
 ```bash
-bash .claude/scripts/preflight.sh spec-03
+bash .claude/scripts/preflight.sh <spec-id>
+# example: bash .claude/scripts/preflight.sh spec-03
 ```
 
-## Checks performed
+Exit 0 = pass. Exit 1 = FAIL (do not proceed). Exit 2 = WARN only (advisory).
 
-1. **Remote** — confirms `origin` is `git@github.com:ventd/ventd.git`
-2. **Branch** — confirms not on `main` (feature branch required)
-3. **Tree** — warns if working tree has uncommitted changes
-4. **Spec** — confirms `specs/<spec-id>.md` is committed
-5. **rulelint** — confirms zero rule violations
-6. **PRs** — displays any open PRs for the current branch
+The script's output is the diagnostic. Do not summarise it before the
+user has seen it. Same rule as ci-triage.
 
-## Exit codes
+## What it checks (so you know what to fix)
 
-- **0** — all checks passed
-- **1** — one or more FAIL checks (do not proceed)
-- **2** — WARN checks only, FAILs are empty (advisory, safe to continue)
+- **remote** — `origin` points to the canonical ventd remote
+- **branch** — not on `main` (feature branch required)
+- **tree** — warns on uncommitted changes
+- **spec** — `specs/<spec-id>.md` is committed
+- **rulelint** — zero violations
+- **PRs** — surfaces any open PRs for the current branch
 
-## Failure remediation
+## Gotchas (real failure modes)
 
-| Check | Failure | Fix |
-|-------|---------|-----|
-| remote | wrong remote | `git remote -v` and verify `origin` URL |
-| branch | on main | `git checkout -b <feature-branch> origin/main` |
-| spec | not committed | `git add specs/<spec-id>.md && git commit` |
-| rulelint | violations | `tools/rulelint` to see details, fix rule bindings |
-| tree | dirty | `git add` and commit staged changes, or `git stash` |
+- **`gh pr list` hides merged PRs.** If preflight reports "no open PR
+  for this branch" but you remember opening one, it may have been
+  squash-merged. Use `gh pr view --json` to check definitively.
+- **Branch protection has 17 status checks.** Preflight does not run
+  them — only structural checks. Passing preflight ≠ ready to merge,
+  it means ready to *push*.
+- **Spec ID must match the file.** `specs/spec-03-amendment-schema-v1_2.md`
+  → spec ID is `spec-03-amendment-schema-v1_2`, not `spec-03`. The
+  script does literal-path matching; no fuzzy lookup.
+- **Stale branches survive locally.** If preflight passes but `git
+  branch -a` shows old `feat/foo-bar` branches, clean them with
+  `git branch -d <name>` and `git push origin --delete <name>`. Not
+  a blocker, but a `git remote -v` + branch sweep before any release
+  is a known-good habit.
+- **`origin` URL drift after worktree creation.** CC worktrees in
+  `.worktrees/` may resolve `origin` differently than the main
+  checkout. Always run preflight from the main checkout, not from a
+  worktree.
+- **WARN ≠ ignore.** WARN exit 2 is advisory but most WARNs are
+  pre-failure signals. Read them before pushing.
 
-## When to run
+## When this is the wrong skill
 
-Always run before:
-- `git push` to open or update a PR
-- `git tag <version>` to cut a release
-- Merging a PR (as final safety check)
+- **Local test failures:** ci-verify-local runs the test suite; this
+  doesn't.
+- **CI is red after push:** ci-triage diagnoses CI failures; preflight
+  is pre-push only.
+- **About to push a tag:** ventd-release-validate runs preflight first
+  AND adds release-specific checks (cosign format, action pinning,
+  CycloneDX version). Use that, not this.
+
+## Out of scope
+
+- Running `go test`, `golangci-lint`, or any build
+- Auto-fixing rulelint violations
+- Pushing, tagging, opening PRs

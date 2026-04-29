@@ -343,6 +343,12 @@ Resolution order at probe-start:
 1. Walk all enumerated `temp*_input` sensors. If any sensor's
    `temp*_label` matches case-insensitive substrings `ambient`,
    `intake`, `inlet`, `sio`, `systin` → use that sensor.
+2. Otherwise: use `min(reading)` across all admissible
+   (per spec-sensor-preference rules) temp sensors after the R5
+   startup gate's 5-minute durability has elapsed.
+3. Otherwise: assume 25 °C, log diagnostic
+   `AMBIENT-FALLBACK-25C-NO-SENSORS`.
+
 2. Otherwise: apply the **admissibility filter** (below) to all
    enumerated temp sensors, then use `min(reading)` across the
    surviving candidates after the R5 startup gate's 5-minute
@@ -605,6 +611,9 @@ Step sequence (per channel):
      e. Trip-evaluate dT/dt and T_abs each sample
         - If dT/dt > class.dTdtThresh: thermal_abort
         - If T_abs > class.TAbsThresh: thermal_abort
+     f. Compute step.dT_per_dPWM
+     g. LogStore: emit StepEnd event with observed values
+     h. Persist KV: completed_step_count++
      f. PWM-readback verification:
         pwm_actual = ReadPWM(channel)
         if abs(pwm_actual - step.pwm) > 4:
@@ -1028,6 +1037,9 @@ test files. `tools/rulelint` enforces.
     Channel demoted to monitor-only at runtime.
 
 14. **Class 4 server BMC kicks in mid-probe and ramps fans to 100%
+    despite ventd's PWM writes.** Runtime check observes PWM_actual !=
+    PWM_target on next read; channel transitions to
+    `phantom_bmc_overrides`. Logged for doctor.
     despite ventd's PWM writes.** Detected by the per-step PWM
     readback verification in §5.2 step 5f: if `pwm_actual !=
     pwm_target ± 4` after the hold period, channel transitions to
