@@ -42,6 +42,7 @@ securitytodo.md
 !.claude/skills/
 !.claude/settings.json
 !.claude/commands/
+!.claude/RULE-INDEX.md
 .claude/settings.local.json
 .claude/sessions/
 !.claude/rules/
