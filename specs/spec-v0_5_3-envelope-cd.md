@@ -349,6 +349,33 @@ Resolution order at probe-start:
 3. Otherwise: assume 25 °C, log diagnostic
    `AMBIENT-FALLBACK-25C-NO-SENSORS`.
 
+2. Otherwise: apply the **admissibility filter** (below) to all
+   enumerated temp sensors, then use `min(reading)` across the
+   surviving candidates after the R5 startup gate's 5-minute
+   durability has elapsed.
+3. Otherwise: assume 25 °C, log diagnostic
+   `AMBIENT-FALLBACK-25C-NO-SENSORS`.
+
+**Admissibility filter for the lowest-at-idle heuristic:**
+
+Exclude any sensor whose `temp*_label` contains (case-insensitive
+substring match) any of:
+
+- `package`, `junction`, `vrm`, `drivetemp`
+- `cpu`, `gpu`, `core`, `tdie`, `tctl`, `tccd`
+- `coolant`, `pump`, `liquid` (AIO sensors are not ambient)
+- `nvme`, `ssd`, `hdd` (storage temps run above ambient)
+
+Sensors without a `temp*_label` are admissible (motherboard SIO
+sensors typically lack labels and represent chassis temperature
+loosely). If filtering produces zero candidates, fall through to
+step 3 (Fallback25C) — never use a labeled CPU/GPU sensor as
+ambient.
+
+This filter prevents the "quiet idle 5800X package at 40 °C wins as
+ambient" failure mode where the heuristic would otherwise pick the
+warmest sensor that happens to also be the lowest at the moment.
+
 Refusal cases (Envelope C refuses to begin):
 
 - `Reading < 10 °C` → `AMBIENT-IMPLAUSIBLE-TOO-COLD`. Sensor likely
@@ -587,6 +614,19 @@ Step sequence (per channel):
      f. Compute step.dT_per_dPWM
      g. LogStore: emit StepEnd event with observed values
      h. Persist KV: completed_step_count++
+     f. PWM-readback verification:
+        pwm_actual = ReadPWM(channel)
+        if abs(pwm_actual - step.pwm) > 4:
+            classify channel "phantom_bmc_overrides"
+            log BMC-OVERRIDE-DETECTED
+            abort this channel to Envelope D
+        (BMC/EC firmware override detection — Class 4 server,
+         Class 5 laptop primarily; quantization tolerance of ±4
+         covers hwmon driver fan_max scaling per R11.8.4)
+     g. Compute step.dT_per_dPWM
+     h. LogStore: emit StepEnd event with observed values
+        (include pwm_actual alongside pwm_target)
+     i. Persist KV: completed_step_count++
   6. WritePWM(channel, baseline_pwm)  -- restore
   7. LogStore: emit ProbeComplete event with envelope=C
   8. Persist KV: state=complete_C, last_calibration_envelope=C
@@ -714,6 +754,64 @@ Step-level data lives in LogStore (not KV). Restart-resume reads KV
 for state + started_at, then reads LogStore filtered by
 `(channel_id, started_at)` to reconstruct completed-step list, then
 resumes from next unstepped PWM.
+
+### 5.7 WritePWM callback plumbing
+
+The v0.5.2 `polarity.WritePWM` helper takes a backend-write callback:
+
+```go
+func WritePWM(ch *probe.ControllableChannel, value uint8,
+              fn func(uint8) error) error
+```
+
+The `fn` parameter performs the actual sysfs/NVML/IPMI write; the
+helper applies polarity inversion before invoking `fn`. Envelope
+probe must therefore capture a per-channel write callback at probe
+construction and reuse it for every step.
+
+**Pattern:**
+
+```go
+package envelope
+
+type channelWriter struct {
+    ch        *probe.ControllableChannel
+    writeFunc func(uint8) error    // captured from HAL backend at probe-start
+}
+
+func (cw *channelWriter) Write(value uint8) error {
+    return polarity.WritePWM(cw.ch, value, cw.writeFunc)
+}
+
+func (cw *channelWriter) Read() (uint8, error) {
+    // ReadPWM does NOT need polarity inversion — the helper returns
+    // the logical value as ventd's controller sees it.
+    return polarity.ReadPWM(cw.ch)
+}
+```
+
+Probe-start construction:
+
+```go
+func (p *Prober) buildChannelWriter(ch *probe.ControllableChannel) *channelWriter {
+    return &channelWriter{
+        ch:        ch,
+        writeFunc: p.hal.WriteFunc(ch),  // backend-specific
+    }
+}
+```
+
+Backend `WriteFunc` returns the appropriate per-channel writer:
+- hwmon: writes to `ch.PWMPath` via `os.WriteFile`.
+- NVML: calls `nvmlDeviceSetFanSpeed_v2(device, fan_index, value*100/255)`.
+- IPMI: invokes per-vendor backend's `SetPWM` via the existing
+  vendor command interface.
+- EC: writes to the channel's `/sys/class/hwmon/.../pwm*` (EC
+  presents as hwmon).
+
+This pattern means envelope code never directly touches sysfs/NVML/
+IPMI — every write path goes through `polarity.WritePWM` + the
+captured backend callback. RULE-ENVELOPE-01 enforces.
 
 ---
 
@@ -865,6 +963,7 @@ test files. `tools/rulelint` enforces.
 | `RULE-ENVELOPE-11` | Channels probed in parallel MUST NOT occur. Subtest verifies sequential per-channel iteration via concurrent-call rejection. |
 | `RULE-ENVELOPE-12` | `paused_user_idle` AND `paused_load` states MUST resume by re-running `StartupGate` (fresh baseline) before continuing. Subtest covers pause-then-resume across simulated time. |
 | `RULE-ENVELOPE-13` | Wizard MUST surface monitor-only fallback (`ENVELOPE-UNIVERSAL-D-INSUFFICIENT`) when all channels complete in `complete_D` with curve coverage below the per-channel minimum. Subtest covers all-D-with-narrow-coverage fixture. |
+| `RULE-ENVELOPE-14` | After each probe step's hold period, PWM readback MUST be compared to PWM target. If `abs(pwm_actual - pwm_target) > 4`, channel MUST transition to `phantom_bmc_overrides` and abort to Envelope D for that channel. Subtest covers via fixture where mock backend returns a value outside the ±4 quantization tolerance. |
 
 ---
 
@@ -941,6 +1040,13 @@ test files. `tools/rulelint` enforces.
     despite ventd's PWM writes.** Runtime check observes PWM_actual !=
     PWM_target on next read; channel transitions to
     `phantom_bmc_overrides`. Logged for doctor.
+    despite ventd's PWM writes.** Detected by the per-step PWM
+    readback verification in §5.2 step 5f: if `pwm_actual !=
+    pwm_target ± 4` after the hold period, channel transitions to
+    `phantom_bmc_overrides`, aborts to Envelope D, logs
+    `BMC-OVERRIDE-DETECTED`. RuntimeCheck idle predicate is
+    independent of this detection — runtime check operates on system
+    activity signals, not on PWM readback.
 
 15. **Concurrent `StartupGate` calls (race condition).** Idle package
     uses sync.Once-per-snapshot semantics; subtest covers via parallel
