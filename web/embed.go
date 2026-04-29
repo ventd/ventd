@@ -6,5 +6,5 @@ package webstatic
 
 import "embed"
 
-//go:embed index.html index.css shared/tokens.css shared/shell.css shared/brand.css shared/brand.js
+//go:embed index.html index.css shared/tokens.css shared/shell.css shared/brand.css shared/brand.js setup/probe.html
 var FS embed.FS

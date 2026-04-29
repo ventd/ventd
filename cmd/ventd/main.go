@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
@@ -33,11 +35,14 @@ import (
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/state"
+	"github.com/ventd/ventd/internal/sysclass"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -344,8 +349,13 @@ func run() error {
 		}
 	}
 	// Gate on the persisted outcome (RULE-PROBE-08).
+	// Refuse is non-fatal: the wizard surface is responsible for
+	// explaining the situation to the operator. Continue startup so
+	// the web server can bind and serve setup / dashboard pages.
+	// RULE-PROBE-11.
 	if outcome, ok, err := probe.LoadWizardOutcome(st.KV); err == nil && ok && outcome == probe.OutcomeRefuse {
-		return fmt.Errorf("probe: hardware unsupported (virtualised, containerised, or no sensors): %s", outcome)
+		logger.Warn("probe: hardware refused (virtualised, containerised, or no sensors); continuing in monitor-only mode",
+			"outcome", outcome)
 	}
 
 	// NVML init is always attempted. The shim silently disables GPU
@@ -377,12 +387,143 @@ func run() error {
 		logger.Info("hal: enumerated fan backends", "channels", len(channels))
 	}
 
+	// Synchronous system-class detection. Reads the probe result persisted
+	// earlier in run() and classifies the system hardware.
+	var sysProbeResult probe.ProbeResult
+	if rawVal, ok, _ := st.KV.Get("probe", "result"); ok {
+		if s, ok2 := rawVal.(string); ok2 {
+			_ = json.Unmarshal([]byte(s), &sysProbeResult)
+		}
+	}
+	sysDet, sysDetErr := sysclass.Detect(context.Background(), &sysProbeResult)
+	if sysDetErr != nil {
+		logger.Warn("sysclass: detection failed, using defaults", "err", sysDetErr)
+		sysDet = &sysclass.Detection{Class: sysclass.ClassUnknown}
+	}
+	if sysDetPersistErr := sysclass.PersistDetection(st.KV, sysDet); sysDetPersistErr != nil {
+		logger.Warn("sysclass: persist failed", "err", sysDetPersistErr)
+	}
+	logger.Info("sysclass: detected", "class", sysDet.Class, "evidence", sysDet.Evidence)
+
+	// Envelope C/D probe runs in background after the idle gate clears (RULE-IDLE-01).
+	// Context is cancelled by defer so the goroutine exits cleanly when run() returns.
+	envelopeCtx, envelopeCancel := context.WithCancel(context.Background())
+	defer envelopeCancel()
+	go runEnvelopeBackground(envelopeCtx, st, sysDet, &sysProbeResult, cfg, logger)
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
 
 	kvWiper := func() error { return probe.WipeNamespaces(st.KV) }
 	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper)
+}
+
+// runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
+// probe sequentially across all controllable channels (RULE-ENVELOPE-11).
+// Called from run() as a goroutine; ctx is cancelled when run() returns.
+func runEnvelopeBackground(
+	ctx context.Context,
+	st *state.State,
+	det *sysclass.Detection,
+	pr *probe.ProbeResult,
+	cfg *config.Config,
+	logger *slog.Logger,
+) {
+	if !sysclass.ServerProbeAllowed(det.Class, false, cfg.Envelope.AllowServerProbe) {
+		logger.Info("envelope: server probe suppressed; pass --allow-server-probe to enable",
+			"class", det.Class)
+		return
+	}
+	if code, ok := sysclass.AmbientBoundsOK(det.AmbientSensor.Reading); !ok {
+		logger.Warn("envelope: ambient reading outside [10,50]°C, probe deferred",
+			"code", code, "reading_c", det.AmbientSensor.Reading)
+		return
+	}
+
+	idleCfg := idle.GateConfig{
+		ProcRoot:      "/proc",
+		SysRoot:       "/sys",
+		AllowOverride: cfg.Idle.AllowOverride,
+	}
+	if cfg.Idle.Durability.Duration > 0 {
+		idleCfg.Durability = cfg.Idle.Durability.Duration
+	}
+	if cfg.Idle.TickInterval.Duration > 0 {
+		idleCfg.TickInterval = cfg.Idle.TickInterval.Duration
+	}
+	gateOK, reason, _ := idle.StartupGate(ctx, idleCfg)
+	if !gateOK {
+		logger.Info("envelope: idle gate not met, probe deferred", "reason", reason)
+		return
+	}
+	logger.Info("envelope: idle gate cleared, starting envelope C/D probe")
+
+	type chanEntry struct {
+		ch      *probe.ControllableChannel
+		writeFn func(uint8) error
+	}
+	var entries []chanEntry
+	for i := range pr.ControllableChannels {
+		ch := &pr.ControllableChannels[i]
+		if !polarity.IsControllable(ch) {
+			continue
+		}
+		pwmPath := ch.PWMPath
+		entries = append(entries, chanEntry{
+			ch:      ch,
+			writeFn: func(v uint8) error { return hwmon.WritePWM(pwmPath, v) },
+		})
+	}
+	if len(entries) == 0 {
+		logger.Info("envelope: no controllable channels, skipping probe")
+		return
+	}
+
+	sensorFn := func(_ context.Context) (map[string]float64, error) {
+		temps := make(map[string]float64)
+		for _, ts := range pr.ThermalSources {
+			for _, sc := range ts.Sensors {
+				if v, err := hwmon.ReadValue(sc.Path); err == nil {
+					temps[sc.Path] = v
+				}
+			}
+		}
+		return temps, nil
+	}
+
+	for _, e := range entries {
+		tachPath := e.ch.TachPath
+		rpmFn := func(_ context.Context) (uint32, error) {
+			if tachPath == "" {
+				return 0, nil
+			}
+			v, err := hwmon.ReadValue(tachPath)
+			if err != nil {
+				return 0, fmt.Errorf("read rpm %s: %w", tachPath, err)
+			}
+			return uint32(v), nil
+		}
+		p := envelope.NewProber(envelope.ProberConfig{
+			State:    st,
+			Class:    det.Class,
+			Tjmax:    det.Tjmax,
+			Ambient:  det.AmbientSensor.Reading,
+			SensorFn: sensorFn,
+			RPMFn:    rpmFn,
+			IdleGate: idle.StartupGate,
+			IdleCfg:  idleCfg,
+			Logger:   logger,
+		})
+		ch := e.ch
+		if probeErr := p.Probe(ctx,
+			[]*probe.ControllableChannel{ch},
+			[]func(uint8) error{e.writeFn},
+		); probeErr != nil {
+			logger.Warn("envelope: probe failed", "channel", ch.PWMPath, "err", probeErr)
+		}
+	}
+	logger.Info("envelope: probe complete", "channels", len(entries))
 }
 
 // runDaemon runs the daemon lifecycle: watchdog registration, hwmon watcher,

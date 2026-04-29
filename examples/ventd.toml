@@ -1,0 +1,72 @@
+# ventd example configuration
+#
+# Copy to /etc/ventd/config.yaml and edit as needed.
+# All fields are optional; uncommented values show defaults.
+# The setup wizard writes this file automatically on first boot.
+#
+# Format note: ventd uses YAML internally. This TOML reference is provided
+# for human readability only — copy-paste the YAML equivalents into your
+# actual config file.
+
+# ── Envelope C/D probe ────────────────────────────────────────────────────
+#
+# Envelope C descends the PWM range to find each fan's thermal response
+# curve. Envelope D ramps up from baseline on thermally-constrained systems.
+# The probe starts automatically after the idle gate clears on first boot.
+#
+[envelope]
+
+# allow_server_probe = false
+#
+# Set true to enable Envelope C on server-class hardware (Class 4) where a
+# BMC is present. Server BIOS firmware may actively contest PWM writes; read
+# RULE-SYSCLASS-05 before enabling on production machines.
+# allow_server_probe = false
+
+# Per-class threshold overrides. Uncomment and tune if the defaults are too
+# aggressive or too conservative for your specific hardware.
+#
+# [envelope.classes.mid_desktop]
+# dt_dt_abort_c_per_sec  = 3.0   # abort if any sensor rises faster than 3°C/s
+# t_abs_offset_below_tjmax = 15  # abort if any sensor exceeds Tjmax − 15°C
+# ambient_headroom_min   = 60    # refuse probe when ambient > Tjmax − 60°C
+#
+# [envelope.classes.server]
+# dt_dt_abort_c_per_sec  = 2.0
+# t_abs_offset_below_tjmax = 20
+# ambient_headroom_min   = 70
+#
+# [envelope.classes.laptop]
+# dt_dt_abort_c_per_sec  = 4.0
+# t_abs_offset_below_tjmax = 10
+# ambient_headroom_min   = 50
+
+
+# ── Idle gate ─────────────────────────────────────────────────────────────
+#
+# The idle gate blocks Envelope C until the system has been genuinely idle
+# for a sustained window. This prevents probe data from being distorted by
+# active workloads (games, compiles, backups) running in the background.
+#
+[idle]
+
+# tick_interval = "10s"
+#
+# How often the idle predicate is polled. Shorter intervals react faster to
+# a newly-idle system but increase /proc overhead marginally.
+# tick_interval = "10s"
+
+# durability = "300s"
+#
+# How long the idle predicate must be continuously true before the gate
+# opens and Envelope C starts (RULE-IDLE-01). The default 300s (5 minutes)
+# filters out workload pauses and brief quiet periods.
+# durability = "300s"
+
+# allow_override = false
+#
+# When true, an active RAID rebuild (/proc/mdstat) no longer blocks the
+# gate. Battery and container refusals are always enforced regardless of
+# this setting (RULE-IDLE-09). Only set this if you are intentionally
+# running the probe during a storage maintenance window.
+# allow_override = false

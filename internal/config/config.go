@@ -53,6 +53,46 @@ type ExperimentalConfig struct {
 	IDRAC9LegacyRaw bool `yaml:"idrac9_legacy_raw,omitempty" json:"idrac9_legacy_raw,omitempty"`
 }
 
+// EnvelopeClassThresholds overrides the per-class thermal abort and headroom
+// thresholds used by the Envelope C/D probe for a specific system class.
+// Zero values leave the built-in defaults from envelope.LookupThresholds unchanged.
+type EnvelopeClassThresholds struct {
+	DTDtAbortCPerSec     float64 `yaml:"dtdt_abort_c_per_sec,omitempty" json:"dtdt_abort_c_per_sec,omitempty"`
+	TAbsOffsetBelowTjmax float64 `yaml:"tabs_offset_below_tjmax,omitempty" json:"tabs_offset_below_tjmax,omitempty"`
+	AmbientHeadroomMin   float64 `yaml:"ambient_headroom_min,omitempty" json:"ambient_headroom_min,omitempty"`
+}
+
+// EnvelopeClassesConfig groups optional per-class threshold overrides.
+type EnvelopeClassesConfig struct {
+	HEDTAir    *EnvelopeClassThresholds `yaml:"hedt_air,omitempty" json:"hedt_air,omitempty"`
+	HEDTAio    *EnvelopeClassThresholds `yaml:"hedt_aio,omitempty" json:"hedt_aio,omitempty"`
+	MidDesktop *EnvelopeClassThresholds `yaml:"mid_desktop,omitempty" json:"mid_desktop,omitempty"`
+	Server     *EnvelopeClassThresholds `yaml:"server,omitempty" json:"server,omitempty"`
+	Laptop     *EnvelopeClassThresholds `yaml:"laptop,omitempty" json:"laptop,omitempty"`
+	MiniPC     *EnvelopeClassThresholds `yaml:"mini_pc,omitempty" json:"mini_pc,omitempty"`
+	NASHDD     *EnvelopeClassThresholds `yaml:"nas_hdd,omitempty" json:"nas_hdd,omitempty"`
+}
+
+// EnvelopeConfig holds config-file settings for the Envelope C/D probe.
+type EnvelopeConfig struct {
+	// AllowServerProbe permits Envelope C on server-class hardware with a BMC present.
+	// Equivalent to the --allow-server-probe CLI flag; config-file opt-in for headless setups.
+	AllowServerProbe bool                  `yaml:"allow_server_probe,omitempty" json:"allow_server_probe,omitempty"`
+	Classes          EnvelopeClassesConfig `yaml:"classes,omitempty" json:"classes,omitempty"`
+}
+
+// IdleConfig tunes the idle.StartupGate used before Envelope C begins.
+type IdleConfig struct {
+	// TickInterval is the polling cadence of the idle predicate (default: 10s).
+	TickInterval Duration `yaml:"tick_interval,omitempty" json:"tick_interval,omitempty"`
+	// Durability is how long the idle predicate must stay true before the gate
+	// opens (default: 300s / 5 minutes).
+	Durability Duration `yaml:"durability,omitempty" json:"durability,omitempty"`
+	// AllowOverride skips the storage-maintenance (RAID rebuild) hard-refusal.
+	// Battery and container refusals are never overridable.
+	AllowOverride bool `yaml:"allow_override,omitempty" json:"allow_override,omitempty"`
+}
+
 type Config struct {
 	Version       int                `yaml:"version" json:"version"`
 	PollInterval  Duration           `yaml:"poll_interval" json:"poll_interval"`
@@ -66,6 +106,8 @@ type Config struct {
 	Profiles      map[string]Profile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 	ActiveProfile string             `yaml:"active_profile,omitempty" json:"active_profile,omitempty"`
 	Experimental  ExperimentalConfig `yaml:"experimental,omitempty" json:"experimental,omitempty"`
+	Envelope      EnvelopeConfig     `yaml:"envelope,omitempty" json:"envelope,omitempty"`
+	Idle          IdleConfig         `yaml:"idle,omitempty" json:"idle,omitempty"`
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can
