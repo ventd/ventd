@@ -3,7 +3,9 @@ package envelope
 import "math"
 
 // NASAbortTemp computes the per-drive T_abort using the NAS derate formula:
-//   T_abort = min(50.0, mfgMax - 10.0, ambient + 15.0)
+//
+//	T_abort = min(50.0, mfgMax - 10.0, ambient + 15.0)
+//
 // All three bounds must be respected to protect both the drive and the user expectation.
 func NASAbortTemp(mfgMax, ambient float64) float64 {
 	return math.Min(50.0, math.Min(mfgMax-10.0, ambient+15.0))
