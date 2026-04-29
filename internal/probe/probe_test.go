@@ -291,9 +291,18 @@ func TestProbe_Rules(t *testing.T) {
 		}
 	})
 
-	// RULE-PROBE-06: All ControllableChannel.Polarity == "unknown" in v0.5.1.
-	// Polarity is deferred to the calibration probe in v0.5.2.
+	// RULE-PROBE-06: ControllableChannel.Polarity must be in the closed set
+	// {"unknown","normal","inverted","phantom"} (v0.5.2 closed-set correction).
+	// The v0.5.1 probe layer still produces only "unknown"; the subtest now
+	// asserts closed-set membership so it remains valid after v0.5.2 resolves
+	// channels to the other three values.
 	t.Run("RULE-PROBE-06_polarity_always_unknown", func(t *testing.T) {
+		validPolarity := map[string]bool{
+			"unknown":  true,
+			"normal":   true,
+			"inverted": true,
+			"phantom":  true,
+		}
 		var checked []string
 		p := probe.New(probe.Config{
 			SysFS:      fixtures.SysWithThermalAndPWM(),
@@ -310,8 +319,8 @@ func TestProbe_Rules(t *testing.T) {
 			t.Fatal("no controllable channels; SysWithThermalAndPWM fixture may be broken")
 		}
 		for _, ch := range r.ControllableChannels {
-			if ch.Polarity != "unknown" {
-				t.Errorf("channel %s: Polarity=%q, want \"unknown\"", ch.PWMPath, ch.Polarity)
+			if !validPolarity[ch.Polarity] {
+				t.Errorf("channel %s: Polarity=%q not in closed set {unknown,normal,inverted,phantom}", ch.PWMPath, ch.Polarity)
 			}
 		}
 	})
