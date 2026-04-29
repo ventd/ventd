@@ -63,7 +63,7 @@ func parsePSIFile(path string, fn func(kind string, avg10, avg60, avg300 float64
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

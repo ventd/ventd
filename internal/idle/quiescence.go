@@ -43,7 +43,7 @@ func ReadDiskStat(procRoot string) diskStat {
 	if err != nil {
 		return diskStat{}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var total uint64
 	sc := bufio.NewScanner(f)
@@ -90,7 +90,7 @@ func ReadNetStat(procRoot string) netStat {
 	if err != nil {
 		return netStat{}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var total uint64
 	sc := bufio.NewScanner(f)

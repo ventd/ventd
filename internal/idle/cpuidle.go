@@ -19,7 +19,7 @@ func captureCPUStat(procRoot string) CPUStat {
 	if err != nil {
 		return CPUStat{}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
