@@ -3,23 +3,26 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [Unreleased]
+
+### Changed
+- CC sessions now load `.claude/RULE-INDEX.md` instead of fanning out across all rule files. Rules are read on demand via `go run ./tools/rule-index`. Reduces session preload by ~24-48k tokens. (#TBD)
+
+## [v0.5.3] - 2026-04-29
+
+### Added
+- Envelope C/D probe + idle gate wiring (v0.5.3 PR-B) (#685)
+
 ## [v0.5.2.1] - 2026-04-29
 
+### Added
+- Sysclass + idle foundation (PR-A) (#682)
+### Chore
+- Apply Thariq 9-rule audit to all SKILL.md files and add cost-routing reference (#683)
 ### Documentation
 - Research archive + spec-16 post-ship cleanup + untracked spec drafts (#677)
 ### Fixed
-- Serve ui/index.html at root instead of web mockups index (#674)- Remove dead savedFan code and harden Alpine torn-read test (#676)- Add GetFanControlPolicy to nonvidia stub (#681)## [v0.5.2] - 2026-04-27
-## [Unreleased]
-
-### Added
-- System class detection (`internal/sysclass`) — seven classes (NAS, MiniPC, Laptop, Server, HEDT-AIO, HEDT-Air, MidDesktop) with precedence chain, KV persistence, ambient sensor identification, AmbientBoundsOK gate, ServerProbeAllowed gate, and laptop EC handshake (spec-v0_5_3 PR-A)
-- Idle predicate foundation (`internal/idle`) — PSI-primary/loadavg-fallback, durability-gated StartupGate, hard battery/container refusals, process blocklist with SetExtraBlocklist, RuntimeCheck baseline-delta, exponential backoff with daily cap (spec-v0_5_3 PR-A)
-- AppArmor: add /proc/pressure/*, /proc/mdstat, /proc/loadavg, /proc/uptime, /proc/spl/kstat/zfs/**, /sys/fs/btrfs/**, /proc/sys/kernel/osrelease
-- Envelope C/D bidirectional thermal-guarded PWM step probe (`internal/envelope`) — 14 rule-bound subtests covering sequential channel sequencing, thermal abort (dT/dt + T_abs), ambient headroom gate, baseline restore on all exit paths, KV step-level resumability, paused-state idle re-check, LogStore StepEvent schema, PWM readback verification, and Envelope D ramp-up floor (spec-v0_5_3 PR-B)
-- `config.EnvelopeConfig` and `config.IdleConfig` config-file blocks with per-class threshold overrides and idle gate tuning (spec-v0_5_3 PR-B)
-
-### Fixed
-- Daemon no longer exits fatally on persisted `OutcomeRefuse` from probe; continues startup to serve web UI (RULE-PROBE-11)
+- Serve ui/index.html at root instead of web mockups index (#674)- Remove dead savedFan code and harden Alpine torn-read test (#676)- Add GetFanControlPolicy to nonvidia stub (#681)
 
 ## [v0.5.2] - 2026-04-27
 

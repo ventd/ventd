@@ -22,7 +22,7 @@ WSL2 at /home/phoenix/ventd. HIL at 192.168.7.222 (MiniPC) and Proxmox at
 - RULE-WD-*       Watchdog safety (restore on exit, NVML reset, RPM target, idempotent)
 - RULE-CAL-*      Calibration safety (zero-fires/cancel/rearm/stop, detect happy/concurrent)
 
-See `@.claude/rules/` for full bindings (use ventd-rulelint skill to enforce).
+See `.claude/RULE-INDEX.md` for the full rule map (use ventd-rulelint skill to enforce).
 
 ## Invariants that don't have a RULE- yet
 - CGO_ENABLED=0 — no cgo deps; purego dlopen only
@@ -38,7 +38,7 @@ See `@.claude/rules/` for full bindings (use ventd-rulelint skill to enforce).
 
 ## See also (loaded on demand)
 - `@specs/` — feature specs (use ventd-specs skill)
-- `@.claude/rules/` — rulelint bindings (use ventd-rulelint skill)
+- `.claude/RULE-INDEX.md` — rule map; open specific rule files on demand (use ventd-rulelint skill)
 
 ## Current roadmap
 Phase 4 order: SLEEP → PI → HYST → LATCH+STEP → PI-autotune → HWCURVE →
