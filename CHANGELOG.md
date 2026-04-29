@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Research archive + spec-16 post-ship cleanup + untracked spec drafts (#677)
 ### Fixed
 - Serve ui/index.html at root instead of web mockups index (#674)- Remove dead savedFan code and harden Alpine torn-read test (#676)- Add GetFanControlPolicy to nonvidia stub (#681)## [v0.5.2] - 2026-04-27
+## [Unreleased]
+
+### Added
+- System class detection (`internal/sysclass`) — seven classes (NAS, MiniPC, Laptop, Server, HEDT-AIO, HEDT-Air, MidDesktop) with precedence chain, KV persistence, ambient sensor identification, AmbientBoundsOK gate, ServerProbeAllowed gate, and laptop EC handshake (spec-v0_5_3 PR-A)
+- Idle predicate foundation (`internal/idle`) — PSI-primary/loadavg-fallback, durability-gated StartupGate, hard battery/container refusals, process blocklist with SetExtraBlocklist, RuntimeCheck baseline-delta, exponential backoff with daily cap (spec-v0_5_3 PR-A)
+- AppArmor: add /proc/pressure/*, /proc/mdstat, /proc/loadavg, /proc/uptime, /proc/spl/kstat/zfs/**, /sys/fs/btrfs/**, /proc/sys/kernel/osrelease
+
+## [v0.5.2] - 2026-04-27
 
 ### Added
 - Cross-backend polarity probe + wizard screen (spec-v0_5_2) (#673)## [v0.5.1] - 2026-04-27
