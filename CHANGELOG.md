@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - System class detection (`internal/sysclass`) — seven classes (NAS, MiniPC, Laptop, Server, HEDT-AIO, HEDT-Air, MidDesktop) with precedence chain, KV persistence, ambient sensor identification, AmbientBoundsOK gate, ServerProbeAllowed gate, and laptop EC handshake (spec-v0_5_3 PR-A)
 - Idle predicate foundation (`internal/idle`) — PSI-primary/loadavg-fallback, durability-gated StartupGate, hard battery/container refusals, process blocklist with SetExtraBlocklist, RuntimeCheck baseline-delta, exponential backoff with daily cap (spec-v0_5_3 PR-A)
 - AppArmor: add /proc/pressure/*, /proc/mdstat, /proc/loadavg, /proc/uptime, /proc/spl/kstat/zfs/**, /sys/fs/btrfs/**, /proc/sys/kernel/osrelease
+- Envelope C/D bidirectional thermal-guarded PWM step probe (`internal/envelope`) — 14 rule-bound subtests covering sequential channel sequencing, thermal abort (dT/dt + T_abs), ambient headroom gate, baseline restore on all exit paths, KV step-level resumability, paused-state idle re-check, LogStore StepEvent schema, PWM readback verification, and Envelope D ramp-up floor (spec-v0_5_3 PR-B)
+- `config.EnvelopeConfig` and `config.IdleConfig` config-file blocks with per-class threshold overrides and idle gate tuning (spec-v0_5_3 PR-B)
+
+### Fixed
+- Daemon no longer exits fatally on persisted `OutcomeRefuse` from probe; continues startup to serve web UI (RULE-PROBE-11)
 
 ## [v0.5.2] - 2026-04-27
 
