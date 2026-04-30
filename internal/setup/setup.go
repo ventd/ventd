@@ -117,15 +117,24 @@ type Manager struct {
 	hwmonRoot    string // e.g. "/sys/class/hwmon"
 	procRoot     string // e.g. "/proc"
 	powercapRoot string // e.g. "/sys/class/powercap"
+
+	// appliedMarkerPath is the path to a zero-byte sentinel file created
+	// by MarkApplied so that "setup has been completed" survives a daemon
+	// restart even when the persisted config has no Controls (the
+	// monitor-only / no-fans path). Empty in tests — NewWithRoots leaves
+	// it unset so unit tests don't write to /var/lib/ventd/. Production
+	// code uses New, which sets it to defaultAppliedMarkerPath.
+	appliedMarkerPath string
 }
 
 // Default path roots used when the Manager is constructed via New. Exported
 // so tests that need to assert production defaults don't have to duplicate
 // the strings.
 const (
-	defaultHwmonRoot    = "/sys/class/hwmon"
-	defaultProcRoot     = "/proc"
-	defaultPowercapRoot = "/sys/class/powercap"
+	defaultHwmonRoot         = "/sys/class/hwmon"
+	defaultProcRoot          = "/proc"
+	defaultPowercapRoot      = "/sys/class/powercap"
+	defaultAppliedMarkerPath = "/var/lib/ventd/.setup-applied"
 )
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. When set, the
@@ -151,7 +160,9 @@ func (m *Manager) SetPolarityProber(p polarity.Prober) {
 // lifecycle is managed via the refcount-safe nvidia.Init/Shutdown pair;
 // setup does not need to know whether the daemon already initialised NVML.
 func New(cal *calibrate.Manager, logger *slog.Logger) *Manager {
-	return NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
+	m := NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
+	m.appliedMarkerPath = defaultAppliedMarkerPath
+	return m
 }
 
 // NewWithRoots is the test constructor: it takes explicit roots for
@@ -170,6 +181,12 @@ func NewWithRoots(cal *calibrate.Manager, logger *slog.Logger, hwmonRoot, procRo
 
 // Needed reports whether setup should be presented to the user.
 // It returns true when the config has no controls defined (empty/first-boot state).
+//
+// This is the "config alone" predicate; for the full live-with-marker
+// answer, callers should use Manager.ProgressNeeded which combines this
+// with the persistent applied marker so a host that completed setup with
+// no controllable fans (monitor-only) is not bounced back to the wizard
+// on every restart.
 func Needed(cfg *config.Config) bool {
 	return len(cfg.Controls) == 0
 }
@@ -288,11 +305,31 @@ func (m *Manager) Progress() Progress {
 // to the live config.
 func (m *Manager) ProgressNeeded(liveCfg *config.Config) Progress {
 	p := m.Progress()
-	m.mu.Lock()
-	applied := m.applied
-	m.mu.Unlock()
-	p.Needed = !applied && Needed(liveCfg)
+	p.Needed = !m.IsApplied() && Needed(liveCfg)
 	return p
+}
+
+// IsApplied reports whether the wizard has been completed for this host.
+// True when MarkApplied has fired in the current process, OR when the
+// persistent applied-marker file exists from a prior daemon run. The
+// marker is what lets a no-fans / monitor-only host stay out of the
+// wizard across restarts even though Needed(cfg) keeps returning true
+// (the persisted config has no Controls).
+func (m *Manager) IsApplied() bool {
+	m.mu.Lock()
+	inMem := m.applied
+	path := m.appliedMarkerPath
+	m.mu.Unlock()
+	if inMem {
+		return true
+	}
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return false
 }
 
 // GeneratedConfig returns the generated config after a successful run,
@@ -304,11 +341,43 @@ func (m *Manager) GeneratedConfig() *config.Config {
 }
 
 // MarkApplied records that the generated config has been written to disk.
-// After this, Progress.Needed will be false.
+// After this, Progress.Needed will be false. Also creates a persistent
+// marker file so the wizard stays dismissed across daemon restarts even
+// for hosts whose post-setup config has no Controls (the monitor-only
+// "no controllable fans" path). Marker write is best-effort — a write
+// failure leaves the in-memory flag set so the current session is fine,
+// and the operator will only see the wizard on the next daemon restart.
 func (m *Manager) MarkApplied() {
 	m.mu.Lock()
 	m.applied = true
+	path := m.appliedMarkerPath
 	m.mu.Unlock()
+	if path == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err == nil {
+		if f, err := os.Create(path); err == nil {
+			_ = f.Close()
+		}
+	}
+}
+
+// ClearApplied removes both the in-memory flag and the persistent marker.
+// Used by the setup-reset path when an operator wants to wipe their setup
+// and start over. Returns the marker-removal error so callers can log a
+// resilient state if they care; missing marker is reported as nil.
+func (m *Manager) ClearApplied() error {
+	m.mu.Lock()
+	m.applied = false
+	path := m.appliedMarkerPath
+	m.mu.Unlock()
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // Abort cancels an in-flight setup wizard run (including the parallel

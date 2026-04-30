@@ -1175,15 +1175,39 @@ func (s *Server) handleSetupStart(w http.ResponseWriter, r *http.Request) {
 // handleSetupApply POST /api/setup/apply
 // Writes the generated config to disk. Does NOT update liveCfg — the user
 // must restart the daemon so main.go can re-initialise NVML correctly.
+//
+// Empty-fanset escape: if the wizard finished but produced no generated
+// config because no controllable fans were discoverable (VM, headless
+// container, motherboard whose chip needs manual driver work, etc.),
+// fall back to config.Empty() so the operator can opt into monitor-only
+// mode without being permanently trapped on /calibration. Setup state
+// is marked applied (with a persistent marker file) so the next daemon
+// restart goes straight to the dashboard.
 func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	cfg := s.setup.GeneratedConfig()
+	monitorOnly := false
 	if cfg == nil {
-		http.Error(w, "setup not complete", http.StatusConflict)
-		return
+		p := s.setup.Progress()
+		if p.Done && p.Error != "" && len(p.Fans) == 0 {
+			// Preserve the live web settings (listen address, TLS paths,
+			// session TTL, trust_proxy) so the operator who is mid-setup
+			// over a LAN browser doesn't have the daemon silently
+			// downgrade to 127.0.0.1 because config.Empty() defaults to
+			// loopback. Everything else (sensors/fans/curves/controls)
+			// comes back empty — that is the monitor-only intent.
+			cfg = config.Empty()
+			if live := s.cfg.Load(); live != nil {
+				cfg.Web = live.Web
+			}
+			monitorOnly = true
+		} else {
+			http.Error(w, "setup not complete", http.StatusConflict)
+			return
+		}
 	}
 
 	// Auth credentials live in auth.json (written by handleFirstBootLogin /
@@ -1202,8 +1226,13 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setup.MarkApplied()
-	s.logger.Info("setup: config written via web UI", "path", s.configPath,
-		"fans", len(cfg.Fans), "controls", len(cfg.Controls))
+	if monitorOnly {
+		s.logger.Info("setup: monitor-only mode applied (no controllable fans found)",
+			"path", s.configPath)
+	} else {
+		s.logger.Info("setup: config written via web UI", "path", s.configPath,
+			"fans", len(cfg.Fans), "controls", len(cfg.Controls))
+	}
 
 	w.Header().Set("Connection", "close")
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
@@ -1227,6 +1256,13 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 		if err := s.kvWiper(); err != nil {
 			s.logger.Warn("setup reset: kv wipe failed", "err", err)
 		}
+	}
+	// Clear the persistent applied-marker so a host that opted into
+	// monitor-only via handleSetupApply's empty-fanset escape goes back
+	// to the wizard on next start (otherwise the marker would suppress
+	// the wizard even though config.yaml was just removed).
+	if err := s.setup.ClearApplied(); err != nil {
+		s.logger.Warn("setup reset: clear applied marker failed", "err", err)
 	}
 	s.logger.Info("setup: config removed; triggering reload (daemon continues until next restart)", "path", s.configPath)
 
