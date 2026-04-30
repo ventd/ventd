@@ -128,8 +128,21 @@
               <div class="set-row-title">Change password</div>
               <div class="set-row-sub">Replace the admin password without re-running setup.</div>
             </div>
-            <button class="btn btn--ghost" id="set-change-pw" type="button">Change…</button>
+            <button class="btn btn--ghost" id="set-change-pw" type="button" aria-expanded="false">Change…</button>
           </div>
+          <form class="set-pw-form" id="set-pw-form" hidden autocomplete="off">
+            <label class="set-pw-label" for="set-pw-current">Current password</label>
+            <input class="set-pw-input mono" id="set-pw-current" type="password" autocomplete="current-password" required>
+            <label class="set-pw-label" for="set-pw-new">New password <span class="set-pw-hint">min 8 chars</span></label>
+            <input class="set-pw-input mono" id="set-pw-new" type="password" autocomplete="new-password" minlength="8" required>
+            <label class="set-pw-label" for="set-pw-confirm">Confirm new password</label>
+            <input class="set-pw-input mono" id="set-pw-confirm" type="password" autocomplete="new-password" minlength="8" required>
+            <div class="set-pw-error" id="set-pw-error" hidden role="alert"></div>
+            <div class="set-pw-actions">
+              <button class="btn btn--ghost" id="set-pw-cancel" type="button">Cancel</button>
+              <button class="btn btn--primary" id="set-pw-save" type="submit">Save password</button>
+            </div>
+          </form>
           <div class="set-row">
             <div>
               <div class="set-row-title">Trusted proxy CIDRs</div>

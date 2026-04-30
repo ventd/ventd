@@ -125,6 +125,46 @@
 }
 .btn.btn--danger:hover { filter: brightness(1.1); }
 
+/* inline change-password form (Security card) */
+.set-pw-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+}
+.set-pw-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg3);
+}
+.set-pw-hint {
+  text-transform: none; letter-spacing: 0; color: var(--fg2); margin-left: 6px;
+}
+.set-pw-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg1);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  color: var(--fg0);
+  font-size: 0.9rem;
+}
+.set-pw-input:focus { outline: none; border-color: var(--teal); }
+.set-pw-error {
+  font-size: 0.8rem;
+  color: var(--red);
+  padding: 6px 10px;
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  border-radius: 6px;
+}
+.set-pw-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px;
+}
+
 @media (max-width: 900px) {
   .set-page { grid-template-columns: 1fr; }
   .set-nav { position: static; flex-direction: row; flex-wrap: wrap; }

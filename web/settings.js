@@ -148,27 +148,74 @@
   }
 
   // ── action wiring ─────────────────────────────────────────────────
-  $('set-change-pw').addEventListener('click', function () {
-    var current = window.prompt('Current password:');
-    if (current == null) return;
-    var next = window.prompt('New password (min 8 chars):');
-    if (next == null) return;
-    if (next.length < 8) { alert('Password must be at least 8 characters.'); return; }
-    var confirm = window.prompt('Confirm new password:');
-    if (confirm !== next) { alert('Passwords do not match.'); return; }
-    var body = new URLSearchParams();
-    body.set('current_password', current);
-    body.set('new_password', next);
+  // Inline password change form — collapsed by default; the trigger
+  // toggles it open so the inputs can use type="password" and the
+  // browser/password-manager can autofill. The previous flow was three
+  // window.prompt() dialogs that displayed the password in plain text.
+  var pwTrigger = $('set-change-pw');
+  var pwForm    = $('set-pw-form');
+  var pwCurrent = $('set-pw-current');
+  var pwNew     = $('set-pw-new');
+  var pwConfirm = $('set-pw-confirm');
+  var pwError   = $('set-pw-error');
+  var pwCancel  = $('set-pw-cancel');
+  var pwSave    = $('set-pw-save');
+
+  function showPwError(msg) { pwError.textContent = msg; pwError.hidden = false; }
+  function clearPwError()   { pwError.hidden = true;  pwError.textContent = ''; }
+
+  function openPwForm() {
+    pwForm.hidden = false;
+    pwTrigger.setAttribute('aria-expanded', 'true');
+    pwCurrent.value = ''; pwNew.value = ''; pwConfirm.value = '';
+    clearPwError();
+    pwCurrent.focus();
+  }
+  function closePwForm() {
+    pwForm.hidden = true;
+    pwTrigger.setAttribute('aria-expanded', 'false');
+    pwCurrent.value = ''; pwNew.value = ''; pwConfirm.value = '';
+    clearPwError();
+    pwSave.disabled = false; pwSave.textContent = 'Save password';
+  }
+
+  pwTrigger.addEventListener('click', function () {
+    if (pwForm.hidden) openPwForm(); else closePwForm();
+  });
+  pwCancel.addEventListener('click', closePwForm);
+
+  pwForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    clearPwError();
+    var current = pwCurrent.value;
+    var next    = pwNew.value;
+    var confirm = pwConfirm.value;
+    if (!current)              { showPwError('Current password required.'); pwCurrent.focus(); return; }
+    if (next.length < 8)       { showPwError('New password must be at least 8 characters.'); pwNew.focus(); return; }
+    if (confirm !== next)      { showPwError('Passwords do not match.'); pwConfirm.focus(); return; }
+
+    pwSave.disabled = true;
+    pwSave.textContent = 'Saving…';
+
+    // handleSetPassword expects {"current": ..., "new": ...} as JSON
+    // (internal/web/server.go:1549). The previous form-encoded body
+    // tripped the JSON decoder and surfaced as a 400 to the operator.
     fetch('/api/v1/set-password', {
       method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString()
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current: current, new: next })
     })
       .then(function (r) {
-        if (r.ok) { alert('Password updated.'); return; }
-        return r.json().then(function (j) { alert('Failed: ' + (j && j.error || r.status)); });
+        if (r.ok) { closePwForm(); alert('Password updated.'); return; }
+        return r.json().catch(function () { return null; }).then(function (j) {
+          showPwError((j && j.error) || ('Failed (HTTP ' + r.status + ').'));
+          pwSave.disabled = false; pwSave.textContent = 'Save password';
+        });
       })
-      .catch(function (e) { alert('Failed: ' + (e && e.message)); });
+      .catch(function (e) {
+        showPwError('Network error: ' + (e && e.message || 'unable to reach the daemon.'));
+        pwSave.disabled = false; pwSave.textContent = 'Save password';
+      });
   });
 
   $('set-bundle').addEventListener('click', function () {
