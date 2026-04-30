@@ -37,6 +37,7 @@ import (
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/sdnotify"
@@ -404,6 +405,25 @@ func run() error {
 		logger.Warn("sysclass: persist failed", "err", sysDetPersistErr)
 	}
 	logger.Info("sysclass: detected", "class", sysDet.Class, "evidence", sysDet.Evidence)
+
+	// Passive observation log: constructed once per daemon start. Channels come
+	// from the probe result; the DMI fingerprint is computed from live sysfs.
+	// Non-fatal on error — observation loss is preferable to a failed daemon start.
+	channels := make([]*probe.ControllableChannel, len(sysProbeResult.ControllableChannels))
+	for i := range sysProbeResult.ControllableChannels {
+		channels[i] = &sysProbeResult.ControllableChannels[i]
+	}
+	var dmiFingerprint string
+	if dmi, dmiErr := hwdb.ReadDMI(os.DirFS("/")); dmiErr == nil {
+		dmiFingerprint = hwdb.Fingerprint(dmi)
+	}
+	obsWriter, obsErr := observation.New(st.Log, st.KV, channels, dmiFingerprint, version, logger)
+	if obsErr != nil {
+		logger.Warn("observation: writer init failed; tick logging disabled", "err", obsErr)
+	} else {
+		logger.Info("observation: writer initialised", "channels", len(channels))
+	}
+	_ = obsWriter // consumed by controller tick wiring in a follow-up spec
 
 	// Envelope C/D probe runs in background after the idle gate clears (RULE-IDLE-01).
 	// Context is cancelled by defer so the goroutine exits cleanly when run() returns.
