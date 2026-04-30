@@ -27,8 +27,8 @@ import (
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
 	setupmgr "github.com/ventd/ventd/internal/setup"
-	webstatic "github.com/ventd/ventd/web"
 	"github.com/ventd/ventd/internal/web/authpersist"
+	webstatic "github.com/ventd/ventd/web"
 )
 
 // SetupTokenTTL bounds how long the first-boot setup token stays valid.
