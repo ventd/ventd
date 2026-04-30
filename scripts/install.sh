@@ -743,12 +743,18 @@ case "$INIT_SYSTEM" in
         if [[ "$VENTD_TEST_MODE" != "1" ]]; then
             systemctl daemon-reload
             if (( WAS_ACTIVE == 1 )); then
-                systemctl try-restart ventd.service || true
-                echo "  ✓ systemd unit → $SERVICE_DST (reloaded + restarted running service)"
+                # Defer try-restart until AppArmor / udev / module probe
+                # have run; otherwise the running daemon picks up the new
+                # unit before its prerequisites are in place.
+                echo "  ✓ systemd unit → $SERVICE_DST (reloaded; restart deferred)"
             else
                 systemctl enable ventd.service
-                systemctl start ventd.service
-                echo "  ✓ systemd unit → $SERVICE_DST (enabled + started)"
+                # Defer start until AppArmor / udev / module probe have
+                # run. The unit pins AppArmorProfile=ventd, which is a
+                # hard fail (status=231/APPARMOR) if the kernel has no
+                # such profile loaded. See the deferred-start block at
+                # the end of this script.
+                echo "  ✓ systemd unit → $SERVICE_DST (enabled; start deferred)"
             fi
             if [[ -n "$RECOVER_SRC" ]]; then
                 systemctl enable ventd-recover.service
@@ -770,8 +776,10 @@ case "$INIT_SYSTEM" in
     openrc)
         install -m 755 "$OPENRC_SRC" /etc/init.d/ventd
         rc-update add ventd default
-        rc-service ventd start
-        echo "  ✓ OpenRC init script → /etc/init.d/ventd (enabled + started)"
+        # Defer rc-service start until prerequisites (udev, modules,
+        # apparmor) are in place. See the deferred-start block at
+        # the end of this script.
+        echo "  ✓ OpenRC init script → /etc/init.d/ventd (enabled; start deferred)"
         ;;
 
     runit)
@@ -786,19 +794,11 @@ exec svlogd -tt /var/log/ventd
 EOF
         chmod 755 /etc/sv/ventd/log/run
 
-        # Symlinking into the runit service directory enables AND starts the
-        # service in one step — runsvdir picks up the symlink within seconds.
-        if [ -d /var/service ]; then
-            ln -sfn /etc/sv/ventd /var/service/ventd
-            echo "  ✓ runit service → /etc/sv/ventd (linked in /var/service, auto-starts)"
-        elif [ -d /etc/runit/runsvdir/default ]; then
-            ln -sfn /etc/sv/ventd /etc/runit/runsvdir/default/ventd
-            echo "  ✓ runit service → /etc/sv/ventd (linked in /etc/runit/runsvdir/default, auto-starts)"
-        else
-            echo "  ✓ runit service → /etc/sv/ventd"
-            echo "  ! could not find service directory to link into; link manually:"
-            echo "      ln -s /etc/sv/ventd /var/service/ventd"
-        fi
+        # The symlink into the runsv dir starts the service immediately
+        # because runsvdir polls for new entries. Defer it until
+        # prerequisites (apparmor profile, udev rules, kernel modules)
+        # are installed — see the deferred-start block at the end.
+        echo "  ✓ runit service → /etc/sv/ventd (start deferred)"
         ;;
 
     unknown)
@@ -999,6 +999,47 @@ install_selinux_module() {
 if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     install_apparmor_profile
     install_selinux_module
+fi
+
+# ── Deferred service start ──────────────────────────────────────────────────
+#
+# The earlier init-system block enabled (or installed unit files for) the
+# service but deferred the actual start. We waited so that AppArmor
+# profiles, udev rules, and kernel modules are all in place before the
+# kernel evaluates the unit's AppArmorProfile=, before pwm DAC group
+# bits are needed, and before the daemon enumerates hwmon. Without
+# this defer, ventd.service exits 231/APPARMOR on the first start
+# whenever apparmor_parser is present but the profile hasn't been
+# loaded yet. See issue #695.
+
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    case "$INIT_SYSTEM" in
+        systemd)
+            if (( WAS_ACTIVE == 1 )); then
+                systemctl try-restart ventd.service || true
+                echo "  ✓ ventd.service restarted (prerequisites in place)"
+            else
+                systemctl start ventd.service || true
+                echo "  ✓ ventd.service started"
+            fi
+            ;;
+        openrc)
+            rc-service ventd start || true
+            echo "  ✓ ventd started via OpenRC"
+            ;;
+        runit)
+            if [ -d /var/service ]; then
+                ln -sfn /etc/sv/ventd /var/service/ventd
+                echo "  ✓ runit service linked in /var/service (auto-starts)"
+            elif [ -d /etc/runit/runsvdir/default ]; then
+                ln -sfn /etc/sv/ventd /etc/runit/runsvdir/default/ventd
+                echo "  ✓ runit service linked in /etc/runit/runsvdir/default (auto-starts)"
+            else
+                echo "  ! could not find runit service directory; link manually:"
+                echo "      ln -s /etc/sv/ventd /var/service/ventd"
+            fi
+            ;;
+    esac
 fi
 
 # ── Post-start verification ─────────────────────────────────────────────────
