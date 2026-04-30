@@ -53,24 +53,21 @@
     .catch(function () {});
 
   // ── Token paste shortcut ──
+  // The token is lowercase hex (XXXXX-XXXXX-XXXXX) as written by the
+  // daemon to /run/ventd/setup-token; do not mangle the case here —
+  // the server compares byte-for-byte, so an uppercase form would be
+  // rejected as invalid.
   var tokenField = document.getElementById('setup-token');
   var tokenPaste = document.getElementById('token-paste');
   if (tokenField && tokenPaste) {
     tokenPaste.addEventListener('click', async function () {
       try {
         var t = await navigator.clipboard.readText();
-        tokenField.value = (t || '').trim().toUpperCase();
+        tokenField.value = (t || '').trim();
         tokenField.dispatchEvent(new Event('input'));
       } catch (_) {
         tokenField.focus();
       }
-    });
-  }
-  // Force token to upper-case as the user types — matches API expectation.
-  if (tokenField) {
-    tokenField.addEventListener('input', function () {
-      var v = tokenField.value.toUpperCase();
-      if (v !== tokenField.value) tokenField.value = v;
     });
   }
 
@@ -161,7 +158,7 @@
       e.preventDefault();
       clearError();
 
-      var token = tokenField ? tokenField.value.trim().toUpperCase() : '';
+      var token = tokenField ? tokenField.value.trim() : '';
       var pw    = pwField ? pwField.value : '';
       var conf  = confirmField ? confirmField.value : '';
 
