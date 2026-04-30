@@ -540,6 +540,7 @@
   font-size: 0.95rem; color: var(--red); font-weight: 600;
 }
 .cal-error-sub { font-size: 0.82rem; color: var(--fg1); margin-top: 2px; }
+.cal-error-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width: 1080px) {

@@ -711,6 +711,11 @@ func runDaemonInternal(
 	// Setup wizard manager: handles first-boot fan discovery and calibration via web UI.
 	setupMgr := setupmgr.New(cal, logger)
 	setupMgr.SetDiagnosticStore(diagStore)
+	// Persistent applied-marker so a host that opted into monitor-only
+	// mode (handleSetupApply's empty-fanset escape) stays out of the
+	// /calibration redirect on every subsequent daemon restart even
+	// though len(cfg.Controls) == 0 keeps Needed(cfg) saying yes.
+	setupMgr.SetAppliedMarkerPath(setupmgr.DefaultAppliedMarkerPath)
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()

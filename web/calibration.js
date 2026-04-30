@@ -93,6 +93,7 @@
   var errorBanner    = document.getElementById('cal-error-banner');
   var errorSubEl     = document.getElementById('cal-error-sub');
   var retryBtn       = document.getElementById('cal-retry-btn');
+  var skipBtn        = document.getElementById('cal-skip-btn');
   var abortBtn       = document.getElementById('cal-abort');
   var flavourEl      = document.getElementById('cal-flavour');
   var samplesG       = document.getElementById('cal-samples');
@@ -543,8 +544,15 @@
     if (p.error) {
       errorBanner.hidden = false;
       errorSubEl.textContent = p.error;
+      // Surface "Continue without fan control" only when calibration
+      // finished but discovered zero fans — the only case where
+      // /api/v1/setup/apply will fall back to monitor-only mode.
+      // Retry stays available so the operator can re-run discovery
+      // after fixing a missing kernel module / cabling / etc.
+      if (skipBtn) skipBtn.hidden = !(p.done && (!p.fans || p.fans.length === 0));
     } else {
       errorBanner.hidden = true;
+      if (skipBtn) skipBtn.hidden = true;
     }
 
     if (p.done && !p.error && !p.applied) {
@@ -609,9 +617,40 @@
   // ── retry ───────────────────────────────────────────────────────────
   if (retryBtn) retryBtn.addEventListener('click', function () {
     errorBanner.hidden = true;
+    if (skipBtn) skipBtn.hidden = true;
     fetch('/api/v1/setup/reset', { method: 'POST', credentials: 'same-origin' })
       .then(function () {
         setTimeout(function () { fetch('/api/v1/setup/start', { method: 'POST', credentials: 'same-origin' }); }, 200);
+      });
+  });
+
+  // ── skip: opt into monitor-only mode when no fans are discoverable ──
+  // Hits /api/v1/setup/apply with no generated config — the daemon-side
+  // empty-fanset escape (handleSetupApply) writes config.Empty(), marks
+  // setup applied (with persistent marker), and triggers a reload. Once
+  // /api/v1/ping comes back, waitForRestart redirects to /.
+  if (skipBtn) skipBtn.addEventListener('click', function () {
+    if (!confirm('Continue without fan control? ventd will run in monitor-only mode.')) return;
+    skipBtn.disabled = true;
+    skipBtn.textContent = 'Continuing…';
+    fetch('/api/v1/setup/apply', { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) {
+        if (r.ok) {
+          errorBanner.hidden = true;
+          doneBanner.hidden = false;
+          doneSubEl.textContent = 'Restarting daemon — this page will reload.';
+          waitForRestart();
+          return;
+        }
+        skipBtn.disabled = false;
+        skipBtn.textContent = 'Continue without fan control';
+        errorSubEl.textContent = 'Could not switch to monitor-only mode (HTTP ' + r.status + ').';
+      })
+      .catch(function (err) {
+        skipBtn.disabled = false;
+        skipBtn.textContent = 'Continue without fan control';
+        errorSubEl.textContent = 'Could not switch to monitor-only mode: '
+          + (err && err.message || 'network error');
       });
   });
 
