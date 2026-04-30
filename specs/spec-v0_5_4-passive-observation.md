@@ -133,6 +133,7 @@ not by v0.5.4.
 | `RULE-OBS-RATE-01` | Fast-class channels (R11 class=0) MUST emit exactly one record per controller tick at 0.5 Hz cadence. |
 | `RULE-OBS-RATE-02` | Slow-class channels (R11 class=1) MUST emit exactly one record per controller tick at 1/60 Hz cadence. |
 | `RULE-OBS-RATE-03` | Channel class MUST be read from spec-16 KV channel metadata at writer construction. The writer MUST NOT re-derive class per tick. |
+| `RULE-OBS-RATE-04` | When channel class is absent from KV at construction, class is inferred from driver name: `drivetemp`, `bmc`, `ipmi` → slow (1); all other drivers → fast (0). Writer construction succeeds. |
 | `RULE-OBS-PRIVACY-01` | The writer MUST refuse construction if any registered field name appears in the schema doc §6.1 exclusion list (process names, PIDs, exec paths, cmdline, usernames, hostnames, IP/MAC, `/home` paths, user-supplied labels). |
 | `RULE-OBS-PRIVACY-02` | The `Record` struct MUST NOT contain `map[string]interface{}`, `map[string]string`, or any field whose value is user-controlled string content. Channel and sensor identity MUST be opaque integer IDs only. |
 | `RULE-OBS-PRIVACY-03` | `signature_label` MUST be the hex-encoded SipHash-2-4 output supplied by R7. The writer MUST NOT compute or transform the label; it accepts the opaque string from the controller. |
@@ -160,19 +161,17 @@ Tests live in `internal/observation/`. Filenames per schema doc §7.
 | RULE-OBS-RATE-01 | `TestWriter_FastClass_EmitsExactlyOneRecordPerTick` |
 | RULE-OBS-RATE-02 | `TestWriter_SlowClass_EmitsExactlyOneRecordPerTick` |
 | RULE-OBS-RATE-03 | `TestWriter_ClassReadFromKV_NotRederivedPerTick` |
+| RULE-OBS-RATE-04 | `TestWriter_ClassInferredFromDriver_WhenAbsentFromKV` |
 | RULE-OBS-PRIVACY-01 | `TestWriter_New_RefusesConstructionWithExcludedField` |
 | RULE-OBS-PRIVACY-02 | `TestRecord_StructHasNoUserControlledStrings` |
 | RULE-OBS-PRIVACY-03 | `TestWriter_SignatureLabel_AcceptedOpaque_NotTransformed` |
-| RULE-OBS-ROTATE-01 | `TestRotation_AcrossMidnight_CorrectDateStamp` |
-| RULE-OBS-ROTATE-02 | `TestRotation_At50MB_BeforeAppendCommits` |
-| RULE-OBS-ROTATE-03 | `TestRotation_GzipAbove10MB_ReaderTransparentlyDecompresses` |
-| RULE-OBS-ROTATE-04 | `TestRotation_RetentionEnforced_OldFilesDeleted` |
+| RULE-OBS-ROTATE-01 | `TestWriter_Rotate_MidnightCrossing`, `TestWriter_Rotate_DaemonRestart_SameDay` |
+| RULE-OBS-ROTATE-02 | `TestWriter_Rotate_SizeLimit` |
+| RULE-OBS-ROTATE-03 | `TestWriter_Rotate_IntegrationWithState` |
+| RULE-OBS-ROTATE-04 | `TestWriter_Rotate_RetentionPolicyApplied` |
 | RULE-OBS-READ-01 | `TestReader_Stream_TraversesActiveAndRotated_InOrder` |
 | RULE-OBS-READ-02 | `TestReader_Latest_BoundedRing_NotFullLoad` |
 | RULE-OBS-CRASH-01 | `TestReader_TornRecord_SkippedSilently_IterationContinues` |
-
-Plus the schema doc §8.1 case `TestWriter_DaemonRestartAcrossMidnight_RotatesActiveByMtime`
-binds to RULE-OBS-ROTATE-01 as a second subtest.
 
 ---
 
@@ -267,9 +266,10 @@ In addition to §2.2:
    reclaim space on the next rotation event.
 
 4. **Channel class missing from spec-16 KV at writer construction.**
-   Class is set during v0.5.1 probe; if absent, v0.5.4 writer refuses
-   construction with a diagnostic naming the channel ID. This is a
-   spec-16 / spec-v0_5_1 contract violation, not a v0.5.4 logic bug.
+   Class is inferred from the driver name using `slowClassDrivers`
+   (`drivetemp`, `bmc`, `ipmi` → slow=1; all others → fast=0). No
+   error is returned and construction succeeds. This is Option A:
+   inference-on-miss, codified as RULE-OBS-RATE-04.
 
 5. **Schema-version mismatch on read (file written by future v0.5.x
    with `schema_version=2`).** Reader rejects with a documented

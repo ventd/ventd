@@ -222,6 +222,7 @@ Regenerate with: `go run ./tools/rule-index`
 | install-contract.md | Install Contract Rules |
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
+| observation.md | Observation Log Rules |
 | ui.md | Web UI Invariants (spec-12) |
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |
