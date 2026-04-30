@@ -280,16 +280,20 @@ func (m *Manager) RunBlocking() error {
 // Progress returns a snapshot of the current wizard state.
 // It merges live calibration progress from the calibrate.Manager.
 func (m *Manager) Progress() Progress {
+	// Resolve persistent applied state outside the manager lock so the
+	// stat() call doesn't serialise against everything else on the lock.
+	applied := m.IsApplied()
+
 	m.mu.Lock()
 	fans := make([]FanState, len(m.fans))
 	copy(fans, m.fans)
 	installLog := make([]string, len(m.installLog))
 	copy(installLog, m.installLog)
 	p := Progress{
-		Needed:        !m.applied,
+		Needed:        !applied,
 		Running:       m.running,
 		Done:          m.done,
-		Applied:       m.applied,
+		Applied:       applied,
 		Error:         m.errMsg,
 		RebootNeeded:  m.rebootNeeded,
 		RebootMessage: m.rebootMessage,

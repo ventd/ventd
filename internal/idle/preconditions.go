@@ -2,7 +2,6 @@ package idle
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -119,17 +118,30 @@ func checkOnBattery(sysRoot string) bool {
 	return false
 }
 
-// checkInContainer returns true when running in a container detected via
-// /proc/1/cgroup keywords and (when using the real /proc) systemd-detect-virt.
+// checkInContainer returns true when running in a container, detected by
+// reading the same files systemd-detect-virt --container reads:
+//
+//   - /proc/1/cgroup for container-runtime keywords
+//     (docker / lxc / kubepods / garden)
+//   - /proc/1/environ for the `container=` env var that LXC and
+//     systemd-nspawn export to PID 1
+//   - /.dockerenv (Docker), /run/.containerenv (Podman),
+//     /run/host/container-manager (some sandboxes)
+//
+// The previous implementation fork-exec'd `systemd-detect-virt --container`
+// when the cgroup keyword check missed. The fork briefly let the child
+// inherit the daemon's open notify-socket FD, which systemd then logged
+// as `Got notification message from PID X, but reception only permitted
+// for main PID Y` once per gate tick. Replacing the exec with file reads
+// removes the fork entirely.
 func checkInContainer(procRoot string) bool {
 	path := procRoot
 	if path == "" {
 		path = "/proc"
 	}
 
-	// Check /proc/1/cgroup for container runtime keywords.
-	cgroup, err := os.ReadFile(path + "/1/cgroup")
-	if err == nil {
+	// /proc/1/cgroup for container-runtime keywords.
+	if cgroup, err := os.ReadFile(path + "/1/cgroup"); err == nil {
 		lower := strings.ToLower(string(cgroup))
 		for _, kw := range []string{"docker", "lxc", "kubepods", "garden"} {
 			if strings.Contains(lower, kw) {
@@ -138,14 +150,30 @@ func checkInContainer(procRoot string) bool {
 		}
 	}
 
-	// Only run systemd-detect-virt when operating on the real /proc (not in tests
-	// using a synthetic procRoot temp dir). An explicit temp-dir procRoot means the
-	// caller is providing a hermetic fixture; real exec calls would bypass it.
+	// /proc/1/environ for the `container=` env var. PID 1 in an LXC
+	// container or systemd-nspawn slice has `container=lxc` /
+	// `container=systemd-nspawn` etc. exported. Entries are NUL-delimited.
+	if env, err := os.ReadFile(path + "/1/environ"); err == nil {
+		for _, entry := range strings.Split(string(env), "\x00") {
+			if strings.HasPrefix(entry, "container=") {
+				val := strings.TrimPrefix(entry, "container=")
+				if val != "" && val != "none" {
+					return true
+				}
+			}
+		}
+	}
+
+	// Real-system marker files. Skip when the caller passed an explicit
+	// procRoot — that's a test fixture, and stat-ing /.dockerenv etc.
+	// on the host would bypass the fixture's hermetic boundary.
 	if path == "/proc" {
-		out, err := exec.Command("systemd-detect-virt", "--container").Output()
-		if err == nil {
-			result := strings.TrimSpace(string(out))
-			if result != "" && result != "none" {
+		for _, marker := range []string{
+			"/.dockerenv",
+			"/run/.containerenv",
+			"/run/host/container-manager",
+		} {
+			if _, err := os.Stat(marker); err == nil {
 				return true
 			}
 		}
@@ -156,27 +184,44 @@ func checkInContainer(procRoot string) bool {
 
 // checkPostResumeWarmup returns true when the system resumed from suspend
 // within the last 600 seconds.
+//
+// Native implementation: read systemd-suspend.service's persistent state
+// file at /var/lib/systemd/timers/stamp-systemd-suspend.timer (when
+// present) or fall back to mtime of /sys/power/wakeup_count. The
+// previous implementation fork-exec'd `systemctl show -p
+// ActiveEnterTimestamp`; the fork briefly let the child inherit the
+// daemon's open notify-socket FD, which systemd then logged as
+// `Got notification message from PID X, but reception only permitted
+// for main PID Y` once per gate tick. Replacing the exec with file
+// reads removes the fork entirely. The 600s warmup window has
+// generous slack — file mtime resolution (1s) is well within it.
 func checkPostResumeWarmup() bool {
-	out, err := exec.Command("systemctl", "show", "systemd-suspend.service",
-		"-p", "ActiveEnterTimestamp").Output()
-	if err != nil {
+	resume, ok := lastResumeTime()
+	if !ok {
 		return false
 	}
-	s := strings.TrimPrefix(strings.TrimSpace(string(out)), "ActiveEnterTimestamp=")
-	if s == "" || s == "n/a" {
-		return false
-	}
-	// Parse timestamp — systemd uses a locale-dependent format; attempt RFC3339
-	// and common systemd formats.
-	for _, layout := range []string{
-		time.RFC3339,
-		"Mon 2006-01-02 15:04:05 MST",
-		"Mon 2006-01-02 15:04:05 UTC",
+	return time.Since(resume) < 600*time.Second
+}
+
+// lastResumeTime returns the most recent suspend-resume time, or
+// (zero, false) when the host hasn't suspended since boot.
+//
+// Both candidates live on tmpfs and only appear after at least one
+// systemd-suspend cycle, so a never-suspended host returns false —
+// the same answer the old systemctl-based implementation produced
+// (ActiveEnterTimestamp=n/a). The kernel's /sys/power/wakeup_count
+// is intentionally NOT used here: its mtime tracks kernel-side wake
+// events including initial boot, so it would falsely report
+// "warming up from suspend" on a freshly-booted host.
+func lastResumeTime() (time.Time, bool) {
+	for _, path := range []string{
+		"/run/systemd/units/invocation:systemd-suspend.service",
+		"/run/systemd/transient/systemd-suspend.service",
 	} {
-		t, err := time.Parse(layout, s)
-		if err == nil {
-			return time.Since(t) < 600*time.Second
+		if fi, err := os.Stat(path); err == nil {
+			return fi.ModTime(), true
 		}
 	}
-	return false
+	return time.Time{}, false
 }
+
