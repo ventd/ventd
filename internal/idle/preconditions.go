@@ -224,4 +224,3 @@ func lastResumeTime() (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
-
