@@ -238,17 +238,20 @@
     var fEl = $('hero-fans-val'); if (fEl) fEl.textContent = total === 0 ? '—' : (spinning + '/' + total);
     var fSub = $('hero-fans-sub'); if (fSub) fSub.textContent = total === 0 ? 'no fans yet' : 'of ' + total + ' total';
 
-    // Fan duty bar chart in hero
+    // Fan duty bar chart in hero. CSP forbids inline style="" attributes
+    // under style-src 'self', so build spans without markup and apply
+    // height via CSSOM (which style-src does not block).
     var bars = $('hero-fans-bars');
     if (bars) {
-      var html = '';
+      bars.innerHTML = '';
       var show = (fans || []).slice(0, 12);
       for (var b = 0; b < 12; b++) {
         var d = show[b] ? clamp(show[b].duty_pct || 0, 0, 100) : 0;
         var height = Math.max(6, (d / 100) * 30);
-        html += '<span style="height:' + height.toFixed(1) + 'px"></span>';
+        var span = document.createElement('span');
+        span.style.height = height.toFixed(1) + 'px';
+        bars.appendChild(span);
       }
-      bars.innerHTML = html;
     }
   }
 
@@ -296,12 +299,28 @@
   var inDemo = false;
   var pollTimer = null;
 
+  // /api/v1/profile/active is POST-only (it switches the active profile);
+  // the dashboard summary is built from the GET on /api/v1/profile.
+  function shapeProfile(data) {
+    if (!data) return null;
+    var active = data.active || 'auto';
+    var prof = (data.profiles || {})[active] || {};
+    var bindings = prof.bindings || {};
+    return {
+      name: active,
+      source: prof.schedule ? 'schedule' : 'live',
+      curves: Object.keys(bindings).length,
+      note: prof.schedule || ''
+    };
+  }
+
   function pollOnce() {
     Promise.all([
       fetch('/api/v1/status', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }),
-      fetch('/api/v1/profile/active', { credentials: 'same-origin' })
+      fetch('/api/v1/profile', { credentials: 'same-origin' })
         .then(function (r) { return r.ok ? r.json() : null; })
+        .then(shapeProfile)
         .catch(function () { return null; })
     ])
       .then(function (out) { applyStatus(out[0]); if (out[1]) applyProfile(out[1]); })
