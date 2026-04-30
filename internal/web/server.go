@@ -1069,14 +1069,14 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
-	body := `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=` + dest + `"><title>ventd</title></head><body><script>window.location.replace(` + jsString(dest) + `)</script><a href="` + dest + `">Continue to ` + dest + `</a></body></html>`
+	// meta http-equiv="refresh" performs the redirect without JS; an
+	// inline <script>window.location.replace(...)</script> here would
+	// be blocked by the page's own CSP (script-src 'self', no
+	// 'unsafe-inline') and surface as a console-level CSP violation
+	// on every navigation through /. The visible <a> is the no-JS,
+	// no-meta-refresh fallback for the rare client that disables both.
+	body := `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=` + dest + `"><title>ventd</title></head><body><a href="` + dest + `">Continue to ` + dest + `</a></body></html>`
 	_, _ = w.Write([]byte(body))
-}
-
-// jsString quotes a known-safe string for inline JS — only "/setup",
-// "/calibration", "/dashboard" reach this path.
-func jsString(s string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>
