@@ -83,6 +83,20 @@ h2 { font-size: 0.8rem; color: var(--fg2); text-transform: uppercase; letter-spa
 }
 .field input:focus { border-color: var(--teal); }
 
+/* Password show/hide toggle. Wraps the input so the eye button overlays the
+ * right edge without changing input width or the field's vertical rhythm. */
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 2.4rem; }
+.pw-toggle {
+  position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; padding: 0.25rem; margin: 0;
+  color: var(--fg2); cursor: pointer; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+}
+.pw-toggle:hover { color: var(--teal); }
+.pw-toggle:focus-visible { outline: 1px solid var(--teal); outline-offset: 1px; }
+
 .btn {
   width: 100%; padding: 0.55rem; margin-top: 0.5rem;
   background: var(--teal); color: var(--btn-fg); border: none;

@@ -34,7 +34,12 @@
     <h2>Sign In</h2>
     <div class="field">
       <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+      <div class="pw-wrap">
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+        <button type="button" class="pw-toggle" data-target="password" aria-label="Show password" title="Show password">
+          <svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
     </div>
     <button class="btn" id="loginBtn">Sign In</button>
     <div class="msg" id="loginMsg"></div>
@@ -50,11 +55,21 @@
     </div>
     <div class="field">
       <label for="newPassword">Create Password <span class="muted">(min 8 chars)</span></label>
-      <input type="password" id="newPassword" autocomplete="new-password" placeholder="••••••••">
+      <div class="pw-wrap">
+        <input type="password" id="newPassword" autocomplete="new-password" placeholder="••••••••">
+        <button type="button" class="pw-toggle" data-target="newPassword" aria-label="Show password" title="Show password">
+          <svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
     </div>
     <div class="field">
       <label for="confirmPassword">Confirm Password</label>
-      <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="••••••••">
+      <div class="pw-wrap">
+        <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="••••••••">
+        <button type="button" class="pw-toggle" data-target="confirmPassword" aria-label="Show password" title="Show password">
+          <svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
     </div>
     <button class="btn" id="firstBootBtn">Create Password &amp; Continue</button>
     <div class="msg" id="firstBootMsg"></div>

@@ -105,6 +105,30 @@
     return true;
   }
 
+  // --- Password show/hide toggle ---------------------------------------
+  //
+  // First-boot has only one password field — a typo locks the operator out
+  // until they recover the setup token. The eye toggle lets them verify
+  // what they typed before submitting (issue #700). Listener is delegated
+  // so it fires for all three fields (login + new + confirm) without per-id
+  // wiring. The icon morphs between eye/eye-slash to mirror the visible
+  // state of the input.
+  document.querySelectorAll('.pw-toggle').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = btn.getAttribute('data-target');
+      var input = document.getElementById(id);
+      if (!input) return;
+      var visible = input.type === 'text';
+      input.type = visible ? 'password' : 'text';
+      btn.setAttribute('aria-label', visible ? 'Show password' : 'Hide password');
+      btn.setAttribute('title', visible ? 'Show password' : 'Hide password');
+      // Swap eye <-> eye-with-slash. Inline SVG keeps this self-contained.
+      btn.innerHTML = visible
+        ? '<svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+        : '<svg class="icon" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    });
+  });
+
   // --- Login flow -------------------------------------------------------
 
   // Normal login

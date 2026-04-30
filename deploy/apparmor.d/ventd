@@ -1,19 +1,44 @@
+# Pin AppArmor ABI 4.0 — required for the modern `unix (perm) ...,`
+# mediation syntax used below. Without this, AppArmor 4.x kernels fall
+# back to legacy network-rule mediation (class="net") for AF_UNIX
+# sockets, producing "failed protocol match" DENIEDs that block
+# sd_notify and silently kill Type=notify daemons (issue #694).
+abi <abi/4.0>,
+
 #include <tunables/global>
 
 # attach_disconnected required for hwmon paths under namespaced runtimes (TrueNAS Scale, Unraid).
 profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   #include <abstractions/base>
+  # nameservice: nsswitch.conf + passwd/group reads needed by `id`,
+  # by libc user lookups, and by the bash interpreter that runs
+  # ExecStartPre=ventd-wait-hwmon under AppArmorProfile=ventd.
+  #include <abstractions/nameservice>
 
   /usr/local/bin/ventd            mr,
   /usr/bin/ventd                  mr,
+  # ExecStartPre=ventd-wait-hwmon runs as a shell script under the
+  # ventd profile (AppArmorProfile=ventd in the unit applies to all
+  # processes in the cgroup). bash needs read access to the script.
+  /usr/local/sbin/ventd-wait-hwmon r,
+  /etc/passwd                     r,
+  /etc/group                      r,
+  /etc/nsswitch.conf              r,
 
-  /etc/ventd/                     r,
+  /etc/ventd/                     rw,
   /etc/ventd/**                   r,
+  # atomicWrite uses two patterns: <name>.tmp (config.go writeFileSync,
+  # selfsigned.go cert gen, hwdb capture) and <name>.tmp.<hex> (state,
+  # authpersist, calibrate). Both must be writable; profile must allow both.
   /etc/ventd/*.tmp                rw,
+  /etc/ventd/*.tmp.*              rw,
+  /etc/ventd/*.json               rw,
+  /etc/ventd/*.json.bak           rw,
   /etc/ventd/tls.crt              rw,
   /etc/ventd/tls.key              rw,
   /etc/ventd/cert.pem             rw,
   /etc/ventd/key.pem              rw,
+  /etc/ventd/config.yaml          rw,
 
   /run/ventd/                     rw,
   /run/ventd/**                   rwk,
@@ -25,17 +50,48 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /sys/class/hwmon/**             r,
   /sys/class/hwmon/**/pwm[0-9]*       rw,
   /sys/class/hwmon/**/pwm[0-9]*_enable rw,
-  /sys/devices/**/hwmon/**            r,
-  /sys/devices/**/hwmon/**/pwm[0-9]*       rw,
-  /sys/devices/**/hwmon/**/pwm[0-9]*_enable rw,
-  /sys/class/hwmon/**/fan[0-9]*_target  rw,
-  /sys/devices/**/hwmon/**/fan[0-9]*_target rw,
+  # hwmon[N] directories appear in two layouts:
+  #   standard: <device>/hwmon/hwmon[N]/ (covered by hwmon/** below)
+  #   direct:   <device>/hwmon[N]/       (NVMe, thermal zones — hwmon* needed)
+  /sys/devices/**/hwmon*/             r,
+  /sys/devices/**/hwmon*/**           r,
+  /sys/devices/**/hwmon*/pwm[0-9]*       rw,
+  /sys/devices/**/hwmon*/pwm[0-9]*_enable rw,
+  /sys/class/hwmon/**/fan[0-9]*_target    rw,
+  /sys/devices/**/hwmon*/fan[0-9]*_target rw,
 
   /sys/class/pwm/                 r,
   /sys/class/pwm/**               r,
 
   /sys/class/thermal/             r,
   /sys/class/thermal/**           r,
+
+  # GPU sysfs (amdgpu fan_curve, NVIDIA discovery, intel xe).
+  /sys/class/drm/                 r,
+  /sys/class/drm/**               r,
+
+  # Storage class detection (NAS heuristic — RULE-SYSCLASS-01).
+  # /sys/block/** symlinks point into /sys/devices/.../block/ and
+  # /sys/devices/.../nvme/nvmeN/nvmeNn1/ — both backing paths must be
+  # readable for the rotational/queue-type checks the heuristic does.
+  /sys/block/                     r,
+  /sys/block/**                   r,
+  /sys/devices/**/block/          r,
+  /sys/devices/**/block/**        r,
+  /sys/devices/**/nvme/           r,
+  /sys/devices/**/nvme/**         r,
+  /sys/devices/virtual/block/     r,
+  /sys/devices/virtual/block/**   r,
+  /dev/                           r,
+
+  # Corsair AIO USB enumeration via hidraw substrate (RULE-HIDRAW-01).
+  # The substrate walks /sys/class/hidraw/* symlinks back through
+  # /sys/devices/.../usb*/.../uevent to filter to BUS_USB only.
+  /sys/class/hidraw/              r,
+  /sys/class/hidraw/**            r,
+  /sys/devices/**/usb*/           r,
+  /sys/devices/**/usb*/**         r,
+  /dev/hidraw[0-9]*               rw,
 
   /sys/class/dmi/id/              r,
   /sys/class/dmi/id/**            r,
@@ -54,33 +110,98 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /proc/driver/nvidia/            r,
   /proc/driver/nvidia/**          r,
 
+  # Power supply: AC online + battery state for the idle gate (RULE-IDLE-02).
+  # /sys/class/power_supply/ is the canonical entry point; /sys/devices/**/power_supply/
+  # covers the PCI device backing path that the symlinks resolve to.
+  /sys/class/power_supply/        r,
+  /sys/class/power_supply/**      r,
   /sys/devices/**/power_supply/   r,
   /sys/devices/**/power_supply/** r,
+
+  # Filesystem class detection (NAS heuristic).
+  /sys/fs/                        r,
+  /sys/fs/btrfs/                  r,
+  /sys/fs/btrfs/**                r,
+  /sys/fs/cgroup/                 r,
+  /sys/fs/cgroup/**               r,
+
+  # Process tree access for the idle gate's process scanner.
+  /proc/                          r,
+  /proc/sys/kernel/random/uuid    r,
+  /proc/sys/kernel/osrelease      r,
+  /proc/[0-9]*/**                 r,
+  /proc/[0-9]*/attr/current       rw,
+  /proc/modules                   r,
+  /proc/pressure/                 r,
+  /proc/pressure/*                r,
+  /proc/mdstat                    r,
+  /proc/loadavg                   r,
+  /proc/uptime                    r,
+  /proc/cpuinfo                   r,
+  /proc/cmdline                   r,
+  /proc/mounts                    r,
+  /proc/spl/kstat/zfs/**          r,
+
+  # External commands invoked by the probe + system-class detection.
+  # Path varies by distro: dmidecode is /usr/sbin on Debian, /usr/bin on
+  # most others; bash is /usr/bin on Debian/Ubuntu, /bin elsewhere.
+  # rix = inherit-execute if no profile applies (caller's profile
+  # extends to the child); Pix similar but prefer named profile if any.
+  /usr/bin/systemd-detect-virt    rix,
+  /usr/sbin/systemd-detect-virt   rix,
+  /usr/bin/systemctl              rix,
+  /usr/bin/dmidecode              rix,
+  /usr/sbin/dmidecode             rix,
+  /usr/bin/lsblk                  rix,
+  /usr/sbin/lsblk                 rix,
+  /usr/bin/bash                   rix,
+  /bin/bash                       rix,
+  /usr/bin/sh                     rix,
+  /bin/sh                         rix,
+  /usr/bin/dash                   rix,
+  /bin/dash                       rix,
+  # Coreutils used by ventd-wait-hwmon and the ExecStartPre script.
+  /usr/bin/gawk                   rix,
+  /usr/bin/awk                    rix,
+  /usr/bin/sort                   rix,
+  /usr/bin/cat                    rix,
+  /usr/bin/cut                    rix,
+  /usr/bin/grep                   rix,
+  /usr/bin/sed                    rix,
+  /usr/bin/head                   rix,
+  /usr/bin/tail                   rix,
+  /usr/bin/test                   rix,
+  # `/usr/bin/[` (the GNU coreutils test alias) is omitted — its bare
+  # `[` confuses the apparmor parser as an unclosed char class. Scripts
+  # invoking `[` should use `test` instead; ventd-wait-hwmon already does.
+  /usr/bin/sleep                  rix,
+  /usr/bin/find                   rix,
+  /usr/bin/realpath               rix,
 
   /dev/tty                        rw,
 
   /run/systemd/journal/socket     rw,
   /run/systemd/journal/stdout     rw,
   /run/systemd/notify             rw,
-
-  /proc/sys/kernel/random/uuid    r,
-  /proc/sys/kernel/osrelease      r,
-  /proc/[0-9]*/**                 r,
-  /proc/[0-9]*/attr/current       rw,
-  /proc/modules                   r,
-  /proc/pressure/*                r,
-  /proc/mdstat                    r,
-  /proc/loadavg                   r,
-  /proc/uptime                    r,
-  /proc/spl/kstat/zfs/**          r,
-  /sys/fs/cgroup/**               r,
-  /sys/fs/btrfs/**                r,
+  # systemctl introspection (used by the setup wizard for service-status
+  # reads) connects to dbus when systemd's user-mode unsupported. Need
+  # both the socket open and a dbus method-call allow.
+  /run/dbus/system_bus_socket     rw,
+  dbus send bus=system,
+  dbus receive bus=system,
 
   network inet stream,
   network inet6 stream,
   network inet dgram,
   network inet6 dgram,
   network netlink raw,
+  # AF_UNIX: sd_notify (NOTIFY_SOCKET, dgram), slog journal (stream),
+  # systemctl stream sockets, and any other unix-domain socket the
+  # daemon or its forked helpers open. Tested under AppArmor 4.1.1
+  # on PVE 6.17 (network_v9/af_unix). The bare `unix,` form did NOT
+  # match the kernel's mediation under "failed protocol match"; an
+  # explicit access list is required. Issue #694.
+  unix (create, accept, bind, listen, connect, send, receive, getattr, getopt, setopt, shutdown),
 
   capability net_bind_service,
 

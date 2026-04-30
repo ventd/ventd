@@ -133,7 +133,7 @@ jobs:
           # already present. Real distros get the real includes; this
           # stub only kicks in when the package manager didn't supply
           # them.
-          for f in tunables/global abstractions/base abstractions/nameservice; do
+          for f in tunables/global abstractions/base abstractions/nameservice abi/4.0; do
             dest="/etc/apparmor.d/$f"
             mkdir -p "$(dirname "$dest")"
             [ -s "$dest" ] || printf '# CI include stub\n' > "$dest"
