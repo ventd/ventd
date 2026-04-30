@@ -159,11 +159,32 @@ func (m *Manager) SetPolarityProber(p polarity.Prober) {
 // New creates a Manager with the production sysfs/procfs path roots. NVML
 // lifecycle is managed via the refcount-safe nvidia.Init/Shutdown pair;
 // setup does not need to know whether the daemon already initialised NVML.
+//
+// New does NOT wire the persistent applied-marker path — production
+// callers (cmd/ventd/main.go) must call SetAppliedMarkerPath explicitly
+// so unit tests that construct via New(t) don't write to
+// /var/lib/ventd/.setup-applied or pick up a marker left by a sibling
+// test (which would make ProgressNeeded test cases bleed into each
+// other on hosts where the directory is writable).
 func New(cal *calibrate.Manager, logger *slog.Logger) *Manager {
-	m := NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
-	m.appliedMarkerPath = defaultAppliedMarkerPath
-	return m
+	return NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
 }
+
+// SetAppliedMarkerPath wires the path to the persistent setup-applied
+// sentinel. Production code (cmd/ventd/main.go) calls this with
+// DefaultAppliedMarkerPath. Tests typically leave the path unset so
+// MarkApplied is a process-local flip and IsApplied falls back to the
+// in-memory value only.
+func (m *Manager) SetAppliedMarkerPath(path string) {
+	m.mu.Lock()
+	m.appliedMarkerPath = path
+	m.mu.Unlock()
+}
+
+// DefaultAppliedMarkerPath is the production default for the sentinel
+// file written by MarkApplied. Exported so cmd/ventd/main.go can pass
+// it to SetAppliedMarkerPath without duplicating the string literal.
+const DefaultAppliedMarkerPath = defaultAppliedMarkerPath
 
 // NewWithRoots is the test constructor: it takes explicit roots for
 // /sys/class/hwmon, /proc, and /sys/class/powercap so a fixture tree can

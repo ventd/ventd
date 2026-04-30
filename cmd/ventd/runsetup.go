@@ -28,6 +28,7 @@ func runSetup(configPath string, logger *slog.Logger) error {
 	defer wd.Restore()
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
 	mgr := setup.New(cal, logger)
+	mgr.SetAppliedMarkerPath(setup.DefaultAppliedMarkerPath)
 
 	fmt.Println("Discovering and calibrating fans (this may take several minutes)...")
 	fmt.Println()
