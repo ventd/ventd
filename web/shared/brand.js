@@ -54,9 +54,30 @@
     });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', paint);
-  } else {
+  // paintActiveNav highlights the sidebar entry that matches the current
+  // pathname. Each .nav-item in shared/sidebar.html carries data-page; the
+  // first segment of window.location.pathname (or "dashboard" for /) is
+  // compared to that attribute. Keeping the highlight here means every
+  // page's static sidebar markup is byte-identical to shared/sidebar.html
+  // (RULE-UI-03), without needing per-page active-class duplication.
+  function paintActiveNav() {
+    var path = (window.location.pathname || '/').replace(/\/+$/, '') || '/';
+    var page = path === '/' ? 'dashboard' : path.replace(/^\//, '').split('/')[0];
+    var items = document.querySelectorAll('.sidebar .nav-item');
+    items.forEach(function (a) {
+      if (a.dataset && a.dataset.page === page) a.classList.add('active');
+      else a.classList.remove('active');
+    });
+  }
+
+  function init() {
     paint();
+    paintActiveNav();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 })();

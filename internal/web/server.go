@@ -27,6 +27,7 @@ import (
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
 	setupmgr "github.com/ventd/ventd/internal/setup"
+	webstatic "github.com/ventd/ventd/web"
 	"github.com/ventd/ventd/internal/web/authpersist"
 )
 
@@ -232,6 +233,27 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	// 1-hour cache ceiling. sidebar.html and canon.md are test fixtures —
 	// they are not embedded so requests for them return 404.
 	s.registerSharedAssets()
+
+	// Per-page design system pages. Each call wires /<name>, /<name>.css,
+	// /<name>.js to web/<name>.* embedded assets. Pages are unauthenticated
+	// at the route layer; the page's own JS gates display via the auth
+	// state endpoint where appropriate.
+	s.registerWebPage("setup")
+	s.registerWebPage("calibration")
+	s.registerWebPage("dashboard")
+	s.registerWebPage("devices")
+	s.registerWebPage("curve-editor")
+	s.registerWebPage("schedule")
+	s.registerWebPage("sensors")
+	s.registerWebPage("settings")
+
+	// /login is served by handleLogin (which also handles POST), so the
+	// HTML route is already wired. Only the /login.js asset needs its own
+	// route — register it explicitly so we don't collide with the existing
+	// HandleFunc("/login", ...) above.
+	if loginJS, err := fs.ReadFile(webstatic.FS, "login.js"); err == nil {
+		s.mux.HandleFunc("/login.js", staticAssetHandler(loginJS, "application/javascript; charset=utf-8"))
+	}
 
 	// Every /api/* route is registered twice: once under /api/<name> for
 	// existing clients and once under /api/v1/<name> so future clients can
@@ -566,6 +588,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		h.Set("Content-Type", "text/html; charset=utf-8")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		// New design-system login page, served from webstatic.FS. The
+		// JS at /login.js redirects to /setup if first_boot is true,
+		// so the GET path stays simple.
+		if body, err := fs.ReadFile(webstatic.FS, "login.html"); err == nil {
+			_, _ = w.Write(body)
+			return
+		}
 		_, _ = w.Write(readUI("login.html"))
 
 	case http.MethodPost:
@@ -1020,11 +1049,34 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// Pick the right destination by setup state and serve a minimal
+	// HTML page that meta-refreshes there. Returning 200 + HTML rather
+	// than a 302 keeps the security/cache invariants identical to the
+	// pre-redesign /, while still routing the user to the correct page.
+	//   no admin password set → /setup       (first-boot wizard)
+	//   setup wizard pending  → /calibration (probe + apply)
+	//   otherwise             → /dashboard
+	dest := "/dashboard"
+	if s.authHashValue() == "" {
+		dest = "/setup"
+	} else if s.setup != nil {
+		p := s.setup.ProgressNeeded(s.cfg.Load())
+		if p.Needed && !p.Applied {
+			dest = "/calibration"
+		}
+	}
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("Cross-Origin-Resource-Policy", "same-origin")
-	_, _ = w.Write(readUI("index.html"))
+	body := `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=` + dest + `"><title>ventd</title></head><body><script>window.location.replace(` + jsString(dest) + `)</script><a href="` + dest + `">Continue to ` + dest + `</a></body></html>`
+	_, _ = w.Write([]byte(body))
+}
+
+// jsString quotes a known-safe string for inline JS — only "/setup",
+// "/calibration", "/dashboard" reach this path.
+func jsString(s string) string {
+	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `"`, `\"`) + `"`
 }
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>

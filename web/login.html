@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — sign in</title>
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/shell.css">
+<link rel="stylesheet" href="/shared/brand.css">
+<link rel="stylesheet" href="/shared/ambient.css">
+<link rel="stylesheet" href="/setup.css">
+</head>
+<body class="setup-body">
+
+<div class="ambient-bg" aria-hidden="true">
+  <div class="ambient-grid"></div>
+  <div class="ambient-glow ambient-glow--a"></div>
+  <div class="ambient-glow ambient-glow--b"></div>
+  <div class="ambient-glow ambient-glow--c"></div>
+</div>
+
+<main class="setup-stage">
+
+  <div class="setup-card">
+
+    <header class="setup-card-head">
+      <div class="setup-brand">
+        <div class="brand-mark"></div>
+        <div class="setup-brand-text">
+          <div class="setup-brand-name">Ventd</div>
+          <div class="setup-brand-sub">SYSTEM FAN CONTROLLER</div>
+        </div>
+      </div>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </header>
+
+    <div class="setup-eyebrow">
+      <span class="setup-eyebrow-step mono">welcome back</span>
+      <span class="setup-eyebrow-title">Sign in</span>
+    </div>
+
+    <div class="setup-host">
+      <div class="setup-host-row">
+        <span class="setup-host-label">host</span>
+        <span class="setup-host-value mono" id="host-name">—</span>
+      </div>
+      <div class="setup-host-divider"></div>
+      <div class="setup-host-row">
+        <span class="setup-host-label">version</span>
+        <span class="setup-host-value mono" id="host-version">—</span>
+      </div>
+    </div>
+
+    <form class="setup-form" id="login-form" autocomplete="off">
+
+      <div class="setup-field">
+        <label class="setup-label" for="login-password">
+          Password
+          <span class="setup-label-hint">set during first-boot setup</span>
+        </label>
+        <div class="setup-input-wrap">
+          <input
+            id="login-password"
+            name="password"
+            class="setup-input mono"
+            type="password"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required>
+          <button type="button" class="setup-input-action" id="pw-reveal" aria-label="Show password">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-error" id="login-error" hidden role="alert"></div>
+
+      <button type="submit" class="btn btn--primary btn--lg setup-submit" id="login-submit">
+        <span id="login-submit-label">Sign in</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+
+    </form>
+
+    <footer class="setup-foot">
+      <div class="setup-foot-hint">
+        Forgot the password? Run <span class="kbd">ventd setup --reset</span> on the host to start over from the setup wizard.
+      </div>
+    </footer>
+
+  </div>
+
+  <div class="setup-bg-grid" aria-hidden="true"></div>
+
+</main>
+
+<script src="/shared/brand.js"></script>
+<script src="/login.js"></script>
+</body>
+</html>

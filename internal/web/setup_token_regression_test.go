@@ -12,7 +12,7 @@ import (
 // contains the correct file-path recovery instructions and does NOT contain
 // the broken journalctl grep that was the root cause of issue #458.
 func TestRegression_Issue458_TokenRecoveryTextMatches(t *testing.T) {
-	b, err := fs.ReadFile(uiFS, "ui/login.html")
+	b, err := fs.ReadFile(uiFS, "ui-old/login.html")
 	if err != nil {
 		t.Fatalf("read login.html: %v", err)
 	}

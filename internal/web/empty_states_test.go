@@ -13,15 +13,15 @@ import (
 // users land on when a section is empty — if these strings change, the
 // screenshots attached to the v0.3 Session C PR-2a also need updating.
 func TestEmptyStateCopyEmbedded(t *testing.T) {
-	render, err := fs.ReadFile(uiFS, "ui/scripts/render.js")
+	render, err := fs.ReadFile(uiFS, "ui-old/scripts/render.js")
 	if err != nil {
 		t.Fatalf("read render.js: %v", err)
 	}
-	css, err := fs.ReadFile(uiFS, "ui/styles/components.css")
+	css, err := fs.ReadFile(uiFS, "ui-old/styles/components.css")
 	if err != nil {
 		t.Fatalf("read components.css: %v", err)
 	}
-	index, err := fs.ReadFile(uiFS, "ui/index.html")
+	index, err := fs.ReadFile(uiFS, "ui-old/index.html")
 	if err != nil {
 		t.Fatalf("read index.html: %v", err)
 	}

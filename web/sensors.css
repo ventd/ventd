@@ -1,0 +1,108 @@
+/* ─────────────────────────────────────────────────────────────
+ * sensors · live readings table
+ * ───────────────────────────────────────────────────────────── */
+
+.sn-page { gap: 18px; }
+
+.sn-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.sn-summary-cell {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.sn-summary-value {
+  font-size: 1.6rem; line-height: 1;
+  color: var(--fg1); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sn-summary-of { color: var(--fg3); font-size: 0.85rem; margin-left: 4px; }
+.sn-summary-sub { font-size: 0.74rem; color: var(--fg3); }
+
+/* filter row */
+.sn-filter {
+  display: flex; gap: 12px; align-items: center;
+  flex-wrap: wrap;
+}
+
+/* table */
+.sn-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.sn-table thead th {
+  text-align: left;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+}
+.sn-th-spark { width: 220px; }
+.sn-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border2);
+  font-size: 0.84rem;
+  vertical-align: middle;
+}
+.sn-table tbody tr:last-child td { border-bottom: 0; }
+.sn-table tbody tr:hover { background: var(--bg3); }
+.sn-tbody-empty {
+  text-align: center; color: var(--fg3); padding: 28px 0 !important;
+}
+
+.sn-name-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sn-name { color: var(--fg1); font-weight: 500; }
+.sn-source { font-family: var(--font-mono); font-size: 0.66rem; color: var(--fg3); }
+
+.sn-value { font-family: var(--font-mono); color: var(--fg1); font-size: 1rem; font-variant-numeric: tabular-nums; }
+.sn-value-unit { color: var(--fg3); font-size: 0.78rem; margin-left: 2px; }
+.sn-value.is-temp { color: var(--blue); }
+.sn-value.is-volt { color: var(--cyan); }
+.sn-value.is-power { color: var(--amber); }
+.sn-value.is-warn  { color: var(--amber); }
+.sn-value.is-hot   { color: var(--red); }
+
+.sn-spark {
+  width: 200px; height: 28px;
+  display: block;
+}
+.sn-spark path { fill: none; stroke-width: 1.5; }
+.sn-spark.is-temp path  { stroke: var(--blue); }
+.sn-spark.is-volt path  { stroke: var(--cyan); }
+.sn-spark.is-power path { stroke: var(--amber); }
+
+.sn-used-by {
+  font-size: 0.74rem; color: var(--fg2);
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.sn-used-tag {
+  background: var(--bg3);
+  padding: 1px 8px;
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  color: var(--fg1);
+  font-family: var(--font-mono); font-size: 0.66rem;
+}
+.sn-used-empty { color: var(--fg3); font-size: 0.74rem; }
+
+@media (max-width: 1100px) {
+  .sn-summary { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  .sn-th-spark { display: none; }
+  .sn-table tbody td:nth-child(3) { display: none; }
+}
