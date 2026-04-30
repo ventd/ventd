@@ -231,6 +231,23 @@ func run() error {
 			cfg.Web.TLSCert = certPath
 			cfg.Web.TLSKey = keyPath
 			logger.Info("first-boot: TLS enabled with self-signed cert", "sha256", fp)
+			// Empty() defaults Listen to 127.0.0.1:9999 to satisfy
+			// RULE-INSTALL-03 (no plaintext bind on 0.0.0.0). Now that
+			// TLS is active, promote loopback to wildcard so the LAN URL
+			// install.sh prints actually resolves. Without this the
+			// first-time user sees "connection refused" when they open
+			// the printed URL from another machine — defeating the
+			// "open the browser" promise in the README. Skip promotion
+			// if the operator pre-provisioned a non-default Listen
+			// (host:port other than 127.0.0.1:9999).
+			if cfg.Web.Listen == "127.0.0.1:9999" {
+				_, port, splitErr := net.SplitHostPort(cfg.Web.Listen)
+				if splitErr == nil {
+					cfg.Web.Listen = net.JoinHostPort("0.0.0.0", port)
+					logger.Info("first-boot: promoting listen address to wildcard now that TLS is active",
+						"listen", cfg.Web.Listen)
+				}
+			}
 		}
 	}
 
@@ -756,6 +773,21 @@ func runDaemonInternal(
 			errCh <- fmt.Errorf("web server: %w", err)
 		}
 	}()
+
+	// In setup-wizard mode (no controls configured yet) the controllers
+	// loop below is skipped, but systemd's Type=notify still expects a
+	// READY=1 within TimeoutStartSec or it kills the daemon mid-wizard
+	// (issue #694). Send READY=1 here for the no-controls path so the
+	// service transitions to "active" as soon as the web server is
+	// listening — the wizard then runs against an active unit, with
+	// WatchdogSec only meaningful once the control loop is up. The
+	// post-controllers Notify(Ready) below remains the canonical signal
+	// for the configured-controls path; sd_notify is idempotent so a
+	// duplicate is harmless.
+	if len(cfg.Controls) == 0 {
+		_ = sdnotify.Notify(sdnotify.Ready)
+		readyState.SetHealthy()
+	}
 
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
