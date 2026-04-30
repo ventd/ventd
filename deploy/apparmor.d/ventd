@@ -7,13 +7,16 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /usr/local/bin/ventd            mr,
   /usr/bin/ventd                  mr,
 
-  /etc/ventd/                     r,
+  /etc/ventd/                     rw,
   /etc/ventd/**                   r,
-  /etc/ventd/*.tmp                rw,
+  /etc/ventd/*.tmp.*              rw,
+  /etc/ventd/*.json               rw,
+  /etc/ventd/*.json.bak           rw,
   /etc/ventd/tls.crt              rw,
   /etc/ventd/tls.key              rw,
   /etc/ventd/cert.pem             rw,
   /etc/ventd/key.pem              rw,
+  /etc/ventd/config.yaml          rw,
 
   /run/ventd/                     rw,
   /run/ventd/**                   rwk,
@@ -25,11 +28,15 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /sys/class/hwmon/**             r,
   /sys/class/hwmon/**/pwm[0-9]*       rw,
   /sys/class/hwmon/**/pwm[0-9]*_enable rw,
-  /sys/devices/**/hwmon/**            r,
-  /sys/devices/**/hwmon/**/pwm[0-9]*       rw,
-  /sys/devices/**/hwmon/**/pwm[0-9]*_enable rw,
-  /sys/class/hwmon/**/fan[0-9]*_target  rw,
-  /sys/devices/**/hwmon/**/fan[0-9]*_target rw,
+  # hwmon[N] directories appear in two layouts:
+  #   standard: <device>/hwmon/hwmon[N]/ (covered by hwmon/** below)
+  #   direct:   <device>/hwmon[N]/       (NVMe, thermal zones — hwmon* needed)
+  /sys/devices/**/hwmon*/             r,
+  /sys/devices/**/hwmon*/**           r,
+  /sys/devices/**/hwmon*/pwm[0-9]*       rw,
+  /sys/devices/**/hwmon*/pwm[0-9]*_enable rw,
+  /sys/class/hwmon/**/fan[0-9]*_target    rw,
+  /sys/devices/**/hwmon*/fan[0-9]*_target rw,
 
   /sys/class/pwm/                 r,
   /sys/class/pwm/**               r,
