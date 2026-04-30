@@ -40,12 +40,12 @@ It is also — to our knowledge — the only Linux fan daemon in its class that 
   <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress</sub></td>
 </tr>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based curve switching</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/logs.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/logs.png" width="440" alt="Logs" /></a><br /><sub>Logs — live log stream with level filtering</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based profile switching with weekly visualisation</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/settings.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/settings.png" width="440" alt="Settings" /></a><br /><sub>Settings — display, daemon, security, system, about</sub></td>
 </tr>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/settings.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/settings.png" width="440" alt="Settings" /></a><br /><sub>Settings — daemon config, TLS, and webhooks</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/dashboard-stale.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/dashboard-stale.png" width="440" alt="Dashboard stale state" /></a><br /><sub>Dashboard — stale-data banner when daemon is unreachable</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/login.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/login.png" width="440" alt="Sign in" /></a><br /><sub>Sign in — post-first-boot login with the same shell as setup</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration in progress" /></a><br /><sub>Calibration — live PWM↔RPM scatter as each fan sweeps</sub></td>
 </tr>
 </table>
 

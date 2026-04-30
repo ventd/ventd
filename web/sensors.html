@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — sensors</title>
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/shell.css">
+<link rel="stylesheet" href="/shared/brand.css">
+<link rel="stylesheet" href="/shared/ambient.css">
+<link rel="stylesheet" href="/sensors.css">
+</head>
+<body>
+
+<div class="ambient-bg" aria-hidden="true">
+  <div class="ambient-grid"></div>
+  <div class="ambient-glow ambient-glow--a"></div>
+  <div class="ambient-glow ambient-glow--b"></div>
+  <div class="ambient-glow ambient-glow--c"></div>
+</div>
+
+<div class="shell shell-layout">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono" id="sb-version">—</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="/dashboard" data-page="dashboard"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>Dashboard</a>
+      <a class="nav-item" href="/curve-editor" data-page="curve-editor"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Curves</a>
+      <a class="nav-item" href="/schedule" data-page="schedule"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>Schedule</a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="/devices" data-page="devices"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>Devices<span class="nav-badge" id="sb-devices-badge" hidden></span></a>
+      <a class="nav-item" href="/sensors" data-page="sensors"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>Sensors</a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="/logs" data-page="logs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>Logs</a>
+      <a class="nav-item" href="/settings" data-page="settings"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true" id="sb-live-dot"></div>
+      <span id="sb-live-label">connecting…</span>
+    </div>
+  </aside>
+
+  <main class="shell-main">
+
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">Hardware</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Sensors</span>
+      </div>
+      <div class="topbar-actions">
+        <span class="status-pill ok no-dot" id="sn-meta">—</span>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="shell-content sn-page">
+
+      <!-- summary -->
+      <section class="sn-summary">
+        <div class="sn-summary-cell">
+          <div class="card-eyebrow">TEMP</div>
+          <div class="sn-summary-value mono" id="sn-temp-count">—</div>
+          <div class="sn-summary-sub">sources</div>
+        </div>
+        <div class="sn-summary-cell">
+          <div class="card-eyebrow">HOTTEST</div>
+          <div class="sn-summary-value mono"><span id="sn-hottest-val">—</span><span class="sn-summary-of">°C</span></div>
+          <div class="sn-summary-sub" id="sn-hottest-name">—</div>
+        </div>
+        <div class="sn-summary-cell">
+          <div class="card-eyebrow">VOLTAGES</div>
+          <div class="sn-summary-value mono" id="sn-volt-count">—</div>
+          <div class="sn-summary-sub">rails reporting</div>
+        </div>
+        <div class="sn-summary-cell">
+          <div class="card-eyebrow">USED BY CURVES</div>
+          <div class="sn-summary-value mono" id="sn-used-count">—</div>
+          <div class="sn-summary-sub" id="sn-unused-sub">—</div>
+        </div>
+      </section>
+
+      <!-- filter -->
+      <div class="sn-filter">
+        <div class="filter-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="sn-filter-input" type="text" placeholder="filter by name or source…" autocomplete="off" spellcheck="false" aria-label="Filter sensors">
+        </div>
+        <div class="filter-segments" role="tablist" id="sn-segments">
+          <button class="filter-segment is-active" type="button" role="tab" aria-selected="true" data-unit="all">All</button>
+          <button class="filter-segment" type="button" role="tab" aria-selected="false" data-unit="°C">Temp</button>
+          <button class="filter-segment" type="button" role="tab" aria-selected="false" data-unit="V">Voltage</button>
+          <button class="filter-segment" type="button" role="tab" aria-selected="false" data-unit="W">Power</button>
+        </div>
+      </div>
+
+      <!-- table -->
+      <table class="sn-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Now</th>
+            <th class="sn-th-spark">Last 60s</th>
+            <th>Used by</th>
+          </tr>
+        </thead>
+        <tbody id="sn-tbody">
+          <tr><td colspan="4" class="sn-tbody-empty">Loading sensors…</td></tr>
+        </tbody>
+      </table>
+
+    </div>
+  </main>
+</div>
+
+<script src="/shared/brand.js"></script>
+<script src="/sensors.js"></script>
+</body>
+</html>

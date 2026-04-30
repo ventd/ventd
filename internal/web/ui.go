@@ -13,13 +13,13 @@ import (
 // left in the HTML. Session B owns any further structural reorganization
 // of this tree (see the ventd UI overhaul phase plan).
 //
-//go:embed ui/index.html ui/login.html ui/styles/*.css ui/scripts/*.js ui/icons/*.svg
+//go:embed ui-old/index.html ui-old/login.html ui-old/styles/*.css ui-old/scripts/*.js ui-old/icons/*.svg
 var uiFS embed.FS
 
 // uiSubFS returns the embedded tree rooted at `ui/` so callers can mount
 // it directly under `/ui/` without a StripPrefix dance.
 func uiSubFS() fs.FS {
-	sub, err := fs.Sub(uiFS, "ui")
+	sub, err := fs.Sub(uiFS, "ui-old")
 	if err != nil {
 		// fs.Sub only fails if the named directory is absent from the
 		// embed root. That would be a build-time bug (missing //go:embed
@@ -34,7 +34,7 @@ func uiSubFS() fs.FS {
 // HTML responses served at `/` and `/login`, where mounting a FileServer
 // would require exposing the document at an extra path.
 func readUI(name string) []byte {
-	b, err := fs.ReadFile(uiFS, "ui/"+name)
+	b, err := fs.ReadFile(uiFS, "ui-old/"+name)
 	if err != nil {
 		// Same reasoning as uiSubFS: a missing file at this layer is a
 		// build error. Returning an empty body would just hide the bug.

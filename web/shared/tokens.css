@@ -24,6 +24,19 @@
   --purple:#d2a8ff; --cyan:#79c0ff;
 
   --btn-pri-fg:#0d1117;
+
+  /* shadows + RGB tuples — declared as tokens so page-specific CSS can
+     compose box-shadows and translucent fills via var() without tripping
+     RULE-UI-02 (no literal rgba() in non-shared CSS). Light-theme
+     overrides each shadow + tuple value below. */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.02) inset, 0 24px 60px rgba(0,0,0,0.4), 0 6px 16px rgba(0,0,0,0.25);
+  --shadow-floating: 0 12px 32px rgba(0,0,0,0.4);
+  --rgb-black: 0, 0, 0;
+  --rgb-white: 255, 255, 255;
+  --rgb-teal:  79, 195, 161;
+  --rgb-blue:  88, 166, 255;
+  --rgb-red:   248, 81, 73;
+  --rgb-amber: 230, 162, 60;
 }
 
 :root[data-theme="dark"]  { color-scheme: only dark; }
@@ -43,4 +56,13 @@
 
   --btn-pri-fg:#ffffff;
   --brand-mark-bg: radial-gradient(circle at 50% 50%, #d6e4f0 0%, #b9c9dc 70%, #9eb1c6 100%);
+
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.6) inset, 0 12px 32px rgba(50,72,109,0.12), 0 4px 10px rgba(50,72,109,0.08);
+  --shadow-floating: 0 8px 24px rgba(50,72,109,0.18);
+  --rgb-black: 50, 72, 109;
+  --rgb-white: 255, 255, 255;
+  --rgb-teal:  11, 138, 110;
+  --rgb-blue:  9, 105, 218;
+  --rgb-red:   207, 34, 46;
+  --rgb-amber: 181, 71, 8;
 }

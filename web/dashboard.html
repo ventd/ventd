@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — dashboard</title>
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/shell.css">
+<link rel="stylesheet" href="/shared/brand.css">
+<link rel="stylesheet" href="/shared/ambient.css">
+<link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+
+<div class="ambient-bg" aria-hidden="true">
+  <div class="ambient-grid"></div>
+  <div class="ambient-glow ambient-glow--a"></div>
+  <div class="ambient-glow ambient-glow--b"></div>
+  <div class="ambient-glow ambient-glow--c"></div>
+</div>
+
+<div class="shell shell-layout">
+
+  <!-- canonical sidebar (matches shared/sidebar.html byte-for-byte) -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">ventd</div>
+      <div class="brand-version mono" id="sb-version">—</div>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <div class="nav-section-label">Control</div>
+      <a class="nav-item" href="/dashboard" data-page="dashboard"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12l2-2 7 7 9-9 0 0M3 19h18"/></svg>Dashboard</a>
+      <a class="nav-item" href="/curve-editor" data-page="curve-editor"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Curves</a>
+      <a class="nav-item" href="/schedule" data-page="schedule"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10h10M7 14h6"/></svg>Schedule</a>
+      <div class="nav-section-label">Hardware</div>
+      <a class="nav-item" href="/devices" data-page="devices"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>Devices<span class="nav-badge" id="sb-devices-badge" hidden></span></a>
+      <a class="nav-item" href="/sensors" data-page="sensors"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4M3 17l9 4 9-4"/></svg>Sensors</a>
+      <div class="nav-section-label">System</div>
+      <a class="nav-item" href="/logs" data-page="logs"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2v6h6M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>Logs</a>
+      <a class="nav-item" href="/settings" data-page="settings"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="live-dot" aria-hidden="true" id="sb-live-dot"></div>
+      <span id="sb-live-label">connecting…</span>
+    </div>
+  </aside>
+
+  <main class="shell-main">
+
+    <!-- topbar -->
+    <div class="topbar">
+      <div class="crumbs">
+        <span class="crumb">Control</span>
+        <span class="crumb-sep">/</span>
+        <span class="crumb current">Dashboard</span>
+      </div>
+      <div class="topbar-actions">
+        <span class="status-pill ok" id="dash-mode-pill"><span id="dash-mode-name">auto</span></span>
+        <button class="btn btn--ghost" id="dash-panic" type="button" title="Pin all fans to max for 60 seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v6M5.6 5.6l4.2 4.2M2 12h6M5.6 18.4l4.2-4.2M12 22v-6M18.4 18.4l-4.2-4.2M22 12h-6M18.4 5.6l-4.2 4.2"/></svg>
+          Panic
+        </button>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="shell-content">
+
+      <!-- HERO at-a-glance -->
+      <section class="dash-hero">
+        <div class="dash-hero-card">
+          <div class="dash-hero-eyebrow">CPU</div>
+          <div class="dash-hero-value">
+            <span id="hero-cpu-val">—</span><span class="dash-hero-unit">°C</span>
+          </div>
+          <svg class="dash-hero-spark" viewBox="0 0 240 48" preserveAspectRatio="none" aria-hidden="true">
+            <path id="hero-cpu-path" fill="none" stroke="var(--teal)" stroke-width="1.5"/>
+          </svg>
+          <div class="dash-hero-sub" id="hero-cpu-sub">—</div>
+        </div>
+        <div class="dash-hero-card">
+          <div class="dash-hero-eyebrow">GPU</div>
+          <div class="dash-hero-value">
+            <span id="hero-gpu-val">—</span><span class="dash-hero-unit">°C</span>
+          </div>
+          <svg class="dash-hero-spark" viewBox="0 0 240 48" preserveAspectRatio="none" aria-hidden="true">
+            <path id="hero-gpu-path" fill="none" stroke="var(--blue)" stroke-width="1.5"/>
+          </svg>
+          <div class="dash-hero-sub" id="hero-gpu-sub">—</div>
+        </div>
+        <div class="dash-hero-card">
+          <div class="dash-hero-eyebrow">FANS</div>
+          <div class="dash-hero-value">
+            <span id="hero-fans-val">—</span><span class="dash-hero-unit">spinning</span>
+          </div>
+          <div class="dash-hero-bars" id="hero-fans-bars" aria-hidden="true"></div>
+          <div class="dash-hero-sub" id="hero-fans-sub">—</div>
+        </div>
+        <div class="dash-hero-card">
+          <div class="dash-hero-eyebrow">DAEMON</div>
+          <div class="dash-hero-value mono">
+            <span id="hero-uptime">—</span>
+          </div>
+          <div class="dash-hero-pulse" aria-hidden="true">
+            <span class="dash-hero-pulse-dot"></span>
+            <span class="dash-hero-pulse-dot"></span>
+            <span class="dash-hero-pulse-dot"></span>
+          </div>
+          <div class="dash-hero-sub" id="hero-daemon-sub">running</div>
+        </div>
+      </section>
+
+      <!-- SENSORS -->
+      <section class="dash-section">
+        <div class="dash-section-head">
+          <div class="card-title"><span class="card-title-accent"></span>Sensors</div>
+          <div class="dash-section-meta mono" id="sensors-meta">—</div>
+        </div>
+        <div class="dash-grid dash-grid--sensors" id="sensors-grid">
+          <div class="dash-grid-empty">No sensor data yet…</div>
+        </div>
+      </section>
+
+      <!-- FANS -->
+      <section class="dash-section">
+        <div class="dash-section-head">
+          <div class="card-title"><span class="card-title-accent"></span>Fans</div>
+          <div class="dash-section-meta mono" id="fans-meta">—</div>
+        </div>
+        <div class="dash-grid dash-grid--fans" id="fans-grid">
+          <div class="dash-grid-empty">No fan data yet…</div>
+        </div>
+      </section>
+
+      <!-- ACTIVE PROFILE -->
+      <section class="dash-section">
+        <div class="dash-section-head">
+          <div class="card-title"><span class="card-title-accent"></span>Active profile</div>
+        </div>
+        <div class="card dash-profile-card" id="profile-card">
+          <div class="dash-profile-row">
+            <div class="dash-profile-name" id="profile-name">—</div>
+            <span class="status-pill ok no-dot" id="profile-source">live</span>
+          </div>
+          <div class="dash-profile-sub mono" id="profile-sub">—</div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="/shared/brand.js"></script>
+<script src="/dashboard.js"></script>
+</body>
+</html>

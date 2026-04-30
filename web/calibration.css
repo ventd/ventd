@@ -1,0 +1,573 @@
+/* ─────────────────────────────────────────────────────────────
+ * calibration · first-boot takeover screen
+ *
+ * Fullscreen, no sidebar — this is the first thing a user sees
+ * after creating their password. The animation budget is high
+ * on purpose: calibration takes minutes, and a frozen-looking
+ * screen is the worst possible message.
+ * ───────────────────────────────────────────────────────────── */
+
+.cal-body {
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── ambient background ───────────────────────────────────── */
+.cal-bg {
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  overflow: hidden;
+}
+.cal-bg-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(var(--border2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border2) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+  opacity: 0.35;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 0%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 0%, transparent 80%);
+  animation: cal-grid-drift 60s linear infinite;
+}
+.cal-bg-glow {
+  position: absolute;
+  width: 520px; height: 520px;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.18;
+  mix-blend-mode: screen;
+}
+.cal-bg-glow--a { left:  -10%; top:  -10%; background: var(--teal);  animation: cal-glow-a 18s ease-in-out infinite alternate; }
+.cal-bg-glow--b { right: -10%; top:   30%; background: var(--blue);  animation: cal-glow-b 22s ease-in-out infinite alternate; }
+.cal-bg-glow--c { left:   30%; bottom: -20%; background: var(--cyan); animation: cal-glow-c 26s ease-in-out infinite alternate; }
+@keyframes cal-grid-drift { from { background-position: -1px -1px; } to { background-position: 47px 47px; } }
+@keyframes cal-glow-a { 0% { transform: translate(0,0)    scale(1);   } 100% { transform: translate(60px,40px) scale(1.15); } }
+@keyframes cal-glow-b { 0% { transform: translate(0,0)    scale(0.9); } 100% { transform: translate(-50px,80px) scale(1.1);  } }
+@keyframes cal-glow-c { 0% { transform: translate(0,0)    scale(1.1); } 100% { transform: translate(40px,-40px) scale(0.95); } }
+
+/* ── stage layout ─────────────────────────────────────────── */
+.cal-stage {
+  position: relative; z-index: 1;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 28px 28px 36px;
+  display: flex; flex-direction: column;
+  gap: 22px;
+}
+
+/* ── header ───────────────────────────────────────────────── */
+.cal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.cal-head-brand { display: flex; align-items: center; gap: 14px; }
+.cal-head-brand .brand-mark { width: 42px; height: 42px; border-radius: 10px; }
+.cal-head-text { display: flex; flex-direction: column; gap: 3px; line-height: 1.1; }
+.cal-head-name {
+  font-size: 1.25rem; font-weight: 700;
+  color: var(--fg1); letter-spacing: 0.005em;
+}
+.cal-head-sub {
+  font-size: 0.78rem; color: var(--fg2);
+  letter-spacing: 0.02em;
+}
+
+.cal-head-actions { display: flex; align-items: center; gap: 14px; }
+.cal-eta { text-align: right; }
+.cal-eta-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg3);
+}
+.cal-eta-value { font-size: 1.05rem; color: var(--fg1); margin-top: 2px; }
+.cal-eta-sep { color: var(--fg3); margin: 0 4px; }
+.cal-abort-btn { padding: 8px 14px; }
+
+/* ── phase pipeline ───────────────────────────────────────── */
+.cal-pipeline {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 22px 14px;
+  position: relative;
+  overflow: hidden;
+}
+.cal-pipeline::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(var(--rgb-teal), 0.05) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: cal-shimmer 4s linear infinite;
+  pointer-events: none;
+}
+@keyframes cal-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.cal-pipeline-steps {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  position: relative;
+}
+.pipe-step {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 10px 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  position: relative;
+  transition: border-color 0.25s, background 0.25s;
+}
+.pipe-step .pipe-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--border);
+  transition: background 0.25s, box-shadow 0.25s, transform 0.25s;
+  flex-shrink: 0;
+}
+.pipe-step .pipe-label {
+  font-size: 0.78rem; font-weight: 600; color: var(--fg2);
+  letter-spacing: 0.01em;
+}
+.pipe-step .pipe-sub {
+  font-size: 0.66rem; color: var(--fg3);
+  letter-spacing: 0.02em; line-height: 1.35;
+}
+.pipe-step.is-done {
+  border-color: var(--teal);
+  background: linear-gradient(180deg, var(--teal-bg) 0%, var(--bg3) 100%);
+}
+.pipe-step.is-done .pipe-dot { background: var(--teal); }
+.pipe-step.is-done .pipe-label { color: var(--teal); }
+.pipe-step.is-active {
+  border-color: var(--blue);
+  background: linear-gradient(180deg, var(--blue-bg) 0%, var(--bg3) 100%);
+  box-shadow: 0 0 0 1px var(--blue), 0 4px 18px -8px rgba(var(--rgb-blue), 0.6);
+}
+.pipe-step.is-active .pipe-dot {
+  background: var(--blue);
+  box-shadow: 0 0 0 4px rgba(var(--rgb-blue), 0.18);
+  animation: cal-pulse 1.2s ease-in-out infinite;
+}
+.pipe-step.is-active .pipe-label { color: var(--blue); }
+@keyframes cal-pulse {
+  0%, 100% { transform: scale(1);   box-shadow: 0 0 0 4px rgba(var(--rgb-blue), 0.18); }
+  50%      { transform: scale(1.3); box-shadow: 0 0 0 8px rgba(var(--rgb-blue), 0.06); }
+}
+
+.cal-pipeline-progress {
+  margin-top: 14px;
+  height: 3px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cal-pipeline-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--teal) 0%, var(--blue) 100%);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.6s cubic-bezier(0.2, 0.7, 0.3, 1);
+  position: relative;
+}
+.cal-pipeline-fill::after {
+  content: "";
+  position: absolute; right: 0; top: -2px; bottom: -2px;
+  width: 24px;
+  background: linear-gradient(90deg, transparent, rgba(var(--rgb-white), 0.4), transparent);
+  animation: cal-comet 1.6s ease-in-out infinite;
+}
+@keyframes cal-comet {
+  0%   { transform: translateX(0);    opacity: 0; }
+  20%  {                              opacity: 1; }
+  100% { transform: translateX(40px); opacity: 0; }
+}
+
+/* ── body grid ────────────────────────────────────────────── */
+.cal-body-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 22px;
+}
+.cal-side { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── card primitives ──────────────────────────────────────── */
+.cal-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  display: flex; flex-direction: column;
+  gap: 14px;
+}
+.cal-card-head { display: flex; flex-direction: column; gap: 4px; }
+.cal-card-head--inline {
+  flex-direction: row; align-items: center; justify-content: space-between;
+}
+.cal-card-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.16em;
+  color: var(--fg3);
+}
+.cal-card-title {
+  font-size: 1.02rem; font-weight: 600; color: var(--fg1);
+  letter-spacing: -0.005em;
+}
+.cal-card-sub { font-size: 0.78rem; color: var(--fg3); }
+.cal-card-counter { font-size: 0.92rem; color: var(--fg1); }
+.cal-card-counter-of { color: var(--fg3); margin: 0 2px; }
+
+.cal-pulse-dot {
+  display: inline-block;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--blue);
+  animation: cal-pulse-dot 1.4s ease-in-out infinite;
+}
+.cal-pulse-dot--ok   { background: var(--teal); }
+.cal-pulse-dot--info { background: var(--blue); }
+@keyframes cal-pulse-dot {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%      { transform: scale(1.55); opacity: 0.4; }
+}
+
+/* ── live sweep card ──────────────────────────────────────── */
+.cal-live-card { gap: 18px; }
+
+.cal-live-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.cal-live-stat {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px;
+  min-width: 0;
+}
+.cal-live-stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg3);
+}
+.cal-live-stat-value {
+  font-size: 1.55rem; color: var(--fg1); line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.cal-live-stat-value--phase {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  color: var(--blue);
+  text-transform: lowercase;
+}
+.cal-live-stat-of { font-size: 0.85rem; color: var(--fg3); margin-left: 2px; }
+.cal-live-stat-sub { font-size: 0.7rem; color: var(--fg3); }
+
+.cal-live-bar {
+  height: 4px; background: var(--bg4);
+  border-radius: 2px; overflow: hidden;
+}
+.cal-live-bar-fill {
+  height: 100%;
+  background: var(--blue);
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+}
+.cal-live-bar-fill--progress { background: var(--teal); }
+
+.cal-live-spark {
+  height: 36px;
+  color: var(--teal);
+}
+.cal-live-spark svg { width: 100%; height: 100%; display: block; }
+
+/* ── live sweep chart ─────────────────────────────────────── */
+.cal-chart {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 14px 16px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cal-chart svg {
+  width: 100%; height: 240px; display: block;
+}
+.cal-chart-grid line {
+  stroke: var(--border2); stroke-width: 1; stroke-dasharray: 3 4;
+}
+.cal-chart-axis text {
+  fill: var(--fg3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.cal-cursor {
+  stroke: var(--blue); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.8;
+  transition: x1 0.3s, x2 0.3s;
+}
+.cal-cursor-dot {
+  fill: var(--blue); stroke: var(--bg);  stroke-width: 2;
+  transition: cx 0.3s, cy 0.3s;
+}
+.cal-cursor-halo {
+  pointer-events: none;
+  transition: cx 0.3s, cy 0.3s;
+  animation: cal-halo 1.6s ease-in-out infinite;
+}
+@keyframes cal-halo {
+  0%, 100% { opacity: 0.4; r: 14; }
+  50%      { opacity: 0.8; r: 22; }
+}
+.cal-curve-line { stroke-linejoin: round; stroke-linecap: round; }
+.cal-sample {
+  fill: var(--teal); opacity: 0;
+  animation: cal-sample-pop 0.5s ease-out forwards;
+}
+@keyframes cal-sample-pop {
+  0%   { opacity: 0; r: 0; }
+  60%  { opacity: 1; r: 4.5; }
+  100% { opacity: 0.8; r: 3; }
+}
+.cal-marker-line  { stroke: var(--amber); stroke-width: 1.5; opacity: 0.6; }
+.cal-marker-label {
+  fill: var(--amber); font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.cal-chart-legend {
+  display: flex; gap: 18px; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: 0.66rem;
+  color: var(--fg3); letter-spacing: 0.04em;
+}
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-swatch {
+  width: 12px; height: 3px; border-radius: 2px;
+}
+.legend-swatch--blue   { background: var(--blue); }
+.legend-swatch--teal   { background: var(--teal); }
+.legend-swatch--marker { background: var(--amber); }
+
+/* ── flavour line ─────────────────────────────────────────── */
+.cal-flavour {
+  font-size: 0.78rem; color: var(--fg2); line-height: 1.5;
+  text-align: center;
+  padding: 8px 14px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  transition: opacity 0.6s;
+}
+.cal-flavour.cal-flavour--fade {
+  opacity: 0;
+}
+
+/* ── fan roster ───────────────────────────────────────────── */
+.cal-roster {
+  display: flex; flex-direction: column;
+  gap: 0;
+  max-height: 460px;
+  overflow-y: auto;
+  margin: 0 -8px;
+}
+.cal-roster-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--fg3);
+}
+.cal-roster-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 8px;
+  border-radius: 8px;
+  transition: background 0.3s, transform 0.4s, opacity 0.4s;
+}
+.cal-roster-row + .cal-roster-row {
+  border-top: 1px solid var(--border2);
+}
+.cal-roster-row.is-running {
+  background: linear-gradient(90deg, var(--blue-bg) 0%, transparent 70%);
+  border-top-color: transparent;
+}
+.cal-roster-row.is-running + .cal-roster-row { border-top-color: transparent; }
+.cal-roster-row.is-done    .cal-roster-icon  { color: var(--teal); }
+.cal-roster-row.is-running .cal-roster-icon  { color: var(--blue); }
+.cal-roster-row.is-queued  { opacity: 0.55; }
+.cal-roster-row.is-skipped { opacity: 0.55; }
+
+.cal-roster-icon {
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fg3);
+  flex-shrink: 0;
+}
+/* fan-blade icon + spin animation when running */
+.cal-fan-blade {
+  width: 18px; height: 18px;
+  transform-origin: 50% 50%;
+}
+.cal-roster-row.is-running .cal-fan-blade {
+  animation: cal-fan-spin 1.4s linear infinite;
+}
+@keyframes cal-fan-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cal-roster-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cal-roster-name {
+  font-size: 0.84rem; color: var(--fg1); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cal-roster-source {
+  font-family: var(--font-mono);
+  font-size: 0.66rem; color: var(--fg3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.cal-roster-state {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  flex-shrink: 0;
+}
+.cal-roster-state .status-pill { font-size: 0.66rem; padding: 2px 7px; }
+.cal-roster-result {
+  font-family: var(--font-mono);
+  font-size: 0.7rem; color: var(--fg2);
+  letter-spacing: 0.02em;
+}
+.cal-roster-result strong { color: var(--fg1); font-weight: 500; }
+.cal-roster-progress {
+  width: 80px; height: 3px;
+  background: var(--bg4); border-radius: 2px; overflow: hidden;
+}
+.cal-roster-progress-fill {
+  height: 100%; width: 0%;
+  background: var(--blue);
+  transition: width 0.4s ease;
+}
+
+/* roster totals strip */
+.cal-roster-totals {
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+
+/* ── system profile card ──────────────────────────────────── */
+.cal-profile-list { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.cal-profile-row { display: flex; gap: 12px; align-items: baseline; }
+.cal-profile-row dt {
+  font-family: var(--font-mono);
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--fg3);
+  width: 50px;
+  flex-shrink: 0;
+}
+.cal-profile-row dd { margin: 0; font-size: 0.84rem; color: var(--fg1); flex: 1; min-width: 0; }
+.cal-profile-w { color: var(--fg3); margin-left: 6px; font-size: 0.78rem; }
+
+/* ── safety card ──────────────────────────────────────────── */
+.cal-safety-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.cal-safety-list li {
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 0.78rem; color: var(--fg2); line-height: 1.45;
+}
+.cal-safety-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--teal-bg); color: var(--teal);
+  font-size: 0.7rem; font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── ensure [hidden] always wins over flex/grid display ──── */
+[hidden] { display: none !important; }
+
+/* ── done banner ──────────────────────────────────────────── */
+.cal-done-banner {
+  display: flex; gap: 18px; align-items: center;
+  padding: 18px 22px;
+  background: linear-gradient(135deg, var(--teal-bg) 0%, var(--bg2) 100%);
+  border: 1px solid var(--teal);
+  border-radius: 12px;
+  animation: cal-done-rise 0.6s ease-out;
+}
+@keyframes cal-done-rise {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0);    }
+}
+.cal-done-celebrate {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  animation: cal-done-pop 0.6s ease-out 0.2s backwards;
+}
+.cal-done-celebrate svg {
+  width: 24px; height: 24px;
+  fill: none; stroke: currentColor; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+}
+@keyframes cal-done-pop {
+  0%   { transform: scale(0)   rotate(-45deg); }
+  60%  { transform: scale(1.1) rotate(0); }
+  100% { transform: scale(1)   rotate(0); }
+}
+.cal-done-text { flex: 1; min-width: 0; }
+.cal-done-title {
+  font-size: 1.1rem; font-weight: 600; color: var(--fg1);
+}
+.cal-done-sub {
+  font-size: 0.85rem; color: var(--fg2);
+  margin-top: 2px; line-height: 1.5;
+}
+
+/* ── error banner ─────────────────────────────────────────── */
+.cal-error-banner {
+  display: flex; gap: 14px; align-items: center;
+  padding: 14px 18px;
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  border-radius: 10px;
+}
+.cal-error-text { flex: 1; min-width: 0; }
+.cal-error-title {
+  font-size: 0.95rem; color: var(--red); font-weight: 600;
+}
+.cal-error-sub { font-size: 0.82rem; color: var(--fg1); margin-top: 2px; }
+
+/* ── responsive ───────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .cal-body-grid { grid-template-columns: 1fr; }
+  .cal-pipeline-steps { grid-template-columns: repeat(4, 1fr); }
+  .pipe-step:nth-child(n+5) { grid-column: span 1; }
+}
+@media (max-width: 760px) {
+  .cal-stage  { padding: 18px 16px 28px; }
+  .cal-head   { flex-wrap: wrap; }
+  .cal-eta    { display: none; }
+  .cal-live-stats { grid-template-columns: repeat(2, 1fr); }
+  .cal-pipeline-steps { grid-template-columns: repeat(2, 1fr); }
+  .pipe-step .pipe-sub { display: none; }
+}
+
+/* ── reduced-motion respect ──────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .cal-bg-glow,
+  .cal-bg-grid,
+  .cal-pipeline::before,
+  .cal-pipeline-fill::after,
+  .cal-pulse-dot,
+  .pipe-step.is-active .pipe-dot,
+  .cal-cursor-halo,
+  .cal-roster-row.is-running .cal-fan-blade,
+  .cal-sample {
+    animation: none !important;
+  }
+  .brand-mark.spinning { animation: none !important; }
+}

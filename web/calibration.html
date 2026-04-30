@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — calibration</title>
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/shell.css">
+<link rel="stylesheet" href="/shared/brand.css">
+<link rel="stylesheet" href="/calibration.css">
+</head>
+<body class="cal-body">
+
+<!-- ambient background ------------------------------------------------- -->
+<div class="cal-bg" aria-hidden="true">
+  <div class="cal-bg-grid"></div>
+  <div class="cal-bg-glow cal-bg-glow--a"></div>
+  <div class="cal-bg-glow cal-bg-glow--b"></div>
+  <div class="cal-bg-glow cal-bg-glow--c"></div>
+</div>
+
+<main class="cal-stage">
+
+  <!-- HEADER ----------------------------------------------------------- -->
+  <header class="cal-head">
+    <div class="cal-head-brand">
+      <div class="brand-mark spinning"></div>
+      <div class="cal-head-text">
+        <div class="cal-head-name">Ventd</div>
+        <div class="cal-head-sub" id="cal-headline">Auto-calibrating your fans</div>
+      </div>
+    </div>
+    <div class="cal-head-actions">
+      <div class="cal-eta">
+        <div class="cal-eta-label">elapsed · remaining</div>
+        <div class="cal-eta-value mono">
+          <span id="cal-elapsed">00:00</span>
+          <span class="cal-eta-sep">/</span>
+          <span id="cal-remaining">—</span>
+        </div>
+      </div>
+      <button class="btn btn--danger cal-abort-btn" id="cal-abort" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Abort
+      </button>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- PHASE PIPELINE --------------------------------------------------- -->
+  <section class="cal-pipeline" aria-label="Calibration phase pipeline">
+    <ol class="cal-pipeline-steps" id="cal-pipeline">
+      <li class="pipe-step" data-phase="detecting">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Detect hardware</span>
+        <span class="pipe-sub">Discovering chips and fans</span>
+      </li>
+      <li class="pipe-step" data-phase="installing_driver">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Driver</span>
+        <span class="pipe-sub">Loading kernel module</span>
+      </li>
+      <li class="pipe-step" data-phase="scanning_fans">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Scan fans</span>
+        <span class="pipe-sub">Mapping PWM controllers</span>
+      </li>
+      <li class="pipe-step" data-phase="detecting_rpm">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Pair tach</span>
+        <span class="pipe-sub">Matching RPM sensors</span>
+      </li>
+      <li class="pipe-step" data-phase="probing_polarity">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Polarity</span>
+        <span class="pipe-sub">Direction of duty cycle</span>
+      </li>
+      <li class="pipe-step" data-phase="calibrating">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Calibrate</span>
+        <span class="pipe-sub">Sweeping each fan</span>
+      </li>
+      <li class="pipe-step" data-phase="finalizing">
+        <span class="pipe-dot"></span>
+        <span class="pipe-label">Curve</span>
+        <span class="pipe-sub">Building thermal profile</span>
+      </li>
+    </ol>
+    <div class="cal-pipeline-progress">
+      <div class="cal-pipeline-bar"><div class="cal-pipeline-fill" id="cal-pipeline-fill"></div></div>
+    </div>
+  </section>
+
+  <!-- BODY GRID -------------------------------------------------------- -->
+  <section class="cal-body-grid">
+
+    <!-- LEFT: live sweep --------------------------------------------- -->
+    <div class="cal-card cal-live-card" id="cal-live-card">
+      <div class="cal-card-head">
+        <div class="cal-card-eyebrow">
+          <span class="cal-pulse-dot"></span>
+          NOW PROBING
+        </div>
+        <div class="cal-card-title" id="cal-live-name">Waiting to start…</div>
+        <div class="cal-card-sub mono" id="cal-live-source">—</div>
+      </div>
+
+      <!-- live stat strip -->
+      <div class="cal-live-stats">
+        <div class="cal-live-stat">
+          <div class="cal-live-stat-label">PWM</div>
+          <div class="cal-live-stat-value mono">
+            <span id="cal-live-pwm">—</span><span class="cal-live-stat-of">/255</span>
+          </div>
+          <div class="cal-live-bar"><div class="cal-live-bar-fill" id="cal-live-pwm-bar"></div></div>
+        </div>
+        <div class="cal-live-stat">
+          <div class="cal-live-stat-label">RPM</div>
+          <div class="cal-live-stat-value mono">
+            <span id="cal-live-rpm">—</span>
+          </div>
+          <div class="cal-live-spark">
+            <svg id="cal-live-spark-svg" viewBox="0 0 240 36" preserveAspectRatio="none" aria-hidden="true">
+              <path id="cal-live-spark-path" d="" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </div>
+        </div>
+        <div class="cal-live-stat">
+          <div class="cal-live-stat-label">Phase</div>
+          <div class="cal-live-stat-value cal-live-stat-value--phase" id="cal-live-phase">idle</div>
+          <div class="cal-live-stat-sub" id="cal-live-phase-sub">awaiting first probe</div>
+        </div>
+        <div class="cal-live-stat">
+          <div class="cal-live-stat-label">Progress</div>
+          <div class="cal-live-stat-value mono">
+            <span id="cal-live-progress">0</span><span class="cal-live-stat-of">%</span>
+          </div>
+          <div class="cal-live-bar"><div class="cal-live-bar-fill cal-live-bar-fill--progress" id="cal-live-progress-bar"></div></div>
+        </div>
+      </div>
+
+      <!-- scatter chart (PWM ↔ RPM, builds in real time) -->
+      <div class="cal-chart">
+        <svg id="cal-scatter" viewBox="0 0 800 320" preserveAspectRatio="none" aria-label="PWM vs RPM scatter, building live">
+          <defs>
+            <linearGradient id="curve-grad" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%"  stop-color="var(--teal)" stop-opacity="0"/>
+              <stop offset="40%" stop-color="var(--teal)" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="var(--teal)" stop-opacity="0.45"/>
+            </linearGradient>
+            <radialGradient id="dot-glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stop-color="var(--teal)" stop-opacity="0.9"/>
+              <stop offset="60%"  stop-color="var(--teal)" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="var(--teal)" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <!-- grid -->
+          <g class="cal-chart-grid">
+            <line x1="0" y1="80"  x2="800" y2="80"/>
+            <line x1="0" y1="160" x2="800" y2="160"/>
+            <line x1="0" y1="240" x2="800" y2="240"/>
+            <line x1="200" y1="0" x2="200" y2="320"/>
+            <line x1="400" y1="0" x2="400" y2="320"/>
+            <line x1="600" y1="0" x2="600" y2="320"/>
+          </g>
+          <!-- axis labels -->
+          <g class="cal-chart-axis">
+            <text x="6"   y="14" >max RPM</text>
+            <text x="6"   y="166">½</text>
+            <text x="6"   y="316">stall</text>
+            <text x="200" y="316" text-anchor="middle">25%</text>
+            <text x="400" y="316" text-anchor="middle">50%</text>
+            <text x="600" y="316" text-anchor="middle">75%</text>
+            <text x="794" y="316" text-anchor="end">100%</text>
+          </g>
+          <!-- curve fitted area (drawn live) -->
+          <path id="cal-curve-area" class="cal-curve-area" d="" fill="url(#curve-grad)" />
+          <path id="cal-curve-line" class="cal-curve-line" d="" fill="none" stroke="var(--teal)" stroke-width="2"/>
+          <!-- sample dots get appended here -->
+          <g id="cal-samples"></g>
+          <!-- live cursor -->
+          <line   id="cal-cursor"     class="cal-cursor"     x1="-10" y1="0" x2="-10" y2="320"/>
+          <circle id="cal-cursor-dot" class="cal-cursor-dot" cx="-10" cy="320" r="6" />
+          <circle id="cal-cursor-halo" class="cal-cursor-halo" cx="-10" cy="320" r="14" fill="url(#dot-glow)" />
+          <!-- markers (start / stop) -->
+          <g id="cal-markers"></g>
+        </svg>
+        <div class="cal-chart-legend">
+          <span class="legend-item"><span class="legend-swatch legend-swatch--blue"></span>PWM target</span>
+          <span class="legend-item"><span class="legend-swatch legend-swatch--teal"></span>RPM measured</span>
+          <span class="legend-item"><span class="legend-swatch legend-swatch--marker"></span>start / stop point</span>
+        </div>
+      </div>
+
+      <!-- rotating reassurance message -->
+      <div class="cal-flavour" id="cal-flavour">
+        Calibration runs once per host. Walk away — your work isn't wasted.
+      </div>
+    </div>
+
+    <!-- RIGHT: fan roster + system profile --------------------------- -->
+    <div class="cal-side">
+
+      <div class="cal-card cal-roster-card">
+        <div class="cal-card-head cal-card-head--inline">
+          <div class="cal-card-eyebrow">FANS</div>
+          <div class="cal-card-counter mono">
+            <span id="cal-counter-done">0</span><span class="cal-card-counter-of">/</span><span id="cal-counter-total">0</span>
+          </div>
+        </div>
+        <div class="cal-roster" id="cal-roster">
+          <div class="cal-roster-empty">Waiting for hardware scan…</div>
+        </div>
+        <div class="cal-roster-totals">
+          <span class="status-pill ok"><span class="cal-pulse-dot cal-pulse-dot--ok"></span><span id="cal-totals-done">0</span> done</span>
+          <span class="status-pill info"><span class="cal-pulse-dot cal-pulse-dot--info"></span><span id="cal-totals-running">0</span> running</span>
+          <span class="status-pill ro"><span id="cal-totals-queued">0</span> queued</span>
+          <span class="status-pill warn" id="cal-totals-skipped-pill" hidden><span id="cal-totals-skipped">0</span> skipped</span>
+        </div>
+      </div>
+
+      <div class="cal-card cal-profile-card" id="cal-profile-card" hidden>
+        <div class="cal-card-head">
+          <div class="cal-card-eyebrow">SYSTEM PROFILE</div>
+          <div class="cal-card-title" id="cal-profile-board">—</div>
+        </div>
+        <dl class="cal-profile-list">
+          <div class="cal-profile-row" id="cal-profile-cpu-row" hidden>
+            <dt>CPU</dt>
+            <dd><span id="cal-profile-cpu">—</span> <span class="cal-profile-w mono" id="cal-profile-cpu-tdp"></span></dd>
+          </div>
+          <div class="cal-profile-row" id="cal-profile-gpu-row" hidden>
+            <dt>GPU</dt>
+            <dd><span id="cal-profile-gpu">—</span> <span class="cal-profile-w mono" id="cal-profile-gpu-tdp"></span></dd>
+          </div>
+          <div class="cal-profile-row" id="cal-profile-chip-row" hidden>
+            <dt>Chip</dt>
+            <dd class="mono" id="cal-profile-chip">—</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div class="cal-card cal-safety-card">
+        <div class="cal-card-head">
+          <div class="cal-card-eyebrow">SAFETY</div>
+        </div>
+        <ul class="cal-safety-list">
+          <li><span class="cal-safety-icon">✓</span> Aborts if any temperature exceeds 85&nbsp;°C</li>
+          <li><span class="cal-safety-icon">✓</span> Restores firmware control within 2&nbsp;s on abort</li>
+          <li><span class="cal-safety-icon">✓</span> Sweeps run sequentially — no thermal interference</li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- DONE BANNER (hidden until applied) ------------------------------ -->
+  <section class="cal-done-banner" id="cal-done-banner" hidden>
+    <div class="cal-done-celebrate" aria-hidden="true">
+      <svg viewBox="0 0 64 64"><path d="M16 32l10 10 22-22"/></svg>
+    </div>
+    <div class="cal-done-text">
+      <div class="cal-done-title">Calibration complete</div>
+      <div class="cal-done-sub" id="cal-done-sub">
+        Your custom fan curve is ready. Apply to take over from firmware control.
+      </div>
+    </div>
+    <button class="btn btn--primary btn--lg" id="cal-apply-btn">
+      Apply &amp; Continue
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+    </button>
+  </section>
+
+  <!-- ERROR BANNER (hidden unless an error or abort fires) ------------ -->
+  <section class="cal-error-banner" id="cal-error-banner" hidden role="alert">
+    <div class="cal-error-text">
+      <div class="cal-error-title">Calibration could not complete</div>
+      <div class="cal-error-sub" id="cal-error-sub">—</div>
+    </div>
+    <button class="btn btn--ghost" id="cal-retry-btn">Retry</button>
+  </section>
+
+</main>
+
+<script src="/shared/brand.js"></script>
+<script src="/calibration.js"></script>
+</body>
+</html>

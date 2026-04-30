@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventd — first boot setup</title>
+<link rel="stylesheet" href="/shared/tokens.css">
+<link rel="stylesheet" href="/shared/shell.css">
+<link rel="stylesheet" href="/shared/brand.css">
+<link rel="stylesheet" href="/shared/ambient.css">
+<link rel="stylesheet" href="/setup.css">
+</head>
+<body class="setup-body">
+
+<div class="ambient-bg" aria-hidden="true">
+  <div class="ambient-grid"></div>
+  <div class="ambient-glow ambient-glow--a"></div>
+  <div class="ambient-glow ambient-glow--b"></div>
+  <div class="ambient-glow ambient-glow--c"></div>
+</div>
+
+<main class="setup-stage">
+
+  <div class="setup-card">
+
+    <header class="setup-card-head">
+      <div class="setup-brand">
+        <div class="brand-mark"></div>
+        <div class="setup-brand-text">
+          <div class="setup-brand-name">Ventd</div>
+          <div class="setup-brand-sub">SYSTEM FAN CONTROLLER</div>
+        </div>
+      </div>
+      <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
+        <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      </button>
+    </header>
+
+    <div class="setup-eyebrow">
+      <span class="setup-eyebrow-step mono">step 1 / 1</span>
+      <span class="setup-eyebrow-title">First boot setup</span>
+    </div>
+
+    <div class="setup-host">
+      <div class="setup-host-row">
+        <span class="setup-host-label">host</span>
+        <span class="setup-host-value mono" id="host-name">—</span>
+      </div>
+      <div class="setup-host-divider"></div>
+      <div class="setup-host-row">
+        <span class="setup-host-label">version</span>
+        <span class="setup-host-value mono" id="host-version">—</span>
+      </div>
+    </div>
+
+    <form class="setup-form" id="setup-form" autocomplete="off">
+
+      <div class="setup-field">
+        <label class="setup-label" for="setup-token">
+          Setup Token
+          <span class="setup-label-hint">printed once on first systemd start</span>
+        </label>
+        <div class="setup-input-wrap">
+          <input
+            id="setup-token"
+            name="setup_token"
+            class="setup-input mono setup-input--token"
+            type="text"
+            inputmode="text"
+            autocapitalize="characters"
+            spellcheck="false"
+            placeholder="XXXXX-XXXXX-XXXXX"
+            aria-describedby="setup-token-hint"
+            maxlength="17"
+            required>
+          <button type="button" class="setup-input-action" id="token-paste" aria-label="Paste from clipboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 012 2v13a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-field">
+        <label class="setup-label" for="setup-password">
+          Create Password
+          <span class="setup-label-hint">min 8 chars</span>
+        </label>
+        <div class="setup-input-wrap">
+          <input
+            id="setup-password"
+            name="new_password"
+            class="setup-input mono"
+            type="password"
+            placeholder="••••••••"
+            minlength="8"
+            required>
+          <button type="button" class="setup-input-action" id="pw-reveal" aria-label="Show password">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="setup-strength" aria-hidden="true" id="pw-strength" hidden>
+          <div class="setup-strength-bar"><div class="setup-strength-fill" id="pw-strength-fill"></div></div>
+          <span class="setup-strength-label" id="pw-strength-label"></span>
+        </div>
+      </div>
+
+      <div class="setup-field">
+        <label class="setup-label" for="setup-confirm">
+          Confirm Password
+        </label>
+        <div class="setup-input-wrap">
+          <input
+            id="setup-confirm"
+            class="setup-input mono"
+            type="password"
+            placeholder="••••••••"
+            minlength="8"
+            required>
+          <span class="setup-input-status" id="confirm-status" aria-hidden="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
+          </span>
+        </div>
+      </div>
+
+      <div class="setup-error" id="setup-error" hidden role="alert"></div>
+
+      <button type="submit" class="btn btn--primary btn--lg setup-submit" id="setup-submit">
+        <span id="setup-submit-label">Create Password &amp; Continue</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+
+    </form>
+
+    <footer class="setup-foot">
+      <div class="setup-foot-label">Find your setup token in the terminal via:</div>
+      <pre class="setup-foot-code mono"><span class="cmd-prompt">$</span> <span class="cmd-name">journalctl</span> <span class="cmd-flag">-u</span> <span class="cmd-arg">ventd</span> <span class="cmd-pipe">|</span> <span class="cmd-name">grep</span> <span class="cmd-string">"Setup token"</span></pre>
+      <div class="setup-foot-hint">
+        Token rotates on every <span class="mono">systemctl restart ventd</span> until first login completes. After that, this screen is replaced by the regular login.
+      </div>
+    </footer>
+
+  </div>
+
+  <div class="setup-bg-grid" aria-hidden="true"></div>
+
+</main>
+
+<script src="/shared/brand.js"></script>
+<script src="/setup.js"></script>
+</body>
+</html>
