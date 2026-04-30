@@ -192,13 +192,18 @@
     for (var h = 0; h < 24; h++) html += '<span>' + String(h).padStart(2, '0') + '</span>';
     axis.innerHTML = html;
 
-    // legend
+    // legend. Inline style="" attributes violate CSP style-src 'self';
+    // set the swatch background via CSSOM after construction.
     names.forEach(function (name, i) {
       if (!profiles[name].schedule) return;
       var color = colourFor(name, i);
       var pill = document.createElement('span');
       pill.className = 'legend-pill';
-      pill.innerHTML = '<span class="legend-swatch" style="background:' + color + '"></span>' + escapeHTML(name);
+      var swatch = document.createElement('span');
+      swatch.className = 'legend-swatch';
+      swatch.style.background = color;
+      pill.appendChild(swatch);
+      pill.appendChild(document.createTextNode(name));
       legend.appendChild(pill);
     });
   }
