@@ -289,7 +289,10 @@
     }
     if (p.cal_phase === 'calibrating') {
       var pct = Math.max(0, Math.min(100, p.cal_progress || 0));
-      return '<div class="cal-roster-progress"><div class="cal-roster-progress-fill" style="width:' + pct + '%"></div></div>';
+      // CSP forbids inline style="" attributes under style-src 'self';
+      // emit the percentage as a data attribute and a sibling pass over
+      // .cal-roster-progress-fill applies element.style.width via CSSOM.
+      return '<div class="cal-roster-progress"><div class="cal-roster-progress-fill" data-progress="' + pct + '"></div></div>';
     }
     return '';
   }
@@ -347,6 +350,11 @@
             + '</div>';
     }
     rosterEl.innerHTML = html;
+    // Apply width from data-progress now that the markup is in the DOM.
+    Array.prototype.forEach.call(
+      rosterEl.querySelectorAll('.cal-roster-progress-fill[data-progress]'),
+      function (el) { el.style.width = el.dataset.progress + '%'; }
+    );
     if (counterDoneEl)  counterDoneEl.textContent  = done;
     if (counterTotalEl) counterTotalEl.textContent = sorted.length;
     if (totalsDoneEl)   totalsDoneEl.textContent   = done;
