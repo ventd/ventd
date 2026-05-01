@@ -95,6 +95,41 @@ func TestRuntime_SnapshotAll_IncludesEveryShard(t *testing.T) {
 	}
 }
 
+// TestRuntime_RunStopsOnContextCancel — RULE-CPL-WIRING-03.
+//
+// On daemon shutdown the runtime's per-shard goroutines unwind,
+// each shard executes a final Save, and Run returns. The wiring
+// test asserts ctx cancellation propagates within 1 second.
+func TestRuntime_RunStopsOnContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	rt := NewRuntime(dir, "fp", slog.Default())
+
+	for i := 0; i < 2; i++ {
+		s, err := New(DefaultConfig("ch"+itoa(i), 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rt.AddShard(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- rt.Run(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Run returned unexpected error on cancel: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return within 1s of ctx cancellation")
+	}
+}
+
 // itoa avoids strconv import in tests; tiny helper.
 func itoa(n int) string {
 	if n == 0 {
