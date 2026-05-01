@@ -1,0 +1,66 @@
+- id: intel-nuc11-generic
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Intel(R) Client Systems
+    dmi_board_name: NUC11PAB
+    superio_chip: unknown
+  hardware:
+    pwm_control: unknown
+    fans:
+      - { id: cpu_fan, header_label: CPU_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: intel-nuc13-generic
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Intel(R) Client Systems
+    dmi_board_name: NUC13ANBi7
+    superio_chip: unknown
+  hardware:
+    pwm_control: unknown
+    fans:
+      - { id: cpu_fan, header_label: CPU_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: beelink-ser7
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Beelink
+    dmi_board_name: SER7
+    superio_chip: it5570
+  hardware:
+    pwm_control: it5570-fan
+    fans:
+      - { id: cpu_fan, header_label: CPU_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: minisforum-hx99g
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: MINISFORUM
+    dmi_board_name: HX99G
+    superio_chip: it5570
+  hardware:
+    pwm_control: it5570-fan
+    fans:
+      - { id: cpu_fan, header_label: CPU_FAN, max_pwm: 255 }
+      - { id: gpu_fan, header_label: GPU_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: minisforum-um790-pro
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: MINISFORUM
+    dmi_board_name: UM790 Pro
+    superio_chip: unknown
+  hardware:
+    pwm_control: unknown  # vendor says manual adjustment unavailable
+    fans:
+      - { id: cpu_fan, header_label: CPU_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
