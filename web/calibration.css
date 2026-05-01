@@ -540,7 +540,14 @@
   font-size: 0.95rem; color: var(--red); font-weight: 600;
 }
 .cal-error-sub { font-size: 0.82rem; color: var(--fg1); margin-top: 2px; }
-.cal-error-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.cal-error-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.cal-error-bundle-status {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--fg2);
+  margin-top: 6px;
+}
+.cal-error-bundle-status.is-error { color: var(--red); }
 
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width: 1080px) {

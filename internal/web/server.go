@@ -305,7 +305,17 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
 		{name: "system/security", handler: s.handleSystemSecurity, auth: true},
 		{name: "system/diagnostics", handler: s.handleSystemDiagnostics, auth: true},
+		// #792 wizard recovery surface — generate a redacted diag bundle on
+		// demand so the calibration error banner can offer the operator a
+		// download instead of a Go error string. Download path is registered
+		// separately (trailing-slash route) because registerAPIRoutes only
+		// expresses exact paths.
+		{name: "diag/bundle", handler: s.handleDiagBundle, auth: true},
 	})
+
+	dlHandler := s.requireAuth(s.handleDiagDownload)
+	s.mux.HandleFunc("/api/diag/download/", dlHandler)
+	s.mux.HandleFunc("/api/v1/diag/download/", dlHandler)
 
 	// Root document is served from the catch-all handler, authenticated.
 	s.mux.HandleFunc("/", s.requireAuth(s.handleUI))
