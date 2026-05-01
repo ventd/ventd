@@ -11,8 +11,8 @@ import (
 
 // Bin width and count from spec-v0_5_9 §2.4 / RULE-CONFA-COVERAGE-01.
 const (
-	NumBins   = 16
-	BinWidth  = 16 // raw PWM units per bin (0/16/32/.../240)
+	NumBins                 = 16
+	BinWidth                = 16 // raw PWM units per bin (0/16/32/.../240)
 	MinObsPerBinForCoverage = 3
 )
 

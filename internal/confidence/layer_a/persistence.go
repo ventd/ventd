@@ -18,16 +18,16 @@ const PersistedSchemaVersion uint8 = 1
 // Bucket is the on-disk shape from spec-v0_5_9 §3.5. Stored under
 // <stateDir>/smart/conf-A/<channelID-flattened>.cbor (R15 §104).
 type Bucket struct {
-	SchemaVersion       uint8                  `msgpack:"schema_version"`
-	HwmonFingerprint    string                 `msgpack:"hwmon_fingerprint"`
-	ChannelID           string                 `msgpack:"channel_id"`
-	Tier                uint8                  `msgpack:"tier"`
-	BinCounts           [NumBins]uint32        `msgpack:"bin_counts"`
-	BinResidualSumSq    [NumBins]float64       `msgpack:"bin_residual_sum_sq"`
-	NoiseFloor          float64                `msgpack:"noise_floor"`
-	LastUpdateUnix      int64                  `msgpack:"last_update_unix"`
-	TierPinnedUntilUnix int64                  `msgpack:"tier_pinned_until_unix"`
-	SeenFirstContact    bool                   `msgpack:"seen_first_contact"`
+	SchemaVersion       uint8            `msgpack:"schema_version"`
+	HwmonFingerprint    string           `msgpack:"hwmon_fingerprint"`
+	ChannelID           string           `msgpack:"channel_id"`
+	Tier                uint8            `msgpack:"tier"`
+	BinCounts           [NumBins]uint32  `msgpack:"bin_counts"`
+	BinResidualSumSq    [NumBins]float64 `msgpack:"bin_residual_sum_sq"`
+	NoiseFloor          float64          `msgpack:"noise_floor"`
+	LastUpdateUnix      int64            `msgpack:"last_update_unix"`
+	TierPinnedUntilUnix int64            `msgpack:"tier_pinned_until_unix"`
+	SeenFirstContact    bool             `msgpack:"seen_first_contact"`
 }
 
 const shardSubdir = "smart/conf-A"

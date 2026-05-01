@@ -8,14 +8,14 @@ package layer_a
 // tier table in docs/research/r-bundle/R8-R12-tachless-fallback-and-
 // blended-confidence.md.
 const (
-	TierRPMTach           uint8 = 0 // R8 §"Tier 0" — real fan*_input tach
-	TierCoupledInference  uint8 = 1 // R8 §"Tier 1" — RPM inferred from coupled fan
-	TierBMCIPMI           uint8 = 2 // R8 §"Tier 2" — BMC IPMI sensor proxy
-	TierECStepped         uint8 = 3 // R8 §"Tier 3" — laptop EC discrete steps
-	TierThermalInvert     uint8 = 4 // R8 §"Tier 4" — invert temp curve
-	TierRAPLEcho          uint8 = 5 // R8 §"Tier 5" — RAPL energy proxy
-	TierPWMEnableEcho     uint8 = 6 // R8 §"Tier 6" — pwm_enable readback only
-	TierOpenLoopPinned    uint8 = 7 // R8 §"Tier 7" — no feedback at all
+	TierRPMTach          uint8 = 0 // R8 §"Tier 0" — real fan*_input tach
+	TierCoupledInference uint8 = 1 // R8 §"Tier 1" — RPM inferred from coupled fan
+	TierBMCIPMI          uint8 = 2 // R8 §"Tier 2" — BMC IPMI sensor proxy
+	TierECStepped        uint8 = 3 // R8 §"Tier 3" — laptop EC discrete steps
+	TierThermalInvert    uint8 = 4 // R8 §"Tier 4" — invert temp curve
+	TierRAPLEcho         uint8 = 5 // R8 §"Tier 5" — RAPL energy proxy
+	TierPWMEnableEcho    uint8 = 6 // R8 §"Tier 6" — pwm_enable readback only
+	TierOpenLoopPinned   uint8 = 7 // R8 §"Tier 7" — no feedback at all
 )
 
 // tierCeilings is the R8 fallback ceiling for each tier. Values lock
