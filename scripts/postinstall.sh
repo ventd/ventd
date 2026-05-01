@@ -98,6 +98,20 @@ if [ -d /etc/ventd ]; then
     chmod 0750 /etc/ventd
 fi
 
+# Relocate ventd-nvml-helper to /usr/local/sbin (FHS convention for
+# SUID privileged helpers; .deb / .rpm bindir is /usr/local/bin) and
+# install with mode 4755 so the unprivileged ventd daemon can invoke
+# it for NVML write operations (#770). Best-effort: when the helper
+# binary isn't present (musl build, GPU-less archive), this is a
+# no-op.
+if [ -x /usr/local/bin/ventd-nvml-helper ]; then
+    mkdir -p /usr/local/sbin
+    mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+    chown root:root /usr/local/sbin/ventd-nvml-helper
+    chmod 4755 /usr/local/sbin/ventd-nvml-helper
+    log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=4755"
+fi
+
 # Apply the shipped udev rule (/lib/udev/rules.d/90-ventd-hwmon.rules)
 # now instead of waiting for a reboot.
 if command -v udevadm >/dev/null 2>&1; then

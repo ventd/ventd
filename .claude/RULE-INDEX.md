@@ -231,6 +231,7 @@ Regenerate with: `go run ./tools/rule-index`
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
 | marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
+| nvml-helper.md | NVML helper rules — SUID-root write-helper for unprivileged ventd |
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
 | signature.md | Workload signature learning rules (v0.5.6) |
