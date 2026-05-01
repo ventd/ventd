@@ -5,8 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.4] - 2026-05-01
+
+### Added
+- Passive observation log (v0.5.4 smart-mode) (#693)
+- v0.5.5 opportunistic probing spec (#724)
+
 ### Changed
-- CC sessions now load `.claude/RULE-INDEX.md` instead of fanning out across all rule files. Rules are read on demand via `go run ./tools/rule-index`. Reduces session preload by ~24-48k tokens. (#TBD)
+- Redesign every page on the new design system (#704)
+- CC sessions now load `.claude/RULE-INDEX.md` instead of fanning out across all rule files. Rules are read on demand via `go run ./tools/rule-index`. Reduces session preload by ~24-48k tokens. (#686)
+
+### Fixed
+- First-boot apparmor + listen + sd_notify so fresh installs actually work (#702)
+- Stop upper-casing the first-boot setup token (#712)
+- Defer service start until prerequisites are in place (#711)
+- CSP style-src violations + /api/v1/profile/active 405 polling (#713)
+- Remove dead /logs link from every sidebar (#715)
+- Drop inline <script> from / redirect helper (#714)
+- No-fan-host escape from /calibration; persistent applied marker (#717)
+- Inline change-password form + JSON body matching the API (#720)
+- Progress.Applied honours marker; idle preconditions go fork-free (#723)
+
+### Documentation
+- HIL soak log + open-items list for fix(first-boot) (#703)
+
+### Tests
+- Stop scheduler goroutine race and context leaks in test helpers (#687)
 
 ## [v0.5.3] - 2026-04-29
 
