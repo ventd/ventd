@@ -31,8 +31,10 @@ ventd_create_account
 # Record security-module status to /var/log/ventd/install.log so a
 # silent confinement downgrade (see #202, #211) is still auditable
 # after the .deb / .rpm postinstall output scrolls away. Best-effort.
-# The .deb / .rpm flow leaves apparmor profile registration to the
-# package manager's apparmor hook; we only log what ended up loaded.
+# We can't rely on Debian's dh_apparmor / triggers — Ubuntu 24.04 and
+# Debian 13 .deb installs ship the profile to /etc/apparmor.d/ventd
+# but the running kernel is never told to (re)load it (#763). Load it
+# explicitly here so the profile is enforcing on first daemon start.
 log_security_outcome() {
     module="$1"; outcome="$2"; detail="$3"
     mkdir -p /var/log/ventd 2>/dev/null || return 0
@@ -49,17 +51,40 @@ log_security_outcome() {
     fi
 }
 
-if [ -f /etc/apparmor.d/ventd ]; then
-    if command -v aa-status >/dev/null 2>&1 \
-       && aa-status --enabled 2>/dev/null \
-       && aa-status 2>/dev/null | grep -qE '^[[:space:]]*ventd$'; then
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm"
-    else
-        log_security_outcome apparmor refused "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm hint=aa-status-did-not-list-profile"
+# Load every shipped AppArmor profile via apparmor_parser -r. -r
+# (replace) is idempotent: equivalent to -a on first run, and updates
+# the in-kernel profile in place on package upgrade without
+# unprotecting the daemon mid-replace. Skip cleanly when AppArmor is
+# not present (no kernel module, no parser binary, or aa-status reports
+# disabled) so the postinst never fails on systems that don't run
+# AppArmor (RHEL/CentOS/Fedora/openSUSE, containers without
+# CAP_MAC_ADMIN). Each load decision is logged for audit.
+load_apparmor_profile() {
+    profile="$1"
+    profile_path="/etc/apparmor.d/${profile}"
+    if [ ! -f "$profile_path" ]; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=not-shipped pkg=dpkg/rpm"
+        return 0
     fi
-else
-    log_security_outcome apparmor skipped "reason=profile-not-shipped-by-pkg pkg=dpkg/rpm"
-fi
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=parser-not-installed pkg=dpkg/rpm"
+        return 0
+    fi
+    if command -v aa-status >/dev/null 2>&1 && ! aa-status --enabled 2>/dev/null; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=apparmor-disabled pkg=dpkg/rpm"
+        return 0
+    fi
+    parser_rc=0
+    apparmor_parser -r "$profile_path" 2>/dev/null || parser_rc=$?
+    if [ "$parser_rc" -eq 0 ]; then
+        log_security_outcome apparmor loaded "profile=${profile_path} mode=enforce pkg=dpkg/rpm"
+    else
+        log_security_outcome apparmor refused "profile=${profile_path} parser_exit=${parser_rc} pkg=dpkg/rpm hint=run-apparmor_parser-r-by-hand"
+    fi
+}
+
+load_apparmor_profile ventd
+load_apparmor_profile ventd-ipmi
 
 if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -q '^ventd'; then
     log_security_outcome selinux loaded "module=ventd pkg=dpkg/rpm"

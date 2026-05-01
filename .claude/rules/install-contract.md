@@ -58,6 +58,24 @@ corresponding file exists under `deploy/apparmor.d/`.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_AppArmorProfileShipped
 
+## RULE-INSTALL-06: scripts/postinstall.sh MUST call apparmor_parser -r for every shipped profile
+
+The .deb / .rpm postinst — `scripts/postinstall.sh` — must explicitly
+load each AppArmor profile shipped under `deploy/apparmor.d/` via
+`apparmor_parser -r /etc/apparmor.d/<profile>`. Ubuntu 24.04 and
+Debian 13 do not reliably fire dh_apparmor triggers on package install
+(#763), so without an explicit parser call in the postinst the
+profile is on disk but the kernel never knows about it, and the
+daemon starts unconfined despite shipping a profile. The contract
+test reads `scripts/postinstall.sh` and asserts (a) it contains a
+literal `apparmor_parser -r` call and (b) each profile name in
+`deploy/apparmor.d/` appears in a `load_apparmor_profile <name>`
+invocation. Profiles that legitimately can't be loaded (no parser
+binary, AppArmor disabled in the kernel) are skipped at runtime —
+the rule covers presence-of-call, not always-success.
+
+Bound: deploy/install-contract_test.go:TestInstallContract_PostinstallLoadsAppArmor
+
 ## RULE-INSTALL-05: Every shipped AppArmor profile must have a HIL validation log under enforce mode
 
 For each profile under `deploy/apparmor.d/*` (excluding README.md), a
