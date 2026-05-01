@@ -213,6 +213,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration-safety.md | Calibration Safety Rules |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | collaboration.md | Collaboration Rules |
+| coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | go-conventions.md | Go Conventions — ventd |
 | hal-contract.md | HAL Backend Contract |
 | hidraw-safety.md | hidraw-safety — invariant bindings for pure-Go Linux hidraw substrate |
@@ -222,9 +223,11 @@ Regenerate with: `go run ./tools/rule-index`
 | install-contract.md | Install Contract Rules |
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
+| marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
 | signature.md | Workload signature learning rules (v0.5.6) |
+| signguard.md | Sign-guard rules (v0.5.8) |
 | ui.md | Web UI Invariants (spec-12) |
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |

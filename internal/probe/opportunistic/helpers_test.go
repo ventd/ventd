@@ -2,14 +2,13 @@ package opportunistic
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/state"
+	"github.com/ventd/ventd/internal/testfixture/fakeprocsys"
 )
 
 // fakeLogStore is an in-memory observation.LogStore for opportunistic
@@ -75,40 +74,15 @@ func newFakeLogStore(_ time.Time, records ...*observation.Record) *fakeLogStore 
 	return store
 }
 
-// makeIdleProcRoot builds a minimal /proc + /sys fixture under
-// t.TempDir() that satisfies the StartupGate predicate. Mirrors the
-// helper of the same name in internal/idle/idle_test.go (which is
-// unexported and only visible inside that package). Used by
-// scheduler tests that need OpportunisticGate to actually pass the
-// predicate check.
+// makeIdleProcRoot builds a minimal /proc + /sys fixture that
+// satisfies the StartupGate predicate. Delegates to
+// internal/testfixture/fakeprocsys.Idle so the canonical idle
+// baseline is shared with internal/idle/idle_test.go and any
+// future smart-mode test packages.
 func makeIdleProcRoot(t *testing.T) (procRoot, sysRoot string) {
 	t.Helper()
-	dir := t.TempDir()
-	procRoot = dir + "/proc"
-	sysRoot = dir + "/sys"
-
-	for _, p := range []string{
-		"pressure/cpu",
-		"pressure/io",
-		"pressure/memory",
-	} {
-		writeFile(t, procRoot, p, "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
-	}
-	writeFile(t, procRoot, "uptime", "7200.00 14400.00\n")
-	return procRoot, sysRoot
-}
-
-// writeFile writes contents to dir/rel, creating intermediate
-// directories. Test helper.
-func writeFile(t *testing.T, dir, rel, contents string) {
-	t.Helper()
-	full := filepath.Join(dir, rel)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
-		t.Fatalf("write %s: %v", full, err)
-	}
+	r := fakeprocsys.Idle(t)
+	return r.ProcRoot, r.SysRoot
 }
 
 // fakeRec is a one-line constructor for an observation.Record with the
