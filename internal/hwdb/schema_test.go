@@ -72,6 +72,27 @@ func TestSchema_Invariants(t *testing.T) {
 		assertSchemaError(t, err, "pwm_control")
 	})
 
+	t.Run("Rule_HWDB_05_AllowlistAdditions", func(t *testing.T) {
+		// Pin the v1.x amendment entries so a future cleanup that drops a name
+		// fails this test rather than silently invalidating staged candidates
+		// (Pass 2–4 of the 2026-05-02 harvest depend on these). The "unknown"
+		// sentinel is the gate for monitor-only entries on hardware with no
+		// Linux fan-control driver path.
+		want := []string{
+			"unknown",
+			"nct6686", "nct6687", "nct6687d",
+			"nct7904", "nct7904d",
+			"it8625", "it8625e", "it8628", "it8628e", "it8689e",
+			"it5570", "it5570-fan", "it5571", "it5572",
+			"msi-ec", "legion-laptop", "qnap8528", "macsmc-hwmon",
+		}
+		for _, name := range want {
+			if _, ok := knownPWMModules[name]; !ok {
+				t.Errorf("knownPWMModules missing %q (RULE-HWDB-05 v1.x amendment)", name)
+			}
+		}
+	})
+
 	t.Run("Rule_HWDB_06_PIIGate", func(t *testing.T) {
 		// Unknown field rejected by KnownFields strict decode.
 		_, err := loadFile(t, "testdata/invalid_rule06_unknown_field.yaml")
