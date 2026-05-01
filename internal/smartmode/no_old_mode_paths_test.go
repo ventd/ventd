@@ -90,11 +90,11 @@ var (
 	// assert the symbol's absence (RULE-PROBE-10 etc.) and the smartmode
 	// integration tests themselves.
 	allowedFiles = map[string]bool{
-		"internal/probe/probe_test.go":                      true, // RULE-PROBE-10 binding
-		"internal/smartmode/no_old_mode_paths_test.go":      true, // this file
-		"internal/smartmode/no_fourth_path_test.go":         true, // smartmode integration
-		"internal/smartmode/never_reduce_cooling_test.go":   true, // smartmode integration
-		"internal/smartmode/no_catalog_branch_test.go":      true, // smartmode integration
+		"internal/probe/probe_test.go":                    true, // RULE-PROBE-10 binding
+		"internal/smartmode/no_old_mode_paths_test.go":    true, // this file
+		"internal/smartmode/no_fourth_path_test.go":       true, // smartmode integration
+		"internal/smartmode/never_reduce_cooling_test.go": true, // smartmode integration
+		"internal/smartmode/no_catalog_branch_test.go":    true, // smartmode integration
 	}
 )
 

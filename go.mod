@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect

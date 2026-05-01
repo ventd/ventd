@@ -224,6 +224,7 @@ Regenerate with: `go run ./tools/rule-index`
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
+| signature.md | Workload signature learning rules (v0.5.6) |
 | ui.md | Web UI Invariants (spec-12) |
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |
