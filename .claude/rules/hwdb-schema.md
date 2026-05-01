@@ -51,14 +51,28 @@ Bound: internal/hwdb/schema_test.go:Rule_HWDB_04_MonotonicCurves
 The `hardware.pwm_control` value MUST be one of the names in the allowlist
 constant `knownPWMModules` defined in `schema.go`. Unknown values reject at
 load. The allowlist v1 covers the common Super I/O and embedded-controller
-drivers: nct6775 through nct6799, it87 family, fintek f71xxx, winbond w83xxx,
+drivers: nct6775 through nct6799, the modern NCT668x family
+(nct6686, nct6687, nct6687d), nct7802, nct7904(d), it87 family,
+the IT86xx/IT8689E family (it8625, it8625e, it8628, it8628e, it8689e),
+ITE laptop/NUC ECs (it5570, it5570-fan, it5571, it5572),
+fintek f71xxx, winbond w83xxx,
 asus-ec-sensors, asus-wmi-sensors, dell-smm-hwmon, hp-wmi-sensors,
-thinkpad_acpi, applesmc, surface_fan, gigabyte-waterforce, asus-rog-ryujin,
+thinkpad_acpi, applesmc, surface_fan,
+msi-ec (mainline ≥6.10), legion-laptop, qnap8528, macsmc-hwmon,
+gigabyte-waterforce, asus-rog-ryujin,
 corsair-cpro, corsair-psu, nzxt-kraken2/3, nzxt-smart2,
 aquacomputer-d5next, drivetemp, k10temp, coretemp, amdgpu, peci-cputemp,
 sch5627, sch5636, f71882fg, fam15h_power, lm75, lm85, adt7475, adt7476,
-max6645, max31790, emc2103, nct7802, and pwm-fan. Adding to this list is a
-v1.x amendment, not a schema break.
+max6645, max31790, emc2103, and pwm-fan.
+
+The literal string `"unknown"` is also accepted as a sentinel for monitor-only
+catalog entries whose hardware has no Linux fan-control driver path yet
+(typical for laptop ECs behind NDA, ARM SBCs without a hwmon driver, and
+BMC-managed servers). Catalog entries using `pwm_control: unknown` MUST also
+declare a capability of `ro_unsupported`; downstream gates check capability,
+not the pwm_control string.
+
+Adding a name is a v1.x amendment, not a schema break.
 
 Bound: internal/hwdb/schema_test.go:Rule_HWDB_05_KnownPWMModule
 
