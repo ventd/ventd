@@ -67,10 +67,10 @@ var knownPWMModules = map[string]struct{}{
 	// Vendor / EC drivers (in-tree or near-tree)
 	"asus-ec-sensors": {}, "asus-wmi-sensors": {}, "dell-smm-hwmon": {},
 	"hp-wmi-sensors": {}, "thinkpad_acpi": {}, "applesmc": {}, "surface_fan": {},
-	"msi-ec":         {}, // mainline since kernel 6.10 (MSI gaming laptops)
-	"legion-laptop":  {}, // out-of-tree (johnfanv2/legion-laptop), Lenovo Legion
-	"qnap8528":       {}, // out-of-tree, QNAP TS-series NAS
-	"macsmc-hwmon":   {}, // upstream-pending (Asahi), Apple Silicon
+	"msi-ec":        {}, // mainline since kernel 6.10 (MSI gaming laptops)
+	"legion-laptop": {}, // out-of-tree (johnfanv2/legion-laptop), Lenovo Legion
+	"qnap8528":      {}, // out-of-tree, QNAP TS-series NAS
+	"macsmc-hwmon":  {}, // upstream-pending (Asahi), Apple Silicon
 
 	// Liquid / fan controllers
 	"gigabyte-waterforce": {}, "asus-rog-ryujin": {}, "corsair-cpro": {},
