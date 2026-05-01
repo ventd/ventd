@@ -58,23 +58,28 @@ corresponding file exists under `deploy/apparmor.d/`.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_AppArmorProfileShipped
 
-## RULE-INSTALL-06: scripts/postinstall.sh MUST call apparmor_parser -r for every shipped profile
+## RULE-INSTALL-06: AppArmor profiles ship to /etc/apparmor.d/ but are NOT auto-loaded by postinstall (v0.5.8.1+)
 
-The .deb / .rpm postinst — `scripts/postinstall.sh` — must explicitly
-load each AppArmor profile shipped under `deploy/apparmor.d/` via
-`apparmor_parser -r /etc/apparmor.d/<profile>`. Ubuntu 24.04 and
-Debian 13 do not reliably fire dh_apparmor triggers on package install
-(#763), so without an explicit parser call in the postinst the
-profile is on disk but the kernel never knows about it, and the
-daemon starts unconfined despite shipping a profile. The contract
-test reads `scripts/postinstall.sh` and asserts (a) it contains a
-literal `apparmor_parser -r` call and (b) each profile name in
-`deploy/apparmor.d/` appears in a `load_apparmor_profile <name>`
-invocation. Profiles that legitimately can't be loaded (no parser
-binary, AppArmor disabled in the kernel) are skipped at runtime —
-the rule covers presence-of-call, not always-success.
+v0.5.8.1's root-flip (#787) moved ventd.service to `User=root` and
+removed the `AppArmorProfile=ventd` directive from the unit. With no
+attach-point the profile would be either dead policy or, under
+operator-led opt-in, re-attached via `systemctl edit ventd`.
+postinstall.sh therefore SHIPS the profile (so it's present for the
+opt-in path) but does NOT call `apparmor_parser -r` on it.
 
-Bound: deploy/install-contract_test.go:TestInstallContract_PostinstallLoadsAppArmor
+The contract test reads `scripts/postinstall.sh` and asserts:
+1. The literal "shipped-not-loaded" log line is present (regression
+   guard so a future cleanup doesn't silently re-introduce auto-load
+   without thinking through the v0.6.0 split-daemon plan).
+2. Every profile under `deploy/apparmor.d/` is still present in the
+   tree (i.e. we haven't dropped the file from .goreleaser.yml's
+   nfpms.contents).
+
+When the v0.6.0 split-daemon refactor lands, this rule reverts to
+"postinstall.sh MUST apparmor_parser -r every shipped profile" with a
+separate ventd-control.service that holds AppArmorProfile=ventd-control.
+
+Bound: deploy/install-contract_test.go:TestInstallContract_PostinstallShipsAppArmor
 
 ## RULE-INSTALL-05: Every shipped AppArmor profile must have a HIL validation log under enforce mode
 

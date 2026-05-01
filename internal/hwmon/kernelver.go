@@ -100,10 +100,30 @@ func readProcOSRelease(procRoot string) string {
 func runInstallWithTimeout(mgr string, args []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), kernelHeadersInstallTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, mgr, args...).CombinedOutput()
+	name, argv := rootArgv(mgr, args)
+	out, err := exec.CommandContext(ctx, name, argv...).CombinedOutput()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return out, fmt.Errorf("%s install timed out after %s — check for a stuck dpkg lock, a stalled mirror, or run `sudo %s %s` by hand to see the prompt: %w",
 			mgr, kernelHeadersInstallTimeout, mgr, strings.Join(args, " "), context.DeadlineExceeded)
 	}
 	return out, err
+}
+
+// rootArgv returns (name, args) optionally prefixed by `sudo -n` so the
+// command runs as root via the shipped sudoers drop-in (#768). When the
+// daemon is already running as root (uncommon — install paths exist for
+// `--root` invocations and tests), the args are passed through unchanged.
+//
+// The caller passes the binary basename; rootArgv leaves PATH lookup to
+// exec.Command. Tests that don't have sudo on PATH override via
+// `VENTD_SUDO_BIN` to point at a stub.
+func rootArgv(name string, args []string) (string, []string) {
+	if os.Geteuid() == 0 {
+		return name, args
+	}
+	sudoBin := os.Getenv("VENTD_SUDO_BIN")
+	if sudoBin == "" {
+		sudoBin = "sudo"
+	}
+	return sudoBin, append([]string{"-n", name}, args...)
 }

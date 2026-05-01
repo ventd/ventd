@@ -52,21 +52,26 @@
     })
     .catch(function () {});
 
-  // ── Password reveal ──
-  var pwField = document.getElementById('setup-password');
-  var pwReveal = document.getElementById('pw-reveal');
-  if (pwField && pwReveal) {
-    pwReveal.addEventListener('click', function () {
-      pwField.type = pwField.type === 'password' ? 'text' : 'password';
-    });
-  }
-
   // ── Password strength + confirm match ──
   var strengthEl = document.getElementById('pw-strength');
   var strengthFill = document.getElementById('pw-strength-fill');
   var strengthLabel = document.getElementById('pw-strength-label');
+  var pwField = document.getElementById('setup-password');
   var confirmField = document.getElementById('setup-confirm');
   var card = document.querySelector('.setup-card');
+
+  // ── Password reveal ──
+  // The single reveal toggle on the create-password field also flips the
+  // confirm field, so the operator only needs one button on a screen
+  // where the two inputs always carry the same value.
+  var pwReveal = document.getElementById('pw-reveal');
+  if (pwField && pwReveal) {
+    pwReveal.addEventListener('click', function () {
+      var nextType = pwField.type === 'password' ? 'text' : 'password';
+      pwField.type = nextType;
+      if (confirmField) confirmField.type = nextType;
+    });
+  }
 
   function classifyStrength(p) {
     if (!p) return null;

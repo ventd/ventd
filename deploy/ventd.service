@@ -68,32 +68,33 @@ StandardError=journal
 SyslogIdentifier=ventd
 
 # Service user.
-# Runs as the unprivileged "ventd" system user (created by the installer).
-# Write access to pwm sysfs files comes from DAC: the shipped udev rule
-# (deploy/90-ventd-hwmon.rules) chgrp's pwm<N>/pwm<N>_enable to the
-# ventd group and sets g+w. CapabilityBoundingSet= stays empty — do NOT
-# restore CAP_DAC_OVERRIDE here. See deploy/README.md.
-User=ventd
-Group=ventd
+#
+# ventd runs as root. The setup wizard's driver-install path requires
+# kernel-module loading (modprobe / init_module(2)), package-manager
+# install (apt-get / dnf / etc), DKMS build/install, NVML writes, and
+# bootloader regeneration. None of those are reachable from an
+# unprivileged user without a layered elevation mess (sudoers drop-in
+# + SUID helper + AppArmor Ux transitions + ReadWritePaths gymnastics)
+# that proved brittle across distros and kernel versions during HIL —
+# every layer is another place where one misconfig surfaces "permission
+# denied" mid-wizard. The defence-in-depth promised by the unprivileged
+# model evaporates when the daemon already needs sudo for most of root.
+#
+# Confinement is now via AppArmor (file-path scoped) plus the namespace
+# settings below (ProtectSystem=strict, ReadWritePaths). That puts ventd
+# in the same operational class as fancontrol, thinkfan, nvidia-persistenced,
+# and most other Linux fan-control daemons.
+#
+# Long-term plan (#778): split into a hardened steady-state daemon
+# (User=ventd, full sandbox) plus a oneshot ventd-setup.service (User=root)
+# triggered only during the first-boot wizard. v0.6.0.
+User=root
+Group=root
 # Force explicit profile attachment by name. Without this, docker-default
 # can win the attachment race on hosts that have Docker installed, because
 # docker-default attaches to /usr/local/bin/* binaries. AppArmorProfile=
 # overrides the kernel's file-based matching and pins the ventd profile.
 AppArmorProfile=ventd
-# Defence-in-depth: grant the video group so NVML can open /dev/nvidiactl
-# on Ubuntu/Debian. systemd silently skips groups that don't exist on the
-# host, so this is safe on GPU-less machines.
-SupplementaryGroups=video
-
-# --- Sandbox: process isolation -------------------------------------------
-# ventd has no legitimate need to gain privileges or keep capabilities at
-# runtime. Sysfs pwm writes are permission-checked at open() by the kernel
-# against the file's DAC, not against capabilities. If opens fail in the
-# field, fix it with a udev rule (see deploy/README.md), not by restoring
-# CAP_DAC_OVERRIDE here.
-NoNewPrivileges=yes
-CapabilityBoundingSet=
-AmbientCapabilities=
 
 # --- Sandbox: filesystem --------------------------------------------------
 ProtectSystem=strict
@@ -115,13 +116,25 @@ ConfigurationDirectoryMode=0750
 StateDirectory=ventd
 StateDirectoryMode=0750
 # Enumerate every path ventd writes to.
-#   /etc/ventd        — config.yaml, calibration.json, TLS cert+key
-#   /run/ventd        — first-boot setup token (also covered by RuntimeDirectory)
-#   /sys/class/hwmon  — pwm<N>, pwm<N>_enable
+#   /etc/ventd            — config.yaml, calibration.json, TLS cert+key
+#   /run/ventd            — runtime files (also covered by RuntimeDirectory)
+#   /sys/class/hwmon      — pwm<N>, pwm<N>_enable
+#   /lib/modules          — `make install` lays the OOT .ko file here (#780)
+#   /usr/lib/modules      — same, on distros that use the merged-/usr layout
+#   /etc/modules-load.d   — persistModule writes ventd-<name>.conf here (#783)
+#   /var/lib/dkms         — DKMS state dir for `dkms add/build/install`
+#   /var/log/dkms         — DKMS build logs
+#   /etc/dkms             — site-wide DKMS config (sometimes touched by `dkms add`)
 # /sys/class/hwmon entries are symlinks into /sys/devices; systemd resolves
 # these when applying ReadWritePaths. If on a given kernel the resolved
 # inode is not covered (rare), add the matching /sys/devices/... prefix.
-ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon
+#
+# The /lib /usr/lib /etc/modules-load.d /var/lib/dkms paths are widened
+# specifically to unblock the OOT driver-install path. ProtectSystem=strict
+# applies these as a namespace mount; sudo'd children inherit the namespace,
+# so even root-elevated processes can't write to /lib/modules unless the
+# path is explicitly ReadWrite here. See #784.
+ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src
 
 # --- Sandbox: network -----------------------------------------------------
 # AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,
@@ -132,7 +145,10 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 # --- Sandbox: kernel and syscalls ----------------------------------------
 ProtectKernelTunables=yes
-ProtectKernelModules=yes
+# ProtectKernelModules NOT set: the wizard's driver-install path calls
+# modprobe via the sudoers drop-in (#768). ProtectKernelModules=yes drops
+# CAP_SYS_MODULE from the unit's bounding set, so even root-via-sudo
+# cannot init_module(2). See the NoNewPrivileges note above.
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 SystemCallFilter=@system-service
@@ -143,7 +159,11 @@ SystemCallArchitectures=native
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# RestrictSUIDSGID NOT set: the daemon execs the SUID-root NVML helper at
+# /usr/local/sbin/ventd-nvml-helper for GPU fan writes (#771). With the
+# restriction in place the SUID bit is honoured, but combined with
+# NoNewPrivileges=yes the helper would still be reduced to the parent's
+# uid. Both restrictions stay off until the install path is split out.
 RestrictNamespaces=yes
 RemoveIPC=yes
 ProtectHostname=yes

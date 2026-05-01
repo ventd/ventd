@@ -67,13 +67,14 @@ func TestMainUnit_NoUsbHidDeviceGrant(t *testing.T) {
 		}
 	})
 
-	t.Run("capability_bounding_set_empty", func(t *testing.T) {
-		vals := u["CapabilityBoundingSet"]
-		if len(vals) != 1 || vals[0] != "" {
-			t.Errorf("CapabilityBoundingSet: want exactly empty, got %v", vals)
-		}
-	})
-
+	// v0.5.8.1 ships ventd as User=root (#787 explains why the
+	// previously-shipped User=ventd + tight capability-bounding-set
+	// architecture proved untenable for the wizard's install path).
+	// With root, CapabilityBoundingSet is N/A — root holds all caps
+	// regardless. The Corsair backend's USB HID access invariant is
+	// still protected by the no_usb_hidraw_device_allow subtest above
+	// (no DeviceAllow= grants any /dev/hidraw or /dev/bus/usb path).
+	// This subtest re-asserts the same intent at the ambient-cap layer.
 	t.Run("no_ambient_cap_sys_rawio_or_admin", func(t *testing.T) {
 		for _, v := range u["AmbientCapabilities"] {
 			if strings.Contains(v, "CAP_SYS_RAWIO") || strings.Contains(v, "CAP_SYS_ADMIN") {
@@ -81,4 +82,9 @@ func TestMainUnit_NoUsbHidDeviceGrant(t *testing.T) {
 			}
 		}
 	})
+
+	// v0.6.0 split-daemon (#787) restores User=ventd + empty
+	// CapabilityBoundingSet on the steady-state daemon. Until then the
+	// invariant "no USB HID grants" is upheld via DeviceAllow= mediation
+	// alone.
 }
