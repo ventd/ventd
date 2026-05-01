@@ -134,6 +134,16 @@
               <span class="set-toggle-slider"></span>
             </label>
           </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Disable workload signature learning</div>
+              <div class="set-row-sub">When off (default), ventd hashes the names of currently-running processes locally to recognise repeating workloads (kernel build, game, browser) and learn workload-specific fan curves. Hashes never leave the machine; the per-install salt at <span class="mono">/var/lib/ventd/.signature_salt</span> protects against rainbow-table reversal of leaked diagnostic bundles.</div>
+            </div>
+            <label class="set-toggle">
+              <input type="checkbox" id="set-sig-disable">
+              <span class="set-toggle-slider"></span>
+            </label>
+          </div>
         </article>
 
         <article class="set-section card" id="security">
