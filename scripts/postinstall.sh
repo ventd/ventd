@@ -139,8 +139,7 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 
     echo ""
-    echo "ventd installed. Open http://$(hostname -I | awk '{print $1}'):9999 to set up."
-    echo "The one-time setup token is in: journalctl -u ventd --since '1 minute ago' | grep 'Setup token'"
+    echo "ventd installed. Open https://$(hostname -I | awk '{print $1}'):9999 to set up."
     echo ""
 fi
 
