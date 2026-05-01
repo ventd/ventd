@@ -352,10 +352,7 @@ func (s *Shard) publish() {
 
 	// Path-A: predicted saturation at lastLoad + ΔPWM=1 (doctor view;
 	// controller calls IsSaturated(deltaPWM, load) for hot-loop use).
-	pathA := false
-	if !warmingUp && marginalSlope*1.0 < SaturationDeltaT {
-		pathA = true
-	}
+	pathA := !warmingUp && marginalSlope*1.0 < SaturationDeltaT
 
 	// ConfidenceComponents per R12 §Q1.
 	residualTerm := clamp01(1.0 - math.Sqrt(s.ewmaResidual)/math.Sqrt(EFloor))
