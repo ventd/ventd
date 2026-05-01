@@ -31,7 +31,7 @@ func TestValidKernelVersion(t *testing.T) {
 		{";rm -rf /", false},
 		{"$(rm -rf /)", false},
 		{"6.8.0", true}, // bare three-component release is allowed (e.g. mainline build)
-		{"6.8", false}, // two-component is not valid kernel release format
+		{"6.8", false},  // two-component is not valid kernel release format
 		{"6", false},
 		{"6.8.0-111-generic; echo pwned", false},
 		{"6.8.0\n", false}, // trailing newline must be trimmed before validation

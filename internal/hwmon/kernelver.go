@@ -30,11 +30,12 @@ const kernelHeadersInstallTimeout = 5 * time.Minute
 // kernelVersionPattern matches release strings produced by uname -r. It
 // rejects empty input, shell-injection-shaped strings, and anything that
 // would expand into a malformed package name. Examples that match:
-//   6.8.0-111-generic
-//   6.14.0-rc1
-//   6.5.13-pve
-//   6.1.0-13-amd64
-//   6.8.0-1010+something_distro
+//
+//	6.8.0-111-generic
+//	6.14.0-rc1
+//	6.5.13-pve
+//	6.1.0-13-amd64
+//	6.8.0-1010+something_distro
 var kernelVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+([-+][a-zA-Z0-9._+-]+)?$`)
 
 // validKernelVersion reports whether v is plausible enough to substitute
