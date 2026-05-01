@@ -972,6 +972,24 @@ func runDaemonInternal(
 	// /calibration redirect on every subsequent daemon restart even
 	// though len(cfg.Controls) == 0 keeps Needed(cfg) saying yes.
 	setupMgr.SetAppliedMarkerPath(setupmgr.DefaultAppliedMarkerPath)
+	// Re-run the daemon-level hardware probe and persist the updated
+	// outcome to KV after a successful driver install / module load
+	// (#766). Without this, a fresh install whose driver populates pwm
+	// channels mid-wizard leaves wizard.initial_outcome at "monitor_only"
+	// until the next daemon restart, so the wizard's apply step (or any
+	// other KV consumer) reads stale state. State access goes via the
+	// SmartModeBundle since `st` is owned by run() and passed to
+	// runDaemonInternal only through the bundle.
+	if smartMode != nil && smartMode.State != nil {
+		kv := smartMode.State.KV
+		setupMgr.SetReProber(func(ctx context.Context) error {
+			r, probeErr := probe.New(probe.Config{Logger: logger}).Probe(ctx)
+			if probeErr != nil {
+				return fmt.Errorf("re-probe: %w", probeErr)
+			}
+			return probe.PersistOutcome(kv, r)
+		})
+	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()

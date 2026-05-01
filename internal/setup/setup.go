@@ -109,6 +109,12 @@ type Manager struct {
 	cancel         context.CancelFunc // fired by Abort; nil until Start wires it
 	diagStore      *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
 	polarityProber polarity.Prober    // nil = skip polarity probe (tests); set by SetPolarityProber
+	reprobeFn      ReProber           // nil = skip post-install re-probe; set by SetReProber
+
+	// settleAfterModprobe is the wait between a successful modprobe and the
+	// reprobe call so kernel hwmon class registration completes. Production
+	// uses defaultSettleAfterModprobe; tests inject 0 via newWithSettle.
+	settleAfterModprobe time.Duration
 
 	// Sysfs/procfs roots. Defaults resolve to the production paths; tests use
 	// NewWithRoots to inject a t.TempDir()-rooted fixture tree. Keeping these
@@ -135,7 +141,26 @@ const (
 	defaultProcRoot          = "/proc"
 	defaultPowercapRoot      = "/sys/class/powercap"
 	defaultAppliedMarkerPath = "/var/lib/ventd/.setup-applied"
+
+	// defaultSettleAfterModprobe is the wait between a successful modprobe
+	// and the reprobe call. The kernel's hwmon class registration is
+	// synchronous from module_init on every chip family observed in the
+	// wild, but the platform-device → hwmon binding can take a few hundred
+	// milliseconds on slower hardware (e.g. Z690-A NCT6687D); 2 s leaves
+	// generous headroom without making the wizard feel sluggish.
+	defaultSettleAfterModprobe = 2 * time.Second
 )
+
+// ReProber re-runs the daemon-level hardware probe and persists the
+// updated outcome to the state KV after a successful driver install or
+// kernel module load. Wired by cmd/ventd/main.go so the wizard is
+// decoupled from the state package internals.
+//
+// A nil ReProber is a no-op; tests that don't care about the persisted
+// outcome leave it unset. Errors returned by the ReProber are logged at
+// WARN but do not fail the wizard step — the sysfs probe done by Phase 4
+// produces the wizard's local decision regardless of the persisted KV.
+type ReProber func(ctx context.Context) error
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. When set, the
 // setup manager emits OOT-preflight blockers (Secure Boot, kernel headers,
@@ -153,6 +178,17 @@ func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
 func (m *Manager) SetPolarityProber(p polarity.Prober) {
 	m.mu.Lock()
 	m.polarityProber = p
+	m.mu.Unlock()
+}
+
+// SetReProber wires the post-install / post-load-module re-probe hook
+// (#766). Production code (cmd/ventd/main.go) sets this to a closure that
+// re-runs probe.New(...).Probe and PersistOutcome to KV, so a freshly-
+// loaded driver flips wizard.initial_outcome from monitor_only to control
+// without waiting for the next daemon restart.
+func (m *Manager) SetReProber(rp ReProber) {
+	m.mu.Lock()
+	m.reprobeFn = rp
 	m.mu.Unlock()
 }
 
@@ -192,11 +228,12 @@ const DefaultAppliedMarkerPath = defaultAppliedMarkerPath
 // exists so hardware-discovery code paths remain testable.
 func NewWithRoots(cal *calibrate.Manager, logger *slog.Logger, hwmonRoot, procRoot, powercapRoot string) *Manager {
 	return &Manager{
-		cal:          cal,
-		logger:       logger,
-		hwmonRoot:    hwmonRoot,
-		procRoot:     procRoot,
-		powercapRoot: powercapRoot,
+		cal:                 cal,
+		logger:              logger,
+		hwmonRoot:           hwmonRoot,
+		procRoot:            procRoot,
+		powercapRoot:        powercapRoot,
+		settleAfterModprobe: defaultSettleAfterModprobe,
 	}
 }
 
@@ -254,6 +291,41 @@ func (m *Manager) appendInstallLog(line string) {
 	m.mu.Lock()
 	m.installLog = append(m.installLog, line)
 	m.mu.Unlock()
+}
+
+// afterDriverInstall waits for hwmon class registration to complete after a
+// successful modprobe, then re-runs the daemon-level probe so the persisted
+// wizard.initial_outcome reflects the post-install kernel state (#766).
+//
+// Without this, a fresh install whose driver populates pwm channels mid-
+// wizard leaves the persisted outcome at "monitor_only" until the next
+// daemon restart — so a daemon that re-reads its KV would still think the
+// system is monitor-only even though /sys/class/hwmon now shows writable
+// PWMs. The wizard's Phase 4 sysfs walk is unaffected by this; the
+// re-probe is purely about keeping the persisted KV outcome in sync.
+//
+// reason is a short tag identifying the trigger ("InstallDriver:nct6687"
+// or "LoadModule:nct6683") logged alongside the re-probe error, if any.
+func (m *Manager) afterDriverInstall(ctx context.Context, reason string) {
+	m.mu.Lock()
+	settle := m.settleAfterModprobe
+	rp := m.reprobeFn
+	m.mu.Unlock()
+
+	if settle > 0 {
+		select {
+		case <-time.After(settle):
+		case <-ctx.Done():
+			return
+		}
+	}
+	if rp == nil {
+		return
+	}
+	if err := rp(ctx); err != nil {
+		m.logger.Warn("setup: post-install reprobe failed; persisted wizard outcome may be stale until next daemon restart",
+			"trigger", reason, "err", err)
+	}
 }
 
 // RunBlocking runs setup synchronously (for the CLI --setup flag).
@@ -485,6 +557,7 @@ func (m *Manager) run(ctx context.Context) {
 			return
 		}
 		m.setPhase("installing_driver", "Driver installed. Detecting fans...")
+		m.afterDriverInstall(ctx, "InstallDriver:"+nd.ChipName)
 	}
 
 	// ── Phase 3: NVML init ──────────────────────────────────────────────────
