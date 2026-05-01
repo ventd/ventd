@@ -40,6 +40,7 @@ import (
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
+	"github.com/ventd/ventd/internal/probe/opportunistic"
 	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/state"
@@ -453,7 +454,117 @@ func run() error {
 	defer signal.Stop(sigCh)
 
 	kvWiper := func() error { return probe.WipeNamespaces(st.KV) }
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper)
+
+	// v0.5.5: build the opportunistic-probe scheduler factory.
+	// runDaemonInternal calls this once liveCfg is in scope so the
+	// Disabled callback can read NeverActivelyProbeAfterInstall on
+	// every tick — a flip in /api/config takes effect on the next
+	// scheduler tick without a daemon restart.
+	oppFactory := func(liveCfg *atomic.Pointer[config.Config]) *opportunistic.Scheduler {
+		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, logger)
+	}
+
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper, oppFactory)
+}
+
+// buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
+// daemon's runtime state. Returns nil when there are no controllable
+// channels (monitor-only mode); the daemon then never starts the
+// scheduler goroutine.
+func buildOpportunisticScheduler(
+	channels []*probe.ControllableChannel,
+	sysDet *sysclass.Detection,
+	st *state.State,
+	obsWriter *observation.Writer,
+	liveCfg *atomic.Pointer[config.Config],
+	logger *slog.Logger,
+) *opportunistic.Scheduler {
+	if len(channels) == 0 {
+		logger.Info("opportunistic: no controllable channels; scheduler not started")
+		return nil
+	}
+	if obsWriter == nil {
+		logger.Warn("opportunistic: observation writer unavailable; scheduler not started")
+		return nil
+	}
+	tjmax := 100.0
+	if sysDet != nil && sysDet.Tjmax > 0 {
+		tjmax = sysDet.Tjmax
+	}
+	cls := sysclass.ClassMidDesktop
+	if sysDet != nil {
+		cls = sysDet.Class
+	}
+	rd := observation.NewReader(st.Log)
+	det := opportunistic.NewDetector(rd, channels, nil)
+	depsFor := func(ch *probe.ControllableChannel) opportunistic.ProbeDeps {
+		return opportunistic.ProbeDeps{
+			Class:     cls,
+			Tjmax:     tjmax,
+			SensorFn:  opportunistic.SysfsSensorFn(),
+			RPMFn:     opportunistic.SysfsRPMFn(ch),
+			WriteFn:   opportunistic.SysfsWriteFn(ch),
+			ObsAppend: obsWriter.Append,
+			Now:       time.Now,
+			Logger:    logger,
+		}
+	}
+	disabledFn := func() bool {
+		if liveCfg == nil {
+			return false
+		}
+		c := liveCfg.Load()
+		if c == nil {
+			return false
+		}
+		return c.NeverActivelyProbeAfterInstall
+	}
+	manualFn := func(ch *probe.ControllableChannel) bool {
+		// In ventd, "manual mode" is signalled per-Control by
+		// ManualPWM being non-nil (a fixed duty override). The
+		// scheduler refuses any channel where any matching Control
+		// pins ManualPWM. Curve-mode channels (ManualPWM == nil)
+		// are eligible for opportunistic probing.
+		if liveCfg == nil {
+			return false
+		}
+		c := liveCfg.Load()
+		if c == nil {
+			return false
+		}
+		for _, ctrl := range c.Controls {
+			if ctrl.ManualPWM != nil {
+				return true
+			}
+		}
+		return false
+	}
+	idleCfg := idle.OpportunisticGateConfig{
+		GateConfig: idle.GateConfig{
+			ProcRoot:      "/proc",
+			SysRoot:       "/sys",
+			AllowOverride: false,
+		},
+	}
+	cfg := opportunistic.SchedulerConfig{
+		Channels:               channels,
+		Detector:               det,
+		ProbeDeps:              depsFor(channels[0]),
+		DepsForChannel:         depsFor,
+		IdleCfg:                idleCfg,
+		FirstInstallMarkerPath: opportunistic.DefaultFirstInstallMarkerPath,
+		Disabled:               disabledFn,
+		IsManualMode:           manualFn,
+		LastProbeAt:            opportunistic.NewKVLastProbeStore(st.KV),
+		Logger:                 logger,
+	}
+	sched, err := opportunistic.NewScheduler(cfg)
+	if err != nil {
+		logger.Warn("opportunistic scheduler init failed", "err", err)
+		return nil
+	}
+	logger.Info("opportunistic scheduler initialised", "channels", len(channels), "class", cls)
+	return sched
 }
 
 // runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
@@ -577,6 +688,10 @@ func runEnvelopeBackground(
 // Passing nil for sigCh is supported: a receive on a nil channel blocks
 // forever, so the signal case never fires — used by the integration test
 // so the test drives shutdown via ctx cancellation alone.
+//
+// oppFactory builds the v0.5.5 opportunistic-probe scheduler once
+// liveCfg is in scope; pass nil from tests that do not exercise the
+// scheduler path.
 func runDaemon(
 	parentCtx context.Context,
 	cfg *config.Config,
@@ -587,10 +702,18 @@ func runDaemon(
 	sigCh <-chan os.Signal,
 	expFlags experimental.Flags,
 	kvWiper func() error,
+	oppFactory OpportunisticFactory,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper, oppFactory)
 }
+
+// OpportunisticFactory constructs the v0.5.5 opportunistic-probe
+// scheduler. It receives a pointer to the live config atomic so the
+// scheduler can react to in-process config reloads. Returns nil when
+// the daemon is in monitor-only mode or the writer was unavailable;
+// runDaemonInternal then skips the scheduler goroutine.
+type OpportunisticFactory func(liveCfg *atomic.Pointer[config.Config]) *opportunistic.Scheduler
 
 // configLoader is the function used to load a config from disk on each
 // in-process reload. Tests that exercise the first-boot → configured reload
@@ -614,6 +737,7 @@ func runDaemonInternal(
 	restartCh chan struct{},
 	expFlags experimental.Flags,
 	kvWiper func() error,
+	oppFactory OpportunisticFactory,
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -771,6 +895,26 @@ func runDaemonInternal(
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
+
+	// v0.5.5: build and launch the opportunistic-probe scheduler when
+	// the factory is set (production path). Tests pass a nil factory
+	// and skip this entire block.
+	if oppFactory != nil {
+		oppSched := oppFactory(&liveCfg)
+		if oppSched != nil {
+			webSrv.SetOpportunisticScheduler(oppSched)
+			oppCtx, oppCancel := context.WithCancel(ctx)
+			defer oppCancel()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := oppSched.Run(oppCtx); err != nil && err != context.Canceled {
+					logger.Warn("opportunistic scheduler exited", "err", err)
+				}
+			}()
+		}
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

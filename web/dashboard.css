@@ -196,3 +196,25 @@
 @media (max-width: 600px) {
   .dash-hero { grid-template-columns: 1fr; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * v0.5.5: opportunistic-probe in-flight pill (topbar)
+ * ───────────────────────────────────────────────────────────── */
+
+.dash-opp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+.dash-opp-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dash-opp-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dash-opp-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1.0; }
+}

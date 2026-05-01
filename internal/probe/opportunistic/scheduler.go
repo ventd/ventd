@@ -28,8 +28,15 @@ type SchedulerConfig struct {
 	Channels []*probe.ControllableChannel
 	// Detector identifies coverage gaps. Required.
 	Detector *Detector
-	// ProbeDeps is forwarded to FireOne. Required.
+	// ProbeDeps is the static fallback forwarded to FireOne when
+	// DepsForChannel is nil. Tests typically supply this; production
+	// uses DepsForChannel to vary RPMFn / WriteFn per channel.
 	ProbeDeps ProbeDeps
+	// DepsForChannel, when non-nil, is called once per scheduler
+	// tick with the picked channel. Production wires this to a
+	// closure that builds RPMFn / WriteFn against the channel's
+	// sysfs paths. nil falls back to ProbeDeps.
+	DepsForChannel func(*probe.ControllableChannel) ProbeDeps
 	// IdleCfg is forwarded to OpportunisticGate. ProcRoot, SysRoot,
 	// and Clock should be set; durability/tick are overridden by the
 	// scheduler if zero.
@@ -234,7 +241,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 		s.runActive.Store(false)
 	}()
 
-	probeErr := FireOne(ctx, pickedCh, pickPWM, s.cfg.ProbeDeps)
+	deps := s.cfg.ProbeDeps
+	if s.cfg.DepsForChannel != nil {
+		deps = s.cfg.DepsForChannel(pickedCh)
+	}
+	probeErr := FireOne(ctx, pickedCh, pickPWM, deps)
 	if probeErr != nil {
 		s.lastReason.Store("probe_error:" + probeErr.Error())
 	} else {

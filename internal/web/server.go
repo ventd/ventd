@@ -26,6 +26,7 @@ import (
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/probe/opportunistic"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
 	webstatic "github.com/ventd/ventd/web"
@@ -68,6 +69,7 @@ type Server struct {
 	httpSrv        *http.Server
 	cal            *calibrate.Manager
 	setup          *setupmgr.Manager
+	opp            *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
 	setupMu        sync.Mutex
@@ -290,6 +292,9 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "schedule/status", handler: s.handleScheduleStatus, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
+		// v0.5.5: opportunistic-probe live status — read by the dashboard
+		// to render the probe-in-flight pill.
+		{name: "probe/opportunistic/status", handler: s.handleOpportunisticStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
 		{name: "calibrate/abort", handler: s.handleCalibrateAbort, auth: true},
 		{name: "detect-rpm", handler: s.handleDetectRPM, auth: true},
@@ -1113,6 +1118,29 @@ func (s *Server) handleCalibrateStart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCalibrateStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(r, w, s.cal.AllStatus())
+}
+
+// handleOpportunisticStatus GET /api/probe/opportunistic/status (v0.5.5).
+// Returns the live status of the opportunistic-probe scheduler so the
+// dashboard can render a probe-in-flight pill. When the scheduler has
+// not been wired (e.g., monitor-only mode with no controllable
+// channels), responds with running=false and a stable empty struct so
+// the frontend never sees a 404.
+func (s *Server) handleOpportunisticStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.opp == nil {
+		s.writeJSON(r, w, opportunistic.Status{Running: false})
+		return
+	}
+	s.writeJSON(r, w, s.opp.Status())
+}
+
+// SetOpportunisticScheduler wires the v0.5.5 scheduler so the live
+// status endpoint can report on probe-in-flight state. Called by
+// cmd/ventd/main.go after the scheduler is constructed and launched.
+// Safe to call once at daemon start; subsequent calls overwrite.
+func (s *Server) SetOpportunisticScheduler(sched *opportunistic.Scheduler) {
+	s.opp = sched
 }
 
 // handleCalibrateResults GET /api/calibrate/results

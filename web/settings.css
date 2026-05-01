@@ -169,3 +169,52 @@
   .set-page { grid-template-columns: 1fr; }
   .set-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * v0.5.5: smart-mode toggle (Settings → Smart mode)
+ * ───────────────────────────────────────────────────────────── */
+
+.set-toggle {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.set-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.set-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 24px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.set-toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  top: 2px;
+  background: var(--fg2);
+  border-radius: 50%;
+  transition: transform 160ms ease, background 160ms ease;
+}
+.set-toggle input:checked + .set-toggle-slider {
+  background: var(--teal-bg);
+  border-color: var(--teal);
+}
+.set-toggle input:checked + .set-toggle-slider::before {
+  transform: translateX(22px);
+  background: var(--teal);
+}
+.set-toggle input:focus-visible + .set-toggle-slider {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
