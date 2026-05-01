@@ -45,15 +45,16 @@ read by a binary with a different constant layout.
 
 Bound: internal/observation/record_test.go:TestControllerState_EnumValuesLocked
 
-## RULE-OBS-SCHEMA-05: EventFlag bitmask constants occupy bits 0–12; bits 13–31 are reserved.
+## RULE-OBS-SCHEMA-05: EventFlag bitmask constants occupy bits 0–13; bits 14–31 are reserved.
 
-The 13 `EventFlag_*` constants must occupy exactly bits 0–12 with no collisions.
-`eventFlagReservedMask` must cover exactly bits 13–31 and no bit in 0–12.
+The 14 `EventFlag_*` constants must occupy exactly bits 0–13 with no collisions
+(bit 13 = `OPPORTUNISTIC_PROBE`, added in v0.5.5).
+`eventFlagReservedMask` must cover exactly bits 14–31 and no bit in 0–13.
 Bits outside the defined set are masked to zero by `Append` before persisting,
 preventing forward-compat bits from an old writer from being silently propagated
 into a new log file.
 
-Bound: internal/observation/record_test.go:TestEventFlags_Bits0Through12Locked
+Bound: internal/observation/record_test.go:TestEventFlags_Bits0Through13Locked
 
 ## Rate / Class
 

@@ -139,6 +139,61 @@ func TestSchemaVersion_RejectsUnknownFuture(t *testing.T) {
 	}
 }
 
+// TestSchemaV2_BackwardCompatibleRead verifies that a v2 Reader accepts a
+// log file written by a v1 (v0.5.4) writer (RULE-OPP-OBS-01). The bump is
+// purely additive — v1 records have no bit 13 set, and the v2 reader
+// otherwise interprets every field identically.
+func TestSchemaV2_BackwardCompatibleRead(t *testing.T) {
+	v1Hdr := &Header{
+		SchemaVersion:   schemaV1Min,
+		ChannelClassMap: map[uint16]uint8{1: 0},
+	}
+	hdrPayload, err := MarshalHeader(v1Hdr)
+	if err != nil {
+		t.Fatalf("MarshalHeader: %v", err)
+	}
+	recPayload, err := MarshalRecord(&Record{
+		Ts:         1234,
+		ChannelID:  1,
+		PWMWritten: 128,
+		EventFlags: EventFlag_DRIFT_TRIPPED,
+	})
+	if err != nil {
+		t.Fatalf("MarshalRecord: %v", err)
+	}
+
+	ml := &mockLogStore{
+		files: [][][]byte{{hdrPayload, recPayload}},
+	}
+	rd := NewReader(ml)
+
+	var seen int
+	err = rd.Stream(noSince, func(r *Record) bool {
+		seen++
+		if r.Ts != 1234 {
+			t.Errorf("Ts: got %d, want 1234", r.Ts)
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("Stream: unexpected error reading v1 file with v2 reader: %v", err)
+	}
+	if seen != 1 {
+		t.Errorf("Stream: visited %d records, want 1", seen)
+	}
+}
+
+// TestSchemaV2_WriterEmitsV2 verifies that the schema version constant is 2
+// at v0.5.5 and the v1-min floor is 1 (RULE-OPP-OBS-01).
+func TestSchemaV2_WriterEmitsV2(t *testing.T) {
+	if got := schemaVersion; got != 2 {
+		t.Fatalf("schemaVersion: got %d, want 2", got)
+	}
+	if got := schemaV1Min; got != 1 {
+		t.Fatalf("schemaV1Min: got %d, want 1", got)
+	}
+}
+
 // TestControllerState_EnumValuesLocked asserts that the seven controller_state
 // constants have the exact values specified in schema doc §2.2
 // (RULE-OBS-SCHEMA-04).
@@ -165,10 +220,11 @@ func TestControllerState_EnumValuesLocked(t *testing.T) {
 	}
 }
 
-// TestEventFlags_Bits0Through12Locked asserts that the 13 event_flag constants
-// have the exact bit positions defined in schema doc §2.3, and that
-// eventFlagReservedMask covers bits 13–31 (RULE-OBS-SCHEMA-05).
-func TestEventFlags_Bits0Through12Locked(t *testing.T) {
+// TestEventFlags_Bits0Through13Locked asserts that the 14 event_flag constants
+// have the exact bit positions defined in schema doc §2.3 + v0.5.5 §3
+// (RULE-OBS-SCHEMA-05, RULE-OPP-OBS-02), and that eventFlagReservedMask
+// covers bits 14-31.
+func TestEventFlags_Bits0Through13Locked(t *testing.T) {
 	tests := []struct {
 		name string
 		got  uint32
@@ -187,6 +243,7 @@ func TestEventFlags_Bits0Through12Locked(t *testing.T) {
 		{"R9_IDENT_CLASS_CHANGED", EventFlag_R9_IDENT_CLASS_CHANGED, 10},
 		{"SIGNATURE_PROMOTED", EventFlag_SIGNATURE_PROMOTED, 11},
 		{"SIGNATURE_RETIRED", EventFlag_SIGNATURE_RETIRED, 12},
+		{"OPPORTUNISTIC_PROBE", EventFlag_OPPORTUNISTIC_PROBE, 13},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,16 +254,45 @@ func TestEventFlags_Bits0Through12Locked(t *testing.T) {
 		})
 	}
 
-	// Reserved mask must cover exactly bits 13–31.
-	for bit := 13; bit <= 31; bit++ {
+	// Reserved mask must cover exactly bits 14-31.
+	for bit := 14; bit <= 31; bit++ {
 		if eventFlagReservedMask&(1<<bit) == 0 {
 			t.Errorf("eventFlagReservedMask does not cover bit %d", bit)
 		}
 	}
-	for bit := 0; bit <= 12; bit++ {
+	for bit := 0; bit <= 13; bit++ {
 		if eventFlagReservedMask&(1<<bit) != 0 {
 			t.Errorf("eventFlagReservedMask incorrectly covers bit %d", bit)
 		}
+	}
+}
+
+// TestEventFlag_ProbeBitDoesNotCollide verifies that the new v0.5.5
+// EventFlag_OPPORTUNISTIC_PROBE bit (1<<13) does not overlap with any of
+// the v0.5.4 schema-v1 flags (RULE-OPP-OBS-02).
+func TestEventFlag_ProbeBitDoesNotCollide(t *testing.T) {
+	v1Bits := []uint32{
+		EventFlag_LAYER_A_HARD_CAP,
+		EventFlag_ENVELOPE_C_ABORT,
+		EventFlag_ENVELOPE_D_FALLBACK,
+		EventFlag_DRIFT_TRIPPED,
+		EventFlag_SATURATION_DETECTED,
+		EventFlag_STALL_WATCHDOG_FIRED,
+		EventFlag_IDLE_GATE_REFUSED,
+		EventFlag_R12_GLOBAL_GATE_OFF,
+		EventFlag_LAYER_C_SHARD_ACTIVATED,
+		EventFlag_LAYER_C_SHARD_EVICTED,
+		EventFlag_R9_IDENT_CLASS_CHANGED,
+		EventFlag_SIGNATURE_PROMOTED,
+		EventFlag_SIGNATURE_RETIRED,
+	}
+	for _, bit := range v1Bits {
+		if bit&EventFlag_OPPORTUNISTIC_PROBE != 0 {
+			t.Errorf("EventFlag_OPPORTUNISTIC_PROBE collides with bit 0x%x", bit)
+		}
+	}
+	if EventFlag_OPPORTUNISTIC_PROBE != (1 << 13) {
+		t.Errorf("EventFlag_OPPORTUNISTIC_PROBE = 0x%x, want 0x%x", EventFlag_OPPORTUNISTIC_PROBE, uint32(1<<13))
 	}
 }
 

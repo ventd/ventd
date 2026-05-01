@@ -108,6 +108,11 @@ type Config struct {
 	Experimental  ExperimentalConfig `yaml:"experimental,omitempty" json:"experimental,omitempty"`
 	Envelope      EnvelopeConfig     `yaml:"envelope,omitempty" json:"envelope,omitempty"`
 	Idle          IdleConfig         `yaml:"idle,omitempty" json:"idle,omitempty"`
+	// NeverActivelyProbeAfterInstall disables v0.5.5 opportunistic active
+	// probing system-wide. Default false (probing enabled in auto mode).
+	// Per spec-smart-mode §6.4 / §7.4 and spec-12 amendment §3.5
+	// (RULE-OPP-PROBE-08, RULE-UI-SMART-07).
+	NeverActivelyProbeAfterInstall bool `yaml:"never_actively_probe_after_install,omitempty" json:"never_actively_probe_after_install,omitempty"`
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can

@@ -5,6 +5,12 @@
 // The schema is locked by ventd-passive-observation-log-schema.md.
 // v0.5.4 ships the write/read infrastructure only; consumer logic lands in
 // v0.5.7 (Layer B), v0.5.8 (Layer C), and v0.5.10 (doctor).
+//
+// v0.5.5 bumps schemaVersion 1 -> 2 to register
+// EventFlag_OPPORTUNISTIC_PROBE (bit 13). The bump is purely additive: v1
+// readers ignore unknown event-flag bits per existing semantics, and
+// schemaV1Min preserves v1 read compatibility for files written by older
+// daemons.
 package observation
 
 import "github.com/ventd/ventd/internal/state"
@@ -14,8 +20,13 @@ const (
 	kvNamespace   = "observation"
 	kvClassPrefix = "channel_class" // KV key = channel_class/<id>
 
-	// schemaVersion is the v0.5.4 emit value (RULE-OBS-SCHEMA-03).
-	schemaVersion = uint16(1)
+	// schemaVersion is the v0.5.5 emit value (RULE-OBS-SCHEMA-03,
+	// RULE-OPP-OBS-01).
+	schemaVersion = uint16(2)
+	// schemaV1Min is the oldest schema version Reader will accept. v1 files
+	// are forward-compatible with v2 readers because the bump only added a
+	// new event-flag bit (bit 13).
+	schemaV1Min = uint16(1)
 )
 
 // controller_state enum values — schema doc §2.2 (RULE-OBS-SCHEMA-04).
@@ -30,7 +41,9 @@ const (
 )
 
 // event_flags bitmask — schema doc §2.3 (RULE-OBS-SCHEMA-05).
-// Bits 13–31 are reserved; the writer MUST NOT emit them.
+// Bits 0-12 ship in v0.5.4 schema v1.
+// Bit 13 (OPPORTUNISTIC_PROBE) ships in v0.5.5 schema v2 (RULE-OPP-OBS-02).
+// Bits 14-31 remain reserved; the writer MUST NOT emit them.
 const (
 	EventFlag_LAYER_A_HARD_CAP        uint32 = 1 << 0
 	EventFlag_ENVELOPE_C_ABORT        uint32 = 1 << 1
@@ -45,10 +58,11 @@ const (
 	EventFlag_R9_IDENT_CLASS_CHANGED  uint32 = 1 << 10
 	EventFlag_SIGNATURE_PROMOTED      uint32 = 1 << 11
 	EventFlag_SIGNATURE_RETIRED       uint32 = 1 << 12
+	EventFlag_OPPORTUNISTIC_PROBE     uint32 = 1 << 13
 )
 
-// eventFlagReservedMask covers bits 13–31 that the writer must never emit.
-const eventFlagReservedMask uint32 = ^uint32((1 << 13) - 1)
+// eventFlagReservedMask covers bits 14-31 that the writer must never emit.
+const eventFlagReservedMask uint32 = ^uint32((1 << 14) - 1)
 
 // slowClassDrivers maps driver names to R11 class=1 (slow, 1/60 Hz).
 // All other drivers default to class=0 (fast, 0.5 Hz).
