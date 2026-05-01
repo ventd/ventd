@@ -60,7 +60,12 @@ func procStatPath(procRoot string) string {
 	return procRoot + "/stat"
 }
 
-// captureLoadAvg reads /proc/loadavg directly (RULE-IDLE-05: no getloadavg(3)).
+// CaptureLoadAvg reads /proc/loadavg directly (RULE-IDLE-05: no getloadavg(3)).
+// Exposed for v0.5.8 Layer-C marginal-benefit estimator's load proxy
+// (per spec-v0_5_8 §2.4); keep the lowercase alias for backward
+// compatibility with internal callers.
+func CaptureLoadAvg(procRoot string) [3]float64 { return captureLoadAvg(procRoot) }
+
 func captureLoadAvg(procRoot string) [3]float64 {
 	path := loadAvgPath(procRoot)
 	data, err := os.ReadFile(path)
