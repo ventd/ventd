@@ -165,6 +165,12 @@ type Controller struct {
 	// so tick can signal without blocking; Run reads it in the next select
 	// iteration and returns the error so systemd's Restart=on-failure fires.
 	fatalErr chan error
+
+	// obsAppend and obsLabel wire the v0.5.4 observation log into the
+	// hot path. Both are nil-safe: when either is nil the tick does
+	// not emit observation records (pre-v0.5.6 behaviour).
+	obsAppend func(rec *ObsRecord)
+	obsLabel  func() string
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -195,6 +201,36 @@ func WithCalibration(cal *hwdb.ChannelCalibration, pwmUnitMax int) Option {
 	return func(c *Controller) {
 		c.calCh = cal
 		c.pwmUnitMax = pwmUnitMax
+	}
+}
+
+// ObsRecord is the controller's view of an observation record. It
+// is a package-local shape so internal/controller does not depend
+// on internal/observation directly. main.go wires a closure that
+// maps these fields into the real observation.Record (computing
+// ChannelID via observation.ChannelID(PWMPath)) + calls Writer.Append.
+type ObsRecord struct {
+	Ts             int64  // Unix microseconds
+	PWMPath        string // sysfs path of the channel that just wrote
+	PWMWritten     uint8
+	RPM            int32 // -1 when tach-less
+	SignatureLabel string
+	EventFlags     uint32
+}
+
+// WithObservation wires the v0.5.4 observation log into the
+// controller's hot path. After every successful PWM write, the
+// controller emits one ObsRecord with PWMWritten + ChannelID + the
+// current signature label. labelFn is the lock-free Library.Label
+// reader; it MUST NOT block the controller tick. appendFn buffers
+// internally and never fails the tick on I/O error.
+//
+// Both arguments may be nil to disable observation; in that case
+// the controller behaves exactly as it did pre-v0.5.6.
+func WithObservation(appendFn func(rec *ObsRecord), labelFn func() string) Option {
+	return func(c *Controller) {
+		c.obsAppend = appendFn
+		c.obsLabel = labelFn
 	}
 }
 
@@ -415,6 +451,7 @@ func (c *Controller) tick() {
 		if err := c.writeWithRetry(ch, pwm, c.pwmPath, "manual"); err != nil {
 			return
 		}
+		c.emitObservation(pwm)
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
 		return
 	}
@@ -556,6 +593,8 @@ func (c *Controller) tick() {
 	if err := c.writeWithRetry(ch, pwm, c.pwmPath, "curve"); err != nil {
 		return
 	}
+
+	c.emitObservation(pwm)
 
 	// Update hysteresis baseline — the temp + PWM we just committed are
 	// what future ramp-down comparisons land against.
@@ -841,4 +880,28 @@ func clamp(v, lo, hi uint8) uint8 {
 		return hi
 	}
 	return v
+}
+
+// emitObservation emits one ObsRecord to the v0.5.4 observation log
+// after a successful PWM write. Closes over the controller's pwmPath
+// (its ChannelID is computed by main.go's wiring closure) and the
+// signature library's lock-free Label reader.
+//
+// Nil-safe: when neither obsAppend nor obsLabel is wired, the
+// controller behaves exactly as it did pre-v0.5.6.
+func (c *Controller) emitObservation(pwm uint8) {
+	if c.obsAppend == nil {
+		return
+	}
+	label := ""
+	if c.obsLabel != nil {
+		label = c.obsLabel()
+	}
+	c.obsAppend(&ObsRecord{
+		Ts:             time.Now().UnixMicro(),
+		PWMPath:        c.pwmPath,
+		PWMWritten:     pwm,
+		RPM:            -1, // tach reads not yet wired into controller
+		SignatureLabel: label,
+	})
 }
