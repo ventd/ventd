@@ -163,18 +163,43 @@ with weighted-LRU eviction inheriting R7's eviction score
 ### 2.4 Update mechanism
 
 Each controller tick produces an `observation.Record` carrying
-`PWMWritten`, `RPM`, `SignatureLabel`, plus the per-channel
-sensor reading. The Layer-C update path subscribes to the same
-v0.5.6 `ObsAppend` hook; v0.5.8 PR-B chains `marginal.Runtime`
-update calls onto the existing closure.
+`PWMWritten`, `RPM`, `SignatureLabel`, plus per-sensor readings
+(`SensorReadings map[uint16]int16`, sensor IDs hashed via
+`observation.SensorID(path)`). The Layer-C update path
+subscribes to the same v0.5.6 `ObsAppend` hook; v0.5.8 PR-B
+chains `marginal.Runtime` update calls onto the existing closure.
+
+**Inputs the Record does NOT carry.** Layer-C needs two pieces
+of context not present in `observation.Record`:
+
+1. **`load_i`** — the workload-load proxy. v0.5.8 samples it
+   per-tick using existing `internal/idle` helpers: PSI when
+   available (`/proc/pressure/cpu` `cpu.some avg10`, per
+   RULE-IDLE-04), `/proc/loadavg`'s 1-min field as the fallback
+   (RULE-IDLE-05). The current lowercase
+   `internal/idle.captureLoadAvg` is exposed as
+   `idle.CaptureLoadAvg` in PR-A.
+2. **Channel → sensor binding.** A `ControllableChannel` does
+   not carry a `TempPath`; the binding lives in user
+   `cfg.Controls[X].Curve`. `marginal.Runtime` accepts the live
+   `*atomic.Pointer[config.Config]` (same one the controller
+   reads) and resolves the bound sensor ID per-tick:
+   `sensorID = observation.SensorID(cfg.Curves[ctrl.Curve].SensorPath)`.
 
 Per-shard the runtime maintains one tick of `(T, load, PWM)`
 buffering. On each new record:
 
-1. Compute `ΔT = T[k] - T[k-1]` and `ΔPWM = PWM[k] - PWM[k-1]`.
-2. If `|ΔPWM| < 1`, skip the sample (no excitation).
-3. Otherwise: `φ = [1, load[k-1]]`, observed
-   `y = ΔT / ΔPWM`. Call `Shard.Update(now, φ, y)`.
+1. Look up the shard's bound sensor ID via cfg pointer; read
+   `T[k] = float(rec.SensorReadings[sensorID]) / 1000` (millideg
+   → °C).
+2. Sample `load[k]` once via `idle.CaptureLoad(procRoot)` (PSI
+   if available, loadavg otherwise).
+3. Compute `ΔT = T[k] - T[k-1]` and `ΔPWM = PWM[k] - PWM[k-1]`.
+4. If `|ΔPWM| < 1`, skip the sample (no excitation; no Update).
+5. If OAT gate fails (any other channel changed PWM in last 5
+   ticks), skip the sample (RULE-CMB-OAT-01).
+6. Otherwise: `φ = [1, load[k-1]]`, observed `y = ΔT / ΔPWM`.
+   Call `Shard.Update(now, φ, y)`.
 
 The RLS update reuses v0.5.7's Sherman-Morrison primitive
 unchanged (`gonum mat.SymRankOne` with the R12 bounded-covariance
