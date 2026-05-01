@@ -123,6 +123,32 @@ type Config struct {
 	// Default false (learning enabled in auto mode). Per
 	// spec-v0_5_8-marginal-benefit.md §3.6.
 	SmartMarginalBenefitDisabled bool `yaml:"smart_marginal_benefit_disabled,omitempty" json:"smart_marginal_benefit_disabled,omitempty"`
+	// AcousticOptimisation chooses the quietest PWM that still cools
+	// effectively (#789). When true (the daemon's default — see
+	// applyDefaults below), the controller refuses ramp-ups whose
+	// predicted ΔT contribution falls below the v0.5.8 marginal-benefit
+	// saturation threshold (R11 §0 SaturationDeltaT = 2.0 °C). Tracks
+	// the v0.5.8 marginal estimator's "Path A predicted saturation"
+	// signal verbatim — toggling this off makes the controller follow
+	// the curve straight without the saturation gate.
+	//
+	// Default-on. Operators who want maximum-cooling-regardless-of-
+	// noise behaviour set acoustic_optimisation: false in config.yaml
+	// or toggle the Settings → Smart mode switch.
+	AcousticOptimisation *bool `yaml:"acoustic_optimisation,omitempty" json:"acoustic_optimisation,omitempty"`
+}
+
+// AcousticOptimisationEnabled returns true when the operator wants
+// quietest-that-still-cools behaviour. Defaults to true when the field
+// is unset (the v0.5.8.1 default, per #789). A pointer-bool field is
+// used so an operator can explicitly set false in YAML and have the
+// daemon honour that intent — a plain bool would be indistinguishable
+// from "unset (default true)" once round-tripped through YAML.
+func (c *Config) AcousticOptimisationEnabled() bool {
+	if c == nil || c.AcousticOptimisation == nil {
+		return true
+	}
+	return *c.AcousticOptimisation
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can
