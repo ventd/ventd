@@ -196,3 +196,21 @@ chars → '-'); signature labels are SipHash hex digests
 (filename-safe by construction).
 
 Bound: internal/marginal/persistence_test.go:TestPersistence_NamespaceMatchesR15
+
+## RULE-CMB-WIRING-01: buildMarginalRuntime returns nil when len(channels) == 0.
+
+Monitor-only systems have no controllable PWMs to learn marginal
+benefit for. The daemon goroutine never starts when there are no
+channels.
+
+Bound: cmd/ventd/main_marginal_test.go:TestBuildMarginalRuntime_NilWhenAbsent
+
+## RULE-CMB-WIRING-03: marginal.Runtime is constructed when ≥1 channel exists; shards are admitted lazily on first observation.
+
+The runtime is constructed at daemon-start with no shards; shards
+are admitted lazily by OnObservation. v0.5.9 wires the
+OnObservation feed to the controller's per-tick path; v0.5.8
+ships the Run loop and persistence ticker only (per spec §6.2
+"wiring-only, no UI").
+
+Bound: cmd/ventd/main_marginal_test.go:TestBuildMarginalRuntime_RunOnce
