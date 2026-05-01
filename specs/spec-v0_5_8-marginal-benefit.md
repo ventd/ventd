@@ -183,32 +183,75 @@ clamp). v0.5.7's `internal/coupling/identifiability.go`
 `internal/identifiability/` package so v0.5.8 can re-use the
 machinery without copy-paste.
 
-### 2.5 Prior seeding from Layer B (per R10 §10.7)
+### 2.5 Prior seeding from Layer B — gated by signguard (per R10 §10.7 + R27)
 
-When a new `(channel, signature)` pair appears for the first time,
-the Layer-C shard initialises θ from the parent Layer-B shard's
-coupling estimate rather than from a zero prior:
+Layer-B's `b_ii` is only used as a Layer-C prior **when its sign
+has been independently validated**. Without validation, a parent
+shard with a sign-flipped `b_ii` (caused by an inverted-polarity
+fan that the v0.5.2 polarity probe missed, or a kernel driver
+returning a reversed PWM scale) propagates a wrong-direction prior
+to every Layer-C admission for that channel.
 
-- `β_0 ← b_ii / pwm_unit_max` (Layer-B self-coupling normalised
-  per +1 PWM; b_ii is the diagonal of the coupling matrix,
-  representing "ΔT_i per ΔPWM_i").
-- `β_1 ← 0` (no Layer-B information about load sensitivity).
+**Sign-guard mechanism (`internal/coupling/signguard/`):**
+
+The v0.5.5 opportunistic prober already emits observation records
+flagged with `EventFlag_OPPORTUNISTIC_PROBE` carrying a
+known-direction PWM step + the resulting ΔT over the 30 s hold
+window. signguard subscribes to that record stream and computes:
+
+```
+s = sign(ΔT_i_observed) · sign(ΔPWM_i_commanded)
+```
+
+The expected outcome under correct polarity for a cooling fan is
+`s = -1` (ΔPWM > 0 → ΔT < 0). signguard maintains a 16-sample
+rolling sign-vote per channel; readings with
+`|ΔT_i_observed| < 2·σ_T = 2·R11_noise_floor` are discarded as
+uninformative. Promotion to "polarity-confirmed" requires
+**≥ 5 of 7 most-recent probes agree**.
+
+**Layer-C prior admission gate:**
+
+- If `signguard(channel).Confirmed == false` → Layer-C shard
+  admits with `θ = [0, 0]` (R10 §10.4 standard warm-start, no
+  Layer-B information used).
+- If `signguard(channel).Confirmed == true` → Layer-C admits with
+  `β_0 ← b_ii / pwm_unit_max`, `β_1 ← 0` per R10 §10.7.
+
+The Layer-B prior, when used, is read from the parent's
+`Snapshot` **at shard admission time** (atomic.Pointer load),
+not from the live shard. This avoids sign-flip races during
+Layer-B re-warmup.
+
+signguard is **continuous, not warmup-only** — a re-cabled fan
+that flipped polarity mid-deployment is caught at any point in
+daemon lifetime, downgrading affected shards.
 
 Per the research review (informative-prior RLS / hierarchical RLS;
 Goodwin & Sin 1984 §3.3; Ljung 1999 §11.4):
 
-- The R12 info-matrix monotonicity guarantees the prior is
-  eventually dominated by data within ~5·d_C² = 20 samples
+- The R12 info-matrix monotonicity guarantees a correctly-signed
+  prior is dominated by data within ~5·d_C² = 20 samples
   (≈ 10 s at 2 Hz fast loop).
 - During Layer-C warmup, **`Snapshot.Saturated` is forced false**
-  (controller defers to Layer A). This protects against a
-  wrong-sign Layer-B prior briefly producing a false
-  "ramping helps a lot" verdict and bypassing the saturation
-  refusal (§3.7 makes this normative).
-- The Layer-B prior is read from the parent's `Snapshot` **at
-  shard admission time** (atomic.Pointer load), not from the
-  live shard. This avoids sign-flip races during a Layer-B
-  re-warmup.
+  (controller defers to Layer A). Belt + braces alongside
+  signguard (§3.7 normative).
+
+### 2.6 OAT (one-at-a-time) gate per R28
+
+To eliminate cross-channel aerodynamic interference contamination
+of the per-channel β_0 estimate, Layer-C update samples are
+admitted only when `Δpwm_j[k] = 0` for all `j ≠ i` over the
+previous 5 ticks. R17 defines the full multi-channel
+identifiability framework for v0.6.0; the OAT gate is the
+v0.5.8-scoped one-line mitigation that suffices for v0.5.9
+controller rollout.
+
+When a coupling group is detected by Layer B (per RULE-CPL-IDENT-03),
+Layer-C updates from any channel in the group are rejected until
+all-but-one members have been static for 5 ticks. This costs
+convergence speed in highly-coupled chassis; v0.5.10 doctor
+surfaces the rejection rate so operators see when it bites.
 
 ---
 
@@ -234,9 +277,17 @@ Three-condition gate, identical structure to v0.5.7:
 - κ check trivially passes for d=2 (no Window needed)
 
 **Layer-C-specific:** the warmup gate also requires the parent
-Layer-B shard to be **out of warmup** before Layer-C warmup can
-clear. A Layer-C shard cannot have higher confidence than its
-parent Layer-B shard provides per the R-bundle hierarchy.
+Layer-B shard to be **out of warmup** AND **κ ≤ 10⁴** before
+Layer-C warmup can clear. A Layer-C shard cannot have higher
+confidence than its parent Layer-B shard provides per the R-bundle
+hierarchy.
+
+**Deferred activation on parent κ-bad:** if the parent Layer-B
+shard's `Kind == KindUnidentifiable` (κ > 10⁴), the Layer-C shard
+is **not created** at all. Activation re-tries on the next
+opportunistic-probe-record event for that channel, with a
+`τ_retry = 1 hour` floor between attempts. Per R10 §10.7 +
+RULE-CMB-IDENT-01.
 
 **Saturation flag during warmup:** `Snapshot.Saturated` is forced
 false until warmup clears. The controller defers to Layer A's
@@ -256,23 +307,32 @@ exactly; a future R11 amendment cascades through here.
 
 ### 3.5 Persistence
 
-Spec-16 KV under namespace `marginal_benefit`, msgpack-encoded
-`Bucket` carrying:
+Spec-16 KV under namespace `smart/shard-C/<channel>-<sig>` per
+R15 §104 (Layer-B parent at `smart/shard-B/<channel>`),
+msgpack-encoded `Bucket` carrying:
 
 ```go
 type Bucket struct {
-    SchemaVersion    uint8
-    HwmonFingerprint string
-    ChannelID        string
-    SignatureLabel   string
-    Theta            []float64       // [β_0, β_1]
-    PSerialised      []byte          // upper-triangle of P
-    Lambda           float64
-    NSamples         uint64
-    LastSeenUnix     int64
-    HitCount         uint64
+    SchemaVersion         uint8
+    HwmonFingerprint      string
+    ChannelID             string
+    SignatureLabel        string
+    Theta                 []float64    // [β_0, β_1]
+    PSerialised           []byte       // upper-triangle of P
+    InitialP              float64      // P_0 scalar — needed for R12 covariance_term
+    Lambda                float64
+    NSamples              uint64
+    LastSeenUnix          int64
+    HitCount              uint64
+    EWMAResidual          float64      // E_k per R12 §Q1; consumed by R16 anomaly later
+    ObservedSaturationPWM uint8        // last PWM at which Path-B fired (0 = unset)
 }
 ```
+
+`EWMAResidual` and `InitialP` are **net-new vs the v0.5.7 Bucket**
+and are required by v0.5.9's R12 confidence formula and v0.5.10
+doctor surface. Persisting them now avoids a forced schema bump
+when v0.5.9 lands.
 
 Same invalidation rules as v0.5.7:
 
@@ -341,17 +401,37 @@ func (s *Shard) ObserveOutcome(deltaT float64)         // Path B observed-satura
 func (s *Shard) Read() *Snapshot                       // lock-free atomic.Pointer load
 
 type Snapshot struct {
-    ChannelID         string
-    SignatureLabel    string
-    Kind              SnapshotKind
-    Theta             []float64
-    TrP               float64
-    NSamples          uint64
-    Saturated         bool
-    MarginalSlope     float64
-    Confidence        float64       // conf_C ∈ [0, 1]
-    WarmingUp         bool
-    ObservedZeroDeltaTRun int       // streak length for Path B
+    ChannelID             string
+    SignatureLabel        string
+    Kind                  SnapshotKind
+    Theta                 []float64
+
+    // Identifiability state
+    TrP                   float64
+    InitialP              float64       // P_0 scalar; v0.5.9 computes tr(P̂) = TrP / InitialP
+    NSamples              uint64
+    EWMAResidual          float64       // E_k per R12 §Q1 (α=0.95); consumed by v0.5.9 + R16
+
+    // Saturation surface — TWO flags, consumed differently by v0.5.9
+    Saturated             bool          // Path A: model-driven prediction (β_0 + β_1·load) × ΔPWM < 2°C
+    SaturationAdmitR11    bool          // Path B: R11 §0 dual-gate (range AND slope); current observed state
+    ObservedZeroDeltaTRun int           // streak length feeding Path B
+    ObservedSaturationPWM uint8         // last PWM at which Path B fired (0 = unset)
+
+    // Operating-point metadata
+    MarginalSlope         float64       // β_0 + β_1·load at current load
+    WarmingUp             bool
+
+    // R12 confidence input components (raw, undecayed, unsmoothed).
+    // v0.5.9 owns aggregation/decay/smoothing/Lipschitz/LPF; v0.5.8 only emits inputs.
+    Confidence            ConfidenceComponents
+}
+
+type ConfidenceComponents struct {
+    SaturationAdmit  bool      // mirrors SaturationAdmitR11; binary 0/1 for R12 product
+    ResidualTerm     float64   // clamp(1 − √EWMAResidual / E_floor, 0, 1)
+    CovarianceTerm   float64   // clamp(1 − tr(P̂)/dim(θ), 0, 1)
+    SampleCountTerm  float64   // clamp(NSamples / N_min_R12, 0, 1) where N_min_R12 = 50
 }
 
 // internal/marginal/runtime.go
@@ -367,6 +447,7 @@ func (r *Runtime) Run(ctx context.Context) error
 func (r *Runtime) OnObservation(rec *observation.Record)
 func (r *Runtime) Shard(channelID, signatureLabel string) *Shard
 func (r *Runtime) SnapshotAll() []*Snapshot
+func (r *Runtime) ShardCount(channelID string) int   // R13 doctor surface
 
 // internal/identifiability/window.go (extracted from internal/coupling)
 type Window struct { /* ... */ }
@@ -406,8 +487,20 @@ Backpressure logged; inbox-full samples dropped.
 | `RULE-CMB-PERSIST-03: Restored tr(P) clamped to R12 cap; warmup re-evaluates.` | `internal/marginal/persistence_test.go:TestShard_RestoredReWarms` |
 | `RULE-CMB-DISABLE-01: R1/R3/operator-toggle inheritance — no shards created.` | `internal/marginal/runtime_test.go:TestRuntime_DisableInheritance` |
 | `RULE-CMB-R11-01: SaturationDeltaT/NWritesFastLoop/NReadsSlowLoop equal R11 §0.` | `internal/marginal/shard_test.go:TestThresholds_MatchR11Locked` |
+| `RULE-CMB-IDENT-01: Activation deferred when parent Layer-B κ > 10⁴; τ_retry = 1h.` | `internal/marginal/runtime_test.go:TestRuntime_DeferActivation_OnParentKappaBad` |
+| `RULE-CMB-OAT-01: Layer-C samples admitted only when Δpwm_j = 0 for all j ≠ i over 5 ticks.` | `internal/marginal/runtime_test.go:TestRuntime_OAT_RejectsCrossChannelSamples` |
+| `RULE-CMB-CONF-01: ConfidenceComponents fields populated per R12 §Q1; Snapshot omits aggregated conf_C.` | `internal/marginal/shard_test.go:TestSnapshot_ExposesR12Inputs` |
+| `RULE-CMB-NAMESPACE-01: KV namespace is "smart/shard-C/<channel>-<sig>" per R15 §104.` | `internal/marginal/persistence_test.go:TestPersistence_NamespaceMatchesR15` |
 
-### 5.2 Wiring rules `RULE-CMB-WIRING-*` (PR-B)
+### 5.2 Sign-guard rule family `RULE-SGD-*` (per R27, in PR-A alongside marginal package)
+
+| Rule | Bound subtest |
+|---|---|
+| `RULE-SGD-VOTE-01: Sign vote requires ≥5 of last 7 opportunistic-probe samples agreeing.` | `internal/coupling/signguard/signguard_test.go:TestSignVote_5Of7Threshold` |
+| `RULE-SGD-NOISE-01: Probes with \|ΔT\| < 2·R11_noise are discarded (uninformative).` | `internal/coupling/signguard/signguard_test.go:TestSignVote_DiscardsBelowNoise` |
+| `RULE-SGD-CONT-01: signguard runs continuously, not warmup-only — re-cabled fan caught at any point.` | `internal/coupling/signguard/signguard_test.go:TestSignVote_DowngradeOnFlipMidLifetime` |
+
+### 5.3 Wiring rules `RULE-CMB-WIRING-*` (PR-B)
 
 | Rule | Bound subtest |
 |---|---|
@@ -419,22 +512,36 @@ Backpressure logged; inbox-full samples dropped.
 
 ## 6. Patch sequence
 
-### 6.1 PR-A — library, ~700 LOC + 19 tests
+### 6.1 PR-A — library, ~900 LOC + 27 tests
 
 ```
 internal/identifiability/         (extracted from internal/coupling)
   window.go                       — Window + Pearson + κ helpers
   window_test.go                  — moved from coupling_test.go
+internal/coupling/signguard/      (new — per R27, ships in v0.5.8 PR-A)
+  signguard.go                    — opportunistic-probe sign-vote aggregator
+  signguard_test.go               — RULE-SGD-* bindings
 internal/marginal/                (new)
   shard.go                        — RLS + saturation detection (Path A & B)
-  shard_test.go                   — RLS / warmup / prior / saturation / R11-pin
-  persistence.go                  — Bucket + Save/Load
-  persistence_test.go
-  runtime.go                      — per-shard goroutine pool + obs subscriber
+                                    + ConfidenceComponents emission
+  shard_test.go                   — RLS / warmup / prior / saturation / R11-pin /
+                                    R12 input components
+  persistence.go                  — Bucket (with EWMAResidual + InitialP +
+                                    ObservedSaturationPWM) + Save/Load
+  persistence_test.go             — including namespace == smart/shard-C/...
+  runtime.go                      — per-shard goroutine pool + obs subscriber +
+                                    OAT gate + κ-deferred activation +
+                                    ShardCount API
   runtime_test.go
 .claude/rules/marginal.md         — RULE-CMB-* bindings
+.claude/rules/signguard.md        — RULE-SGD-* bindings
 specs/spec-v0_5_8-marginal-benefit.md  (this doc)
 ```
+
+LOC + test count is up vs the original draft (~700 / 19) because
+of the signguard sub-package, the Snapshot expansion for v0.5.9,
+the OAT gate, and κ-deferred activation. Cost projection adjusted
+in §7 below.
 
 The `internal/identifiability/` extraction is an opportunistic
 refactor that lands in PR-A; v0.5.7's coupling package re-imports
@@ -462,29 +569,42 @@ adds the surface.
 ## 7. Estimated cost
 
 - Spec drafting (chat): $0 (this document).
-- PR-A CC implementation: **$15–25**. The d=2 model is simpler
-  than v0.5.7's d=1+N+1, but the per-(channel, signature) shard
-  map + LRU + Layer-B prior plumbing balances the saving.
+- PR-A CC implementation: **$25–40**. Up from the original
+  $15–25 estimate because the deep-research review added:
+  signguard sub-package (R27, ~150 LOC + 3 tests), OAT gate
+  (R28, ~30 LOC + 1 test), Snapshot expansion for v0.5.9
+  R12-input components (~80 LOC + 1 test), KV namespace
+  alignment with R15 (~20 LOC + 1 test), κ-deferred activation
+  (~50 LOC + 1 test).
 - PR-B CC implementation: **$3–5**. Wiring-only.
-- Total: **$18–30**, matching v0.5.7's spend.
+- Total: **$28–45**, modestly above v0.5.7's spend due to
+  signguard + Snapshot expansion. v0.5.9 retrofit cost saved
+  in return.
 
 ---
 
 ## 8. Research review surface — new R-items to register
 
-The v0.5.8 draft was reviewed against R9, R10, R11, and R7. The
-review surfaced five gaps where the existing R-bundle is silent or
-ambiguous for Layer C. v0.5.8 codes against the locked decisions
-above; the gaps below are registered as new R-items for follow-up.
-None blocks v0.5.8.
+Two rounds of research review:
+
+**Round 1** (against R9, R10, R11, R7): caught d=6 → d_C=2,
+saturation threshold realignment to R11 §0, wrong-prior mitigation
+made normative (§3.7).
+
+**Round 2** (against R12, R13, R15, R16, R17, R20): caught the
+gaps below. v0.5.8 ships with the in-spec mitigations applied
+(signguard, OAT gate, Snapshot expansion, R15-aligned namespace);
+the deferred items below are tracked R-items.
 
 | ID | Question | Status |
 |---|---|---|
-| **R26** | Is the Layer-C parametric form `(β_0 + β_1·load) × ΔPWM` adequate for laptops with active workload-conditional fan curve flips (BIOS reflashing the curve under sustained load)? Or should v0.5.10 evaluate piecewise-linear-with-learnable-knee (PLLK) per Patel et al. IPACK 2003 / Moore et al. USENIX ATC 2005? | post-v0.6.0 |
-| **R27** | Wrong-direction Layer-B prior detection — current spec relies on warmup-forces-false. Should there be a separate sanity-check that flags `b_ii < 0` from Layer B as a parent-shard fault and refuses prior seeding entirely? | v0.5.10 |
-| **R28** | R17 (multi-channel aerodynamic interference) is registered but unscoped for Layer C. If channel-A's ramp moves channel-B's temperature, is the per-channel β_0 estimate biased? Joint identification across channels deferred to R28 evaluation. | v0.6.0 |
-| **R29** | Per-channel shard cap at 32 is empirical from §2.3 (95th-percentile signature distribution per user). Validate against fleet telemetry once R20 fleet-federation lands. Adjust upward if the long-tail user has >32 active workloads. | v0.7.0 |
-| **R30** | Sigmoid/tanh functional form (Rotem et al. IEEE Micro 2012; Brooks & Martonosi HPCA 2001) for thermal-headroom-vs-fan-RPM. Currently the linear model degenerates at the rotor-stall floor and aerodynamic ceiling. Track for v0.6.x. | post-v0.6.0 |
+| **R26** | PLLK functional form for v0.5.10. Decision: **defer.** The d=2 RLS scaffold is correctly factored for a back-end swap (~$8-12 retrofit) once v0.5.4 obs-log data quantifies real RMS prediction error. Path B observed-saturation provides correctness fallback regardless of model choice. | post-v0.6.0 |
+| **R27** | Wrong-direction Layer-B prior detection — **resolved in v0.5.8.** signguard sub-package consumes opportunistic-probe records as ground-truth sign-vote (5/7 majority). Layer-C admission requires `signguard.Confirmed == true` before consuming the b_ii prior; otherwise admits with θ=0. | shipped v0.5.8 |
+| **R28** | R17 multi-channel coupling for Layer C — **mitigated in v0.5.8** via OAT gate (RULE-CMB-OAT-01: admit samples only when other channels have static PWM for 5 ticks). Full joint-identification framework remains v0.6.0 R17 work. | mitigated v0.5.8 / full v0.6.0 |
+| **R29** | Per-channel shard cap at 32 is empirical (§2.3, 95th-percentile signature distribution). Validate against R20 fleet telemetry. | v0.7.0+ |
+| **R30** | Sigmoid/tanh form (Rotem IEEE Micro 2012; Brooks HPCA 2001). | post-v0.6.0 |
+| **R31** | R12 saturation_admit interaction with Path-A predicted saturation: explicitly Path-A and SaturationAdmitR11 are independent flags consumed differently by v0.5.9 (Path-A → "refuse this ramp"; R11 → "drop conf_C this tick"). Confirm v0.5.9 controller pseudocode in spec-smart-mode §7.1 reads both correctly. | v0.5.9 |
+| **R32** | Joint-identification across channels (full R17 INTERFERENCE feature) — Söderström & Stoica 1989 Ch. 12 MIMO-RLS rejected for cost; Pearson + R8-HIGH residual detector preferred per R17 §6. | v0.6.0 |
 
 External references added during research review (already in §
 References block above):
