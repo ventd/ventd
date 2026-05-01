@@ -37,6 +37,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
+	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
@@ -476,6 +477,7 @@ func run() error {
 		},
 		State:    st,
 		Coupling: buildCouplingRuntime(channels, st, dmiFingerprint, logger),
+		Marginal: buildMarginalRuntime(channels, st, dmiFingerprint, logger),
 	}
 	if obsWriter != nil {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
@@ -634,6 +636,38 @@ func buildCouplingRuntime(
 // runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
 // probe sequentially across all controllable channels (RULE-ENVELOPE-11).
 // Called from run() as a goroutine; ctx is cancelled when run() returns.
+// buildMarginalRuntime constructs the v0.5.8 Layer-C
+// marginal-benefit estimator runtime. Returns nil when there are
+// no controllable channels (monitor-only mode); the daemon then
+// never starts the goroutine.
+//
+// Per spec-v0_5_8 §6.2: wiring-only. Shards are admitted lazily
+// on the first OnObservation call carrying a non-fallback
+// signature; v0.5.9 wires the actual feed (sensor readings live
+// in the controller, not in the controller→obsWriter Record).
+//
+// hwmonFingerprint matches v0.5.7's choice — dmiFingerprint —
+// for v0.5.8; v0.5.10 doctor refines.
+//
+// RULE-CMB-WIRING-01: Returns nil when len(channels) == 0.
+// RULE-CMB-WIRING-03: Caller starts Run exactly once.
+func buildMarginalRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *marginal.Runtime {
+	if len(channels) == 0 {
+		logger.Info("marginal: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := marginal.NewRuntime(st.Dir, hwmonFingerprint, nil, nil, logger)
+	logger.Info("marginal: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
+}
+
 func runEnvelopeBackground(
 	ctx context.Context,
 	st *state.State,
@@ -803,6 +837,13 @@ type SmartModeBundle struct {
 	// then never starts the coupling goroutine. Snapshot.Read is
 	// consumed by v0.5.9's confidence-gated controller.
 	Coupling *coupling.Runtime
+	// Marginal is the v0.5.8 Layer-C per-(channel, signature)
+	// marginal-benefit estimator runtime. Pre-built but admits
+	// shards lazily on observation. nil in monitor-only mode and
+	// when SmartMarginalBenefitDisabled is true (toggle read by
+	// runDaemonInternal). Snapshot.Read is consumed by v0.5.9's
+	// confidence-gated controller.
+	Marginal *marginal.Runtime
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -1062,6 +1103,23 @@ func runDaemonInternal(
 			defer wg.Done()
 			if err := smartMode.Coupling.Run(cplCtx); err != nil && err != context.Canceled {
 				logger.Warn("coupling: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
+	// v0.5.8: launch the Layer-C marginal-benefit estimator runtime.
+	// Same lifecycle pattern as Layer B — wiring-only, snapshot
+	// consumed by v0.5.9's controller. Disabled by toggle.
+	// RULE-CMB-WIRING-03.
+	if smartMode != nil && smartMode.Marginal != nil &&
+		!cfg.SmartMarginalBenefitDisabled {
+		mgnCtx, mgnCancel := context.WithCancel(ctx)
+		defer mgnCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Marginal.Run(mgnCtx); err != nil && err != context.Canceled {
+				logger.Warn("marginal: runtime exited with error", "err", err)
 			}
 		}()
 	}
