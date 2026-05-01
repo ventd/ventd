@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.8] - 2026-05-01
+
+### Added
+- v0.5.8 PR-A — Layer-C per-(channel, signature) marginal-benefit RLS estimator: `internal/marginal/` package implementing `d_C = 2` model `ΔT_per_+1_PWM = β_0 + β_1·load` per R10 §10.1, dual-path saturation per R11 §0 (Path A predicted + Path B observed), three-condition warmup gate with parent Layer-B clearance, R12 bounded-covariance clamp, weighted-LRU shard eviction (cap 32/channel), κ-deferred activation (τ_retry=1h), OAT cross-channel gate (R28 mitigation), persistence at `smart/shard-C/<channel>-<sig>.cbor` per R15 §104. Plus `internal/coupling/signguard/` — 5-of-7 sign-vote consuming v0.5.5 opportunistic-probe ground-truth (R27 wrong-prior detection). 22 RULE-CMB-* + 3 RULE-SGD-* bindings. (#741)
+- v0.5.8 PR-B — daemon wiring: `cmd/ventd/main.go` launches `marginal.Runtime` alongside `coupling.Runtime`; `Config.SmartMarginalBenefitDisabled` toggle. RULE-CMB-WIRING-01 + RULE-CMB-WIRING-03. (#742)
+- `internal/idle.CaptureLoadAvg` exported for v0.5.8 Layer-C load proxy.
+
 ## [v0.5.7] - 2026-05-01
 
 ### Added
