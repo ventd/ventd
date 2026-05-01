@@ -177,12 +177,26 @@ func enumerateSubtests(path string) ([]string, error) {
 	return names, sc.Err()
 }
 
+// runOptions configures non-default rulelint behaviour for run().
+type runOptions struct {
+	suggest        bool // --suggest: print Levenshtein suggestion on missing-subtest errors
+	uniqueBindings bool // --check-binding-uniqueness: assert no two rules bind to the same file:subtest
+}
+
 func run(root string, w io.Writer) int {
+	return runWithOptions(root, w, runOptions{})
+}
+
+func runWithOptions(root string, w io.Writer, opts runOptions) int {
 	rulesDir := filepath.Join(root, ".claude", "rules")
 	rules, parseErrs := parseRulesDir(rulesDir)
 
 	var forwardErrs []string
 	claimedByFile := make(map[string]map[string]bool)
+
+	// bindingOwner maps "<file>:<subtest>" → first rule ID that bound it.
+	// Populated only when opts.uniqueBindings is true.
+	bindingOwner := make(map[string]string)
 
 	for _, r := range rules {
 		for _, b := range r.bounds {
@@ -206,10 +220,16 @@ func run(root string, w io.Writer) int {
 			}
 			if !found {
 				if !b.allowOrphan {
-					forwardErrs = append(forwardErrs, fmt.Sprintf(
+					msg := fmt.Sprintf(
 						"%s: RULE-%s: subtest %q not found in %s",
 						r.file, r.id, b.subtestName, b.targetFile,
-					))
+					)
+					if opts.suggest {
+						if hint := suggestSubtest(absPath, b.subtestName); hint != "" {
+							msg += fmt.Sprintf(" (did you mean %q?)", hint)
+						}
+					}
+					forwardErrs = append(forwardErrs, msg)
 				}
 				continue
 			}
@@ -226,6 +246,18 @@ func run(root string, w io.Writer) int {
 				claimedByFile[b.targetFile] = make(map[string]bool)
 			}
 			claimedByFile[b.targetFile][b.subtestName] = true
+
+			if opts.uniqueBindings {
+				key := b.targetFile + ":" + b.subtestName
+				if prior, ok := bindingOwner[key]; ok {
+					forwardErrs = append(forwardErrs, fmt.Sprintf(
+						"RULE-%s: duplicate binding to %s — already claimed by RULE-%s",
+						r.id, key, prior,
+					))
+				} else {
+					bindingOwner[key] = r.id
+				}
+			}
 		}
 	}
 
@@ -262,9 +294,119 @@ func run(root string, w io.Writer) int {
 	return 0
 }
 
+// suggestSubtest enumerates t.Run literals and top-level Test* funcs in path
+// and returns the closest match to want by Damerau-Levenshtein distance.
+// Returns "" when no candidate is close enough to bother suggesting.
+func suggestSubtest(path, want string) string {
+	candidates, err := enumerateSubtestsAndFuncs(path)
+	if err != nil || len(candidates) == 0 {
+		return ""
+	}
+	best := ""
+	bestDist := -1
+	for _, c := range candidates {
+		d := damerauLevenshtein(want, c)
+		if bestDist < 0 || d < bestDist {
+			bestDist = d
+			best = c
+		}
+	}
+	maxDist := 3
+	if len(want) <= 8 {
+		maxDist = 2
+	}
+	if bestDist <= 0 || bestDist > maxDist {
+		return ""
+	}
+	return best
+}
+
+// enumerateSubtestsAndFuncs returns t.Run literal names plus top-level
+// "func TestXxx" identifiers in path.
+func enumerateSubtestsAndFuncs(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	funcRE := regexp.MustCompile(`^func\s+(Test\w+)\s*\(`)
+
+	var names []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		for _, m := range tRunRE.FindAllStringSubmatch(line, -1) {
+			names = append(names, m[1])
+		}
+		if m := funcRE.FindStringSubmatch(line); m != nil {
+			names = append(names, m[1])
+		}
+	}
+	return names, sc.Err()
+}
+
+// damerauLevenshtein returns the Optimal String Alignment distance between
+// a and b. Adjacent transpositions count as one edit (the common
+// "swapped two characters" typo class).
+func damerauLevenshtein(a, b string) int {
+	la, lb := len(a), len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+	d := make([][]int, la+1)
+	for i := range d {
+		d[i] = make([]int, lb+1)
+		d[i][0] = i
+	}
+	for j := 0; j <= lb; j++ {
+		d[0][j] = j
+	}
+	for i := 1; i <= la; i++ {
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			d[i][j] = min3(
+				d[i-1][j]+1,
+				d[i][j-1]+1,
+				d[i-1][j-1]+cost,
+			)
+			if i > 1 && j > 1 && a[i-1] == b[j-2] && a[i-2] == b[j-1] {
+				if v := d[i-2][j-2] + 1; v < d[i][j] {
+					d[i][j] = v
+				}
+			}
+		}
+	}
+	return d[la][lb]
+}
+
+func min3(a, b, c int) int {
+	m := a
+	if b < m {
+		m = b
+	}
+	if c < m {
+		m = c
+	}
+	return m
+}
+
 func main() {
 	var root string
+	var suggest bool
+	var uniqueBindings bool
 	flag.StringVar(&root, "root", ".", "repo root (default: current directory)")
+	flag.BoolVar(&suggest, "suggest", false, "on missing-subtest errors, print the closest matching subtest name as a suggestion")
+	flag.BoolVar(&uniqueBindings, "check-binding-uniqueness", false, "fail when two rules bind to the same file:subtest")
 	flag.Parse()
-	os.Exit(run(root, os.Stderr))
+	os.Exit(runWithOptions(root, os.Stderr, runOptions{
+		suggest:        suggest,
+		uniqueBindings: uniqueBindings,
+	}))
 }

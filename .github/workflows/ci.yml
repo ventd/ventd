@@ -199,14 +199,17 @@ jobs:
 
       - name: Test with race detector
         if: matrix.race
-        run: go test -race -count=1 ./...
+        # retry-flaky.sh runs the suite once; if any failures are listed in
+        # .github/flaky-tests.yaml, those tests are re-run once. Second
+        # failure is real. Tests not in the registry never get retried.
+        run: ./scripts/retry-flaky.sh -race -count=1 ./...
 
       # Alpine row: CGO_ENABLED=0, no -race. See matrix comment above.
       - name: Test (no race, musl)
         if: ${{ !matrix.race }}
         env:
           CGO_ENABLED: "0"
-        run: go test -count=1 ./...
+        run: ./scripts/retry-flaky.sh -count=1 ./...
 
   lint:
     name: golangci-lint

@@ -1,0 +1,26 @@
+# Registry of tests known to flake under timing/scheduling pressure on
+# GitHub Actions runners. Tests listed here get one automatic retry from
+# scripts/retry-flaky.sh if they fail in CI; second failure is real.
+#
+# Adding a test to this list is a deliberate ratchet — every entry must:
+#   - cite the issue or run that prompted it
+#   - state the failure mode (timing race, CI noise, scheduler jitter)
+#   - have a real fix on the roadmap (don't normalise flakes forever)
+#
+# Format:
+#   - test:   <pkg>:<TopLevelTest>[/<subtest>]
+#     issue:  https://github.com/ventd/ventd/issues/<N>
+#     reason: short one-liner
+#     since:  YYYY-MM-DD when the entry was added
+#
+# Example: a single test in a package, all subtests covered by the parent name:
+#   - test: ./internal/scheduler:TestScheduler_ManualOverrideStaysUntilTransition
+#     issue: https://github.com/ventd/ventd/issues/623
+#     reason: timer scheduling jitter on shared GHA runners
+#     since: 2026-04-15
+
+flaky:
+  - test: ./internal/scheduler:TestScheduler_ManualOverrideStaysUntilTransition
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: timer scheduling jitter on shared GitHub Actions runners
+    since: 2026-04-15

@@ -253,3 +253,159 @@ func TestSafety(t *testing.T) {
 		t.Errorf("expected stale-marker message in output; got: %q", out)
 	}
 }
+
+// --- --suggest tests ---------------------------------------------------------
+
+func TestRulelint_Suggest_NearMissTransposition(t *testing.T) {
+	// Rule binds to a typo'd subtest name (one transposition away from the
+	// real subtest). With --suggest, rulelint must emit a "did you mean" hint
+	// pointing at the real name.
+	root := stageFixture(t, `
+## RULE-CLAMP-01: PWM clamp invariants
+Bound: pkg/somefile_test.go:TestEventFlags_Bits0Through12Lokced
+`, `package pkg
+
+import "testing"
+
+func TestEventFlags_Bits0Through12Locked(t *testing.T) {}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{suggest: true})
+	out := buf.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; output:\n%s", code, out)
+	}
+	if !strings.Contains(out, `did you mean "TestEventFlags_Bits0Through12Locked"`) {
+		t.Errorf("expected 'did you mean' suggestion for near-miss; got: %q", out)
+	}
+}
+
+func TestRulelint_Suggest_FarMissNoSuggestion(t *testing.T) {
+	// Rule binds to a name that is not close to any real subtest. With
+	// --suggest, rulelint should NOT add a suggestion (would be misleading).
+	root := stageFixture(t, `
+## RULE-CLAMP-01: PWM clamp invariants
+Bound: pkg/somefile_test.go:totally_different_concept_xyz
+`, `package pkg
+
+import "testing"
+
+func TestSafety(t *testing.T) {
+	t.Run("clamp_below_min", func(t *testing.T) {})
+}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{suggest: true})
+	out := buf.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; output:\n%s", code, out)
+	}
+	if strings.Contains(out, "did you mean") {
+		t.Errorf("did not expect a suggestion for far miss; got: %q", out)
+	}
+}
+
+func TestRulelint_Suggest_OffByDefault(t *testing.T) {
+	// Without --suggest, even a near-miss must NOT carry a hint.
+	root := stageFixture(t, `
+## RULE-CLAMP-01: PWM clamp invariants
+Bound: pkg/somefile_test.go:TestFooBat
+`, `package pkg
+
+import "testing"
+
+func TestFooBar(t *testing.T) {}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{suggest: false})
+	out := buf.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; output:\n%s", code, out)
+	}
+	if strings.Contains(out, "did you mean") {
+		t.Errorf("suggestion leaked when --suggest is off; got: %q", out)
+	}
+}
+
+// --- --check-binding-uniqueness tests ----------------------------------------
+
+func TestRulelint_BindingUniqueness_DuplicateFails(t *testing.T) {
+	// Two rules bind to the same file:subtest. With --check-binding-uniqueness,
+	// rulelint must fail and name both rule IDs.
+	root := stageFixture(t, `
+## RULE-A-01: first rule
+Bound: pkg/somefile_test.go:shared_subtest
+
+## RULE-A-02: second rule
+Bound: pkg/somefile_test.go:shared_subtest
+`, `package pkg
+
+import "testing"
+
+func TestSafety(t *testing.T) {
+	t.Run("shared_subtest", func(t *testing.T) {})
+}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{uniqueBindings: true})
+	out := buf.String()
+	if code != 1 {
+		t.Fatalf("exit %d, want 1; output:\n%s", code, out)
+	}
+	if !strings.Contains(out, "duplicate binding") {
+		t.Errorf("expected 'duplicate binding' in output; got: %q", out)
+	}
+	if !strings.Contains(out, "RULE-A-01") || !strings.Contains(out, "RULE-A-02") {
+		t.Errorf("expected both rule IDs in duplicate diagnostic; got: %q", out)
+	}
+}
+
+func TestRulelint_BindingUniqueness_OffByDefault(t *testing.T) {
+	// Same fixture as above, but without --check-binding-uniqueness, no error.
+	root := stageFixture(t, `
+## RULE-A-01: first rule
+Bound: pkg/somefile_test.go:shared_subtest
+
+## RULE-A-02: second rule
+Bound: pkg/somefile_test.go:shared_subtest
+`, `package pkg
+
+import "testing"
+
+func TestSafety(t *testing.T) {
+	t.Run("shared_subtest", func(t *testing.T) {})
+}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{uniqueBindings: false})
+	out := buf.String()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 (uniqueness check off); output:\n%s", code, out)
+	}
+}
+
+func TestRulelint_BindingUniqueness_DistinctOK(t *testing.T) {
+	// Two rules bound to DIFFERENT subtests in the same file pass
+	// --check-binding-uniqueness.
+	root := stageFixture(t, `
+## RULE-A-01: first rule
+Bound: pkg/somefile_test.go:subtest_a
+
+## RULE-A-02: second rule
+Bound: pkg/somefile_test.go:subtest_b
+`, `package pkg
+
+import "testing"
+
+func TestSafety(t *testing.T) {
+	t.Run("subtest_a", func(t *testing.T) {})
+	t.Run("subtest_b", func(t *testing.T) {})
+}
+`)
+	var buf strings.Builder
+	code := runWithOptions(root, &buf, runOptions{uniqueBindings: true})
+	out := buf.String()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 (distinct subtests OK); output:\n%s", code, out)
+	}
+}
