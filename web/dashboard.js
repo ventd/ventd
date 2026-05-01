@@ -481,6 +481,41 @@
       .catch(function () { /* monitor-only or pre-data — pollOnce will catch up */ });
   }
 
+  // pollSmartMode populates the topbar smart-mode pill from the live
+  // config — surfaces which smart-mode subsystems are active so users
+  // get visible at-a-glance evidence that ventd is being intelligent
+  // rather than running a dumb curve. Updates every 10s.
+  function pollSmartMode() {
+    fetch('/api/v1/config', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (c) {
+        if (!c) return;
+        var pill = document.getElementById('dash-smart-pill');
+        var text = document.getElementById('dash-smart-pill-text');
+        if (!pill || !text) return;
+        var states = [];
+        if (c.acoustic_optimisation === undefined ||
+            c.acoustic_optimisation === null ||
+            c.acoustic_optimisation === true) {
+          states.push('acoustic');
+        }
+        if (!c.signature_learning_disabled) states.push('learning');
+        if (!c.never_actively_probe_after_install) states.push('probing-ok');
+        if (!c.smart_marginal_benefit_disabled) states.push('marginal');
+        if (states.length === 0) {
+          pill.hidden = true;
+          return;
+        }
+        text.textContent = 'smart · ' + states.length + ' active';
+        pill.title = 'smart-mode subsystems active: ' + states.join(', ');
+        pill.hidden = false;
+      })
+      .catch(function () {
+        var pill = document.getElementById('dash-smart-pill');
+        if (pill) pill.hidden = true;
+      });
+  }
+
   // ── start ──────────────────────────────────────────────────────────
   seedHistory();
   pollOnce();
@@ -488,4 +523,6 @@
   setInterval(function () { if (!inDemo) tickUptime(); }, 1000);
   pollOpportunisticStatus();
   setInterval(pollOpportunisticStatus, 5000);
+  pollSmartMode();
+  setInterval(pollSmartMode, 10000);
 })();

@@ -218,3 +218,21 @@
   0%, 100% { opacity: 0.4; }
   50%      { opacity: 1.0; }
 }
+
+/* Smart-mode summary pill — surfaces "ventd is being intelligent" so
+ * users see visible evidence (acoustic / learning / probing /
+ * marginal). Same pill anatomy as opp-pill but uses the OK state so
+ * the topbar reads as steady "smart mode active" rather than a
+ * temporary action like a probe. */
+.dash-smart-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+.dash-smart-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
