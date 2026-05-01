@@ -107,3 +107,15 @@ func ChannelID(pwmPath string) uint16 {
 	_, _ = h.Write([]byte(pwmPath))
 	return uint16(h.Sum32())
 }
+
+// SensorID returns the stable uint16 identifier for a sensor's
+// configured name. Used as the key type in Record.SensorReadings
+// (map[uint16]int16) so downstream consumers — Layer-A conf_A
+// coverage, Layer-C marginal-benefit ΔT — can re-derive per-sensor
+// values across daemon restarts. Same FNV-1a derivation as ChannelID;
+// uniqueness expectations (worst-case ~10 sensors per host) match.
+func SensorID(name string) uint16 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return uint16(h.Sum32())
+}
