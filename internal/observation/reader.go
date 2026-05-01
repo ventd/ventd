@@ -11,11 +11,11 @@ var errStop = errors.New("observation: stop iteration")
 
 // Reader streams records from the observation log.
 type Reader struct {
-	log logStore
+	log LogStore
 }
 
 // NewReader creates a Reader backed by the given log store.
-func NewReader(log logStore) *Reader {
+func NewReader(log LogStore) *Reader {
 	return &Reader{log: log}
 }
 
@@ -23,9 +23,15 @@ func NewReader(log logStore) *Reader {
 // within retention, beginning at records in files whose mtime is >= since
 // (zero means all files). For each decoded Record, fn is called; returning
 // false stops iteration cleanly. Headers are consumed transparently.
-// A Header with schema_version != 1 returns a diagnostic error
-// (RULE-OBS-SCHEMA-03). Torn or CRC-mismatched records are skipped silently
-// (RULE-OBS-CRASH-01).
+//
+// Reader accepts any schema version in [schemaV1Min, schemaVersion] inclusive.
+// The v0.5.5 bump from 1 → 2 was purely additive (one new event-flag bit);
+// v1 records remain forward-compatible because v1 writers never set bit 13
+// and v2 readers ignore bits beyond the documented set per RULE-OBS-SCHEMA-05.
+//
+// A Header with schema_version outside that range returns a diagnostic error
+// (RULE-OBS-SCHEMA-03, RULE-OPP-OBS-01). Torn or CRC-mismatched records are
+// skipped silently (RULE-OBS-CRASH-01).
 func (rd *Reader) Stream(since time.Time, fn func(*Record) bool) error {
 	err := rd.log.Iterate(obsLogName, since, func(payload []byte) error {
 		hdr, rec, unmarshalErr := UnmarshalPayload(payload)
@@ -33,9 +39,9 @@ func (rd *Reader) Stream(since time.Time, fn func(*Record) bool) error {
 			return nil // skip corrupted payloads (RULE-OBS-CRASH-01)
 		}
 		if hdr != nil {
-			if hdr.SchemaVersion != schemaVersion {
-				return fmt.Errorf("observation: schema version %d not supported (reader supports %d)",
-					hdr.SchemaVersion, schemaVersion)
+			if hdr.SchemaVersion < schemaV1Min || hdr.SchemaVersion > schemaVersion {
+				return fmt.Errorf("observation: schema version %d not supported (reader supports %d..%d)",
+					hdr.SchemaVersion, schemaV1Min, schemaVersion)
 			}
 			return nil
 		}

@@ -51,14 +51,22 @@ func validateFieldExclusion(v any) error {
 	return nil
 }
 
-// logStore covers the spec-16 LogDB methods used by Writer and Reader.
+// LogStore covers the spec-16 LogDB methods used by Writer and Reader.
 // Satisfied by *state.LogDB.
-type logStore interface {
+//
+// Exported in v0.5.5 so consumers (notably internal/probe/opportunistic)
+// can supply their own log store in tests via observation.NewReader.
+// Production callers continue to pass *state.LogDB unchanged.
+type LogStore interface {
 	Append(name string, payload []byte) error
 	Rotate(name string) error
 	SetRotationPolicy(name string, policy state.RotationPolicy) error
 	Iterate(name string, since time.Time, fn func(payload []byte) error) error
 }
+
+// logStore is the legacy unexported alias kept for in-package fields
+// that originally took the unexported type. New code uses LogStore.
+type logStore = LogStore
 
 // kvStore is the KV side of spec-16 KVDB. Satisfied by *state.KVDB.
 type kvStore interface {
