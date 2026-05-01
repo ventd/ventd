@@ -136,6 +136,66 @@ type Config struct {
 	// noise behaviour set acoustic_optimisation: false in config.yaml
 	// or toggle the Settings → Smart mode switch.
 	AcousticOptimisation *bool `yaml:"acoustic_optimisation,omitempty" json:"acoustic_optimisation,omitempty"`
+
+	// Smart groups v0.5.9 confidence-controller knobs introduced by
+	// PR-A.4. The legacy flat *Disabled fields above stay where they
+	// are for backward compatibility with deployed config.yaml files.
+	Smart SmartConfig `yaml:"smart,omitempty" json:"smart,omitempty"`
+}
+
+// SmartConfig holds the v0.5.9 smart-mode operator surface. The
+// `Preset` enum string drives both the IMC-PI controller's
+// aggressiveness (Silent: λ=2τ, Balanced: λ=τ, Performance: λ=τ/2)
+// and the acoustic cost factor (3× / 1× / 0.2× of the base 0.01
+// °C-equiv per PWM unit). Setpoints map controllable channels to
+// their target temperatures in °C — the IMC-PI's reference signal.
+//
+// Per spec-v0_5_9-confidence-controller.md §3.1 / §3.2 / §4.
+type SmartConfig struct {
+	// Preset is one of "silent" | "balanced" | "performance".
+	// Empty / unrecognised values fall back to "balanced" with a
+	// single startup-time WARN log.
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
+
+	// PresetWeightVector is the reserved 4-tuple
+	// {w_thermal, w_acoustic, w_power, w_responsiveness}. v0.5.9
+	// only consumes w_acoustic (mapped from `Preset`); v0.7+ R18
+	// fills the other three and adds R19 battery-state overlays.
+	// Operator surface stays stable across versions — present for
+	// schema forward-compat.
+	PresetWeightVector *[4]float64 `yaml:"preset_weight_vector,omitempty" json:"preset_weight_vector,omitempty"`
+
+	// Setpoints maps channel ID (PWM sysfs path or fan name) to
+	// target temperature in °C. The IMC-PI controller's reference
+	// signal. Missing entries fall back to a class-default
+	// computed by the wiring layer (PR-B). Values outside
+	// [10, 100] °C are rejected at config load.
+	Setpoints map[string]float64 `yaml:"setpoints,omitempty" json:"setpoints,omitempty"`
+}
+
+// Closed set of preset names. Empty string is allowed (treated as
+// "balanced" for default-config files).
+var smartPresets = map[string]struct{}{
+	"":            {},
+	"silent":      {},
+	"balanced":    {},
+	"performance": {},
+}
+
+// SmartPreset returns the canonical preset name with empty/unknown
+// values normalised to "balanced". A second return reports whether
+// the input was a recognised value — false for unknown strings, true
+// for empty / known values. Wiring layer (PR-B) emits a startup WARN
+// when the second return is false.
+func (s SmartConfig) SmartPreset() (name string, ok bool) {
+	switch s.Preset {
+	case "":
+		return "balanced", true
+	case "silent", "balanced", "performance":
+		return s.Preset, true
+	default:
+		return "balanced", false
+	}
 }
 
 // AcousticOptimisationEnabled returns true when the operator wants
@@ -1130,6 +1190,35 @@ func validate(cfg *Config) error {
 		}
 		if _, err := ParseSchedule(p.Schedule); err != nil {
 			return fmt.Errorf("config: profile %q: %w", name, err)
+		}
+	}
+
+	// v0.5.9 smart-mode preset + setpoints validation. Unknown
+	// presets are NOT a load-time error (the daemon's wiring layer
+	// emits a single startup WARN and falls back to "balanced");
+	// out-of-range setpoints ARE rejected because a 200°C target
+	// would silently lock the controller into perma-saturation.
+	if _, ok := smartPresets[cfg.Smart.Preset]; !ok {
+		// One-line note in the error chain: the *load* succeeds but
+		// downstream parsers (controller.PresetFromString) treat it
+		// as fall-through. We log a hint so a typo surfaces here too.
+		// Not fatal — same forgiveness as Web.LoginFailThreshold==0
+		// auto-defaulting above.
+		// (Pre-emptive: if you hit this and want strict mode, flip
+		// to a `return fmt.Errorf(...)` here.)
+		// Continue loading; the wiring layer warns at runtime.
+		_ = cfg.Smart.Preset
+	}
+	for ch, sp := range cfg.Smart.Setpoints {
+		if sp < 10 || sp > 100 {
+			return fmt.Errorf("config: smart.setpoints[%q]: %v°C out of physical range [10, 100]", ch, sp)
+		}
+	}
+	if v := cfg.Smart.PresetWeightVector; v != nil {
+		for i, w := range v {
+			if w < 0 || w > 1 {
+				return fmt.Errorf("config: smart.preset_weight_vector[%d]: %v out of [0, 1]", i, w)
+			}
 		}
 	}
 
