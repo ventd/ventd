@@ -3,6 +3,7 @@ module github.com/ventd/ventd
 go 1.25.9
 
 require (
+	github.com/dchest/siphash v1.2.3
 	github.com/ebitengine/purego v0.10.0
 	github.com/go-rod/rod v0.116.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -12,7 +13,6 @@ require (
 )
 
 require (
-	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect
