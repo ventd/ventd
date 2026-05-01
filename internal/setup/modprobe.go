@@ -23,10 +23,10 @@ import (
 // allowlist is the choke-point that keeps the endpoint from turning into a
 // generic "run arbitrary modprobe" RPC.
 //
-// Does NOT call back into the setup Manager's run() state machine — per the
-// "client re-request" design the wizard state is left untouched. The UI's
-// existing /api/hwdiag poller observes the cleared entries; the user re-runs
-// setup explicitly to regenerate config with any newly-visible sensors.
+// After a successful load, calls the post-install hook (afterDriverInstall)
+// so the daemon-level probe is re-run and wizard.initial_outcome is updated
+// (#766). Without this, a freshly-loaded module's new PWM channels are
+// invisible to any KV consumer until the next daemon restart.
 func (m *Manager) LoadModule(ctx context.Context, name string) ([]string, error) {
 	if err := validateModuleName(name); err != nil {
 		return nil, err
@@ -54,6 +54,7 @@ func (m *Manager) LoadModule(ctx context.Context, name string) ([]string, error)
 	log = append(log, "Wrote "+confPath+" so the module loads automatically on boot.")
 
 	m.clearModuleDiagEntries(name)
+	m.afterDriverInstall(ctx, "LoadModule:"+name)
 	return log, nil
 }
 

@@ -177,6 +177,12 @@ Regenerate with: `go run ./tools/rule-index`
 |------|---------------|---------|
 | schema-08.md | TestSchemaValidator_RejectsBothFingerprintTypes | Board catalog loader rejects a profile with both `dmi_fingerprint` and `dt_fingerprint` set. |
 
+## RULE-SETUP
+
+| File | Bound subtest | Summary |
+|------|---------------|---------|
+| RULE-SETUP-REPROBE-01.md | TestReProber_FiresAfterLoadModule | Setup Manager re-runs the daemon-level probe after a successful driver install or kernel-module load. |
+
 ## RULE-STATE
 
 | File | Bound subtest | Summary |
