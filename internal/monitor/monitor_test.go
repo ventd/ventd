@@ -363,6 +363,58 @@ func TestScanHwmon_FanRPMZeroSkipped(t *testing.T) {
 	}
 }
 
+// TestScanHwmon_MirrorFansDeduped — #796: many embedded EC firmwares
+// expose the same physical fan's RPM across multiple `fan*_input`
+// zones (CPU / system / chassis virtual zones, all reading the
+// identical RPM because there's only one tach behind them). Phoenix's
+// minipc HIL surfaced four fan tach zones for one physical fan.
+// scanHwmon now collapses fans within ±10 RPM on the same hwmon
+// device. Distinct fans (>10 RPM apart) are preserved.
+func TestScanHwmon_MirrorFansDeduped(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d := mkHwmonDir(t, root, "hwmon0", "fake_ec")
+	// 4 mirror tachs all reading 1500 RPM (within tolerance of each other).
+	writeFile(t, filepath.Join(d, "fan1_input"), "1500\n")
+	writeFile(t, filepath.Join(d, "fan2_input"), "1502\n")
+	writeFile(t, filepath.Join(d, "fan3_input"), "1497\n")
+	writeFile(t, filepath.Join(d, "fan4_input"), "1505\n")
+	// One distinct fan at a different speed — must NOT collapse.
+	writeFile(t, filepath.Join(d, "fan5_input"), "800\n")
+
+	devs := scanHwmon()
+	if len(devs) != 1 {
+		t.Fatalf("Scan: got %d devices, want 1", len(devs))
+	}
+	if got := len(devs[0].Readings); got != 2 {
+		t.Fatalf("hwmon0: %d fan readings after dedup, want 2 (one mirror cluster + one distinct): %+v",
+			got, devs[0].Readings)
+	}
+	// First reading wins from the cluster (fan1 = 1500); fan5 distinct.
+	rpms := []float64{devs[0].Readings[0].Value, devs[0].Readings[1].Value}
+	if !((rpms[0] == 1500 && rpms[1] == 800) || (rpms[0] == 800 && rpms[1] == 1500)) {
+		t.Errorf("hwmon0 surviving fan rpms = %v, want {1500, 800}", rpms)
+	}
+}
+
+// TestScanHwmon_DistinctFansNotMerged — guards against over-eager
+// dedup. Two fans that differ by more than mirrorRPMTolerance must
+// both appear.
+func TestScanHwmon_DistinctFansNotMerged(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d := mkHwmonDir(t, root, "hwmon0", "nct6798")
+	writeFile(t, filepath.Join(d, "fan1_input"), "1500\n")
+	writeFile(t, filepath.Join(d, "fan2_input"), "1700\n") // 200 RPM apart, distinct
+
+	devs := scanHwmon()
+	if got := len(devs[0].Readings); got != 2 {
+		t.Errorf("distinct fans collapsed: got %d, want 2: %+v", got, devs[0].Readings)
+	}
+}
+
 // TestScanHwmon_VoltageAndPower — case H. Voltage divisor is 1000
 // (mV → V); power divisor is 1_000_000 (µW → W).
 func TestScanHwmon_VoltageAndPower(t *testing.T) {

@@ -55,7 +55,16 @@ func scanHwmon() []Device {
 		}
 		dev := Device{Name: friendlyDeviceName(chip), Path: e.Name()}
 		dev.Readings = append(dev.Readings, scanInputs(dir, "temp", "°C", 1000)...)
-		dev.Readings = append(dev.Readings, scanInputs(dir, "fan", "RPM", 1)...)
+		// Fan readings get an extra dedup pass for mirror-tach EC zones
+		// (#796). Many embedded EC firmwares expose the same physical
+		// fan's RPM across multiple `fan*_input` zones — labelled as
+		// CPU / system / chassis virtual zones — that all read the
+		// same value because there's only one physical tach behind
+		// them. Showing four "Fan 1, Fan 2, Fan 3, Fan 4" rows that
+		// all report 1500 RPM clutters the dashboard. Collapse fans
+		// whose RPM is within mirrorRPMTolerance of an already-seen
+		// reading on the same device.
+		dev.Readings = append(dev.Readings, dedupMirrorFans(scanInputs(dir, "fan", "RPM", 1))...)
 		dev.Readings = append(dev.Readings, scanInputs(dir, "in", "V", 1000)...)
 		dev.Readings = append(dev.Readings, scanInputs(dir, "power", "W", 1000000)...)
 		if len(dev.Readings) > 0 {
@@ -63,6 +72,58 @@ func scanHwmon() []Device {
 		}
 	}
 	return devices
+}
+
+// mirrorRPMTolerance is the RPM-equality threshold for grouping
+// fan*_input readings that look like mirrors of the same physical fan.
+// At idle, real fans drift ±20-50 RPM; ±10 is conservative enough that
+// two genuinely separate fans aren't accidentally merged. At load
+// (>1000 RPM) the absolute tolerance is dwarfed by per-fan variance,
+// so distinct fans don't merge.
+const mirrorRPMTolerance = 10
+
+// dedupMirrorFans collapses fan readings whose RPM is within
+// `mirrorRPMTolerance` of another reading already in the result. The
+// surviving entry's label is preferred when it's CPU/chassis/system
+// (more informative than "fan2"). A single-pass O(n²) compare is fine —
+// most hwmon devices report ≤ 8 fan tach inputs.
+func dedupMirrorFans(in []Reading) []Reading {
+	out := make([]Reading, 0, len(in))
+nextFan:
+	for _, r := range in {
+		rpm := int(r.Value)
+		for i, kept := range out {
+			diff := int(kept.Value) - rpm
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff <= mirrorRPMTolerance {
+				// Prefer a more-informative label when colliding
+				// (kept "fan2" being replaced by incoming "CPU Fan").
+				if labelMoreInformative(r.Label, kept.Label) {
+					out[i].Label = r.Label
+				}
+				continue nextFan
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// labelMoreInformative returns true when a is a better label than b.
+// Heuristic: any label containing "fan" + a digit is generic
+// ("fan1", "fan2"); labels naming a function ("CPU Fan", "Chassis Fan",
+// "System Fan", "Pump") are informative.
+func labelMoreInformative(a, b string) bool {
+	aLow := strings.ToLower(a)
+	bLow := strings.ToLower(b)
+	aGeneric := strings.HasPrefix(aLow, "fan") && len(aLow) <= 5
+	bGeneric := strings.HasPrefix(bLow, "fan") && len(bLow) <= 5
+	if !aGeneric && bGeneric {
+		return true
+	}
+	return false
 }
 
 func scanInputs(dir, prefix, unit string, divisor float64) []Reading {
