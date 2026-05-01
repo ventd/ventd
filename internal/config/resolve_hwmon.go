@@ -330,6 +330,7 @@ func lookupChip(kind, entryName, chip, device string, chipToHwmon map[string][]s
 	}
 
 	var hits []string
+	allUnreadable := true
 	for _, m := range matches {
 		got, err := hwmonDevicePathOf(m)
 		if err != nil {
@@ -337,12 +338,24 @@ func lookupChip(kind, entryName, chip, device string, chipToHwmon map[string][]s
 			// candidate may still match.
 			continue
 		}
+		allUnreadable = false
 		if got == wantDevice {
 			hits = append(hits, m)
 		}
 	}
 	switch len(hits) {
 	case 0:
+		// Single-candidate + virtual-subsystem fallback: chips backed by
+		// virtual sysfs subsystems (acpitz under /sys/devices/virtual/thermal,
+		// some drivetemp configurations) lack a `device` symlink in the
+		// hwmonN dir entirely. With exactly one candidate AND every
+		// candidate's device-symlink unreadable, `chip_name` has uniquely
+		// identified the device — accept it. Operator-typo cases (device
+		// symlink resolves but to a different path) still error: those
+		// are real configuration bugs, not wizard quirks.
+		if len(matches) == 1 && allUnreadable {
+			return matches[0], nil
+		}
 		return "", fmt.Errorf("%s %q: hwmon_device %q does not match any of chip_name %q candidates (%s)",
 			kind, entryName, device, chip, strings.Join(matches, ", "))
 	case 1:

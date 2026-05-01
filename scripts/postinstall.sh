@@ -83,14 +83,43 @@ load_apparmor_profile() {
     fi
 }
 
-# AppArmor profile is shipped to /etc/apparmor.d/ for operators who want
-# to opt-in via `systemctl edit ventd` adding `AppArmorProfile=ventd`.
-# v0.5.8.1 ships the daemon as User=root (#787 explains why) and the
-# upstream unit does NOT attach the profile. Auto-loading it here would
-# enforce a profile that isn't attached to anything — wasted policy.
-# Deferred until the v0.6.0 split-daemon refactor restores the
-# unprivileged steady-state model.
-log_security_outcome apparmor shipped-not-loaded "profiles=/etc/apparmor.d/ventd,/etc/apparmor.d/ventd-ipmi reason=daemon-runs-as-root pkg=dpkg/rpm"
+# AppArmor handling for v0.5.8.1 (#787):
+#   - Profile files SHIP to /etc/apparmor.d/ for operator opt-in via
+#     `systemctl edit ventd` adding `AppArmorProfile=ventd`.
+#   - Upgrade path: a prior ventd install (≤ v0.5.8.0) shipped a profile
+#     that auto-attached to /usr/local/bin/ventd by file-path mediation.
+#     v0.5.8.1's profile drops that path constraint, but the kernel still
+#     has the old (path-bound) profile loaded — kmod / sudo / dkms execs
+#     would still hit DENIED. Reload the new (unbound) profile in place
+#     so the kernel forgets the old declaration.
+#   - The reload is a no-op when AppArmor isn't on the host or the parser
+#     binary is missing.
+reload_or_skip_apparmor() {
+    profile="$1"
+    profile_path="/etc/apparmor.d/${profile}"
+    if [ ! -f "$profile_path" ]; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=not-shipped pkg=dpkg/rpm"
+        return 0
+    fi
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=parser-not-installed pkg=dpkg/rpm"
+        return 0
+    fi
+    if command -v aa-status >/dev/null 2>&1 && ! aa-status --enabled 2>/dev/null; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=apparmor-disabled pkg=dpkg/rpm"
+        return 0
+    fi
+    parser_rc=0
+    apparmor_parser -r "$profile_path" 2>/dev/null || parser_rc=$?
+    if [ "$parser_rc" -eq 0 ]; then
+        log_security_outcome apparmor reloaded-unbound "profile=${profile_path} mode=opt-in pkg=dpkg/rpm note=daemon-runs-without-AppArmorProfile"
+    else
+        log_security_outcome apparmor reload-refused "profile=${profile_path} parser_exit=${parser_rc} pkg=dpkg/rpm"
+    fi
+}
+
+reload_or_skip_apparmor ventd
+reload_or_skip_apparmor ventd-ipmi
 
 # Sweep stale ventd*.service files left under /etc/systemd/system/ by
 # previous installs of ventd. systemd reads /etc before /lib, so a

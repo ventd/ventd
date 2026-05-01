@@ -90,11 +90,16 @@ SyslogIdentifier=ventd
 # triggered only during the first-boot wizard. v0.6.0.
 User=root
 Group=root
-# Force explicit profile attachment by name. Without this, docker-default
-# can win the attachment race on hosts that have Docker installed, because
-# docker-default attaches to /usr/local/bin/* binaries. AppArmorProfile=
-# overrides the kernel's file-based matching and pins the ventd profile.
-AppArmorProfile=ventd
+# AppArmorProfile= INTENTIONALLY NOT SET in v0.5.8.1 (#787). The profile
+# is shipped to /etc/apparmor.d/ for operator opt-in via
+# `systemctl edit ventd` adding the AppArmorProfile=ventd directive.
+# Auto-attach was the load-bearing failure mode in HIL: even with the
+# unbound profile declaration, the AppArmorProfile= directive forces
+# attachment, which then DENIED legitimate /usr/bin/kmod, sudo, dkms,
+# modprobe execs during the wizard's driver-install path. The split
+# daemon in v0.6.0 (#787) re-attaches the profile on the steady-state
+# unit but routes the install path through ventd-setup.service which
+# stays unconfined.
 
 # --- Sandbox: filesystem --------------------------------------------------
 ProtectSystem=strict
@@ -134,7 +139,7 @@ StateDirectoryMode=0750
 # applies these as a namespace mount; sudo'd children inherit the namespace,
 # so even root-elevated processes can't write to /lib/modules unless the
 # path is explicitly ReadWrite here. See #784.
-ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src
+ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src -/var/lib/shim-signed
 
 # --- Sandbox: network -----------------------------------------------------
 # AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,

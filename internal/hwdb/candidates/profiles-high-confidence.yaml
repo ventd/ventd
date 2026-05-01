@@ -1,0 +1,176 @@
+- id: asus-rog-strix-z690-a-gaming-wifi-d4
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG STRIX Z690-A GAMING WIFI D4
+    superio_chip: nct6798
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,        header_label: CPU_FAN,    max_pwm: 255 }
+      - { id: cpu_opt,        header_label: CPU_OPT,    max_pwm: 255 }
+      - { id: aio_pump,       header_label: AIO_PUMP,   max_pwm: 255 }
+      - { id: m2_fan,         header_label: M.2_FAN,    max_pwm: 255 }
+      - { id: chassis_fan_1,  header_label: CHA_FAN1,   max_pwm: 255 }
+      - { id: chassis_fan_2,  header_label: CHA_FAN2,   max_pwm: 255 }
+      - { id: chassis_fan_3,  header_label: CHA_FAN3,   max_pwm: 255 }
+      - { id: chassis_fan_4,  header_label: CHA_FAN4,   max_pwm: 255 }
+      - { id: chassis_fan_5,  header_label: CHA_FAN5,   max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-rog-maximus-z690-formula
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG MAXIMUS Z690 FORMULA
+    superio_chip: nct6798
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,    max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,    max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP,   max_pwm: 255 }
+      - { id: h_amp_fan,     header_label: H_AMP_FAN,  max_pwm: 255 }
+      - { id: rad_fan_1,     header_label: RAD_FAN1,   max_pwm: 255 }
+      - { id: rad_fan_2,     header_label: RAD_FAN2,   max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1,   max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2,   max_pwm: 255 }
+      - { id: w_pump_plus,   header_label: W_PUMP+,    max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asrock-z690-extreme
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASRock
+    dmi_board_name: Z690 Extreme
+    superio_chip: nct6796
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan_1,     header_label: CPU_FAN1,      max_pwm: 255 }
+      - { id: cpu_fan_2_wp,  header_label: CPU_FAN2/WP,   max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1/WP,   max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2/WP,   max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3/WP,   max_pwm: 255 }
+      - { id: chassis_fan_4, header_label: CHA_FAN4/WP,   max_pwm: 255 }
+      - { id: chassis_fan_5, header_label: CHA_FAN5/WP,   max_pwm: 255 }
+      - { id: chassis_fan_6, header_label: CHA_FAN6/WP,   max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-rog-crosshair-x670e-hero
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG CROSSHAIR X670E HERO
+    superio_chip: nct6799
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,    max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,    max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP,   max_pwm: 255 }
+      - { id: rad_fan_1,     header_label: RAD_FAN1,   max_pwm: 255 }
+      - { id: rad_fan_2,     header_label: RAD_FAN2,   max_pwm: 255 }
+      - { id: rad_fan_3,     header_label: RAD_FAN3,   max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1,   max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2,   max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3,   max_pwm: 255 }
+      - { id: w_pump_plus,   header_label: W_PUMP+,    max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-proart-x670e-creator-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ProArt X670E-CREATOR WIFI
+    superio_chip: nct6799
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3, max_pwm: 255 }
+      - { id: m2_fan,        header_label: M.2_FAN,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: supermicro-x11sch-f
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Supermicro
+    dmi_board_name: X11SCH-F
+    superio_chip: nct6779
+  hardware:
+    pwm_control: ipmi-supermicro
+    fans:
+      - { id: fan_1, header_label: FAN1, max_pwm: 255 }
+      - { id: fan_2, header_label: FAN2, max_pwm: 255 }
+      - { id: fan_3, header_label: FAN3, max_pwm: 255 }
+      - { id: fan_4, header_label: FAN4, max_pwm: 255 }
+      - { id: fan_a, header_label: FANA, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: supermicro-x11ssl-f
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Supermicro
+    dmi_board_name: X11SSL-F
+    superio_chip: nct6776
+  hardware:
+    pwm_control: ipmi-supermicro
+    fans:
+      - { id: fan_1, header_label: FAN1, max_pwm: 255 }
+      - { id: fan_2, header_label: FAN2, max_pwm: 255 }
+      - { id: fan_3, header_label: FAN3, max_pwm: 255 }
+      - { id: fan_4, header_label: FAN4, max_pwm: 255 }
+      - { id: fan_a, header_label: FANA, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asustor-as6604t-lockerstor-4
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTOR
+    dmi_board_name: AS6604T
+    superio_chip: it8625
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: chassis_fan, header_label: SYS_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asustor-as5304t-nimbustor-4
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTOR
+    dmi_board_name: AS5304T
+    superio_chip: it8625
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: chassis_fan, header_label: SYS_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: terramaster-f4-220
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: TERRAMASTER
+    dmi_board_name: F4-220
+    superio_chip: it8772
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: chassis_fan, header_label: SYS_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false

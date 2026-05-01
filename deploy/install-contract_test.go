@@ -154,8 +154,15 @@ func TestInstallContract_PostinstallShipsAppArmor(t *testing.T) {
 		t.Fatalf("read postinstall.sh: %v", err)
 	}
 	body := string(postinst)
-	if !strings.Contains(body, "shipped-not-loaded") {
-		t.Error("postinstall.sh missing the v0.5.8.1 shipped-not-loaded acknowledgement (#787)")
+	// v0.5.8.1 ships the profile and reloads it (`apparmor_parser -r`)
+	// so any prior path-bound version installed by ≤ v0.5.8.0 is
+	// replaced by the unbound declaration. The unit does NOT carry
+	// AppArmorProfile=ventd; the loaded-but-unbound profile only
+	// attaches when an operator opts in via `systemctl edit ventd`.
+	// Either acknowledgement string counts.
+	if !strings.Contains(body, "reloaded-unbound") &&
+		!strings.Contains(body, "shipped-not-loaded") {
+		t.Error("postinstall.sh missing the v0.5.8.1 apparmor acknowledgement (#787): expected `reloaded-unbound` or `shipped-not-loaded` log token")
 	}
 	entries, err := os.ReadDir("apparmor.d")
 	if err != nil {

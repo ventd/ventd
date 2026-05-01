@@ -8,7 +8,19 @@ abi <abi/4.0>,
 #include <tunables/global>
 
 # attach_disconnected required for hwmon paths under namespaced runtimes (TrueNAS Scale, Unraid).
-profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
+# Profile declaration without a file-path constraint. v0.5.8.1 (#787)
+# ships ventd as User=root with no AppArmorProfile= attachment in the
+# unit; the profile is shipped for operator opt-in via
+# `systemctl edit ventd` adding `AppArmorProfile=ventd`. Including a
+# file-path here (the previous `profile ventd /usr/local/bin/ventd`
+# form) causes kernel-level mediation to auto-attach the profile any
+# time the binary is exec'd — even from systemd unit files that don't
+# reference it — which produced spurious DENIED audit lines and
+# blocked legitimate /usr/bin/kmod, /usr/bin/sudo, /usr/bin/dkms exec
+# calls during HIL. The unbound declaration restores opt-in semantics.
+# v0.6.0 split-daemon will re-add the path constraint on the
+# hardened steady-state unit.
+profile ventd flags=(attach_disconnected) {
   #include <abstractions/base>
   # nameservice: nsswitch.conf + passwd/group reads needed by `id`,
   # by libc user lookups, and by the bash interpreter that runs

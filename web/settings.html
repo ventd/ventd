@@ -144,6 +144,16 @@
               <span class="set-toggle-slider"></span>
             </label>
           </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Acoustic optimisation</div>
+              <div class="set-row-sub">When on (default), ventd refuses to ramp PWM further when the predicted temperature drop is less than 2 °C — the fans hold the quietest speed that still cools effectively. Toggle off if you want maximum-cooling-regardless-of-noise behaviour: ventd will follow the curve straight without the saturation gate.</div>
+            </div>
+            <label class="set-toggle">
+              <input type="checkbox" id="set-acoustic" checked>
+              <span class="set-toggle-slider"></span>
+            </label>
+          </div>
         </article>
 
         <article class="set-section card" id="security">

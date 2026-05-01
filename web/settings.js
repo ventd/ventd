@@ -119,6 +119,17 @@
         if (sigCheckbox) {
           sigCheckbox.checked = !!c.signature_learning_disabled;
         }
+        // #789: acoustic optimisation toggle. Default-on (true).
+        // Pointer-bool field on the daemon side: missing/null in JSON
+        // means "default true". The checkbox reads as "ON = enabled
+        // = quietest-that-still-cools".
+        var acousticCheckbox = $('set-acoustic');
+        if (acousticCheckbox) {
+          acousticCheckbox.checked =
+            (c.acoustic_optimisation === undefined ||
+             c.acoustic_optimisation === null ||
+             c.acoustic_optimisation === true);
+        }
       })
       .catch(function () {
         // Demo fallback when API is unreachable so the screen never looks
@@ -175,6 +186,17 @@
       var desired = sigCheckbox.checked;
       putSmartModeToggle('signature_learning_disabled', desired).then(function (ok) {
         if (!ok) sigCheckbox.checked = !desired;
+      });
+    });
+  }
+  // #789: acoustic optimisation toggle. Default-on; checkbox semantics
+  // are direct ("ON = enabled" — no inversion).
+  var acousticCheckbox = $('set-acoustic');
+  if (acousticCheckbox) {
+    acousticCheckbox.addEventListener('change', function () {
+      var desired = acousticCheckbox.checked;
+      putSmartModeToggle('acoustic_optimisation', desired).then(function (ok) {
+        if (!ok) acousticCheckbox.checked = !desired;
       });
     });
   }
