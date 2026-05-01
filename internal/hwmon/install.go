@@ -81,7 +81,7 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 
 	// ── Step 4: install ─────────────────────────────────────────────────────
 	log("Installing driver...")
-	if err := runLogDir(repoDir, log, "make", "install"); err != nil {
+	if err := runLogDirRoot(repoDir, log, "make", "install"); err != nil {
 		return fmt.Errorf("make install: %w", err)
 	}
 
@@ -90,13 +90,20 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 
 	// ── Step 6: update module index ─────────────────────────────────────────
 	log("Updating module index...")
-	_ = exec.Command("depmod", "-a").Run()
+	{
+		n, a := rootArgv("depmod", []string{"-a"})
+		_ = exec.Command(n, a...).Run()
+	}
 
 	// ── Step 7: load the module ─────────────────────────────────────────────
 	log("Loading driver...")
 	// Unload any previous failed attempt first.
-	_ = exec.Command("modprobe", "-r", nd.Module).Run()
-	if out, err := exec.Command("modprobe", nd.Module).CombinedOutput(); err != nil {
+	{
+		n, a := rootArgv("modprobe", []string{"-r", nd.Module})
+		_ = exec.Command(n, a...).Run()
+	}
+	mpName, mpArgs := rootArgv("modprobe", []string{nd.Module})
+	if out, err := exec.Command(mpName, mpArgs...).CombinedOutput(); err != nil {
 		outStr := strings.TrimSpace(string(out))
 		if strings.Contains(outStr, "resource busy") {
 			// ACPI has claimed the fan controller's I/O ports.
@@ -168,6 +175,24 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 				pkgVersion = strings.Trim(v, `"`)
 			}
 		}
+		// Some upstream OOT-driver dkms.conf files (e.g. it87) ship with
+		// PACKAGE_VERSION="#MODULE_VERSION#" as a sed-substitution
+		// template that the upstream Makefile fills in. ventd's install
+		// path doesn't run that step, so the literal placeholder leaks
+		// into `dkms add` and ends up in the source path. Detect any
+		// `#TOKEN#`-shaped value and fall back to a synthesised version
+		// so DKMS register actually succeeds (#785).
+		if strings.HasPrefix(pkgVersion, "#") && strings.HasSuffix(pkgVersion, "#") {
+			synthesised := time.Now().UTC().Format("2006.01.02")
+			logger.Info("DKMS: replacing unsubstituted version placeholder",
+				"raw", pkgVersion, "substituted", synthesised)
+			pkgVersion = synthesised
+			// Rewrite dkms.conf so `dkms add` reads the substituted
+			// value when it walks the source dir.
+			if err := rewriteDKMSVersion(confPath, pkgVersion); err != nil {
+				logger.Warn("DKMS: could not rewrite version placeholder in dkms.conf", "err", err)
+			}
+		}
 	} else {
 		// Write a minimal dkms.conf so dkms add can proceed.
 		conf := fmt.Sprintf(
@@ -185,17 +210,42 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 	nameVer := pkgName + "/" + pkgVersion
 	log("Registering with DKMS (" + nameVer + ") for automatic rebuild on kernel updates...")
 
-	if err := runLogDir(repoDir, log, "dkms", "add", repoDir); err != nil {
+	if err := runLogDirRoot(repoDir, log, "dkms", "add", repoDir); err != nil {
 		logger.Warn("DKMS add failed — module will not auto-rebuild on kernel update", "err", err)
 		return
 	}
-	if err := runLogDir("", log, "dkms", "build", nameVer); err != nil {
+	if err := runLogDirRoot("", log, "dkms", "build", nameVer); err != nil {
 		logger.Warn("DKMS build failed", "err", err)
 		return
 	}
-	if err := runLogDir("", log, "dkms", "install", nameVer); err != nil {
+	if err := runLogDirRoot("", log, "dkms", "install", nameVer); err != nil {
 		logger.Warn("DKMS install failed", "err", err)
 	}
+}
+
+// rewriteDKMSVersion edits dkms.conf in place, replacing any
+// `PACKAGE_VERSION="..."` line with the supplied version string. Used
+// when the upstream OOT-driver ships an unsubstituted `#MODULE_VERSION#`
+// placeholder that ventd has to fill in itself (#785).
+func rewriteDKMSVersion(confPath, version string) error {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", confPath, err)
+	}
+	out := make([]string, 0)
+	replaced := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "PACKAGE_VERSION=") {
+			out = append(out, fmt.Sprintf("PACKAGE_VERSION=%q", version))
+			replaced = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !replaced {
+		out = append(out, fmt.Sprintf("PACKAGE_VERSION=%q", version))
+	}
+	return os.WriteFile(confPath, []byte(strings.Join(out, "\n")), 0o644)
 }
 
 // ensureBuildTools installs make, gcc, and kernel headers if any are missing.
@@ -240,7 +290,7 @@ func ensureBuildTools(log func(string)) error {
 				continue
 			}
 			args := m.pkgArgs(needed)
-			if out, err := exec.Command(m.mgr, args...).CombinedOutput(); err != nil {
+			if out, err := runInstallWithTimeout(m.mgr, args); err != nil {
 				return fmt.Errorf("%s install failed: %w\n%s", m.mgr, err, strings.TrimSpace(string(out)))
 			}
 			installed = true
@@ -524,7 +574,7 @@ func addGRUBParam(param string, log func(string)) error {
 			continue
 		}
 		log("Updating bootloader (" + c.bin + ")...")
-		if err := runLog(log, c.bin, c.args...); err != nil {
+		if err := runLogDirRoot("", log, append([]string{c.bin}, c.args...)...); err != nil {
 			return fmt.Errorf("%s: %w", c.bin, err)
 		}
 		return nil
@@ -608,11 +658,6 @@ func addSystemdBootParam(param string, log func(string)) error {
 	return nil
 }
 
-// runLog runs a command and calls logFn for each output line.
-func runLog(logFn func(string), name string, args ...string) error {
-	return runLogDir("", logFn, append([]string{name}, args...)...)
-}
-
 // runLogDir runs a command in dir and calls logFn for each output line.
 // GIT_TERMINAL_PROMPT=0 prevents git from trying to open /dev/tty when
 // running without a controlling terminal (e.g. inside a systemd service).
@@ -632,4 +677,15 @@ func runLogDir(dir string, logFn func(string), nameAndArgs ...string) error {
 		return fmt.Errorf("hwmon: run %s: %w", nameAndArgs[0], err)
 	}
 	return nil
+}
+
+// runLogDirRoot is runLogDir with a `sudo -n` prefix when the daemon is
+// not already running as root (#768). Used for `make install`, `dkms`,
+// and any other step that touches root-owned filesystem state.
+func runLogDirRoot(dir string, logFn func(string), nameAndArgs ...string) error {
+	if len(nameAndArgs) == 0 {
+		return fmt.Errorf("runLogDirRoot: empty argv")
+	}
+	name, args := rootArgv(nameAndArgs[0], nameAndArgs[1:])
+	return runLogDir(dir, logFn, append([]string{name}, args...)...)
 }

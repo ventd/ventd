@@ -83,33 +83,71 @@ load_apparmor_profile() {
     fi
 }
 
-load_apparmor_profile ventd
-load_apparmor_profile ventd-ipmi
+# AppArmor profile is shipped to /etc/apparmor.d/ for operators who want
+# to opt-in via `systemctl edit ventd` adding `AppArmorProfile=ventd`.
+# v0.5.8.1 ships the daemon as User=root (#787 explains why) and the
+# upstream unit does NOT attach the profile. Auto-loading it here would
+# enforce a profile that isn't attached to anything — wasted policy.
+# Deferred until the v0.6.0 split-daemon refactor restores the
+# unprivileged steady-state model.
+log_security_outcome apparmor shipped-not-loaded "profiles=/etc/apparmor.d/ventd,/etc/apparmor.d/ventd-ipmi reason=daemon-runs-as-root pkg=dpkg/rpm"
+
+# Sweep stale ventd*.service files left under /etc/systemd/system/ by
+# previous installs of ventd. systemd reads /etc before /lib, so a
+# stale unit at /etc/systemd/system/ventd.service silently wins over the
+# .deb-shipped /lib/systemd/system/ventd.service and the new postinst's
+# changes (NoNewPrivileges relaxations, AppArmor profile attach, etc.)
+# never take effect. Only remove files that contain the canonical
+# ventd-shipped marker — a user with a hand-crafted /etc override (no
+# marker) is left alone with a WARNING. Drop-ins under
+# /etc/systemd/system/ventd.service.d/ are never touched: those are the
+# documented operator override mechanism.
+sweep_stale_ventd_units() {
+    units="ventd.service ventd-recover.service ventd-postreboot-verify.service ventd-ipmi.service"
+    for unit in $units; do
+        path="/etc/systemd/system/$unit"
+        if [ ! -f "$path" ]; then
+            continue
+        fi
+        # Identify a ventd-shipped unit by its Documentation= line.
+        # Every unit we ship carries `Documentation=https://github.com/ventd/ventd`.
+        if grep -qE '^Documentation=https://github\.com/ventd/ventd' "$path" 2>/dev/null; then
+            rm -f "$path" && \
+                log_security_outcome systemd-unit removed-stale "path=${path} reason=overrides-deb-shipped-unit pkg=dpkg/rpm"
+        else
+            log_security_outcome systemd-unit kept-user-override "path=${path} reason=no-ventd-marker-found pkg=dpkg/rpm hint=remove-by-hand-if-unintentional"
+        fi
+    done
+}
+
+sweep_stale_ventd_units
 
 if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -q '^ventd'; then
     log_security_outcome selinux loaded "module=ventd pkg=dpkg/rpm"
 fi
 
 # nfpms.contents writes config.example.yaml to /etc/ventd/ as root. The
-# daemon will run as ventd:ventd and needs to read its own config dir,
-# so normalise ownership and mode here.
+# daemon runs as root in v0.5.8.1 (#787); the dir mode is 0750 so it's
+# unreadable to other accounts but root has full access. After the v0.6.0
+# split, this chown switches back to ventd:ventd.
 if [ -d /etc/ventd ]; then
-    chown -R ventd:ventd /etc/ventd
+    chown -R root:root /etc/ventd
     chmod 0750 /etc/ventd
 fi
 
 # Relocate ventd-nvml-helper to /usr/local/sbin (FHS convention for
-# SUID privileged helpers; .deb / .rpm bindir is /usr/local/bin) and
-# install with mode 4755 so the unprivileged ventd daemon can invoke
-# it for NVML write operations (#770). Best-effort: when the helper
-# binary isn't present (musl build, GPU-less archive), this is a
-# no-op.
+# privileged helpers; .deb / .rpm bindir is /usr/local/bin). Mode 0755
+# (NOT SUID) — the v0.5.8.1 daemon runs as root so it can call NVML
+# directly without the helper. The binary stays shipped because the
+# v0.6.0 split-daemon model uses it again from the unprivileged main
+# daemon. Best-effort: no-op when the binary isn't present (musl /
+# GPU-less archive).
 if [ -x /usr/local/bin/ventd-nvml-helper ]; then
     mkdir -p /usr/local/sbin
     mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
     chown root:root /usr/local/sbin/ventd-nvml-helper
-    chmod 4755 /usr/local/sbin/ventd-nvml-helper
-    log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=4755"
+    chmod 0755 /usr/local/sbin/ventd-nvml-helper
+    log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=0755"
 fi
 
 # Apply the shipped udev rule (/lib/udev/rules.d/90-ventd-hwmon.rules)

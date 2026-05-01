@@ -51,12 +51,12 @@ func TestMainUnit_NoIpmiDeviceGrant(t *testing.T) {
 		}
 	})
 
-	t.Run("capability_bounding_set_empty", func(t *testing.T) {
-		vals := u["CapabilityBoundingSet"]
-		if len(vals) != 1 || vals[0] != "" {
-			t.Errorf("CapabilityBoundingSet: want exactly empty, got %v", vals)
-		}
-	})
+	// v0.5.8.1 ships User=root (#787); CapabilityBoundingSet is N/A.
+	// AmbientCapabilities= invariant still holds — the daemon must
+	// never *grant* CAP_SYS_RAWIO ambiently to children, even when
+	// running as root, because that's the wedge for IPMI-to-arbitrary-
+	// device escalation. v0.6.0 split-daemon restores the empty
+	// CapabilityBoundingSet on the steady-state unit.
 
 	t.Run("no_ambient_cap_sys_rawio", func(t *testing.T) {
 		for _, v := range u["AmbientCapabilities"] {
