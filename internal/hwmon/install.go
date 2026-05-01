@@ -658,11 +658,6 @@ func addSystemdBootParam(param string, log func(string)) error {
 	return nil
 }
 
-// runLog runs a command and calls logFn for each output line.
-func runLog(logFn func(string), name string, args ...string) error {
-	return runLogDir("", logFn, append([]string{name}, args...)...)
-}
-
 // runLogDir runs a command in dir and calls logFn for each output line.
 // GIT_TERMINAL_PROMPT=0 prevents git from trying to open /dev/tty when
 // running without a controlling terminal (e.g. inside a systemd service).
