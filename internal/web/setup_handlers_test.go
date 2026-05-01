@@ -67,7 +67,7 @@ func newHandlerHarness(t *testing.T) (srv *Server, configPath string, cancel con
 	cal := calibrate.New(calPath, logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv = New(ctx, &cfgPtr, configPath, "", logger, cal, sm, restart, "", hwdiag.NewStore())
+	srv = New(ctx, &cfgPtr, configPath, "", logger, cal, sm, restart, hwdiag.NewStore())
 
 	return srv, configPath, cancel
 }

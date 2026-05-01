@@ -388,7 +388,7 @@ func newHistoryTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
 	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, "", hwdiag.NewStore())
+	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, hwdiag.NewStore())
 
 	ts := httptest.NewServer(srv.handler)
 	t.Cleanup(ts.Close)
