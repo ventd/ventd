@@ -59,22 +59,40 @@
     if (arr.length > SPARK_N) arr.shift();
   }
 
-  function sparkPath(buf, w, h) {
+  // sparkPath autoscales the y-axis to the buffer's min/max — with a
+  // floor of `minRange` so that a sensor wobbling within ±0.5°C doesn't
+  // look like it's climbing a mountain. This was the root cause of the
+  // \"GPU temp keeps climbing on every page refresh\" report (#797):
+  // the dashboard polled new samples into an empty buffer; auto-fit
+  // collapsed the y-axis to the noise floor of the first 2-3 readings;
+  // tiny variance got drawn as a steep slope. minRange=5 for temps,
+  // 200 for RPM, 5 for percent gives realistic dynamic range.
+  function sparkPath(buf, w, h, minRange) {
     if (!buf || buf.length < 2) return '';
+    if (minRange == null) minRange = 1;
     var max = -Infinity, min = Infinity;
     for (var i = 0; i < buf.length; i++) {
       if (buf[i] > max) max = buf[i];
       if (buf[i] < min) min = buf[i];
     }
-    var range = Math.max(max - min, max * 0.05, 1);
+    var range = Math.max(max - min, minRange);
+    // Centre the data within the range so a flat-line sample sits
+    // mid-card rather than at the bottom edge.
+    var mid = (max + min) / 2;
+    var lo = mid - range / 2;
     var d = '';
     for (var j = 0; j < buf.length; j++) {
       var x = (j / (SPARK_N - 1)) * w;
-      var y = (h - 2) - ((buf[j] - min) / range) * (h - 4);
+      var y = (h - 2) - ((buf[j] - lo) / range) * (h - 4);
       d += (j === 0 ? 'M ' : ' L ') + x.toFixed(1) + ' ' + y.toFixed(1);
     }
     return d;
   }
+  // sparkPathTemp / sparkPathRPM / sparkPathPct are thin wrappers that
+  // bake the right minRange for the metric class.
+  function sparkPathTemp(buf, w, h) { return sparkPath(buf, w, h, 5); }
+  function sparkPathRPM(buf, w, h)  { return sparkPath(buf, w, h, 200); }
+  function sparkPathPct(buf, w, h)  { return sparkPath(buf, w, h, 5); }
 
   // ── classification heuristics ──────────────────────────────────────
   function looksLikeCPU(name) {
@@ -130,7 +148,7 @@
       if (s.value == null) valEl.textContent = '—';
       else valEl.textContent = Number(s.value).toFixed(1);
       var path = tile.querySelector('.js-spark');
-      if (path) path.setAttribute('d', sparkPath(sensorHistory[s.name], 240, 28));
+      if (path) path.setAttribute('d', sparkPathTemp(sensorHistory[s.name], 240, 28));
     });
     // Remove tiles for sensors that disappeared.
     Object.keys(existing).forEach(function (k) {
@@ -196,7 +214,7 @@
       var duty = tile.querySelector('.js-duty');
       if (duty) duty.textContent = Math.round(f.duty_pct || 0);
       var path = tile.querySelector('.js-spark');
-      if (path) path.setAttribute('d', sparkPath(fanHistory[f.name], 240, 28));
+      if (path) path.setAttribute('d', sparkPathRPM(fanHistory[f.name], 240, 28));
 
       tile.classList.toggle('is-spinning', !!(rpm && rpm > 60));
       tile.classList.toggle('is-stalled', rpm === 0 && (f.duty_pct || 0) > 5);
@@ -222,8 +240,8 @@
 
     var cpuEl = $('hero-cpu-val'); if (cpuEl) cpuEl.textContent = cpu == null ? '—' : Number(cpu).toFixed(1);
     var gpuEl = $('hero-gpu-val'); if (gpuEl) gpuEl.textContent = gpu == null ? '—' : Number(gpu).toFixed(1);
-    var cpuP  = $('hero-cpu-path'); if (cpuP) cpuP.setAttribute('d', sparkPath(heroCpuHistory, 240, 48));
-    var gpuP  = $('hero-gpu-path'); if (gpuP) gpuP.setAttribute('d', sparkPath(heroGpuHistory, 240, 48));
+    var cpuP  = $('hero-cpu-path'); if (cpuP) cpuP.setAttribute('d', sparkPathTemp(heroCpuHistory, 240, 48));
+    var gpuP  = $('hero-gpu-path'); if (gpuP) gpuP.setAttribute('d', sparkPathTemp(heroGpuHistory, 240, 48));
     var cpuS = $('hero-cpu-sub'); if (cpuS) cpuS.textContent = cpu == null ? 'no source' : 'last 60s';
     var gpuS = $('hero-gpu-sub'); if (gpuS) gpuS.textContent = gpu == null ? 'no source' : 'last 60s';
 
@@ -427,7 +445,44 @@
       });
   }
 
+  // seedHistory pre-populates the in-memory sparkline buffers from
+  // ventd's server-side ring (/api/history) so a fresh page load shows
+  // the last 60s of samples instead of an empty chart that fills
+  // sample-by-sample over 60s — which produced the \"GPU temp keeps
+  // climbing on every refresh\" report (#797). The visible \"climb\"
+  // was actually the chart filling left-to-right with a buffer that
+  // contained too few samples for sparkPath's auto-fit y-axis.
+  function seedHistory() {
+    fetch('/api/v1/history?window_s=60', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.metrics) return;
+        Object.keys(data.metrics).forEach(function (name) {
+          var samples = data.metrics[name];
+          if (!Array.isArray(samples) || samples.length === 0) return;
+          // Truncate to the last SPARK_N samples so the buffer matches
+          // the chart's display window exactly. Server ring may hold
+          // more — we only want the most recent.
+          var start = Math.max(0, samples.length - SPARK_N);
+          var values = samples.slice(start).map(function (s) { return s.v; });
+          if (looksLikeCPU(name) || looksLikeGPU(name)) {
+            // Hero chart for CPU/GPU. Seed the matching hero buffer
+            // (idempotent if multiple sensors match — last wins).
+            if (looksLikeCPU(name)) heroCpuHistory = values.slice();
+            if (looksLikeGPU(name)) heroGpuHistory = values.slice();
+          }
+          if (/rpm$|fan/i.test(name)) {
+            fanHistory[name] = values.slice();
+          } else {
+            sensorHistory[name] = values.slice();
+          }
+        });
+      })
+      .catch(function () { /* monitor-only or pre-data — pollOnce will catch up */ });
+  }
+
   // ── start ──────────────────────────────────────────────────────────
+  seedHistory();
   pollOnce();
   pollTimer = setInterval(pollOnce, pollInterval);
   setInterval(function () { if (!inDemo) tickUptime(); }, 1000);

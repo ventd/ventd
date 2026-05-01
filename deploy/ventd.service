@@ -134,7 +134,7 @@ StateDirectoryMode=0750
 # applies these as a namespace mount; sudo'd children inherit the namespace,
 # so even root-elevated processes can't write to /lib/modules unless the
 # path is explicitly ReadWrite here. See #784.
-ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src
+ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src -/var/lib/shim-signed
 
 # --- Sandbox: network -----------------------------------------------------
 # AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,
