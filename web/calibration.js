@@ -94,6 +94,8 @@
   var errorSubEl     = document.getElementById('cal-error-sub');
   var retryBtn       = document.getElementById('cal-retry-btn');
   var skipBtn        = document.getElementById('cal-skip-btn');
+  var bundleBtn      = document.getElementById('cal-bundle-btn');
+  var bundleStatusEl = document.getElementById('cal-bundle-status');
   var abortBtn       = document.getElementById('cal-abort');
   var flavourEl      = document.getElementById('cal-flavour');
   var samplesG       = document.getElementById('cal-samples');
@@ -621,6 +623,47 @@
     fetch('/api/v1/setup/reset', { method: 'POST', credentials: 'same-origin' })
       .then(function () {
         setTimeout(function () { fetch('/api/v1/setup/start', { method: 'POST', credentials: 'same-origin' }); }, 200);
+      });
+  });
+
+  // ── send diagnostic bundle (#792 wizard recovery surface) ──────────
+  // POST /api/v1/diag/bundle generates a redacted tarball server-side and
+  // returns its filename + download URL. Triggering the download with a
+  // hidden anchor click avoids navigating away from the wizard, so the
+  // operator stays on the calibration page after delivery.
+  function setBundleStatus(text, isError) {
+    if (!bundleStatusEl) return;
+    bundleStatusEl.hidden = !text;
+    bundleStatusEl.textContent = text || '';
+    bundleStatusEl.classList.toggle('is-error', !!isError);
+  }
+  if (bundleBtn) bundleBtn.addEventListener('click', function () {
+    bundleBtn.disabled = true;
+    var oldLabel = bundleBtn.textContent;
+    bundleBtn.textContent = 'Generating…';
+    setBundleStatus('Collecting logs and redacting hostnames…', false);
+    fetch('/api/v1/diag/bundle', { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        }
+        return r.json();
+      })
+      .then(function (j) {
+        var a = document.createElement('a');
+        a.href = j.download_url;
+        a.download = j.filename || '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setBundleStatus('Bundle ready: ' + j.filename + ' (downloading).', false);
+      })
+      .catch(function (err) {
+        setBundleStatus('Could not generate bundle: ' + (err && err.message || 'network error'), true);
+      })
+      .then(function () {
+        bundleBtn.disabled = false;
+        bundleBtn.textContent = oldLabel;
       });
   });
 

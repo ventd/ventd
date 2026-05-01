@@ -293,6 +293,11 @@ func Generate(ctx context.Context, opts Options) (string, error) {
 	return bundlePath, nil
 }
 
+// ResolveOutputDir returns the bundle output directory per §15.5 precedence:
+// override > /var/lib/ventd/diag-bundles (root) > $XDG_STATE_HOME/ventd/diag-bundles (user).
+// The web layer uses this to resolve filenames sent to /api/diag/download.
+func ResolveOutputDir(override string) string { return resolveOutputDir(override) }
+
 // resolveOutputDir applies §15.5 output dir precedence.
 func resolveOutputDir(override string) string {
 	if override != "" {
