@@ -21,6 +21,7 @@ import (
 	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
@@ -473,7 +474,8 @@ func run() error {
 		SigFactory: func(liveCfg *atomic.Pointer[config.Config]) *signature.Library {
 			return buildSignatureLibrary(channels, sysDet, liveCfg, logger)
 		},
-		State: st,
+		State:    st,
+		Coupling: buildCouplingRuntime(channels, st, dmiFingerprint, logger),
 	}
 	if obsWriter != nil {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
@@ -580,6 +582,53 @@ func buildOpportunisticScheduler(
 	}
 	logger.Info("opportunistic scheduler initialised", "channels", len(channels), "class", cls)
 	return sched
+}
+
+// buildCouplingRuntime constructs the v0.5.7 Layer-B thermal coupling
+// estimator runtime with one shard per controllable channel. Returns
+// nil when there are no controllable channels (monitor-only mode);
+// the daemon then never starts the coupling goroutine.
+//
+// N_coupled is fixed at 0 for v0.5.7 — the well-posed reduced-model
+// case (R9 §U4) where each shard learns its own thermal time constant
+// `a` and load coefficient `c`. v0.5.8 raises N_coupled to enable
+// cross-fan b_ij learning once Layer C is in.
+//
+// hwmonFingerprint invalidates persisted shards on hardware change
+// per RULE-CPL-PERSIST-01. dmiFingerprint is host-stable and
+// changes when the motherboard changes — sufficient for v0.5.7;
+// v0.5.10 doctor refines.
+//
+// RULE-CPL-WIRING-01: Runtime is constructed only when len(channels) > 0.
+// RULE-CPL-WIRING-02: Exactly one shard per controllable channel is registered.
+func buildCouplingRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *coupling.Runtime {
+	if len(channels) == 0 {
+		logger.Info("coupling: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := coupling.NewRuntime(st.Dir, hwmonFingerprint, logger)
+	for _, ch := range channels {
+		shard, err := coupling.New(coupling.DefaultConfig(ch.PWMPath, 0))
+		if err != nil {
+			logger.Warn("coupling: shard init failed",
+				"channel", ch.PWMPath, "err", err)
+			continue
+		}
+		if addErr := rt.AddShard(shard); addErr != nil {
+			logger.Warn("coupling: AddShard failed",
+				"channel", ch.PWMPath, "err", addErr)
+			continue
+		}
+	}
+	logger.Info("coupling: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
 }
 
 // runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
@@ -748,6 +797,12 @@ type SmartModeBundle struct {
 	// write. nil means the controller skips observation emission
 	// (pre-v0.5.6 behaviour).
 	ObsAppend func(*controller.ObsRecord)
+	// Coupling is the v0.5.7 Layer-B thermal coupling estimator
+	// runtime. Pre-built with one shard per controllable channel.
+	// nil in monitor-only mode (no controllable channels) — daemon
+	// then never starts the coupling goroutine. Snapshot.Read is
+	// consumed by v0.5.9's confidence-gated controller.
+	Coupling *coupling.Runtime
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -991,6 +1046,23 @@ func runDaemonInternal(
 		go func() {
 			defer wg.Done()
 			runSignatureTickLoop(sigCtx, sigLib, smartMode.State, logger)
+		}()
+	}
+
+	// v0.5.7: launch the Layer-B thermal coupling estimator runtime.
+	// Per spec §8.2 PR-B: wiring-only — the snapshot is read by
+	// v0.5.9's confidence-gated controller, not the v0.5.7 hot loop.
+	// RULE-CPL-WIRING-03: Runtime.Run goroutine started exactly once
+	// per daemon lifetime, scoped to ctx.
+	if smartMode != nil && smartMode.Coupling != nil {
+		cplCtx, cplCancel := context.WithCancel(ctx)
+		defer cplCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Coupling.Run(cplCtx); err != nil && err != context.Canceled {
+				logger.Warn("coupling: runtime exited with error", "err", err)
+			}
 		}()
 	}
 

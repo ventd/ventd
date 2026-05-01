@@ -115,3 +115,31 @@ shard's tr(P) to 100×TrPCap on disk, then loads it and asserts
 the in-memory tr(P) is at or below TrPCap.
 
 Bound: internal/coupling/persistence_test.go:TestShard_RestoredTrPClamped
+
+## RULE-CPL-WIRING-01: buildCouplingRuntime MUST return nil when len(channels) == 0.
+
+Monitor-only systems and machines with all-phantom channels
+have no controllable PWMs to learn coupling for. The runtime
+goroutine pool must not start in that case — RULE-CPL-RUNTIME-01
+already encodes "one goroutine per channel". With zero channels
+the contract is "no goroutines", not "one no-op goroutine".
+
+Bound: cmd/ventd/main_coupling_test.go:TestBuildCouplingRuntime_NilOnNoChannels
+
+## RULE-CPL-WIRING-02: buildCouplingRuntime MUST register exactly one shard per controllable channel.
+
+Per spec §8.2 PR-B and R10 §10.5, the wiring is 1:1 between
+ControllableChannel and Shard. Each shard's channelID is the
+PWM sysfs path (R24-stable string identity). N_coupled is fixed
+at 0 for v0.5.7 — the well-posed reduced-model case (R9 §U4).
+
+Bound: cmd/ventd/main_coupling_test.go:TestBuildCouplingRuntime_OneShardPerChannel
+
+## RULE-CPL-WIRING-03: Coupling runtime is launched as a goroutine scoped to ctx; ctx.Done MUST stop the runtime within 1 second.
+
+Per spec §8.2, the daemon owns the lifecycle. On shutdown the
+runtime's per-shard goroutines unwind, each shard executes a
+final Save, and Run returns. The test cancels ctx and asserts
+Run exits within 1 s.
+
+Bound: internal/coupling/runtime_test.go:TestRuntime_RunStopsOnContextCancel
