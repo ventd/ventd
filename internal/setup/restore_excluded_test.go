@@ -23,17 +23,17 @@ func TestRestoreExcludedChannels_HandsBackToBIOS(t *testing.T) {
 	dir := t.TempDir()
 	hwmon := filepath.Join(dir, "sys", "class", "hwmon", "hwmon0")
 	layout := map[string]string{
-		"sys/class/hwmon/hwmon0/name":         "it8688\n",
-		"sys/class/hwmon/hwmon0/pwm1":         "27\n",
-		"sys/class/hwmon/hwmon0/pwm1_enable":  "1\n",
-		"sys/class/hwmon/hwmon0/pwm2":         "70\n",
-		"sys/class/hwmon/hwmon0/pwm2_enable":  "1\n",
-		"sys/class/hwmon/hwmon0/pwm3":         "70\n",
-		"sys/class/hwmon/hwmon0/pwm3_enable":  "1\n",
-		"sys/class/hwmon/hwmon0/pwm4":         "0\n",
-		"sys/class/hwmon/hwmon0/pwm4_enable":  "1\n",
-		"sys/class/hwmon/hwmon0/pwm5":         "27\n",
-		"sys/class/hwmon/hwmon0/pwm5_enable":  "1\n",
+		"sys/class/hwmon/hwmon0/name":        "it8688\n",
+		"sys/class/hwmon/hwmon0/pwm1":        "27\n",
+		"sys/class/hwmon/hwmon0/pwm1_enable": "1\n",
+		"sys/class/hwmon/hwmon0/pwm2":        "70\n",
+		"sys/class/hwmon/hwmon0/pwm2_enable": "1\n",
+		"sys/class/hwmon/hwmon0/pwm3":        "70\n",
+		"sys/class/hwmon/hwmon0/pwm3_enable": "1\n",
+		"sys/class/hwmon/hwmon0/pwm4":        "0\n",
+		"sys/class/hwmon/hwmon0/pwm4_enable": "1\n",
+		"sys/class/hwmon/hwmon0/pwm5":        "27\n",
+		"sys/class/hwmon/hwmon0/pwm5_enable": "1\n",
 	}
 	fakeHwmon(t, dir, layout)
 
