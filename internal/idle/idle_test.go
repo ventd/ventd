@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/testfixture/fakeprocsys"
 )
 
 // fakeClock implements Clock for deterministic tests. Sleep accumulates elapsed
@@ -21,6 +23,10 @@ func (f *fakeClock) Sleep(d time.Duration) { f.t = f.t.Add(d) }
 func (f *fakeClock) Now() time.Time        { return f.t }
 
 // writeProcFile creates path relative to dir and writes contents.
+//
+// Transitional shim: most test bodies pass dir explicitly, so this
+// helper still exists. New tests should prefer the typed helpers on
+// fakeprocsys.Roots (WritePSI, WriteAC, WriteCgroup, …).
 func writeProcFile(t *testing.T, dir, rel, content string) {
 	t.Helper()
 	full := filepath.Join(dir, rel)
@@ -38,26 +44,18 @@ func zeroRand() float64 { return 0.0 }
 // oneRand always returns 1.0 - ε (near-max jitter).
 func oneRand() float64 { return 1.0 - 1e-9 }
 
-// makeIdleProcRoot builds a minimal proc fixture that passes the idle predicate
-// (low PSI, not on battery, not in container).
+// makeIdleProcRoot builds a minimal proc fixture that passes the idle
+// predicate (low PSI, not on battery, not in container).
+//
+// Delegates to internal/testfixture/fakeprocsys.Idle so the same
+// canonical "idle, on AC, not in a container" baseline is shared
+// across every smart-mode test package. Returned path strings are
+// preserved for test bodies that already address ProcRoot / SysRoot
+// directly.
 func makeIdleProcRoot(t *testing.T) (procRoot, sysRoot string) {
 	t.Helper()
-	dir := t.TempDir()
-	procRoot = dir + "/proc"
-	sysRoot = dir + "/sys"
-
-	// PSI — all zeros (idle).
-	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
-	writeProcFile(t, procRoot, "pressure/io", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
-	writeProcFile(t, procRoot, "pressure/memory", "full avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
-
-	// uptime — far past 600s.
-	writeProcFile(t, procRoot, "uptime", "7200.00 14400.00\n")
-
-	// No AC/battery → no on_battery signal.
-	// No cgroup / detect-virt → not in container (syscall will fail, that's OK).
-
-	return procRoot, sysRoot
+	r := fakeprocsys.Idle(t)
+	return r.ProcRoot, r.SysRoot
 }
 
 // TestRULE_IDLE_01_StartupGate_DurabilityRequired verifies that StartupGate
