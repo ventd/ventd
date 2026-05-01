@@ -1681,6 +1681,14 @@ func runSignatureTickLoop(
 // ObsRecord shape to the real observation.Record (computing
 // ChannelID from the path) and calls Writer.Append.
 //
+// SensorReadings is converted from map[string]float64 (sensor name →
+// °C) to map[uint16]int16 (SensorID → centi-celsius) so the persisted
+// schema obeys RULE-OBS-PRIVACY-02 (no unconstrained string keys).
+// Readings outside [-150°C, 150°C] are filtered (RULE-HWMON-SENTINEL-
+// TEMP-CAP plausibility bound) — defensive only; the controller's
+// readAllSensors already filters sentinels before populating
+// rawSensorsBuf.
+//
 // Errors from Append are logged at warn level and swallowed —
 // observation loss is preferable to a stalled control loop.
 func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
@@ -1692,7 +1700,29 @@ func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
 			RPM:            rec.RPM,
 			SignatureLabel: rec.SignatureLabel,
 			EventFlags:     rec.EventFlags,
+			SensorReadings: convertSensorReadings(rec.SensorReadings),
 		}
 		_ = obsWriter.Append(obsRec)
 	}
+}
+
+// convertSensorReadings translates the controller's name→°C map into
+// the observation log's SensorID→centi-celsius shape. Skips readings
+// outside the sensible plausibility band so a sentinel that escaped
+// the controller's read-side filter cannot reach the persisted log.
+func convertSensorReadings(readings map[string]float64) map[uint16]int16 {
+	if len(readings) == 0 {
+		return nil
+	}
+	out := make(map[uint16]int16, len(readings))
+	for name, celsius := range readings {
+		if celsius < -150 || celsius > 150 {
+			continue
+		}
+		out[observation.SensorID(name)] = int16(celsius * 100)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -209,6 +209,12 @@ func WithCalibration(cal *hwdb.ChannelCalibration, pwmUnitMax int) Option {
 // on internal/observation directly. main.go wires a closure that
 // maps these fields into the real observation.Record (computing
 // ChannelID via observation.ChannelID(PWMPath)) + calls Writer.Append.
+//
+// SensorReadings carries the per-tick sensor map (keyed by sensor
+// name from config, value in °C). main.go's adapter converts to
+// observation.Record's map[uint16]int16 (key=SensorID, value=°C×100)
+// at write time. The map is cloned by emitObservation so the next
+// tick's mutation of rawSensorsBuf cannot race the writer.
 type ObsRecord struct {
 	Ts             int64  // Unix microseconds
 	PWMPath        string // sysfs path of the channel that just wrote
@@ -216,6 +222,7 @@ type ObsRecord struct {
 	RPM            int32 // -1 when tach-less
 	SignatureLabel string
 	EventFlags     uint32
+	SensorReadings map[string]float64
 }
 
 // WithObservation wires the v0.5.4 observation log into the
@@ -887,6 +894,12 @@ func clamp(v, lo, hi uint8) uint8 {
 // (its ChannelID is computed by main.go's wiring closure) and the
 // signature library's lock-free Label reader.
 //
+// SensorReadings is cloned from the per-tick rawSensorsBuf so the
+// next tick's overwrite cannot race main.go's adapter or any
+// downstream consumer. Cost is one short-lived map allocation per
+// channel per tick (≈10 entries × 24 bytes ≈ 240 bytes); negligible
+// at controller frequencies (≤1 Hz typical).
+//
 // Nil-safe: when neither obsAppend nor obsLabel is wired, the
 // controller behaves exactly as it did pre-v0.5.6.
 func (c *Controller) emitObservation(pwm uint8) {
@@ -897,11 +910,19 @@ func (c *Controller) emitObservation(pwm uint8) {
 	if c.obsLabel != nil {
 		label = c.obsLabel()
 	}
+	var sensors map[string]float64
+	if len(c.rawSensorsBuf) > 0 {
+		sensors = make(map[string]float64, len(c.rawSensorsBuf))
+		for k, v := range c.rawSensorsBuf {
+			sensors[k] = v
+		}
+	}
 	c.obsAppend(&ObsRecord{
 		Ts:             time.Now().UnixMicro(),
 		PWMPath:        c.pwmPath,
 		PWMWritten:     pwm,
 		RPM:            -1, // tach reads not yet wired into controller
 		SignatureLabel: label,
+		SensorReadings: sensors,
 	})
 }

@@ -319,3 +319,40 @@ func TestRecord_StructHasNoUserControlledStrings(t *testing.T) {
 	// sensor_readings must be a map[uint16]int16, not map[string]anything.
 	_ = rec.SensorReadings
 }
+
+// TestSensorID_Determinism pins the v0.5.8.1 SensorReadings plumbing
+// invariant: SensorID is deterministic across calls (same input →
+// same output). Downstream consumers (Layer-A conf_A coverage,
+// Layer-C marginal-benefit ΔT) rely on this so a sensor referenced
+// in a persisted shard can be mapped back to its uint16 key after
+// daemon restart.
+func TestSensorID_Determinism(t *testing.T) {
+	cases := []string{
+		"cpu_temp",
+		"k10temp/Tctl",
+		"motherboard ambient",
+		"",
+	}
+	for _, name := range cases {
+		first := SensorID(name)
+		for i := 0; i < 3; i++ {
+			if got := SensorID(name); got != first {
+				t.Errorf("SensorID(%q) not deterministic: call %d returned %d, want %d", name, i, got, first)
+			}
+		}
+	}
+}
+
+// TestSensorID_DistinctNamesMapDistinctly verifies that the FNV-1a
+// derivation is sensitive enough that the per-host sensor population
+// (typically <10 distinct names) does not collapse to a single key.
+// Collision risk is bounded — uint16 across small N — but two unique
+// names must produce two unique IDs in this fixture.
+func TestSensorID_DistinctNamesMapDistinctly(t *testing.T) {
+	a := SensorID("cpu_temp")
+	b := SensorID("gpu_temp")
+	c := SensorID("motherboard")
+	if a == b || a == c || b == c {
+		t.Errorf("SensorID collapsed distinct names: cpu=%d gpu=%d mb=%d", a, b, c)
+	}
+}
