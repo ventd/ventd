@@ -450,3 +450,39 @@ func TestPI_StepResponse_DrivesPredictiveAboveReactive(t *testing.T) {
 			prevPredictive, in.ReactivePWM)
 	}
 }
+
+// PresetFromString round-trip + unknown-fallback smoke test. Pinned
+// so PR-A.4's config layer can rely on the parser's contract.
+func TestPresetFromString_RoundTripAndFallback(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in     string
+		want   Preset
+		wantOK bool
+	}{
+		{"silent", PresetSilent, true},
+		{"Silent", PresetSilent, true},
+		{"SILENT", PresetSilent, true},
+		{"balanced", PresetBalanced, true},
+		{"", PresetBalanced, true}, // empty == default, no warning
+		{"performance", PresetPerformance, true},
+		{"chaos", PresetBalanced, false}, // unknown ⇒ Balanced + warning
+	}
+	for _, tc := range cases {
+		got, ok := PresetFromString(tc.in)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("PresetFromString(%q) = (%d, %v), want (%d, %v)",
+				tc.in, got, ok, tc.want, tc.wantOK)
+		}
+	}
+	// String round-trip back to canonical YAML names.
+	if PresetSilent.String() != "silent" {
+		t.Errorf("PresetSilent.String() = %q", PresetSilent.String())
+	}
+	if PresetBalanced.String() != "balanced" {
+		t.Errorf("PresetBalanced.String() = %q", PresetBalanced.String())
+	}
+	if PresetPerformance.String() != "performance" {
+		t.Errorf("PresetPerformance.String() = %q", PresetPerformance.String())
+	}
+}

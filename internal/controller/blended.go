@@ -104,6 +104,36 @@ const (
 	MinKpForBumpless = 1e-9
 )
 
+// PresetFromString parses an operator-supplied preset name (case-
+// insensitive) into a Preset. Unknown / empty inputs return
+// (PresetBalanced, false) — callers (PR-A.4 config validator)
+// surface the fallback in a startup warning rather than refusing
+// to start. The empty string deliberately maps to "ok" so a fresh
+// config file (no smart.preset key set) doesn't trip the warning.
+func PresetFromString(s string) (p Preset, ok bool) {
+	switch s {
+	case "silent", "Silent", "SILENT":
+		return PresetSilent, true
+	case "performance", "Performance", "PERFORMANCE":
+		return PresetPerformance, true
+	case "balanced", "Balanced", "BALANCED", "":
+		return PresetBalanced, true
+	}
+	return PresetBalanced, false
+}
+
+// String renders the canonical YAML name for the preset.
+func (p Preset) String() string {
+	switch p {
+	case PresetSilent:
+		return "silent"
+	case PresetPerformance:
+		return "performance"
+	default:
+		return "balanced"
+	}
+}
+
 // lambdaForPreset returns the IMC λ multiplier for τ.
 //
 // Spec §3.1: Silent: 2τ, Balanced: τ, Performance: τ/2.
