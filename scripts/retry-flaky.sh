@@ -41,7 +41,7 @@ if [[ ${#flaky_keys[@]} -eq 0 ]]; then
 	exec go test "$@"
 fi
 
-json_log=$(mktemp -t retry-flaky.XXXXXX.json)
+json_log=$(mktemp "${TMPDIR:-/tmp}/retry-flaky.XXXXXX")
 trap 'rm -f "$json_log"' EXIT
 
 # Run once, tee the json output. PIPESTATUS[0] = go test exit code.
