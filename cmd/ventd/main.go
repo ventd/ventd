@@ -1421,19 +1421,6 @@ func resolveControl(cfg *config.Config, ctrl config.Control) (config.Fan, error)
 	return config.Fan{}, fmt.Errorf("fan %q not found (should have been caught by validation)", ctrl.Fan)
 }
 
-// localIP returns the machine's preferred outbound IP address.
-// It uses a UDP "connect" (no packets are sent) to pick the interface
-// that would be used to reach the internet, which is the address a user
-// on the same LAN would type into their browser.
-func localIP() string {
-	conn, err := net.Dial("udp4", "8.8.8.8:53")
-	if err != nil {
-		return "<this-machine-ip>"
-	}
-	defer func() { _ = conn.Close() }()
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
-}
-
 func buildLogger(level string) *slog.Logger {
 	var l slog.Level
 	switch level {
