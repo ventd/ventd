@@ -128,6 +128,38 @@ func TestInstallContract_AppArmorProfileShipped(t *testing.T) {
 	}
 }
 
+// TestInstallContract_PostinstallLoadsAppArmor — RULE-INSTALL-06
+// Every AppArmor profile shipped by the .deb / .rpm via nfpms.contents must be
+// loaded by scripts/postinstall.sh via apparmor_parser -r at install time.
+// Without this, dh_apparmor / package-manager triggers fail to fire on
+// Ubuntu 24.04 / Debian 13 (#763), and the daemon starts unconfined despite
+// the profile being on disk.
+func TestInstallContract_PostinstallLoadsAppArmor(t *testing.T) {
+	postinst, err := os.ReadFile("../scripts/postinstall.sh")
+	if err != nil {
+		t.Fatalf("read postinstall.sh: %v", err)
+	}
+	body := string(postinst)
+	if !strings.Contains(body, "apparmor_parser -r") {
+		t.Error("postinstall.sh does not call apparmor_parser -r — profile won't load on .deb / .rpm install")
+	}
+	entries, err := os.ReadDir("apparmor.d")
+	if err != nil {
+		t.Fatalf("read apparmor.d: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == "README.md" || e.Name() == "FIREWALL.md" {
+			continue
+		}
+		profile := e.Name()
+		t.Run("profile="+profile, func(t *testing.T) {
+			if !strings.Contains(body, "load_apparmor_profile "+profile) {
+				t.Errorf("postinstall.sh does not load profile %q — package install will leave the daemon unconfined", profile)
+			}
+		})
+	}
+}
+
 // TestInstallContract_AppArmorHILValidated — RULE-INSTALL-05
 // Every shipped AppArmor profile must have a HIL validation log under enforce mode.
 func TestInstallContract_AppArmorHILValidated(t *testing.T) {
