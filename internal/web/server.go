@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -15,7 +14,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,11 +29,6 @@ import (
 	"github.com/ventd/ventd/internal/web/authpersist"
 	webstatic "github.com/ventd/ventd/web"
 )
-
-// SetupTokenTTL bounds how long the first-boot setup token stays valid.
-// After this window the token is wiped from memory; an operator must
-// restart the daemon to mint a new one.
-const SetupTokenTTL = 15 * time.Minute
 
 // The per-IP brute-force guard thresholds live on config.Web so operators
 // can tune them without a rebuild. See config.DefaultLoginFailThreshold
@@ -72,9 +65,6 @@ type Server struct {
 	opp            *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
-	setupMu        sync.Mutex
-	setupToken     string    // one-time first-boot token; empty once consumed or expired
-	setupExp       time.Time // zero when no token
 	diag           *hwdiag.Store
 	ctx            context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
 	loginLim       *loginLimiter
@@ -149,9 +139,14 @@ type Server struct {
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
 // to skip dedicated auth-file persistence (used in tests that set the hash
-// directly on the config pointer). setupToken is the one-time first-boot
-// token printed to the terminal; pass "" if a password is already configured.
-func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
+// directly on the config pointer).
+//
+// First-boot mode (no admin password set yet) is auto-detected from the
+// liveHash; the wizard's password-set step is open to anyone on the LAN
+// during this window. After the wizard completes, normal auth applies.
+// Issue #765 documents the trade-off and the one-line recovery path
+// (`rm /etc/ventd/auth.json && systemctl restart ventd`).
+func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, diag *hwdiag.Store) *Server {
 	live := cfg.Load()
 	if diag == nil {
 		diag = hwdiag.NewStore()
@@ -166,7 +161,6 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		setup:          sm,
 		restartCh:      restartCh,
 		sessions:       newSessionStore(ctx, live.Web.SessionTTL.Duration),
-		setupToken:     setupToken,
 		diag:           diag,
 		ctx:            ctx,
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
@@ -205,13 +199,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	if setupToken != "" {
-		s.setupExp = time.Now().Add(SetupTokenTTL)
-		// Auto-invalidate on expiry so a leaked token stops working even
-		// if the operator never logs in. One-shot — the daemon can't
-		// silently re-mint it without restart.
-		go s.expireSetupToken(ctx)
-	}
+	// First-boot detection (#765): when no auth hash is configured yet,
+	// the wizard's password-set step is open without a token. Once
+	// MarkApplied has fired and auth.json holds a hash, normal auth
+	// gates every request.
 
 	// Non-/api/ unauthenticated endpoints — these stay outside the
 	// registerAPIRoutes helper because /api/v1 aliasing does not apply.
@@ -422,69 +413,6 @@ func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 // Pass probe.WipeNamespaces(st.KV) from main.go.
 func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
 
-// expireSetupToken wipes the first-boot token from memory when its TTL
-// lapses or the daemon shuts down. Safe against races with consumption —
-// consumeSetupToken holds the same mutex.
-func (s *Server) expireSetupToken(ctx context.Context) {
-	s.setupMu.Lock()
-	exp := s.setupExp
-	s.setupMu.Unlock()
-	if exp.IsZero() {
-		return
-	}
-	timer := time.NewTimer(time.Until(exp))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return
-	case <-timer.C:
-	}
-	s.setupMu.Lock()
-	defer s.setupMu.Unlock()
-	if s.setupToken == "" {
-		return
-	}
-	s.setupToken = ""
-	s.setupExp = time.Time{}
-	s.logger.Warn("web: first-boot setup token expired; restart ventd to mint a new one")
-}
-
-// consumeSetupToken returns true iff provided matches the live token and
-// the token has not expired. Compares in constant time against a padded
-// copy to avoid leaking length via early-exit timing. Does NOT clear the
-// token — caller decides when the first-boot flow has actually succeeded.
-func (s *Server) consumeSetupToken(provided string) bool {
-	s.setupMu.Lock()
-	defer s.setupMu.Unlock()
-	if s.setupToken == "" {
-		return false
-	}
-	if !s.setupExp.IsZero() && time.Now().After(s.setupExp) {
-		s.setupToken = ""
-		s.setupExp = time.Time{}
-		return false
-	}
-	a := []byte(provided)
-	b := []byte(s.setupToken)
-	if len(a) != len(b) {
-		// Length check first avoids the obvious length oracle; run a dummy
-		// constant-time compare against a padded buffer so attackers cannot
-		// distinguish length-mismatch rejects from content-mismatch ones by
-		// timing the response path.
-		pad := make([]byte, len(b))
-		subtle.ConstantTimeCompare(pad, b)
-		return false
-	}
-	return subtle.ConstantTimeCompare(a, b) == 1
-}
-
-func (s *Server) clearSetupToken() {
-	s.setupMu.Lock()
-	s.setupToken = ""
-	s.setupExp = time.Time{}
-	s.setupMu.Unlock()
-}
-
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that
 // need a non-200 status must call w.WriteHeader before invoking writeJSON.
@@ -626,20 +554,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 		live := s.cfg.Load()
 
-		// First-boot: no password set yet. If the client sent a setup token,
-		// process the first-boot handshake. An empty POST is rejected with
-		// 400 so it is impossible for a misbehaving or malicious caller to
-		// use the /login endpoint as a zero-cost oracle for "is the daemon
-		// still in first-boot mode" — that probe moved to GET /api/auth/state
-		// which does not touch the rate limiter. See audit finding S2.
+		// First-boot: no password set yet. POST any new_password to set
+		// the initial admin password and start a session — no token
+		// gate (#765). An empty POST gets a 400 with first_boot:true so
+		// the wizard can render the password-set form.
 		if s.authHashValue() == "" {
-			if r.FormValue("setup_token") != "" {
+			if r.FormValue("new_password") != "" {
 				s.handleFirstBootLogin(w, r, live, ipKey)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			s.writeJSON(r, w, map[string]interface{}{"error": "first boot: use /api/auth/state to check status, then POST setup_token + new_password", "first_boot": true})
+			s.writeJSON(r, w, map[string]interface{}{"error": "first boot: use /api/auth/state to check status, then POST new_password to set the initial admin password", "first_boot": true})
 			return
 		}
 
@@ -683,23 +609,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFirstBootLogin processes the setup token + new password submission.
+// handleFirstBootLogin processes the new-password submission on the
+// first-boot wizard. Issue #765 eliminated the setup-token gate: when
+// no admin password is configured yet, any LAN client hitting POST
+// /login can complete the wizard. Once the password is set, normal
+// auth applies — every subsequent request must present the session
+// cookie obtained via /login.
 func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, live *config.Config, ipKey string) {
-	token := r.FormValue("setup_token")
 	newPassword := r.FormValue("new_password")
 
-	if !s.consumeSetupToken(token) {
-		locked := s.loginLim.recordFailure(ipKey)
-		if locked {
-			s.logger.Warn("web: login lockout after bad setup tokens", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", live.Web.LoginLockoutCooldown.Duration)
-		} else {
-			s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		s.writeJSON(r, w, map[string]string{"error": "invalid setup token"})
-		return
-	}
 	if len(newPassword) < 8 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -743,8 +661,6 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		s.liveHash.Store(&hash)
 	}
 
-	// Invalidate the one-time setup token.
-	s.clearSetupToken()
 	s.loginLim.recordSuccess(ipKey)
 	s.logger.Info("web: first-boot password set", "remote", r.RemoteAddr)
 

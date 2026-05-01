@@ -36,7 +36,7 @@ func newVersionTestServer(t *testing.T) *Server {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	return New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, "", diag)
+	return New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, diag)
 }
 
 // TestHealthzStateTransitions walks /healthz across the startup boundary:

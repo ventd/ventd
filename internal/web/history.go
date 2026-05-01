@@ -233,8 +233,7 @@ func roundHistoryValue(v float64) float64 {
 
 // runHistorySampler ticks at the store's interval and writes one
 // sample per sensor and fan to the ring. Exits on ctx cancellation
-// so daemon shutdown doesn't leave a goroutine leaking. Matches the
-// expireSetupToken lifecycle pattern already in server.go.
+// so daemon shutdown doesn't leave a goroutine leaking.
 func (s *Server) runHistorySampler(ctx context.Context) {
 	interval := s.history.Interval()
 	t := time.NewTicker(interval)

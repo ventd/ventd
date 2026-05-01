@@ -295,20 +295,12 @@ func run() error {
 			"auth_path", authPath)
 	}
 
-	// Generate a one-time setup token if no password is configured yet.
-	// The token is a first-boot credential: anyone who can read it can set
-	// the admin password. Never write the plaintext to slog/journald — it
-	// would be retrievable by any journal reader. Instead: print to the
-	// controlling TTY when present (operator running ventd manually), and
-	// always drop a 0600 file under /run/ventd for systemd deployments.
-	var setupToken string
+	// First-boot mode: when no admin password is configured yet, the
+	// wizard's password-set step is open without auth (#765). The
+	// daemon logs a security note so journald shows a clear record of
+	// the first-boot window for audit.
 	if authHash == "" {
-		tok, tokErr := web.GenerateSetupToken()
-		if tokErr != nil {
-			return fmt.Errorf("generate setup token: %w", tokErr)
-		}
-		setupToken = tok
-		publishSetupToken(setupToken, cfg.Web.Listen, cfg.Web.TLSEnabled(), logger)
+		logger.Info("first-boot: no admin password set; wizard accepts password-set without auth — set a password promptly to lock the daemon")
 	}
 
 	// Diagnose hwmon state at startup. This is READ-ONLY — the daemon
@@ -483,7 +475,7 @@ func run() error {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
@@ -796,7 +788,6 @@ func runDaemon(
 	configPath string,
 	authPath string,
 	logger *slog.Logger,
-	setupToken string,
 	sigCh <-chan os.Signal,
 	expFlags experimental.Flags,
 	kvWiper func() error,
@@ -804,7 +795,7 @@ func runDaemon(
 	smartMode *SmartModeBundle,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -863,7 +854,6 @@ func runDaemonInternal(
 	configPath string,
 	authPath string,
 	logger *slog.Logger,
-	setupToken string,
 	sigCh <-chan os.Signal,
 	restartCh chan struct{},
 	expFlags experimental.Flags,
@@ -1041,7 +1031,7 @@ func runDaemonInternal(
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
 	// requests before run() returns — otherwise the HTTP handler goroutines
 	// outlive wd.Restore() and can observe a half-torn-down daemon.
-	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, diagStore)
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
@@ -1431,54 +1421,6 @@ func resolveControl(cfg *config.Config, ctrl config.Control) (config.Fan, error)
 	return config.Fan{}, fmt.Errorf("fan %q not found (should have been caught by validation)", ctrl.Fan)
 }
 
-// publishSetupToken makes the first-boot token available to the operator
-// without leaking it into journald. It always logs the retrieval paths;
-// the plaintext goes only to /dev/tty (if one is attached to the daemon)
-// and to the two token files (runtime + persistent) with 0640 perms.
-func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
-	scheme := "http"
-	if tls {
-		scheme = "https"
-	}
-	host, port, err := net.SplitHostPort(listen)
-	if err != nil {
-		host, port = "", "9999"
-	}
-	// Pick a display host the operator can actually paste into a browser:
-	// wildcard binds → the machine's LAN IP; loopback binds → 127.0.0.1 as-is.
-	displayHost := host
-	switch host {
-	case "", "0.0.0.0", "::":
-		displayHost = localIP()
-	case "127.0.0.1", "::1", "localhost":
-		displayHost = "127.0.0.1"
-	}
-	url := scheme + "://" + net.JoinHostPort(displayHost, port)
-
-	// Write the token to both the tmpfs runtime path and the persistent state
-	// path so it survives daemon restarts. Each write is atomic (temp+rename).
-	if err := web.WriteSetupTokenFiles(tok, web.SetupTokenRuntimePath, web.SetupTokenPersistPath); err != nil {
-		logger.Warn("first-boot: write setup token files", "err", err)
-	}
-
-	// Best-effort TTY print. Fails silently under systemd where there is
-	// no controlling TTY, which is intentional — the file paths below
-	// cover that case.
-	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
-		_, _ = fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-		_, _ = fmt.Fprintf(tty, "  Ventd — First Boot\n")
-		_, _ = fmt.Fprintf(tty, "  Open your browser to %s\n", url)
-		_, _ = fmt.Fprintf(tty, "  Setup token: %s\n", tok)
-		_, _ = fmt.Fprintf(tty, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-		_ = tty.Close()
-	}
-
-	logger.Info("first-boot: setup pending", "url", url, "ttl", web.SetupTokenTTL)
-	logger.Info("first-boot pending — setup token available",
-		"command", "sudo cat "+web.SetupTokenRuntimePath,
-		"ttl", web.SetupTokenTTL,
-	)
-}
 
 // localIP returns the machine's preferred outbound IP address.
 // It uses a UDP "connect" (no packets are sent) to pick the interface

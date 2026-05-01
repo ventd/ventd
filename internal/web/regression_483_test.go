@@ -67,7 +67,7 @@ func newPatch483Harness(t *testing.T) (srv *Server, tok string) {
 	config.MigrateCurvePWMFields(initial)
 	cfgPtr.Store(initial)
 
-	srv = New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, "tok483", hwdiag.NewStore())
+	srv = New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
 
 	sessionTok, err := srv.sessions.create()
 	if err != nil {
