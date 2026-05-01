@@ -112,6 +112,13 @@
         if (oppCheckbox) {
           oppCheckbox.checked = !!c.never_actively_probe_after_install;
         }
+        // v0.5.6: workload signature learning toggle. Same shape;
+        // the checkbox reads as "Disable signature learning" so the
+        // box is checked when the daemon is configured to NOT learn.
+        var sigCheckbox = $('set-sig-disable');
+        if (sigCheckbox) {
+          sigCheckbox.checked = !!c.signature_learning_disabled;
+        }
       })
       .catch(function () {
         // Demo fallback when API is unreachable so the screen never looks
@@ -126,14 +133,12 @@
       });
   }
 
-  // putOpportunisticToggle persists the smart-mode toggle. The PUT
-  // /api/v1/config endpoint expects the full config; we mutate the
-  // single field on the cached copy and submit. On 5xx the checkbox
-  // reverts to the previous value so the UI stays honest.
-  function putOpportunisticToggle(checked) {
+  // Generic toggle helper: mutates one boolean field on the cached
+  // currentConfig and PUTs the whole struct. Returns true on 200.
+  function putSmartModeToggle(field, checked) {
     if (!currentConfig) return Promise.resolve(false);
     var next = JSON.parse(JSON.stringify(currentConfig));
-    next.never_actively_probe_after_install = !!checked;
+    next[field] = !!checked;
     return fetch('/api/v1/config', {
       method: 'PUT',
       credentials: 'same-origin',
@@ -146,23 +151,30 @@
         return true;
       })
       .catch(function (err) {
-        console.error('settings: opportunistic toggle PUT failed', err);
+        console.error('settings: ' + field + ' PUT failed', err);
         return false;
       });
   }
 
-  // Wire the toggle once the page is loaded. The change handler debounces
-  // via the in-flight Promise: rapid toggling produces sequential PUTs.
+  // Wire the toggles once the page is loaded. The change handler
+  // debounces via the in-flight Promise: rapid toggling produces
+  // sequential PUTs. On failure the checkbox reverts to keep the UI
+  // honest about the server's view.
   var oppCheckbox = $('set-opp-disable');
   if (oppCheckbox) {
     oppCheckbox.addEventListener('change', function () {
       var desired = oppCheckbox.checked;
-      putOpportunisticToggle(desired).then(function (ok) {
-        if (!ok) {
-          // Revert UI on failure so the checkbox state matches the
-          // server's view.
-          oppCheckbox.checked = !desired;
-        }
+      putSmartModeToggle('never_actively_probe_after_install', desired).then(function (ok) {
+        if (!ok) oppCheckbox.checked = !desired;
+      });
+    });
+  }
+  var sigCheckbox = $('set-sig-disable');
+  if (sigCheckbox) {
+    sigCheckbox.addEventListener('change', function () {
+      var desired = sigCheckbox.checked;
+      putSmartModeToggle('signature_learning_disabled', desired).then(function (ok) {
+        if (!ok) sigCheckbox.checked = !desired;
       });
     });
   }

@@ -113,6 +113,16 @@ type Config struct {
 	// Per spec-smart-mode §6.4 / §7.4 and spec-12 amendment §3.5
 	// (RULE-OPP-PROBE-08, RULE-UI-SMART-07).
 	NeverActivelyProbeAfterInstall bool `yaml:"never_actively_probe_after_install,omitempty" json:"never_actively_probe_after_install,omitempty"`
+	// SignatureLearningDisabled disables v0.5.6 workload signature
+	// learning system-wide. Default false (learning enabled in auto
+	// mode). Per spec-smart-mode §6.6 / §7.4 and spec-12 amendment
+	// §3.5 (RULE-SIG-LIB-08, RULE-UI-SMART-07).
+	SignatureLearningDisabled bool `yaml:"signature_learning_disabled,omitempty" json:"signature_learning_disabled,omitempty"`
+	// SmartMarginalBenefitDisabled disables v0.5.8 Layer-C
+	// per-(channel, signature) marginal-benefit learning system-wide.
+	// Default false (learning enabled in auto mode). Per
+	// spec-v0_5_8-marginal-benefit.md §3.6.
+	SmartMarginalBenefitDisabled bool `yaml:"smart_marginal_benefit_disabled,omitempty" json:"smart_marginal_benefit_disabled,omitempty"`
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can

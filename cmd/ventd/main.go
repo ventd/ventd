@@ -21,6 +21,7 @@ import (
 	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
@@ -36,13 +37,16 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
+	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
+	"github.com/ventd/ventd/internal/proc"
 	"github.com/ventd/ventd/internal/sdnotify"
 	setupmgr "github.com/ventd/ventd/internal/setup"
+	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/state"
 	"github.com/ventd/ventd/internal/sysclass"
 	"github.com/ventd/ventd/internal/watchdog"
@@ -464,7 +468,22 @@ func run() error {
 		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, logger)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper, oppFactory)
+	// v0.5.6: bundle the runtime dependencies for signature learning
+	// + observation log emission. Same closure-over-run-scope pattern
+	// as oppFactory.
+	smartMode := &SmartModeBundle{
+		SigFactory: func(liveCfg *atomic.Pointer[config.Config]) *signature.Library {
+			return buildSignatureLibrary(channels, sysDet, liveCfg, logger)
+		},
+		State:    st,
+		Coupling: buildCouplingRuntime(channels, st, dmiFingerprint, logger),
+		Marginal: buildMarginalRuntime(channels, st, dmiFingerprint, logger),
+	}
+	if obsWriter != nil {
+		smartMode.ObsAppend = buildObsAppend(obsWriter)
+	}
+
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
@@ -567,9 +586,88 @@ func buildOpportunisticScheduler(
 	return sched
 }
 
+// buildCouplingRuntime constructs the v0.5.7 Layer-B thermal coupling
+// estimator runtime with one shard per controllable channel. Returns
+// nil when there are no controllable channels (monitor-only mode);
+// the daemon then never starts the coupling goroutine.
+//
+// N_coupled is fixed at 0 for v0.5.7 — the well-posed reduced-model
+// case (R9 §U4) where each shard learns its own thermal time constant
+// `a` and load coefficient `c`. v0.5.8 raises N_coupled to enable
+// cross-fan b_ij learning once Layer C is in.
+//
+// hwmonFingerprint invalidates persisted shards on hardware change
+// per RULE-CPL-PERSIST-01. dmiFingerprint is host-stable and
+// changes when the motherboard changes — sufficient for v0.5.7;
+// v0.5.10 doctor refines.
+//
+// RULE-CPL-WIRING-01: Runtime is constructed only when len(channels) > 0.
+// RULE-CPL-WIRING-02: Exactly one shard per controllable channel is registered.
+func buildCouplingRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *coupling.Runtime {
+	if len(channels) == 0 {
+		logger.Info("coupling: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := coupling.NewRuntime(st.Dir, hwmonFingerprint, logger)
+	for _, ch := range channels {
+		shard, err := coupling.New(coupling.DefaultConfig(ch.PWMPath, 0))
+		if err != nil {
+			logger.Warn("coupling: shard init failed",
+				"channel", ch.PWMPath, "err", err)
+			continue
+		}
+		if addErr := rt.AddShard(shard); addErr != nil {
+			logger.Warn("coupling: AddShard failed",
+				"channel", ch.PWMPath, "err", addErr)
+			continue
+		}
+	}
+	logger.Info("coupling: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
+}
+
 // runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
 // probe sequentially across all controllable channels (RULE-ENVELOPE-11).
 // Called from run() as a goroutine; ctx is cancelled when run() returns.
+// buildMarginalRuntime constructs the v0.5.8 Layer-C
+// marginal-benefit estimator runtime. Returns nil when there are
+// no controllable channels (monitor-only mode); the daemon then
+// never starts the goroutine.
+//
+// Per spec-v0_5_8 §6.2: wiring-only. Shards are admitted lazily
+// on the first OnObservation call carrying a non-fallback
+// signature; v0.5.9 wires the actual feed (sensor readings live
+// in the controller, not in the controller→obsWriter Record).
+//
+// hwmonFingerprint matches v0.5.7's choice — dmiFingerprint —
+// for v0.5.8; v0.5.10 doctor refines.
+//
+// RULE-CMB-WIRING-01: Returns nil when len(channels) == 0.
+// RULE-CMB-WIRING-03: Caller starts Run exactly once.
+func buildMarginalRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *marginal.Runtime {
+	if len(channels) == 0 {
+		logger.Info("marginal: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := marginal.NewRuntime(st.Dir, hwmonFingerprint, nil, nil, logger)
+	logger.Info("marginal: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
+}
+
 func runEnvelopeBackground(
 	ctx context.Context,
 	st *state.State,
@@ -703,9 +801,10 @@ func runDaemon(
 	expFlags experimental.Flags,
 	kvWiper func() error,
 	oppFactory OpportunisticFactory,
+	smartMode *SmartModeBundle,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper, oppFactory)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -714,6 +813,38 @@ func runDaemon(
 // the daemon is in monitor-only mode or the writer was unavailable;
 // runDaemonInternal then skips the scheduler goroutine.
 type OpportunisticFactory func(liveCfg *atomic.Pointer[config.Config]) *opportunistic.Scheduler
+
+// SmartModeBundle bundles the v0.5.6+ runtime dependencies that
+// runDaemonInternal needs but that are derived in run(): signature
+// library, observation-log append closure, persistent state for
+// signature persistence. All fields nil-safe — when the bundle is
+// nil or any field is nil, runDaemonInternal skips the corresponding
+// wiring.
+type SmartModeBundle struct {
+	// SigFactory builds the signature library against the live cfg.
+	// Returns nil to skip the library entirely.
+	SigFactory func(liveCfg *atomic.Pointer[config.Config]) *signature.Library
+	// State is the spec-16 state handle used for signature
+	// persistence (Save / SaveManifest).
+	State *state.State
+	// ObsAppend is the closure controllers call after every PWM
+	// write. nil means the controller skips observation emission
+	// (pre-v0.5.6 behaviour).
+	ObsAppend func(*controller.ObsRecord)
+	// Coupling is the v0.5.7 Layer-B thermal coupling estimator
+	// runtime. Pre-built with one shard per controllable channel.
+	// nil in monitor-only mode (no controllable channels) — daemon
+	// then never starts the coupling goroutine. Snapshot.Read is
+	// consumed by v0.5.9's confidence-gated controller.
+	Coupling *coupling.Runtime
+	// Marginal is the v0.5.8 Layer-C per-(channel, signature)
+	// marginal-benefit estimator runtime. Pre-built but admits
+	// shards lazily on observation. nil in monitor-only mode and
+	// when SmartMarginalBenefitDisabled is true (toggle read by
+	// runDaemonInternal). Snapshot.Read is consumed by v0.5.9's
+	// confidence-gated controller.
+	Marginal *marginal.Runtime
+}
 
 // configLoader is the function used to load a config from disk on each
 // in-process reload. Tests that exercise the first-boot → configured reload
@@ -738,6 +869,7 @@ func runDaemonInternal(
 	expFlags experimental.Flags,
 	kvWiper func() error,
 	oppFactory OpportunisticFactory,
+	smartMode *SmartModeBundle,
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -938,6 +1070,60 @@ func runDaemonInternal(
 		readyState.SetHealthy()
 	}
 
+	// v0.5.6: build and launch the workload signature library via the
+	// SmartModeBundle factory. Returns nil in monitor-only mode, in
+	// containers/VMs (R1 Tier-2 BLOCK), on hardware-refused platforms
+	// (R3), or when SignatureLearningDisabled is true. Controllers
+	// thread the library's lock-free Label() reader into their
+	// observation-log emission via WithObservation.
+	var sigLib *signature.Library
+	if smartMode != nil && smartMode.SigFactory != nil {
+		sigLib = smartMode.SigFactory(&liveCfg)
+	}
+	if sigLib != nil && smartMode.State != nil {
+		sigCtx, sigCancel := context.WithCancel(ctx)
+		defer sigCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runSignatureTickLoop(sigCtx, sigLib, smartMode.State, logger)
+		}()
+	}
+
+	// v0.5.7: launch the Layer-B thermal coupling estimator runtime.
+	// Per spec §8.2 PR-B: wiring-only — the snapshot is read by
+	// v0.5.9's confidence-gated controller, not the v0.5.7 hot loop.
+	// RULE-CPL-WIRING-03: Runtime.Run goroutine started exactly once
+	// per daemon lifetime, scoped to ctx.
+	if smartMode != nil && smartMode.Coupling != nil {
+		cplCtx, cplCancel := context.WithCancel(ctx)
+		defer cplCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Coupling.Run(cplCtx); err != nil && err != context.Canceled {
+				logger.Warn("coupling: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
+	// v0.5.8: launch the Layer-C marginal-benefit estimator runtime.
+	// Same lifecycle pattern as Layer B — wiring-only, snapshot
+	// consumed by v0.5.9's controller. Disabled by toggle.
+	// RULE-CMB-WIRING-03.
+	if smartMode != nil && smartMode.Marginal != nil &&
+		!cfg.SmartMarginalBenefitDisabled {
+		mgnCtx, mgnCancel := context.WithCancel(ctx)
+		defer mgnCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Marginal.Run(mgnCtx); err != nil && err != context.Canceled {
+				logger.Warn("marginal: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
 		calMap := loadCalibrationByChannel(logger)
@@ -964,6 +1150,18 @@ func runDaemonInternal(
 						opts = append(opts, controller.WithCalibration(calCh, 255))
 					}
 				}
+			}
+			// v0.5.6: stamp every successful PWM write into the
+			// observation log with the current signature label.
+			// Closes the v0.5.4 controller→obsWriter gap.
+			if smartMode != nil && smartMode.ObsAppend != nil {
+				labelFn := func() string { return signature.FallbackLabelDisabled }
+				if sigLib != nil {
+					labelFn = sigLib.Label
+				}
+				opts = append(opts, controller.WithObservation(
+					smartMode.ObsAppend, labelFn,
+				))
 			}
 			c := controller.New(
 				ctrl.Fan, ctrl.Curve,
@@ -1092,6 +1290,17 @@ func runDaemonInternal(
 								reloadOpts = append(reloadOpts, controller.WithCalibration(calCh, 255))
 							}
 						}
+					}
+					// v0.5.6: same observation wiring as the
+					// initial-startup path.
+					if smartMode != nil && smartMode.ObsAppend != nil {
+						labelFn := func() string { return signature.FallbackLabelDisabled }
+						if sigLib != nil {
+							labelFn = sigLib.Label
+						}
+						reloadOpts = append(reloadOpts, controller.WithObservation(
+							smartMode.ObsAppend, labelFn,
+						))
 					}
 					c := controller.New(
 						ctrl.Fan, ctrl.Curve,
@@ -1383,4 +1592,107 @@ func parseHwmonChannel(pwmPath string) (chipName string, idx int, ok bool) {
 		return "", 0, false
 	}
 	return chip, n, true
+}
+
+// buildSignatureLibrary constructs the v0.5.6 workload signature
+// library. Returns nil when the daemon is in monitor-only mode or
+// the operator has set Config.SignatureLearningDisabled. Tier-2
+// (R1) and hardware-refused (R3) inheritance is reflected via the
+// disable gate; we don't gate explicitly here because the signature
+// library's Disabled config is checked on every Tick.
+func buildSignatureLibrary(
+	channels []*probe.ControllableChannel,
+	sysDet *sysclass.Detection,
+	liveCfg *atomic.Pointer[config.Config],
+	logger *slog.Logger,
+) *signature.Library {
+	if len(channels) == 0 {
+		logger.Info("signature: no controllable channels; library not started")
+		return nil
+	}
+
+	saltPath := signature.DefaultSaltPath
+	salt, err := signature.LoadOrCreateSalt(saltPath)
+	if err != nil {
+		logger.Warn("signature: salt load failed; library not started", "err", err)
+		return nil
+	}
+	hasher, err := signature.NewHasher(salt)
+	if err != nil {
+		logger.Warn("signature: hasher init failed; library not started", "err", err)
+		return nil
+	}
+
+	cfg := signature.DefaultConfig()
+	if c := liveCfg.Load(); c != nil && c.SignatureLearningDisabled {
+		signature.ApplyDisableGate(&cfg, signature.DisableReasonOperatorToggle)
+	}
+
+	lib := signature.NewLibrary(cfg, hasher, signature.NewMaintenanceBlocklist(), logger)
+	logger.Info("signature: library initialised",
+		"channels", len(channels),
+		"disabled", cfg.Disabled,
+		"sysclass", sysDet.Class)
+	return lib
+}
+
+// runSignatureTickLoop drives the signature library's 2-second
+// EWMA tick. Walks /proc on every tick, feeds samples into Tick,
+// persists buckets every minute. Exits cleanly on context cancel.
+func runSignatureTickLoop(
+	ctx context.Context,
+	lib *signature.Library,
+	st *state.State,
+	logger *slog.Logger,
+) {
+	walker := proc.New("/proc", 0, 0)
+	tickInterval := signature.DefaultHalfLife // 2 s
+	persistEvery := 30 * tickInterval         // 60 s
+
+	tick := time.NewTicker(tickInterval)
+	defer tick.Stop()
+	persistTicker := time.NewTicker(persistEvery)
+	defer persistTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			samples, err := walker.Walk()
+			if err != nil {
+				logger.Debug("signature: proc walk error", "err", err)
+				continue
+			}
+			lib.Tick(time.Now(), samples)
+		case <-persistTicker.C:
+			if err := lib.Save(st.KV); err != nil {
+				logger.Warn("signature: persist failed", "err", err)
+			}
+			if err := lib.SaveManifest(st.KV); err != nil {
+				logger.Warn("signature: manifest persist failed", "err", err)
+			}
+		}
+	}
+}
+
+// buildObsAppend returns the closure that controllers call after
+// every successful PWM write. Maps the controller's package-local
+// ObsRecord shape to the real observation.Record (computing
+// ChannelID from the path) and calls Writer.Append.
+//
+// Errors from Append are logged at warn level and swallowed —
+// observation loss is preferable to a stalled control loop.
+func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
+	return func(rec *controller.ObsRecord) {
+		obsRec := &observation.Record{
+			Ts:             rec.Ts,
+			ChannelID:      observation.ChannelID(rec.PWMPath),
+			PWMWritten:     rec.PWMWritten,
+			RPM:            rec.RPM,
+			SignatureLabel: rec.SignatureLabel,
+			EventFlags:     rec.EventFlags,
+		}
+		_ = obsWriter.Append(obsRec)
+	}
 }

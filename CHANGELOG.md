@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.7] - 2026-05-01
+
+### Added
+- v0.5.7 PR-A — Layer-B thermal coupling estimator: `internal/coupling/` package implementing per-channel RLS estimator with rank-1 Sherman-Morrison updates (`gonum mat.SymRankOne`), bounded-covariance directional forgetting (R12 ceiling `tr(P) ≤ 100`), three-condition warmup gate (`n_samples ≥ 5·d²` AND `tr(P) ≤ 0.5·tr(P_0)` AND `κ ≤ 10⁴`), three-way κ classification (R9 §9.4), signed Pearson co-varying fan detection (`ρ > 0.999`), spec-16 KV persistence with `hwmon_fingerprint` invalidation. Lock-free Snapshot.Read via `atomic.Pointer` for the controller hot loop. Determinism replay test, observability via structured slog, privacy invariants (no comm names in Snapshot). 13 RULE-CPL-* bindings. (#736)
+- v0.5.7 PR-B — daemon wiring: `cmd/ventd/main.go` launches `coupling.Runtime` alongside controllers; one shard per controllable channel; `N_coupled = 0` (R9 §U4 well-posed reduced model); `hwmon_fingerprint = dmiFingerprint`. RULE-CPL-WIRING-01..03. (#738)
+
+## [v0.5.6] - 2026-05-01
+
+### Added
+- v0.5.6 PR-A — workload signature library + integration tooling: `internal/signature/` package (SipHash-2-4 keyed by per-install salt, EWMA-multiset with K-stable promotion, 128-bucket weighted-LRU, spec-16 KV persistence), `internal/proc/walker.go` shared process walker, `internal/idle/blocklist_export.go` re-exports R5 maintenance-class names. Plus integration tooling: `tools/rulelint --suggest --check-binding-uniqueness`, `internal/testfixture/fakeprocsys`, `internal/smartmode/` cross-spec integration tests, `scripts/ci-local.sh`, `scripts/install-git-hooks.sh`, `scripts/retry-flaky.sh`, `.github/flaky-tests.yaml` (#730)
+- v0.5.6 PR-B — controller wiring + Settings toggle + closes the v0.5.4 obsWriter gap. Every successful PWM write emits an observation record stamped with the current signature label. (#731)
+
+### Changed
+- `internal/idle/idle_test.go` and `internal/probe/opportunistic/helpers_test.go` migrated to the shared `fakeprocsys` test fixture, removing duplicated inline `makeIdleProcRoot` helpers.
+
 ## [v0.5.5] - 2026-05-01
 
 ### Added
