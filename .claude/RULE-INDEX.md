@@ -213,6 +213,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration-safety.md | Calibration Safety Rules |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | collaboration.md | Collaboration Rules |
+| coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | go-conventions.md | Go Conventions — ventd |
 | hal-contract.md | HAL Backend Contract |
 | hidraw-safety.md | hidraw-safety — invariant bindings for pure-Go Linux hidraw substrate |
