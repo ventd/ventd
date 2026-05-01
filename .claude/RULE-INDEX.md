@@ -219,6 +219,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration-safety.md | Calibration Safety Rules |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | collaboration.md | Collaboration Rules |
+| confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
 | confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
 | coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | go-conventions.md | Go Conventions — ventd |
