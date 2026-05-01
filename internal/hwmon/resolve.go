@@ -11,22 +11,45 @@ import (
 // hwmon path. The hwmonX number is volatile and changes between reboots; the
 // parent device directory (e.g. /sys/devices/platform/nct6687.2608) is stable.
 //
-// Example:
+// Resolution strategy:
+//
+//  1. Prefer the hwmon dir's `device` symlink. This is what
+//     `internal/config/resolve_hwmon.go::hwmonDevicePathOf` reads, so
+//     producing the same path here keeps StableDevice round-trippable
+//     through the resolver.
+//
+//  2. Fall back to "go up two levels from the resolved hwmon dir" for
+//     hwmon entries that lack a `device` symlink (rare). Matches the
+//     pre-v0.5.8.1 behaviour for chips like nct6687d / it87 / coretemp.
+//
+// Example (platform device):
 //
 //	/sys/class/hwmon/hwmon2/pwm1
-//	  → resolves symlink → /sys/devices/platform/nct6687.2608/hwmon/hwmon2
-//	  → go up two levels → /sys/devices/platform/nct6687.2608
+//	  → /sys/class/hwmon/hwmon2/device → /sys/devices/platform/nct6687.2608
+//
+// Example (thermal-class virtual device):
+//
+//	/sys/class/hwmon/hwmon0/temp1_input  (acpitz)
+//	  → /sys/class/hwmon/hwmon0/device → /sys/devices/virtual/thermal/thermal_zone0
+//
+// The previous "up two levels" formula returned /sys/devices/virtual/thermal
+// for the acpitz case — a path the resolver doesn't recognise as the
+// chip's stable device. Using the `device` symlink fixes the round-trip.
 func StableDevice(hwmonPath string) string {
 	// Work from the hwmon directory, not a file inside it.
 	dir := hwmonPath
 	if !isHwmonDir(dir) {
 		dir = filepath.Dir(hwmonPath)
 	}
+	// Strategy 1: read the hwmon dir's `device` symlink directly.
+	if dev, err := filepath.EvalSymlinks(filepath.Join(dir, "device")); err == nil {
+		return dev
+	}
+	// Strategy 2: walk up two levels from the resolved hwmon dir.
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return ""
 	}
-	// real = /sys/devices/.../hwmon/hwmonX — device is two levels up.
 	return filepath.Dir(filepath.Dir(real))
 }
 
