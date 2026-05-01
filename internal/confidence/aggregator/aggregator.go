@@ -128,7 +128,6 @@ type Aggregator struct {
 }
 
 type channelState struct {
-	wFilt        float64
 	wFiltPrev    float64
 	wPredPrev    float64
 	lastTick     time.Time
