@@ -101,7 +101,7 @@ func TestShutdownSequence(t *testing.T) {
 	// runDaemon returns via errCh → a single-slot channel we select on below.
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemon(ctx, cfg, cfgPath, "", logger, "", nil, experimental.Flags{}, nil)
+		done <- runDaemon(ctx, cfg, cfgPath, "", logger, "", nil, experimental.Flags{}, nil, nil)
 	}()
 
 	// Wait for at least one tick so the watchdog is registered, the

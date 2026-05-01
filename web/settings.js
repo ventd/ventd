@@ -84,6 +84,11 @@
   // ── data fill ─────────────────────────────────────────────────────
   function setT(id, v) { var el = $(id); if (el) el.textContent = v == null || v === '' ? '—' : v; }
 
+  // currentConfig holds the most recently fetched config so the
+  // smart-mode toggle PUT can submit a complete payload (the API
+  // expects the full config struct).
+  var currentConfig = null;
+
   function loadConfig() {
     fetch('/api/v1/config', { credentials: 'same-origin' })
       .then(function (r) {
@@ -91,6 +96,7 @@
         return r.json();
       })
       .then(function (c) {
+        currentConfig = c;
         setT('set-listen', (c.web && c.web.listen) || '—');
         setT('set-tls', (c.web && c.web.tls_cert) ? 'enabled' : 'off');
         setT('set-ttl', (c.web && c.web.session_ttl) || 'default');
@@ -98,6 +104,14 @@
         setT('set-curves', (c.curves && c.curves.length) || 0);
         setT('set-fans',   (c.fans && c.fans.length) || 0);
         setT('set-proxy', (c.web && c.web.trust_proxy && c.web.trust_proxy.length) ? c.web.trust_proxy.join(', ') : 'none');
+        // v0.5.5: smart-mode opportunistic-probing toggle. The
+        // default false means "probing enabled"; the toggle reads as
+        // "Never actively probe after install" so the checkbox is
+        // checked when the daemon is configured to NOT probe.
+        var oppCheckbox = $('set-opp-disable');
+        if (oppCheckbox) {
+          oppCheckbox.checked = !!c.never_actively_probe_after_install;
+        }
       })
       .catch(function () {
         // Demo fallback when API is unreachable so the screen never looks
@@ -110,6 +124,47 @@
         setT('set-fans',   '14');
         setT('set-proxy',  'none');
       });
+  }
+
+  // putOpportunisticToggle persists the smart-mode toggle. The PUT
+  // /api/v1/config endpoint expects the full config; we mutate the
+  // single field on the cached copy and submit. On 5xx the checkbox
+  // reverts to the previous value so the UI stays honest.
+  function putOpportunisticToggle(checked) {
+    if (!currentConfig) return Promise.resolve(false);
+    var next = JSON.parse(JSON.stringify(currentConfig));
+    next.never_actively_probe_after_install = !!checked;
+    return fetch('/api/v1/config', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        currentConfig = next;
+        return true;
+      })
+      .catch(function (err) {
+        console.error('settings: opportunistic toggle PUT failed', err);
+        return false;
+      });
+  }
+
+  // Wire the toggle once the page is loaded. The change handler debounces
+  // via the in-flight Promise: rapid toggling produces sequential PUTs.
+  var oppCheckbox = $('set-opp-disable');
+  if (oppCheckbox) {
+    oppCheckbox.addEventListener('change', function () {
+      var desired = oppCheckbox.checked;
+      putOpportunisticToggle(desired).then(function (ok) {
+        if (!ok) {
+          // Revert UI on failure so the checkbox state matches the
+          // server's view.
+          oppCheckbox.checked = !desired;
+        }
+      });
+    });
   }
 
   function loadVersion() {

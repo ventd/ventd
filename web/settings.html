@@ -66,6 +66,7 @@
         <div class="card-eyebrow">SETTINGS</div>
         <a class="set-nav-item is-active" href="#display">Display</a>
         <a class="set-nav-item" href="#daemon">Daemon</a>
+        <a class="set-nav-item" href="#smart-mode">Smart mode</a>
         <a class="set-nav-item" href="#security">Security</a>
         <a class="set-nav-item" href="#system">System</a>
         <a class="set-nav-item" href="#about">About</a>
@@ -116,6 +117,23 @@
             <div class="set-kv-row"><dt>Curves loaded</dt><dd class="mono" id="set-curves">—</dd></div>
             <div class="set-kv-row"><dt>Fans configured</dt><dd class="mono" id="set-fans">—</dd></div>
           </dl>
+        </article>
+
+        <article class="set-section card" id="smart-mode">
+          <header class="set-section-head">
+            <div class="card-title"><span class="card-title-accent"></span>Smart mode</div>
+            <p class="set-section-sub">Behaviour of the autonomous fan-control learning loop. Disabling these stops ventd from learning new things about your fans; existing learned state is preserved.</p>
+          </header>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Never actively probe after install</div>
+              <div class="set-row-sub">When off (default), ventd opportunistically writes a fan PWM value for ~30 seconds during genuinely-idle windows to fill gaps in the response curve. The first probe waits 24 hours after install. Disabling will leave coverage gaps in the low end of the curve.</div>
+            </div>
+            <label class="set-toggle">
+              <input type="checkbox" id="set-opp-disable">
+              <span class="set-toggle-slider"></span>
+            </label>
+          </div>
         </article>
 
         <article class="set-section card" id="security">

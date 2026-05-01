@@ -398,8 +398,39 @@
     applyVersion({ version: '0.5.4' });
   }
 
+  // ── v0.5.5: opportunistic-probe in-flight pill ───────────────────
+  // Polls /api/v1/probe/opportunistic/status every 5 s. The endpoint
+  // returns running=false when the scheduler is not wired (monitor-
+  // only mode) or when no probe is currently in flight; the pill
+  // stays hidden in either case.
+  function pollOpportunisticStatus() {
+    fetch('/api/v1/probe/opportunistic/status', { credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (s) {
+        var pill = document.getElementById('dash-opp-pill');
+        var text = document.getElementById('dash-opp-pill-text');
+        if (!pill || !text) return;
+        if (s && s.running) {
+          var pwm = s.gap_pwm != null ? s.gap_pwm : '?';
+          text.textContent = 'probing PWM ' + pwm;
+          pill.hidden = false;
+        } else {
+          pill.hidden = true;
+        }
+      })
+      .catch(function () {
+        var pill = document.getElementById('dash-opp-pill');
+        if (pill) pill.hidden = true;
+      });
+  }
+
   // ── start ──────────────────────────────────────────────────────────
   pollOnce();
   pollTimer = setInterval(pollOnce, pollInterval);
   setInterval(function () { if (!inDemo) tickUptime(); }, 1000);
+  pollOpportunisticStatus();
+  setInterval(pollOpportunisticStatus, 5000);
 })();
