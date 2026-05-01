@@ -19,9 +19,9 @@ func TestBundleNameRe_RejectsPathTraversal(t *testing.T) {
 		"ventd-diag-../etc/shadow.tar.gz",
 		"/etc/shadow",
 		"ventd-diag-host.tar.gz/../escape",
-		"diag.tar.gz",                  // wrong prefix
-		"ventd-diag-host",              // missing extension
-		"ventd-diag-host.tar.gz.evil",  // wrong suffix
+		"diag.tar.gz",                 // wrong prefix
+		"ventd-diag-host",             // missing extension
+		"ventd-diag-host.tar.gz.evil", // wrong suffix
 		"",
 		"ventd-diag-host\x00.tar.gz", // null byte
 	}
