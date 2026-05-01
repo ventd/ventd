@@ -289,7 +289,7 @@ func EnsureDKMS(log func(string)) error {
 			continue
 		}
 		log("Installing dkms via " + c.mgr + "...")
-		if out, err := exec.Command(c.mgr, c.args...).CombinedOutput(); err != nil {
+		if out, err := runInstallWithTimeout(c.mgr, c.args); err != nil {
 			return fmt.Errorf("dkms install failed: %w\n%s", err, strings.TrimSpace(string(out)))
 		}
 		log("DKMS installed successfully.")
@@ -300,9 +300,22 @@ func EnsureDKMS(log func(string)) error {
 
 // ensureKernelHeaders installs kernel headers needed to build kernel modules.
 // It is a no-op if the build symlink already exists.
+//
+// Fail-fast on missing/invalid kernel version (#769): without a release
+// string, the apt-get install command would expand to
+// `apt-get install -y linux-headers- build-essential` and hang on an
+// interactive package-selection prompt the daemon can't answer. Detect
+// via the three-source chain in detectKernelVersion, validate the shape,
+// and surface a clean error if anything is off — the wizard turns that
+// into "Could not detect kernel version" instead of an indefinite spinner.
 func ensureKernelHeaders(log func(string)) error {
-	uname, _ := exec.Command("uname", "-r").Output()
-	kernelRelease := strings.TrimSpace(string(uname))
+	kernelRelease, err := detectKernelVersion("/")
+	if err != nil {
+		return fmt.Errorf("driver install: %w", err)
+	}
+	if !validKernelVersion(kernelRelease) {
+		return fmt.Errorf("driver install: refusing to install kernel headers for invalid kernel version %q (expected e.g. \"6.8.0-111-generic\")", kernelRelease)
+	}
 
 	// Fast path: if /lib/modules/<release>/build exists, headers are installed.
 	buildDir := "/lib/modules/" + kernelRelease + "/build"
@@ -347,7 +360,7 @@ func ensureKernelHeaders(log func(string)) error {
 		if _, err := exec.LookPath(c.mgr); err != nil {
 			continue
 		}
-		out, err := exec.Command(c.mgr, c.args...).CombinedOutput()
+		out, err := runInstallWithTimeout(c.mgr, c.args)
 		if err != nil {
 			return fmt.Errorf("kernel headers install failed: %w\n%s", err, strings.TrimSpace(string(out)))
 		}
