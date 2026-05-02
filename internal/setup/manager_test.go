@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hwdiag"
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/recovery"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -355,6 +357,74 @@ func TestManager_EmitBuildFailedDiagNoStoreIsNoOp(t *testing.T) {
 		hwmonpkg.DriverNeed{Key: "k", ChipName: "C", Module: "m"},
 		errors.New("boom"),
 	)
+}
+
+// TestManager_VendorDaemonShortCircuit pins the wizard's R28 deferral
+// path (RULE-WIZARD-RECOVERY-11). When DetectVendorDaemon reports an
+// active OEM fan daemon, run() must NOT proceed to hardware enumeration
+// — it sets failureClass=ClassVendorDaemonActive + an explanatory error
+// message and returns. The recovery card surfaced from this state has a
+// "Switch ventd to monitor-only mode" action POSTing to
+// /api/setup/apply-monitor-only.
+//
+// The test injects a stub probe so the wizard short-circuits
+// deterministically without spawning systemctl or relying on a vendor
+// daemon being installed in the CI sandbox.
+func TestManager_VendorDaemonShortCircuit(t *testing.T) {
+	m := newManager(t)
+	m.SetVendorDaemonProbe(func(ctx context.Context) recovery.VendorDaemon {
+		return recovery.VendorDaemonSystem76
+	})
+
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	final := waitDone(t, m, 5*time.Second)
+
+	if got := final.FailureClass; got != string(recovery.ClassVendorDaemonActive) {
+		t.Errorf("FailureClass = %q, want %q", got, recovery.ClassVendorDaemonActive)
+	}
+	if !strings.Contains(final.Error, string(recovery.VendorDaemonSystem76)) {
+		t.Errorf("Error = %q, want it to name the detected daemon (%s)",
+			final.Error, recovery.VendorDaemonSystem76)
+	}
+	// Phase must NOT have advanced past the deferral check — no
+	// hardware enumeration should have run.
+	if final.Phase != "" && final.Phase != "detecting" {
+		// "" or "detecting" both indicate the wizard didn't get into
+		// install/scan/calibrate phases.
+		t.Errorf("Phase = %q, expected the wizard to short-circuit before phase advance", final.Phase)
+	}
+	// Remediation is populated from FailureClass via Progress(). The
+	// vendor-daemon class always returns at least the monitor-only
+	// card + the bundle escape.
+	if len(final.Remediation) < 2 {
+		t.Errorf("Remediation len = %d, want at least 2 (monitor-only + bundle)", len(final.Remediation))
+	}
+}
+
+// TestManager_VendorDaemonProbe_NoneDoesNotShortCircuit confirms that
+// returning VendorDaemonNone (the default + ctx-cancel + nothing-found
+// path) lets the wizard proceed past Phase 0. The wizard then runs
+// the existing "no fans found" path because the test sandbox has no
+// /sys/class/hwmon, which is the documented sandbox failure shape.
+func TestManager_VendorDaemonProbe_NoneDoesNotShortCircuit(t *testing.T) {
+	m := newManager(t)
+	m.SetVendorDaemonProbe(func(ctx context.Context) recovery.VendorDaemon {
+		return recovery.VendorDaemonNone
+	})
+
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	final := waitDone(t, m, 5*time.Second)
+
+	// The vendor-daemon failure class MUST NOT fire on the no-vendor
+	// path. Other failure shapes (no fans, etc.) are fine.
+	if final.FailureClass == string(recovery.ClassVendorDaemonActive) {
+		t.Errorf("FailureClass = %q, expected anything but vendor_daemon_active when probe returns None",
+			final.FailureClass)
+	}
 }
 
 // TestManager_EmitDMICandidatesWrapper covers the public wrapper around the
