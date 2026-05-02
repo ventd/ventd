@@ -145,11 +145,18 @@ var knownDriverNeeds = map[string]DriverNeed{
 		// Narrow to MAG/MPG so MSI boards with a classic NCT6775 don't get
 		// misrouted. Two triggers cover both DMI vendor spellings seen in the
 		// wild.
+		//
+		// MS-7D25 is the MSI internal codename for PRO Z690-A DDR4. Phoenix's
+		// HIL desktop reports board_name="MS-7D25" and uses NCT6687D — but the
+		// PRO line is mixed (other PRO boards ship IT8688E), so we match the
+		// codename directly rather than widening to a "pro z" prefix.
 		DMITriggers: []DMITrigger{
 			{BoardVendorContains: "micro-star", BoardNameContains: "mag"},
 			{BoardVendorContains: "micro-star", BoardNameContains: "mpg"},
 			{BoardVendorContains: "msi", BoardNameContains: "mag"},
 			{BoardVendorContains: "msi", BoardNameContains: "mpg"},
+			{BoardVendorContains: "micro-star", BoardNameContains: "ms-7d25"},
+			{BoardVendorContains: "msi", BoardNameContains: "ms-7d25"},
 		},
 	},
 }
@@ -631,7 +638,7 @@ func Diagnose() HwmonDiagnostics {
 	}
 
 	if d.PWMCount == 0 {
-		d.DriverNeeds = identifyDriverNeeds(d.BoardVendor, d.HwmonDevices)
+		d.DriverNeeds = identifyDriverNeeds(d.BoardVendor, d.BoardName, d.HwmonDevices)
 	}
 
 	return d
@@ -660,7 +667,7 @@ func countControllablePWM(pwmPaths []string) int {
 // entry with "it8688" in its name will ever appear — only "gigabyte_wmi" or
 // similar partial-support entries. In that case the vendor string is the only
 // reliable signal.
-func identifyDriverNeeds(boardVendor string, hwmonNames []string) []DriverNeed {
+func identifyDriverNeeds(boardVendor, boardName string, hwmonNames []string) []DriverNeed {
 	hwmonSet := make(map[string]bool, len(hwmonNames))
 	for _, n := range hwmonNames {
 		hwmonSet[strings.ToLower(n)] = true
@@ -696,6 +703,34 @@ func identifyDriverNeeds(boardVendor string, hwmonNames []string) []DriverNeed {
 		}
 	}
 
+	// Board-name-specific DMI matching: a board whose chip has no in-kernel
+	// driver exposes no recognisable hwmon name, so the chip-name checks
+	// above can never fire. The wizard fell into this trap on Phoenix's MSI
+	// PRO Z690-A DDR4 (board_name=MS-7D25, NCT6687D) — chip-name detection
+	// missed it, then the vendor fallback below mis-routed it to it8688e
+	// because all MSI boards were treated identically. Run the DMI triggers
+	// before the vendor fallback so known PRO/MAG/MPG NCT6687D boards get
+	// the right driver picked even when no kernel module is loaded yet.
+	dmi := DMIInfo{
+		BoardVendor: strings.ToLower(boardVendor),
+		BoardName:   strings.ToLower(boardName),
+	}
+	for _, key := range []string{"nct6687d", "it8688e", "it8689e"} {
+		if seen[key] {
+			continue
+		}
+		nd, ok := knownDriverNeeds[key]
+		if !ok {
+			continue
+		}
+		for _, trig := range nd.DMITriggers {
+			if trig.matches(dmi) {
+				add(key)
+				break
+			}
+		}
+	}
+
 	// Vendor fallback: IT8688E/IT8689E chips that have no in-kernel driver
 	// produce no recognisable hwmon name — only the board vendor is detectable.
 	//
@@ -711,7 +746,10 @@ func identifyDriverNeeds(boardVendor string, hwmonNames []string) []DriverNeed {
 	//
 	// MSI, ASRock, and Biostar also ship IT8688E on many boards (MAG Z490/Z590,
 	// B550, X570, etc.). Extended here from the original Gigabyte/ASUS-only list
-	// so that boards with two Super I/O chips get both drivers flagged.
+	// so that boards with two Super I/O chips get both drivers flagged. The MSI
+	// fallback is suppressed when the DMI matcher above already chose nct6687d
+	// for this specific board, so MS-7D25 / MAG / MPG don't get the wrong driver
+	// stapled on top of the right one.
 	if !seen["it8688e"] && !seen["it8689e"] {
 		vendor := strings.ToLower(boardVendor)
 		isGigabyte := strings.Contains(vendor, "gigabyte")
@@ -726,7 +764,7 @@ func identifyDriverNeeds(boardVendor string, hwmonNames []string) []DriverNeed {
 		if isASUS && !hwmonSet["asus_ec"] && !hwmonSet["asus_ec_sensors"] {
 			add("it8688e")
 		}
-		if isMSI || isASRock || isBiostar {
+		if (isMSI && !seen["nct6687d"]) || isASRock || isBiostar {
 			add("it8688e")
 		}
 	}
