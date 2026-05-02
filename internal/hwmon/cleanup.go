@@ -256,7 +256,7 @@ func writeBlacklistDropIn(path, module string) error {
 // extract every registered version of the module. DKMS 3.0+'s
 // status output format (one record per line):
 //
-//   <module>/<version>, <kernel>, <arch>: <status>
+//	<module>/<version>, <kernel>, <arch>: <status>
 //
 // We split on "/" then "," to extract just the version portion.
 // Returns nil when dkms is not on PATH, the call fails, or the
@@ -293,4 +293,3 @@ func dkmsVersionsForModule(module string) []string {
 	}
 	return versions
 }
-

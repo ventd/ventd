@@ -100,7 +100,7 @@ func TestGrubCmdline(t *testing.T) {
 			"a'b",
 			"$(touch x)",
 			strings.Repeat("a", 65), // length cap
-			"",                       // empty
+			"",                      // empty
 		}
 		for _, p := range bad {
 			err := AddParam(p, func() error { return nil })

@@ -106,12 +106,12 @@ type HWProfile struct {
 
 // Manager owns all setup wizard state.
 type Manager struct {
-	mu             sync.Mutex
-	fans           []FanState
-	running        bool
-	done           bool
-	applied        bool
-	errMsg         string
+	mu      sync.Mutex
+	fans    []FanState
+	running bool
+	done    bool
+	applied bool
+	errMsg  string
 	// failureClass is the recovery.FailureClass set DIRECTLY by
 	// failure paths whose root cause maps cleanly without
 	// text-classification (preflight Reason → class bridge,
