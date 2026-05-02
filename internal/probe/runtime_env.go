@@ -95,6 +95,44 @@ func (p *prober) detectEnvironment(ctx context.Context) (RuntimeEnvironment, []D
 		}
 	}
 
+	// Source 5: /run/.containerenv (Podman / Toolbx / Distrobox canonical
+	// marker). Research-validated: Podman rootless without this signal
+	// fires only one of the prior four sources (systemd-detect-virt) and
+	// falls below the score threshold — so a podman-rootless install
+	// would silently proceed with bogus hwmon writes. Adding this source
+	// brings podman from 1-of-4 to 2-of-5, correctly flagged.
+	if p.cfg.RootFS != nil {
+		if _, err := fs.Stat(p.cfg.RootFS, "run/.containerenv"); err == nil {
+			containerScore++
+			containerSignals = append(containerSignals, "/run/.containerenv")
+			if len(containerRuntime) == 0 {
+				containerRuntime = append(containerRuntime, "podman")
+			}
+		}
+	}
+
+	// Source 6: container= in /proc/1/environ (systemd-nspawn canonical;
+	// also podman / toolbx / distrobox). Research-validated: nspawn
+	// publishes ONLY this signal — no /.dockerenv, no overlay root, no
+	// docker keyword in cgroup. Pre-fix, nspawn fell through to "bare
+	// metal" detection. Adds the second authoritative source.
+	if p.cfg.ProcFS != nil {
+		if data, err := fs.ReadFile(p.cfg.ProcFS, "1/environ"); err == nil {
+			// /proc/1/environ is NUL-separated. Look for the
+			// `container=<name>` token.
+			for _, kv := range strings.Split(string(data), "\x00") {
+				if v, ok := strings.CutPrefix(kv, "container="); ok && v != "" {
+					containerScore++
+					containerSignals = append(containerSignals, "/proc/1/environ:container="+v)
+					if len(containerRuntime) == 0 {
+						containerRuntime = append(containerRuntime, v)
+					}
+					break
+				}
+			}
+		}
+	}
+
 	if containerScore >= 2 {
 		env.Containerised = true
 		if len(containerRuntime) > 0 {
