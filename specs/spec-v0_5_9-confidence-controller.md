@@ -181,33 +181,48 @@ a   = coupling.Snapshot[i].Theta[0]                          // discrete AR coef
 b   = coupling.Snapshot[i].Theta[1]                          // self-coupling b_ii (Theta[1] when N_coupled=0)
 dt  = controller.PollInterval                                // 2 s default
 τ   = clamp(-dt / ln(a),    50 s, 1800 s)                    // thermal time constant; cap covers NAS class
-K   = b / (1 − a)                                            // STEADY-STATE gain (NOT b_ii directly)
+K   = | b / (1 − a) |                                        // STEADY-STATE GAIN MAGNITUDE
 λ   = aggressiveness_to_lambda(Config.Smart.Preset)          // Silent: 2τ, Balanced: τ, Performance: τ/2
 θ   = dt                                                     // fixed one-tick transport delay
 K_p = τ / (K · (λ + θ))
 K_i = K_p / τ
 ```
 
-**The K = b_ii / (1 − a) correction is load-bearing.** spec-04
-historical used `K = ΔT/ΔPWM` measured from a settled relay
-envelope, which is the steady-state value `b_ii/(1−a)`. Using
-`b_ii` directly produces gains too small by ~50× at typical
-`a ≈ 0.98`, making the controller unable to track.
+**Two load-bearing decisions:**
+
+1. **`K = b / (1−a)` (NOT `K = b` directly)** — `b` is the per-tick
+   coefficient, while `K` is the STEADY-STATE gain after the AR
+   pole settles. Using `b_ii` directly produces gains too small by
+   ~50× at typical `a ≈ 0.98`, making the controller unable to
+   track. spec-04 historical used `K = ΔT/ΔPWM` from a settled
+   relay envelope, which IS the steady-state `b/(1−a)`.
+
+2. **Take the magnitude `|·|`.** For cooling fans `b < 0`, but the
+   PI controller is implemented over the polarity-already-handled
+   abstraction: more PWM ⇒ more cooling, regardless of physical
+   wiring (handled in `polarity.WritePWM`, RULE-POLARITY-05). The
+   gain that matters to the controller is the magnitude of process
+   response per PWM unit. Using the signed `b/(1−a)` would produce
+   `K_p, K_i < 0`, and with error = sensor − setpoint > 0 (too hot)
+   would integrate `I[k]` more negative on every tick, driving
+   predictive PWM below baseline ⇒ less cooling ⇒ hotter ⇒ larger
+   error: positive feedback, instability. The earlier draft of this
+   spec claimed "the math carries through via bumpless init" — it
+   does not (verified numerically in v0.5.9 PR-A.3 implementation
+   notes). Taking `|·|` and keeping `K_p, K_i > 0` is the correct
+   formulation.
 
 PI control law per tick:
 
 ```
-error = sensor_reading - setpoint
-I[k]  = I[k-1] + K_i · error · dt              // integrator (with anti-windup, see §2.3)
-u[k]  = K_p · error + I[k]                     // raw PI output (PWM units, signed)
-predictive_output = baseline_pwm + u[k]        // baseline = current curve eval
+error = sensor_reading - setpoint                  // °C; positive = too hot
+I[k]  = I[k-1] + K_i · error · dt                  // integrator (with anti-windup, see §2.3)
+u[k]  = K_p · error + I[k]                         // PI correction signal (PWM units, signed)
+predictive_output = baseline_pwm + u[k]            // baseline = current curve eval = reactive_output
 ```
 
-For cooling fans `b_ii < 0` ⇒ `K < 0` ⇒ `K_p < 0`, `K_i < 0`. Error
-> 0 (too hot) produces `u < 0` ⇒ raw output below baseline, but
-when reflected through the bumpless-transfer init the real
-`predictive_output` correctly rises above baseline. **Do not flip
-signs**: the math carries through. Polarity-inverted fans are
+`u[k]` is positive when too hot ⇒ predictive PWM rises above the
+reactive baseline ⇒ more cooling. Polarity-inverted fans are
 handled in `polarity.WritePWM` (RULE-POLARITY-05), not the PI math.
 
 **Instability guards** (RULE-CTRL-PI-05): refuse predictive output
@@ -235,16 +250,24 @@ pattern, composes cleanly with both PWM-clamp saturation and
 Path-A refusal under one mechanism.
 
 **Bumpless transfer.** On the first tick where `w_pred > 0` for a
-channel (i.e. `w_pred` rises from 0), initialise the integrator to
-the value that makes `predictive_output[k=0] == reactive_output[k=0]`:
+channel (i.e. `w_pred` rises from 0), initialise the integrator so
+the PI's correction signal `u[0]` is zero. Since
+`predictive_output = baseline_pwm + u[k]` and `baseline = reactive`,
+zero correction means `predictive_output[0] == reactive_output[0]`:
 
 ```
-I[0] = (reactive_output - K_p · error) / K_i        // when K_i ≠ 0; otherwise I[0] = 0
+I[0] = -K_p · error                                   // makes u[0] = K_p·error + I[0] = 0
 ```
+
+(Earlier draft of this spec gave `I[0] = (reactive − K_p·error) / K_i`,
+which is dimensionally inconsistent — dividing PWM-units by K_i
+yields seconds, not PWM-units. The correct formula above is derived
+directly from `u[0] = 0`.)
 
 The blend is then continuous through the warmup→active transition;
 no PWM step. Bumpless init is skipped (set `I[0] = 0`) when
-`|K_i| < 1e-9` to avoid numerical blow-up.
+`|K_p| < 1e-9` to avoid pathological cases where `K_p ≈ 0` makes
+the magnitude term meaningless.
 
 ### 2.4 Layer-A confidence (`conf_A`)
 

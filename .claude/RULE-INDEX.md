@@ -215,6 +215,7 @@ Regenerate with: `go run ./tools/rule-index`
 | File | Summary |
 |------|---------|
 | attribution.md | Attribution & Commit Identity |
+| blended-controller.md | Blended IMC-PI controller rules — v0.5.9 PR-A.3 |
 | calibrate-persist.md | Calibration Result Persistence Rules |
 | calibration-safety.md | Calibration Safety Rules |
 | ci-action-pinning.md | CI Action Pinning Invariants |
