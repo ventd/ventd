@@ -164,6 +164,14 @@ body {
   padding: 14px 28px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
+  /* Establish a stacking context above the dash-hero strip. Without this,
+   * absolutely-positioned children (status-pill popovers, transition
+   * ribbons) extending below the topbar painted underneath the rightmost
+   * hero card on some browsers — dash-hero-card has position:relative +
+   * a ::after shimmer overlay whose paint order won the topbar pill in
+   * the warming-state pulse case. */
+  position: relative;
+  z-index: 5;
 }
 .crumbs { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
 .crumb           { color: var(--fg2); }
@@ -173,6 +181,12 @@ body {
 .topbar-actions {
   margin-left: auto;
   display: flex; align-items: center; gap: 8px;
+  /* Wrap when the pills + Panic + theme-toggle row exceeds available width.
+   * On 1366×768 (sidebar 220px + 28px padding both sides → ~1090 px usable)
+   * the row already fits; narrower viewports pushed pills off-screen and
+   * one of them rendered behind the next sibling. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ─── buttons ─────────────────────────────────────────────── */

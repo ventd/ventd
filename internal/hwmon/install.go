@@ -110,6 +110,34 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 	return pipeErr
 }
 
+// UnloadModule runs `modprobe -r <module>` so the probe-then-pick driver
+// selector in internal/setup can clean up a wrongly-bound module before
+// trying the next candidate. Idempotent — calls on a module that isn't
+// loaded return nil so retry-after-unload is safe.
+//
+// Best-effort: a real exit error (other than "not loaded") is wrapped and
+// returned. Callers typically log the result and continue to the next
+// candidate anyway since holding the wrong module loaded is no worse than
+// the starting state.
+func UnloadModule(module string) error {
+	if module == "" {
+		return fmt.Errorf("UnloadModule: empty module name")
+	}
+	name, args := rootArgv("modprobe", []string{"-r", module})
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	outStr := strings.TrimSpace(string(out))
+	if strings.Contains(outStr, "not in tree") ||
+		strings.Contains(outStr, "not currently loaded") ||
+		strings.Contains(outStr, "is not currently loaded") ||
+		strings.Contains(outStr, "FATAL: Module "+module+" not found") {
+		return nil
+	}
+	return fmt.Errorf("modprobe -r %s: %w (output: %s)", module, err, outStr)
+}
+
 // registerDKMS registers the driver source with DKMS so the module rebuilds
 // automatically on kernel updates. It is best-effort: failures are logged but
 // never returned as errors. No-op when dkms is not installed.

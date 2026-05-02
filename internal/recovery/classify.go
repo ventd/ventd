@@ -152,6 +152,47 @@ const (
 	// HIL testing — every iteration was whack-a-mole on a new
 	// class while users hit the same dead-end UI.
 	ClassDriverWontBind FailureClass = "driver_wont_bind"
+
+	// ClassVendorDaemonActive covers Linux-first laptop OEM systems
+	// where a vendor-shipped userspace daemon already controls fans:
+	// system76-power (System76), asusctl (ASUS ROG), tccd / Tuxedo
+	// Control Centre (Tuxedo Computers), slimbookbattery (Slimbook).
+	// Installing ventd on top of these creates conflict, not value —
+	// the right move is to detect-and-defer into monitor-only mode
+	// and tell the operator that their vendor tool is already doing
+	// the job correctly.
+	//
+	// Detection signals (any one): the corresponding systemd unit is
+	// active, OR the vendor binary is present on PATH and reachable
+	// (asusctl --version, system76-power, etc.). Remediation is a
+	// docs-only card naming the running daemon and pointing at
+	// monitor-only mode in ventd.
+	ClassVendorDaemonActive FailureClass = "vendor_daemon_active"
+
+	// ClassThinkpadACPIDisabled covers ThinkPads where the
+	// `thinkpad_acpi` driver is loaded but its fan_control parameter
+	// is not enabled — the kernel default refuses fan writes for
+	// safety because Lenovo's documentation says the EC will
+	// override anyway. ventd auto-writes a modprobe drop-in with
+	// `options thinkpad_acpi fan_control=1` and reloads the module.
+	//
+	// Detection: dmesg shows `thinkpad_acpi: ... unsupported BIOS or
+	// hardware` or pwm sysfs is present but `_enable` writes return
+	// EPERM with "Operation not permitted" on a ThinkPad DMI vendor.
+	// Remediation: write /etc/modprobe.d/ventd-thinkpad.conf, modprobe
+	// -r + modprobe thinkpad_acpi.
+	ClassThinkpadACPIDisabled FailureClass = "thinkpad_acpi_disabled"
+
+	// ClassNixOSPathIgnored covers NixOS hosts where ventd's auto-fix
+	// endpoints write to /etc/modprobe.d/ or /etc/modules-load.d/ —
+	// paths that NixOS silently ignores in favour of declarative
+	// `configuration.nix` entries. The fix isn't a click but operator
+	// action; the card surfaces the exact Nix expression to add and
+	// the rebuild command to run.
+	//
+	// Detection: `/etc/NIXOS` exists OR `os-release` ID is `nixos`.
+	// Remediation: docs-only card with Nix expression to copy.
+	ClassNixOSPathIgnored FailureClass = "nixos_path_ignored"
 )
 
 // AllFailureClasses returns the closed set in display order. Used by tests
@@ -179,6 +220,9 @@ func AllFailureClasses() []FailureClass {
 		ClassConcurrentInstall,
 		ClassACPIResourceConflict,
 		ClassDriverWontBind,
+		ClassVendorDaemonActive,
+		ClassThinkpadACPIDisabled,
+		ClassNixOSPathIgnored,
 	}
 }
 
@@ -252,6 +296,18 @@ func Classify(phase string, err error, journal []string) FailureClass {
 	if (reModprobeENODEV.MatchString(msg) || reModprobeENODEV.MatchString(joined)) &&
 		reACPIResourceConflict.MatchString(joined) {
 		return ClassACPIResourceConflict
+	}
+
+	// 5a. ThinkPad fan_control disabled — narrow regex match against
+	// userspace-tool error strings or ventd's own EPERM-wrapped
+	// formatting. The kernel's thinkpad_acpi driver refuses fan
+	// writes silently (-EPERM with no printk; see reThinkpadACPI
+	// comment for the upstream-source citation), so the canonical
+	// pre-emptive detection is a sysfs probe — not this regex.
+	// The classifier rule still fires on after-the-fact error text
+	// from operators / ventd's pwm_enable write helper.
+	if reThinkpadACPI.MatchString(joined) || reThinkpadACPI.MatchString(msg) {
+		return ClassThinkpadACPIDisabled
 	}
 
 	// 6. Missing module — `modprobe: FATAL: Module ... not found`,
@@ -381,5 +437,30 @@ var (
 	// load-time, not build-time).
 	reInstallSucceeded = regexp.MustCompile(
 		`(installed /lib/modules/[^/]+/extra/.*\.ko|updating module index|driver install: depmod)`,
+	)
+	// ThinkPad fan_control gate — narrowed after upstream-research
+	// validation: the kernel's thinkpad_acpi driver does NOT emit a
+	// per-write printk when refusing fan writes. Every guarded path
+	// (fan_set_level, fan_set_level_safe, etc. in
+	// drivers/platform/x86/thinkpad_acpi.c) returns -EPERM silently.
+	// The init-time "fan control features disabled by parameter"
+	// message is wrapped in dbg_printk(), gated behind
+	// CONFIG_THINKPAD_ACPI_DEBUG — absent on every stock distro
+	// kernel.
+	//
+	// So this regex CANNOT match dmesg / journal directly. The only
+	// reliable string-level signal is the failure message a userspace
+	// fan tool prints when it hits the EPERM, which is stable English
+	// from `vmatare/thinkfan` and similar tools. Canonical
+	// pre-emptive detection — used by the wizard preflight — is a
+	// sysfs probe of `/sys/module/thinkpad_acpi/parameters/fan_control`
+	// (a follow-up PR adds DetectThinkpadACPIDisabled in probe.go).
+	//
+	// This regex catches the post-failure case where the operator
+	// already saw thinkfan's error and pasted it into a bug report,
+	// or where ventd's pwm_enable write helper wraps EPERM with a
+	// thinkpad_acpi reference in its error-formatting path.
+	reThinkpadACPI = regexp.MustCompile(
+		`thinkpad_acpi.*(does(n't| not) seem to support fan_control|fan_control=0|cannot write to pwm)`,
 	)
 )

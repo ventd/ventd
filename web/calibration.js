@@ -209,7 +209,59 @@
   }
 
   // ── pipeline ────────────────────────────────────────────────────────
+  // Visual phase advance is throttled so each phase is visible for at least
+  // MIN_PHASE_DISPLAY_MS even when the daemon transitions through it in
+  // milliseconds. Phoenix's HIL feedback (#821): "the first three steps
+  // were done before the page even loaded". Without throttling, detecting
+  // → installing_driver → scanning_fans → detecting_rpm complete in
+  // <100ms on a system with no OOT install needed, so the operator can't
+  // visually parse what just happened. Throttling renders each step's
+  // pulse + sub-text long enough to read.
+  var MIN_PHASE_DISPLAY_MS = 700;
+  var displayPhase = null;
+  var displayPhaseAt = 0;
+  var pendingPhase = null;
+  var phaseAdvanceTimer = null;
+  function setDisplayPhase(p) {
+    displayPhase = p;
+    displayPhaseAt = Date.now();
+    paintPipelineNow(p);
+  }
+  function adoptPhase(target) {
+    if (target == null) return;
+    pendingPhase = target;
+    if (phaseAdvanceTimer != null) return; // already pumping
+    pumpPhaseAdvance();
+  }
+  function pumpPhaseAdvance() {
+    phaseAdvanceTimer = null;
+    if (pendingPhase == null) return;
+    if (displayPhase == null) {
+      setDisplayPhase(pendingPhase);
+      if (displayPhase === pendingPhase) { pendingPhase = null; return; }
+    }
+    if (displayPhase === pendingPhase) { pendingPhase = null; return; }
+    var elapsed = Date.now() - displayPhaseAt;
+    if (elapsed >= MIN_PHASE_DISPLAY_MS) {
+      var idx = PHASES.indexOf(displayPhase);
+      var targetIdx = PHASES.indexOf(pendingPhase);
+      // Walk one step at a time for forward jumps so each intermediate
+      // phase is visible. Backward / unknown jumps go directly.
+      var next = (idx >= 0 && targetIdx > idx + 1) ? PHASES[idx + 1] : pendingPhase;
+      setDisplayPhase(next);
+      if (displayPhase !== pendingPhase) {
+        phaseAdvanceTimer = setTimeout(pumpPhaseAdvance, MIN_PHASE_DISPLAY_MS);
+      } else {
+        pendingPhase = null;
+      }
+    } else {
+      phaseAdvanceTimer = setTimeout(pumpPhaseAdvance, MIN_PHASE_DISPLAY_MS - elapsed);
+    }
+  }
   function paintPipeline(currentPhase) {
+    adoptPhase(currentPhase);
+  }
+  function paintPipelineNow(currentPhase) {
     var idx = PHASES.indexOf(currentPhase);
     if (idx < 0 && currentPhase) idx = -1; // unknown phase keeps everything queued
     var steps = pipelineEl ? pipelineEl.querySelectorAll('.pipe-step') : [];
@@ -580,8 +632,13 @@
       if (cardsEl) cardsEl.hidden = true;
     }
 
+    // Live card visibility tracks the done state — when calibration is
+    // complete the done banner takes over the left column (#821), so
+    // hiding the live card avoids a stacked double-render.
+    var liveCardEl = document.getElementById('cal-live-card');
     if (p.done && !p.error && !p.applied) {
       doneBanner.hidden = false;
+      if (liveCardEl) liveCardEl.hidden = true;
       var summaryFans = (p.fans || []).filter(function (f) { return f.cal_phase === 'done'; }).length;
       doneSubEl.textContent = 'Calibrated ' + summaryFans + ' fan'
         + (summaryFans === 1 ? '' : 's')
@@ -589,8 +646,25 @@
     } else if (p.applied) {
       // Daemon will restart; redirect once /api/ping comes back up.
       doneBanner.hidden = false;
+      if (liveCardEl) liveCardEl.hidden = true;
       doneSubEl.textContent = 'Restarting daemon — this page will reload.';
       waitForRestart();
+    } else {
+      // Show live card during active calibration (re-shown on Retry after
+      // an error path that previously hid it).
+      if (liveCardEl) liveCardEl.hidden = false;
+    }
+
+    // Finalising-phase spinner overlay — Phoenix's HIL feedback (#821):
+    // "curve calc has no spinner". The live card freezes between the last
+    // sweep finishing and the done banner appearing because the daemon is
+    // building the thermal curve in-process, which can take a couple of
+    // seconds on slower CPUs. Toggling .is-finalizing on the live card
+    // adds a visible spinner via CSS so the operator knows work is still
+    // happening, not that the wizard hung.
+    if (liveCardEl) {
+      var finalizing = (p.phase === 'finalizing') && !p.done && !p.error;
+      liveCardEl.classList.toggle('is-finalizing', finalizing);
     }
   }
 
