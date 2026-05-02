@@ -175,8 +175,20 @@
       var key = 'f:' + f.name;
       seen[key] = true;
       var rpm = f.rpm == null ? null : Number(f.rpm);
-      if (rpm != null && rpm > 60) spinning++;
-      pushHistory(fanHistory, f.name, rpm == null ? null : rpm);
+      var dutyPct = f.duty_pct == null ? null : Number(f.duty_pct);
+      // Tach-less fans (NVIDIA — NVML exposes fan-speed % only, not RPM)
+      // surface the duty cycle in the primary value slot with a "%" unit
+      // so the tile shows a live signal instead of "—". Generic — works
+      // for any backend whose Read path doesn't return an RPM.
+      var pctOnly = (rpm == null && dutyPct != null);
+      var primaryVal = pctOnly ? Math.round(dutyPct) : rpm;
+      var primaryUnit = pctOnly ? '%' : 'RPM';
+      var spinningSignal = pctOnly ? (dutyPct > 5) : (rpm != null && rpm > 60);
+      if (spinningSignal) spinning++;
+      // Push primaryVal into history so the spark renders meaningful motion
+      // even on pct-only fans. The dynamic-range scale will be off (sparks
+      // were calibrated for RPM=200) but a 0-100 range still reads cleanly.
+      pushHistory(fanHistory, f.name, primaryVal == null ? null : primaryVal);
       var tile = existing[key];
       if (!tile) {
         tile = document.createElement('div');
@@ -185,7 +197,7 @@
         tile.innerHTML =
             '<div class="dash-tile-head">'
           +   '<span class="dash-tile-name">' + escapeHTML(f.name) + '</span>'
-          +   '<span class="dash-tile-source mono">RPM</span>'
+          +   '<span class="dash-tile-source mono js-source">RPM</span>'
           + '</div>'
           + '<div class="dash-tile-value">'
           +   '<span class="js-val">—</span>'
@@ -207,8 +219,10 @@
         grid.appendChild(tile);
       }
       var valEl = tile.querySelector('.js-val');
-      if (rpm == null) valEl.textContent = '—';
-      else valEl.textContent = rpm;
+      if (primaryVal == null) valEl.textContent = '—';
+      else valEl.textContent = primaryVal;
+      var sourceEl = tile.querySelector('.js-source');
+      if (sourceEl) sourceEl.textContent = primaryUnit;
       var bar = tile.querySelector('.js-bar');
       if (bar) bar.style.width = (clamp(f.duty_pct || 0, 0, 100)).toFixed(1) + '%';
       var duty = tile.querySelector('.js-duty');
@@ -216,8 +230,11 @@
       var path = tile.querySelector('.js-spark');
       if (path) path.setAttribute('d', sparkPathRPM(fanHistory[f.name], 240, 28));
 
-      tile.classList.toggle('is-spinning', !!(rpm && rpm > 60));
-      tile.classList.toggle('is-stalled', rpm === 0 && (f.duty_pct || 0) > 5);
+      tile.classList.toggle('is-spinning', spinningSignal);
+      // is-stalled means "we're driving duty but the tach reads 0" — only
+      // meaningful for fans that actually have a tach signal. Pct-only fans
+      // can't be stalled (no feedback to detect it).
+      tile.classList.toggle('is-stalled', !pctOnly && rpm === 0 && (f.duty_pct || 0) > 5);
     });
     Object.keys(existing).forEach(function (k) {
       if (!seen[k]) existing[k].remove();
@@ -250,7 +267,11 @@
     if (fans) {
       total = fans.length;
       for (var k = 0; k < fans.length; k++) {
+        // Tach-less fans (NVIDIA) report duty_pct only — count them as
+        // spinning when duty exceeds the dead-band where the firmware
+        // typically holds the fan stopped.
         if (fans[k].rpm != null && fans[k].rpm > 60) spinning++;
+        else if (fans[k].rpm == null && (fans[k].duty_pct || 0) > 5) spinning++;
       }
     }
     var fEl = $('hero-fans-val'); if (fEl) fEl.textContent = total === 0 ? '—' : (spinning + '/' + total);
