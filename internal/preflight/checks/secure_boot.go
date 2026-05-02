@@ -158,12 +158,12 @@ func SecureBootChecks(p SecureBootProbes) []preflight.Check {
 				return true, "MOK on disk but not enrolled in firmware"
 			}),
 			Explain: func(string) string {
-				return "Queue MOK for enrollment. After reboot, confirm the key in the blue MOK Manager screen."
+				return "Queue MOK for enrollment. After reboot, confirm the key in the blue MOK Manager screen (just press Enter at the password prompt — no password is set)."
 			},
 			AutoFix: func(ctx context.Context) error {
 				return enrollMOK(ctx, p.MOKKeyDir, p.Run)
 			},
-			PromptText:     "Queue MOK enrollment? (you'll be asked for a password, then prompted to reboot)",
+			PromptText:     "Queue MOK enrollment? (you'll be prompted to reboot — no password to remember)",
 			DocURL:         "https://github.com/ventd/ventd/wiki/secure-boot#enroll",
 			RequiresReboot: true,
 		},
@@ -207,13 +207,22 @@ func generateMOKKey(ctx context.Context, dir string, runner cmdRunner) error {
 	return os.Chmod(dir+"/MOK.priv", 0o600)
 }
 
-// enrollMOK runs `mokutil --import` non-interactively. The user-
-// supplied password is prompted by mokutil itself and is verified at
-// the firmware MOK Manager screen on next boot. The orchestrator's
-// caller (cmd/ventd/preflight.go) wires stdin to the operator's
-// terminal so the password prompt reaches them.
+// enrollMOK queues the on-disk .der for next-boot firmware
+// enrollment via `mokutil --import`. We deliberately wire stdin to
+// /dev/null so mokutil sees EOF on both password reads — the queue
+// is recorded with an empty password, and the operator confirms at
+// the firmware MOK Manager screen by pressing Enter at the password
+// prompt.
+//
+// Threat-model note: skipping the password is intentional. Physical
+// access to the MOK Manager screen at boot already implies a
+// legitimate operator (or someone who has physical control of the
+// machine, in which case any tamper protection is moot). The
+// password adds friction without adding meaningful protection in
+// the install threat model. Operators who want password protection
+// can run `mokutil --import` themselves before invoking preflight.
 func enrollMOK(ctx context.Context, dir string, runner cmdRunner) error {
-	cmd := "mokutil --import " + dir + "/MOK.der"
+	cmd := "mokutil --import " + dir + "/MOK.der </dev/null"
 	return runner(ctx, cmd)
 }
 

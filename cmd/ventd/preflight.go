@@ -152,7 +152,7 @@ func runPreflight(args []string, logger *slog.Logger) int {
 		fmt.Println("  1. Choose 'Enroll MOK'")
 		fmt.Println("  2. Choose 'Continue'")
 		fmt.Println("  3. Choose 'Yes' to enroll")
-		fmt.Println("  4. Type the password you supplied during enrollment")
+		fmt.Println("  4. Press Enter at the password prompt (no password was set)")
 		fmt.Println("  5. Choose 'Reboot'")
 		resp := preflight.NewStdPrompter().AskYN("Reboot now?")
 		if resp == preflight.PromptYes {
