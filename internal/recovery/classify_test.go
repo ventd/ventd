@@ -192,6 +192,15 @@ func TestAllFailureClasses_Complete(t *testing.T) {
 		ClassMissingHeaders,
 		ClassDKMSBuildFailed,
 		ClassApparmorDenied,
+		ClassMissingBuildTools,
+		ClassInTreeConflict,
+		ClassDKMSStateCollision,
+		ClassReadOnlyRootfs,
+		ClassDiskFull,
+		ClassPackageManagerBusy,
+		ClassDaemonNotRoot,
+		ClassContainerised,
+		ClassConcurrentInstall,
 	}
 	got := AllFailureClasses()
 	if len(got) != len(want) {
