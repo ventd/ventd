@@ -18,14 +18,14 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
-	"github.com/ventd/ventd/internal/confidence/aggregator"
-	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -54,22 +54,22 @@ func loginCooldownOrDefault(d time.Duration) time.Duration {
 }
 
 type Server struct {
-	cfg            *atomic.Pointer[config.Config]
-	configPath     string
-	authPath       string
-	liveHash       atomic.Pointer[string] // current bcrypt hash; separate from config.yaml
-	logger         *slog.Logger
-	mux            *http.ServeMux
-	handler        http.Handler
-	httpSrv        *http.Server
-	cal            *calibrate.Manager
-	setup          *setupmgr.Manager
-	opp            *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
+	cfg        *atomic.Pointer[config.Config]
+	configPath string
+	authPath   string
+	liveHash   atomic.Pointer[string] // current bcrypt hash; separate from config.yaml
+	logger     *slog.Logger
+	mux        *http.ServeMux
+	handler    http.Handler
+	httpSrv    *http.Server
+	cal        *calibrate.Manager
+	setup      *setupmgr.Manager
+	opp        *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
 	// v0.5.9 confidence-controller surfaces: aggregator + LayerA
 	// estimator are read-only on the web side. nil until
 	// SetConfidence is called (monitor-only mode).
-	aggregator *aggregator.Aggregator
-	layerA     *layer_a.Estimator
+	aggregator     *aggregator.Aggregator
+	layerA         *layer_a.Estimator
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
 	diag           *hwdiag.Store
@@ -1093,23 +1093,23 @@ func (s *Server) SetConfidence(agg *aggregator.Aggregator, est *layer_a.Estimato
 // confidenceChannel is the JSON wire shape for one channel's
 // confidence snapshot. UI renders this directly.
 type confidenceChannel struct {
-	ChannelID         string  `json:"channel_id"`
-	Wpred             float64 `json:"w_pred"`
-	UIState           string  `json:"ui_state"`
-	ConfA             float64 `json:"conf_a"`
-	ConfB             float64 `json:"conf_b"`
-	ConfC             float64 `json:"conf_c"`
-	Tier              uint8   `json:"tier"`
-	Coverage          float64 `json:"coverage"`
-	SeenFirstContact  bool    `json:"seen_first_contact"`
-	AgeSeconds        float64 `json:"age_seconds"`
+	ChannelID        string  `json:"channel_id"`
+	Wpred            float64 `json:"w_pred"`
+	UIState          string  `json:"ui_state"`
+	ConfA            float64 `json:"conf_a"`
+	ConfB            float64 `json:"conf_b"`
+	ConfC            float64 `json:"conf_c"`
+	Tier             uint8   `json:"tier"`
+	Coverage         float64 `json:"coverage"`
+	SeenFirstContact bool    `json:"seen_first_contact"`
+	AgeSeconds       float64 `json:"age_seconds"`
 }
 
 type confidenceStatus struct {
-	Enabled  bool                 `json:"enabled"`
-	Global   string               `json:"global_state"` // worst-of-channels collapse
-	Preset   string               `json:"preset"`
-	Channels []confidenceChannel  `json:"channels"`
+	Enabled  bool                `json:"enabled"`
+	Global   string              `json:"global_state"` // worst-of-channels collapse
+	Preset   string              `json:"preset"`
+	Channels []confidenceChannel `json:"channels"`
 }
 
 // handleConfidenceStatus GET /api/v1/confidence/status (v0.5.9).
