@@ -1,0 +1,12 @@
+DKMS make.log for nct6687-0.20240108 for kernel 6.8.0-49-generic (x86_64)
+make[1]: Entering directory '/usr/src/linux-headers-6.8.0-49-generic'
+  CC [M]  /var/lib/dkms/nct6687/0.20240108/build/nct6687.o
+nct6687.c:1234:5: error: implicit declaration of function 'sysfs_create_group_undeclared'; did you mean 'sysfs_create_group'? [-Werror=implicit-function-declaration]
+nct6687.c:1234:5: error: 'kfifo_init' redeclared as different kind of symbol
+compilation terminated due to -Wfatal-errors.
+make[2]: *** [scripts/Makefile.build:243: /var/lib/dkms/nct6687/0.20240108/build/nct6687.o] Error 1
+make[1]: *** [Makefile:1992: /var/lib/dkms/nct6687/0.20240108/build] Error 2
+make[1]: Leaving directory '/usr/src/linux-headers-6.8.0-49-generic'
+make: *** [Makefile:11: nct6687.ko] Error 2
+Error! Bad return status for module build on kernel: 6.8.0-49-generic (x86_64)
+DKMS make.log for nct6687-0.20240108 ended.

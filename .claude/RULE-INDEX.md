@@ -243,4 +243,5 @@ Regenerate with: `go run ./tools/rule-index`
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |
 | web-ui.md | Web UI Rules |
+| wizard-recovery.md | Wizard recovery classifier rules — v0.5.9 PR-C (#800) |
 

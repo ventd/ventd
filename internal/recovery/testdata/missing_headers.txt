@@ -1,0 +1,2 @@
+Error! Your kernel headers for kernel 6.8.0-49-generic cannot be found at /lib/modules/6.8.0-49-generic/build or /lib/modules/6.8.0-49-generic/source.
+You can use the --kernelsourcedir option to tell DKMS where it's located, or you might want to install the linux-headers-6.8.0-49-generic package.

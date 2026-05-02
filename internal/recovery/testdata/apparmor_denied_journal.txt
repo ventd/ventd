@@ -1,0 +1,3 @@
+May 02 01:24:11 phoenix kernel: audit: type=1400 audit(1714614251.444:128): apparmor="DENIED" operation="exec" profile="ventd" name="/usr/sbin/modprobe" pid=12345 comm="ventd" requested_mask="x" denied_mask="x" fsuid=0 ouid=0
+May 02 01:24:11 phoenix kernel: audit: type=1400 audit(1714614251.445:129): apparmor="DENIED" operation="open" profile="ventd" name="/sys/class/dmi/id/product_name" pid=12345 comm="ventd" requested_mask="r" denied_mask="r" fsuid=0 ouid=0
+May 02 01:24:11 phoenix ventd[12345]: time=2026-05-02T01:24:11Z level=ERROR msg="hwmon: install: modprobe failed" err="exec: permission denied"

@@ -307,6 +307,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "hwdiag", handler: s.handleHwdiag, auth: true},
 		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
 		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
+		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
 		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
 		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
@@ -1617,6 +1618,58 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 // Installs the distro's kernel-headers package for the running kernel.
 func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
 	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
+}
+
+// handleLoadAppArmor POST /api/hwdiag/load-apparmor
+//
+// Loads ventd's shipped AppArmor profile (`/etc/apparmor.d/ventd`)
+// into the running kernel via `apparmor_parser -r`. Distros that
+// enforce AppArmor at boot may not have parsed our profile yet —
+// this endpoint wires it up so the wizard's helpers run unblocked.
+//
+// Wired into the v0.5.9 wizard-recovery classifier (#800) as the
+// action_url for ClassApparmorDenied. Returns the same
+// installLogResponse shape as the install endpoints so the UI can
+// render the parser output uniformly.
+func (s *Server) handleLoadAppArmor(w http.ResponseWriter, r *http.Request) {
+	s.runInstallHandler(w, r, "", loadAppArmorProfile)
+}
+
+// loadAppArmorProfile shells `apparmor_parser -r` against the
+// shipped profile path. Returns nil on success; the parser's stdout
+// + stderr are logged via logFn line-by-line for the response body.
+//
+// Failure modes:
+//   - apparmor_parser binary missing: distro doesn't have apparmor
+//     userspace installed. Surfaces a clear error to the operator.
+//   - profile file missing: ventd install incomplete. Same.
+//   - parser rejects the profile: shouldn't happen on a current
+//     build (apparmor-parse-debian13 CI gates this), but possible
+//     on a stale profile vs a newer parser.
+func loadAppArmorProfile(log func(string)) error {
+	const profilePath = "/etc/apparmor.d/ventd"
+	if _, err := exec.LookPath("apparmor_parser"); err != nil {
+		log("apparmor_parser binary not found in PATH")
+		log("(install the apparmor / apparmor-utils package for your distro)")
+		return fmt.Errorf("apparmor_parser missing: %w", err)
+	}
+	if _, err := os.Stat(profilePath); err != nil {
+		log("profile file " + profilePath + " not found")
+		log("(re-run the install — the profile ships in the .deb / .rpm)")
+		return fmt.Errorf("stat %s: %w", profilePath, err)
+	}
+	cmd := exec.Command("sudo", "-n", "apparmor_parser", "-r", profilePath)
+	out, err := cmd.CombinedOutput()
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line != "" {
+			log(line)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("apparmor_parser -r %s: %w", profilePath, err)
+	}
+	log("OK — profile loaded")
+	return nil
 }
 
 // handleInstallDKMS POST /api/hwdiag/install-dkms
