@@ -122,54 +122,36 @@ the fallback, not a catalogue entry.
 
 Bound: internal/recovery/classify_test.go:TestAllFailureClasses_Complete
 
-## RULE-WIZARD-RECOVERY-11: Vendor-daemon active probe returns the matching VendorDaemon when its systemd unit is active.
-
-`DetectVendorDaemon(ctx, isActive)` walks the vendor-daemon unit table
-in stable order (System76 → ASUS → Tuxedo → Slimbook) and returns the
-first vendor whose unit reports active. Returns `VendorDaemonNone`
-when no unit matches OR `ctx` is cancelled before the walk completes.
-The wizard preflight uses this to detect Linux-first OEM laptops where
-ventd should defer to the vendor's working fan daemon (R28 Agent G's
-#1 architectural finding) rather than fight for control.
-
-The cancellation path returns `VendorDaemonNone` rather than an error
-so callers can treat a timed-out probe as "no vendor daemon, proceed
-with normal install" — the conservative default.
-
-Bound: internal/recovery/probe_test.go:TestDetectVendorDaemon
-Bound: internal/recovery/probe_test.go:TestDetectVendorDaemon_CtxCancel
-
-## RULE-WIZARD-RECOVERY-12: NixOS detection fires on /etc/NIXOS marker OR /etc/os-release ID=nixos (quoted or unquoted).
-
-`DetectNixOS(rootFS)` checks two signals: the canonical `/etc/NIXOS`
-marker file, OR an `ID=nixos` / `ID="nixos"` line in `/etc/os-release`.
-The `ID=` match is strict equality on the trimmed line — `ID=nixos-arr`
-or other substring forms must not fire, since ventd's auto-fix
-endpoints write to `/etc/modprobe.d/` paths that NixOS specifically
-ignores in favour of declarative `configuration.nix`. False-positive
-detection on NixOS derivatives that DO honour `/etc/modprobe.d` would
-route the operator to the docs-only NixOS card and away from the
-working auto-fix path.
-
-`rootFS` is injectable so tests can drive synthetic os-release content
-via `testing/fstest.MapFS` without touching the real filesystem.
-
-Bound: internal/recovery/probe_test.go:TestDetectNixOS
-
 ## RULE-WIZARD-RECOVERY-10: ThinkPad fan_control gate classifies to ClassThinkpadACPIDisabled.
 
 The kernel's `thinkpad_acpi` driver loads with fan writes disabled by
-default and emits a journal stamp ("Disabling fan write commands" /
-"fan_control disabled" / "cannot write to pwm") when an operator
-or ventd attempts to write `pwm*_enable` without the
-`options thinkpad_acpi fan_control=1` modprobe entry. The classifier
-matches those stamps in the err string OR the journal and returns
-`ClassThinkpadACPIDisabled` — which surfaces a one-click auto-fix
-card that writes `/etc/modprobe.d/ventd-thinkpad.conf` and reloads
-the module via `/api/hwdiag/modprobe-options-write`.
+default and refuses `pwm_enable` writes with `-EPERM` when the
+operator hasn't passed `options thinkpad_acpi fan_control=1`. Crucial
+upstream constraint validated against
+`drivers/platform/x86/thinkpad_acpi.c` (kernel v6.13): every guarded
+path returns `-EPERM` SILENTLY — there is no per-write printk. The
+init-time "fan control features disabled by parameter" message is
+wrapped in `dbg_printk()`, gated behind `CONFIG_THINKPAD_ACPI_DEBUG`
+which is off on every stock distro kernel. So the classifier cannot
+reliably match on dmesg / journal stamps for this case.
 
-The rule fires BEFORE the catch-all `ClassDriverWontBind` so the
-specific ThinkPad remediation runs instead of the generic trio of
-"reset / acpi-lax / bundle".
+The classifier therefore matches a narrow regex against:
+
+- **thinkfan's userspace error** — `Module thinkpad_acpi doesn't seem
+  to support fan_control` from `vmatare/thinkfan`. Stable English
+  across thinkfan releases (issues #45, #94).
+- **ventd's pwm_enable wrap shape** — when the daemon's write helper
+  formats an EPERM with `thinkpad_acpi` context.
+
+A negative subtest pins that journal-only fixtures containing the
+dbg_printk strings (which stock distro kernels do not produce) MUST
+NOT trigger this class on unrelated wizard failures.
+
+Canonical pre-emptive detection lives elsewhere: a sysfs probe of
+`/sys/module/thinkpad_acpi/parameters/fan_control` reading `N` is the
+load-bearing signal, added in a follow-up PR (alongside
+`DetectVendorDaemon` and `DetectNixOS` in probe.go). The classifier
+rule is the after-the-fact catch when an operator pastes a thinkfan
+error into a bug report, not the primary detection path.
 
 Bound: internal/recovery/classify_test.go:TestClassify_ThinkpadACPIDisabled

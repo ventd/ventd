@@ -291,6 +291,7 @@ func TestIdentifyDriverNeeds(t *testing.T) {
 	tests := []struct {
 		name        string
 		boardVendor string
+		boardName   string
 		hwmonNames  []string
 		wantKeys    []string
 	}{
@@ -334,10 +335,37 @@ func TestIdentifyDriverNeeds(t *testing.T) {
 			wantKeys:    []string{},
 		},
 		{
-			name:        "MSI (Micro-Star International) falls through to it8688e",
+			name:        "MSI without board_name falls through to it8688e (legacy behaviour)",
 			boardVendor: "Micro-Star International Co., Ltd.",
 			hwmonNames:  []string{"coretemp"},
 			wantKeys:    []string{"it8688e"},
+		},
+		{
+			name:        "MSI MAG board_name selects nct6687d via DMI trigger",
+			boardVendor: "Micro-Star International Co., Ltd.",
+			boardName:   "MAG B660 TOMAHAWK WIFI DDR4 (MS-7D43)",
+			hwmonNames:  []string{"coretemp"},
+			wantKeys:    []string{"nct6687d"},
+		},
+		{
+			name:        "MSI MPG board_name selects nct6687d via DMI trigger",
+			boardVendor: "Micro-Star International Co., Ltd.",
+			boardName:   "MPG X670E CARBON WIFI (MS-7E12)",
+			hwmonNames:  []string{"coretemp"},
+			wantKeys:    []string{"nct6687d"},
+		},
+		{
+			// MS-7D25 is the codename for MSI PRO Z690-A DDR4 — the board on
+			// Phoenix's HIL desktop. Real DMI captured during the 2026-05-02
+			// session: board_name="PRO Z690-A DDR4(MS-7D25)". Before the fix,
+			// identifyDriverNeeds returned [it8688e] because the MSI vendor
+			// fallback didn't consult board_name. The board actually uses
+			// NCT6687D and the wrong driver chewed 12 hours of debugging.
+			name:        "MSI MS-7D25 (PRO Z690-A DDR4) selects nct6687d, not it8688e",
+			boardVendor: "Micro-Star International Co., Ltd.",
+			boardName:   "PRO Z690-A DDR4(MS-7D25)",
+			hwmonNames:  []string{"coretemp"},
+			wantKeys:    []string{"nct6687d"},
 		},
 		{
 			name:        "ASRock falls through to it8688e",
@@ -378,7 +406,7 @@ func TestIdentifyDriverNeeds(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := keys(identifyDriverNeeds(tc.boardVendor, tc.hwmonNames))
+			got := keys(identifyDriverNeeds(tc.boardVendor, tc.boardName, tc.hwmonNames))
 			if len(got) != len(tc.wantKeys) {
 				t.Fatalf("size mismatch: want %v got %v", tc.wantKeys, got)
 			}
