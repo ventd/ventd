@@ -122,6 +122,40 @@ the fallback, not a catalogue entry.
 
 Bound: internal/recovery/classify_test.go:TestAllFailureClasses_Complete
 
+## RULE-WIZARD-RECOVERY-11: Vendor-daemon active probe returns the matching VendorDaemon when its systemd unit is active.
+
+`DetectVendorDaemon(ctx, isActive)` walks the vendor-daemon unit table
+in stable order (System76 → ASUS → Tuxedo → Slimbook) and returns the
+first vendor whose unit reports active. Returns `VendorDaemonNone`
+when no unit matches OR `ctx` is cancelled before the walk completes.
+The wizard preflight uses this to detect Linux-first OEM laptops where
+ventd should defer to the vendor's working fan daemon (R28 Agent G's
+#1 architectural finding) rather than fight for control.
+
+The cancellation path returns `VendorDaemonNone` rather than an error
+so callers can treat a timed-out probe as "no vendor daemon, proceed
+with normal install" — the conservative default.
+
+Bound: internal/recovery/probe_test.go:TestDetectVendorDaemon
+Bound: internal/recovery/probe_test.go:TestDetectVendorDaemon_CtxCancel
+
+## RULE-WIZARD-RECOVERY-12: NixOS detection fires on /etc/NIXOS marker OR /etc/os-release ID=nixos (quoted or unquoted).
+
+`DetectNixOS(rootFS)` checks two signals: the canonical `/etc/NIXOS`
+marker file, OR an `ID=nixos` / `ID="nixos"` line in `/etc/os-release`.
+The `ID=` match is strict equality on the trimmed line — `ID=nixos-arr`
+or other substring forms must not fire, since ventd's auto-fix
+endpoints write to `/etc/modprobe.d/` paths that NixOS specifically
+ignores in favour of declarative `configuration.nix`. False-positive
+detection on NixOS derivatives that DO honour `/etc/modprobe.d` would
+route the operator to the docs-only NixOS card and away from the
+working auto-fix path.
+
+`rootFS` is injectable so tests can drive synthetic os-release content
+via `testing/fstest.MapFS` without touching the real filesystem.
+
+Bound: internal/recovery/probe_test.go:TestDetectNixOS
+
 ## RULE-WIZARD-RECOVERY-10: ThinkPad fan_control gate classifies to ClassThinkpadACPIDisabled.
 
 The kernel's `thinkpad_acpi` driver loads with fan writes disabled by
