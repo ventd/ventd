@@ -49,6 +49,14 @@ type Remediation struct {
 	// DocURL is an optional secondary link rendered as
 	// "Learn more" beside the action button.
 	DocURL string `json:"doc_url,omitempty"`
+	// RequiresReboot signals that a successful action only takes effect
+	// after a reboot — canonical case is ClassSecureBoot's mok-enroll
+	// (firmware MOK Manager only runs at boot) and ClassInTreeConflict's
+	// reset-and-reinstall (the blacklist drop-in needs a fresh boot to
+	// guarantee the in-tree module isn't auto-loaded by another path).
+	// The web UI surfaces a "Reboot now / Later" prompt below the card
+	// after a successful POST when this is true (#818).
+	RequiresReboot bool `json:"requires_reboot,omitempty"`
 }
 
 // RemediationFor returns the catalogue entries for class. The slice
@@ -89,6 +97,9 @@ func RemediationFor(class FailureClass) []Remediation {
 				Kind:        KindModalInstr,
 				ActionURL:   "/api/hwdiag/mok-enroll",
 				DocURL:      "https://github.com/ventd/ventd/wiki/secure-boot",
+				// Firmware MOK Manager runs only at boot — operator must
+				// reboot to confirm the enrollment and the queued password.
+				RequiresReboot: true,
 			},
 			{
 				Label:       "Or disable Secure Boot in firmware",
@@ -155,6 +166,12 @@ func RemediationFor(class FailureClass) []Remediation {
 				Kind:        KindActionPost,
 				ActionURL:   "/api/hwdiag/reset-and-reinstall",
 				DocURL:      "https://github.com/ventd/ventd/wiki/in-tree-conflict",
+				// Reboot guarantees the blacklist takes full effect — modprobe
+				// -r clears the running module, but a stray udev rule or
+				// initramfs hook can still reload it before ventd's modprobe
+				// fires. A reboot tests the boot-time blacklist before the
+				// operator hits the same wall again on next power-on.
+				RequiresReboot: true,
 			},
 			bundle,
 		}

@@ -624,6 +624,35 @@
   border-color: var(--red);
   color: var(--red);
 }
+
+/* Reboot-required prompt — appended to a recovery card after a
+ * successful remediation whose effect only takes hold on next boot
+ * (#818). Amber-warn so it stands out against the success-green
+ * recovery result without looking like an error. */
+.cal-recovery-reboot {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--amber-bg);
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cal-recovery-reboot-text {
+  font-size: 0.82rem;
+  color: var(--fg1);
+  line-height: 1.4;
+}
+.cal-recovery-reboot-text strong {
+  color: var(--amber);
+  margin-right: 4px;
+}
+.cal-recovery-reboot-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
 .cal-recovery-result-msg {
   font-weight: 500;
 }
