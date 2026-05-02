@@ -142,6 +142,25 @@ func TestSafety_SentinelInvariants(t *testing.T) {
 		}
 	})
 
+	t.Run("sentinel/temp_rejects_sub_absolute_zero", func(t *testing.T) {
+		// Anything at or below −273.15°C is below absolute zero — a sensor
+		// latch error or signed/unsigned underflow in a driver. The exact
+		// floor value (−273.15°C) must be rejected, as must values below.
+		// A -10°C ambient reading is physically possible (cold-room rack)
+		// and MUST still pass.
+		path := filepath.Join(t.TempDir(), "temp1_input")
+
+		if !IsSentinelSensorVal(path, PlausibleTempMinCelsius) {
+			t.Errorf("IsSentinelSensorVal(%q, %.2f) = false; want true (at absolute-zero floor)", path, PlausibleTempMinCelsius)
+		}
+		if !IsSentinelSensorVal(path, -300.0) {
+			t.Errorf("IsSentinelSensorVal(%q, -300.0) = false; want true (below absolute zero)", path)
+		}
+		if IsSentinelSensorVal(path, -10.0) {
+			t.Errorf("IsSentinelSensorVal(%q, -10.0) = true; want false (cold ambient is valid)", path)
+		}
+	})
+
 	t.Run("sentinel/temp_accepts_normal_reading", func(t *testing.T) {
 		// A 45°C reading must not be rejected.
 		path := filepath.Join(t.TempDir(), "temp1_input")
