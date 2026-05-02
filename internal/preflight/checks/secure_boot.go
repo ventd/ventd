@@ -226,9 +226,35 @@ func liveSecureBootEnabled() (bool, bool) {
 	return hwmon.DefaultProbes().SecureBootEnabled()
 }
 
+// liveHasBinary tests whether `name` is reachable for execution. It
+// checks PATH first; for "sign-file" specifically it falls back to
+// the canonical kernel-headers location at
+// /usr/src/linux-headers-<release>/scripts/sign-file (Debian/Ubuntu)
+// and /usr/src/kernels/<release>/scripts/sign-file (Fedora). DKMS
+// hardcodes that path so the helper "exists" for module-signing
+// purposes even when not on PATH; without this fallback the
+// orchestrator falsely flags hosts that successfully sign modules
+// at install time.
 func liveHasBinary(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	if name == "sign-file" {
+		release, err := exec.Command("uname", "-r").Output()
+		if err == nil {
+			r := strings.TrimSpace(string(release))
+			for _, p := range []string{
+				"/usr/src/linux-headers-" + r + "/scripts/sign-file",
+				"/usr/src/kernels/" + r + "/scripts/sign-file",
+				"/lib/modules/" + r + "/build/scripts/sign-file",
+			} {
+				if fileExists(p) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // liveMOKKeyExists checks the same canonical paths hwmon's
@@ -254,21 +280,74 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// liveMOKEnrolled runs `mokutil --list-enrolled` and matches the
-// fingerprint of <dir>/MOK.der. Returns false when mokutil is missing
-// or the list parse fails — caller treats that as "not enrolled" for
-// safety.
+// liveMOKEnrolled compares the SHA-1 fingerprint of the on-disk
+// MOK.der (whichever of mokKeyCandidates exists first) against the
+// list of enrolled fingerprints from `mokutil --list-enrolled`.
+//
+// Fingerprint comparison is the load-bearing approach because the
+// ventd install pipeline may have regenerated the on-disk keypair
+// (replacing what's enrolled with a new pair); a CN-string match
+// would falsely report "enrolled" in that case and the next
+// modprobe would fail with a key-rejected stamp. A fingerprint
+// mismatch correctly reports the regenerated key as not yet
+// enrolled, so the operator gets prompted to re-enroll.
+//
+// Returns (false, nil) when mokutil is missing, no MOK is on disk,
+// or the openssl fingerprint extraction fails — every uncertain
+// state collapses to "not enrolled" so the install path errs on
+// the side of running the enrollment chain.
 func liveMOKEnrolled(ctx context.Context) (bool, error) {
 	if _, err := exec.LookPath("mokutil"); err != nil {
 		return false, nil
 	}
-	cmd := exec.CommandContext(ctx, "mokutil", "--list-enrolled")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, nil // mokutil printing nothing is treated as "no MOK enrolled".
+	if _, err := exec.LookPath("openssl"); err != nil {
+		return false, nil
 	}
-	// Naive substring match on the certificate's CN. A robust
-	// implementation would compare SHA-1 fingerprints; the CN is
-	// unique enough for the install-time gate.
-	return strings.Contains(string(out), "ventd MOK"), nil
+	derPath := ""
+	for _, pair := range mokKeyCandidates {
+		if fileExists(pair.cert) {
+			derPath = pair.cert
+			break
+		}
+	}
+	if derPath == "" {
+		return false, nil
+	}
+	fpCmd := exec.CommandContext(ctx, "openssl", "x509",
+		"-in", derPath, "-inform", "DER",
+		"-noout", "-fingerprint", "-sha1")
+	fpOut, err := fpCmd.Output()
+	if err != nil {
+		return false, nil
+	}
+	fp := normaliseFingerprint(string(fpOut))
+	if fp == "" {
+		return false, nil
+	}
+	enrolled, err := exec.CommandContext(ctx, "mokutil", "--list-enrolled").CombinedOutput()
+	if err != nil {
+		return false, nil
+	}
+	return strings.Contains(normaliseFingerprintList(string(enrolled)), fp), nil
+}
+
+// normaliseFingerprint extracts the hex digest from an openssl
+// `-fingerprint -sha1` line ("SHA1 Fingerprint=AA:BB:..."), strips
+// colons, and lowercases. Used for case-insensitive substring
+// matching against mokutil's enrolled list which prints
+// "SHA1 Fingerprint: aa:bb:..." (lowercase, with colons).
+func normaliseFingerprint(s string) string {
+	if i := strings.Index(s, "="); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.ReplaceAll(s, ":", "")
+}
+
+// normaliseFingerprintList strips colons and lowercases the entire
+// mokutil --list-enrolled output so a substring search against a
+// normalised fingerprint matches regardless of the colon / case
+// formatting differences between openssl and mokutil.
+func normaliseFingerprintList(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), ":", "")
 }

@@ -157,4 +157,45 @@ func TestSecureBootChecks(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("RULE-PREFLIGHT-SB-08_signfile_check_uses_injected_probe", func(t *testing.T) {
+		// The check MUST consult the SecureBootProbes.HasBinary
+		// callback rather than hard-wiring exec.LookPath, so test
+		// fixtures (and the live fallback to the kernel-headers
+		// path) can resolve sign-file via paths PATH doesn't cover.
+		// Caught on Phoenix's desktop where sign-file lives at
+		// /usr/src/linux-headers-<release>/scripts/sign-file
+		// (the canonical DKMS-hardcoded location).
+		p := fakeProbes()
+		p.HasBinary = func(name string) bool {
+			// Simulate the live behaviour: PATH miss but
+			// canonical-headers-path hit, surfaced as "yes" via
+			// the probe.
+			return name == "sign-file"
+		}
+		c := SecureBootChecks(*p)[0]
+		tr, _ := c.Detect(context.Background())
+		if tr {
+			t.Fatal("signfile_missing triggered when probe says present")
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-09_normaliseFingerprint_strips_colons_and_case", func(t *testing.T) {
+		// The fingerprint matcher MUST handle openssl's
+		// "SHA1 Fingerprint=AA:BB:..." output and mokutil's
+		// "SHA1 Fingerprint: aa:bb:..." output uniformly. A
+		// case-sensitive or colon-sensitive comparison would
+		// produce false negatives on every machine because
+		// openssl emits uppercase-with-equals and mokutil emits
+		// lowercase-with-colon-after-Fingerprint.
+		got := normaliseFingerprint("SHA1 Fingerprint=ED:9A:EB:D6:78:43:BE:7E\n")
+		want := "ed9aebd67843be7e"
+		if got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+		list := normaliseFingerprintList("SHA1 Fingerprint: ED:9A:EB:D6:78:43:BE:7E\n  Subject: CN=ventd")
+		if !strings.Contains(list, want) {
+			t.Fatalf("normalised list missing fingerprint: %s", list)
+		}
+	})
 }

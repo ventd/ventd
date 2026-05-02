@@ -214,6 +214,30 @@ predict-not-react design.
 
 Bound: internal/preflight/checks/secure_boot_test.go:RULE-PREFLIGHT-SB-07_all_four_severity_blocker
 
+## RULE-PREFLIGHT-SB-08: signfile detection consults the injected HasBinary probe.
+
+The signfile check MUST consult the `SecureBootProbes.HasBinary`
+callback rather than hard-wiring `exec.LookPath`. The live HasBinary
+implementation falls back to the canonical kernel-headers path
+(`/usr/src/linux-headers-<release>/scripts/sign-file`) which DKMS
+hardcodes for module signing — sign-file is rarely on PATH on
+Debian/Ubuntu, so a PATH-only check falsely flags every host that
+already signs modules successfully (caught on Phoenix's HIL desktop).
+
+Bound: internal/preflight/checks/secure_boot_test.go:RULE-PREFLIGHT-SB-08_signfile_check_uses_injected_probe
+
+## RULE-PREFLIGHT-SB-09: MOK fingerprint matcher strips colons and lowercases.
+
+The fingerprint matcher MUST handle openssl's `SHA1 Fingerprint=AA:BB:...`
+output and mokutil's `SHA1 Fingerprint: aa:bb:...` output uniformly.
+openssl emits uppercase-with-equals; mokutil emits lowercase-with-
+colon-after-Fingerprint. A case-sensitive or colon-sensitive
+comparison would produce false negatives on every machine, masking
+"key on disk but not enrolled" — the very condition the check
+exists to detect.
+
+Bound: internal/preflight/checks/secure_boot_test.go:RULE-PREFLIGHT-SB-09_normaliseFingerprint_strips_colons_and_case
+
 ## Build environment (internal/preflight/checks/build.go)
 
 ## RULE-PREFLIGHT-BUILD-01: gcc_missing AutoFix installs build-tools meta-package.
