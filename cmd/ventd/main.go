@@ -89,6 +89,15 @@ func run() error {
 		return fmt.Errorf("unknown diag subcommand %q", sub)
 	}
 
+	// `ventd preflight` runs the install-time orchestrator. Args
+	// after `preflight` are passed through; the subcommand owns its
+	// own flag parsing because the global flag set has unrelated
+	// daemon flags that would error on --interactive etc.
+	if len(os.Args) >= 2 && os.Args[1] == "preflight" {
+		logger := buildLogger("info")
+		os.Exit(runPreflight(os.Args[2:], logger))
+	}
+
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")

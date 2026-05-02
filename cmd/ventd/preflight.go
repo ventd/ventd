@@ -1,0 +1,266 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/ventd/ventd/internal/preflight"
+	"github.com/ventd/ventd/internal/preflight/checks"
+)
+
+// printMOKWalkthrough renders the post-reboot MOK Manager
+// instructions inside an ASCII box so the steps stand out from the
+// surrounding log lines + prompt text. password is the firmware
+// MOK Manager password generated during this preflight run — the
+// operator types it at step 4. The same banner is shown twice in
+// the reboot path: once at the prompt (operator decides whether to
+// reboot) and once right before the systemctl reboot fires (so
+// it's the last thing on screen before the firmware screen
+// appears).
+func printMOKWalkthrough(password string) {
+	const sep = "═══════════════════════════════════════════════════════════════════"
+	fmt.Println()
+	fmt.Println(sep)
+	fmt.Println("  ACTION REQUIRED AFTER REBOOT")
+	fmt.Println(sep)
+	fmt.Println("  At the blue MOK Manager screen:")
+	fmt.Println()
+	fmt.Println("    1. Choose 'Enroll MOK'")
+	fmt.Println("    2. Choose 'Continue'")
+	fmt.Println("    3. Choose 'Yes' to enroll")
+	fmt.Println("    4. Type this password (case-sensitive):")
+	fmt.Println()
+	fmt.Println("                       " + password)
+	fmt.Println()
+	fmt.Println("    5. Choose 'Reboot'")
+	fmt.Println()
+	fmt.Println("  Write this password down NOW — it disappears with the screen.")
+	fmt.Println("  The system will reboot a second time. ventd will then be able")
+	fmt.Println("  to load its kernel module under Secure Boot.")
+	fmt.Println(sep)
+}
+
+// runPreflight implements the `ventd preflight` subcommand. It is the
+// orchestrator-driven counterpart of the legacy `ventd
+// --preflight-check` flag (which still works for back-compat: it
+// emits a single Reason in JSON and exits 0). The new subcommand:
+//
+//   - Runs every check in the catalogue, not just the first blocker.
+//   - In --interactive mode, walks the operator through Y/N prompts
+//     and runs auto-fixes inline.
+//   - Emits schema-versioned JSON with --json so install.sh can
+//     consume the structured result.
+//   - Exits 0 when all blockers cleared, 2 when blockers remain, 1
+//     on internal error.
+//
+// Flags:
+//
+//	--interactive               Y/N prompt loop with inline auto-fix.
+//	--auto-yes                  Answer Yes to every prompt (smoke tests).
+//	--json                      Emit schema-versioned JSON to stdout.
+//	--skip <name1,name2,...>    Exclude named checks.
+//	--only <name1,name2,...>    Run only the named checks.
+//	--target-module <name>      Override the OOT module name (default: nct6687).
+//	--max-kernel <ver>          Set the driver's MaxSupportedKernel ceiling.
+//	--port-addr <addr>          host:port the daemon will bind on first start.
+//	--apparmor-profile <path>   Path to the shipped AppArmor profile (warn check).
+//	--max-attempts <n>          Cap on per-check fix retries (default: 1).
+func runPreflight(args []string, logger *slog.Logger) int {
+	var (
+		interactive     bool
+		autoYes         bool
+		emitJSON        bool
+		skipList        string
+		onlyList        string
+		targetModule    string
+		maxKernel       string
+		portAddr        string
+		apparmorProfile string
+		maxAttempts     int
+	)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--interactive":
+			interactive = true
+		case arg == "--auto-yes":
+			autoYes = true
+			interactive = true
+		case arg == "--json":
+			emitJSON = true
+		case arg == "--skip" && i+1 < len(args):
+			i++
+			skipList = args[i]
+		case strings.HasPrefix(arg, "--skip="):
+			skipList = strings.TrimPrefix(arg, "--skip=")
+		case arg == "--only" && i+1 < len(args):
+			i++
+			onlyList = args[i]
+		case strings.HasPrefix(arg, "--only="):
+			onlyList = strings.TrimPrefix(arg, "--only=")
+		case arg == "--target-module" && i+1 < len(args):
+			i++
+			targetModule = args[i]
+		case strings.HasPrefix(arg, "--target-module="):
+			targetModule = strings.TrimPrefix(arg, "--target-module=")
+		case arg == "--max-kernel" && i+1 < len(args):
+			i++
+			maxKernel = args[i]
+		case strings.HasPrefix(arg, "--max-kernel="):
+			maxKernel = strings.TrimPrefix(arg, "--max-kernel=")
+		case arg == "--port-addr" && i+1 < len(args):
+			i++
+			portAddr = args[i]
+		case strings.HasPrefix(arg, "--port-addr="):
+			portAddr = strings.TrimPrefix(arg, "--port-addr=")
+		case arg == "--apparmor-profile" && i+1 < len(args):
+			i++
+			apparmorProfile = args[i]
+		case strings.HasPrefix(arg, "--apparmor-profile="):
+			apparmorProfile = strings.TrimPrefix(arg, "--apparmor-profile=")
+		case arg == "--max-attempts" && i+1 < len(args):
+			i++
+			_, _ = fmt.Sscanf(args[i], "%d", &maxAttempts)
+		case strings.HasPrefix(arg, "--max-attempts="):
+			_, _ = fmt.Sscanf(strings.TrimPrefix(arg, "--max-attempts="), "%d", &maxAttempts)
+		case arg == "--help", arg == "-h":
+			printPreflightUsage()
+			return 0
+		default:
+			fmt.Fprintf(os.Stderr, "ventd preflight: unknown arg %q\n", arg)
+			printPreflightUsage()
+			return 1
+		}
+	}
+
+	bundle := checks.Default(checks.DefaultOptions{
+		TargetModule:        targetModule,
+		MaxSupportedKernel:  maxKernel,
+		PortAddr:            portAddr,
+		AppArmorProfilePath: apparmorProfile,
+	})
+	checkList := bundle.Checks
+	mokPassword := bundle.SB.MOKPassword
+
+	var prompter preflight.Prompter
+	if autoYes {
+		prompter = &preflight.AutoYesPrompter{Out: os.Stdout}
+	} else if interactive {
+		prompter = preflight.NewStdPrompter()
+	} else {
+		// Non-interactive runs still need a prompter for the
+		// summary writer; route output to stdout.
+		prompter = preflight.NewIOPrompter(os.Stdin, os.Stdout)
+	}
+
+	// The orchestrator already renders a human-readable summary +
+	// per-fix prompts; the per-check INFO log lines are noise that
+	// floods the terminal and buries the actual instruction blocks.
+	// Drop the runtime logger to WARN by default. JSON mode keeps
+	// the full INFO trace (it's machine-consumable and useful for
+	// install.sh debugging). This applies to BOTH interactive runs
+	// and pipe-mode summary runs (install.sh's curl-pipe-bash path
+	// re-runs `ventd preflight` without --json after a JSON probe
+	// finds blockers, to print the human-readable summary; without
+	// this suppression that path was the noisiest of all).
+	runLogger := logger
+	if !emitJSON {
+		runLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	}
+
+	report, runErr := preflight.Run(context.Background(), checkList, preflight.Options{
+		Interactive:    interactive,
+		Skip:           preflight.ParseList(skipList),
+		Only:           preflight.ParseList(onlyList),
+		MaxFixAttempts: maxAttempts,
+		Prompter:       prompter,
+		Logger:         runLogger,
+	})
+
+	if emitJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			fmt.Fprintf(os.Stderr, "encode: %v\n", err)
+			return 1
+		}
+	}
+
+	// In interactive mode, surface the reboot prompt once at the end
+	// when any successful AutoFix queued one. The orchestrator
+	// captures this via report.NeedsReboot.
+	if interactive && report.NeedsReboot && !autoYes {
+		printMOKWalkthrough(mokPassword)
+		resp := preflight.NewStdPrompter().AskYN("Reboot now?")
+		if resp == preflight.PromptYes {
+			// Show the walkthrough one more time RIGHT before reboot
+			// so it's the last thing the operator sees on screen
+			// before the system goes down. The countdown gives them
+			// time to read it (or photograph the screen) before the
+			// firmware screen appears.
+			printMOKWalkthrough(mokPassword)
+			fmt.Println()
+			fmt.Println("Rebooting in 10 seconds — Ctrl-C to cancel.")
+			time.Sleep(10 * time.Second)
+			// Trigger the reboot via systemctl. --no-wall avoids
+			// spamming other logged-in TTYs with the wall message
+			// (the operator who answered Y is presumably aware they
+			// asked for it). exec.Command without a context: we
+			// want the reboot to outlive this process.
+			rebootCmd := exec.Command("systemctl", "reboot", "--no-wall")
+			rebootCmd.Stdout = os.Stdout
+			rebootCmd.Stderr = os.Stderr
+			if err := rebootCmd.Start(); err != nil {
+				// Fallback to /sbin/reboot for non-systemd hosts.
+				if err2 := exec.Command("reboot").Run(); err2 != nil {
+					fmt.Fprintf(os.Stderr, "could not reboot: systemctl: %v / reboot: %v\n", err, err2)
+					fmt.Fprintln(os.Stderr, "Please reboot manually: sudo reboot")
+					return 3
+				}
+			}
+			return 3 // signals "preflight done, reboot requested"
+		}
+		fmt.Println()
+		fmt.Println("Reboot deferred. Run `sudo reboot` when ready, then confirm MOK at firmware.")
+	}
+
+	if runErr != nil {
+		// Blockers remain. Exit 2 so install.sh can distinguish
+		// "checks ran but found problems" from "internal error" (exit 1).
+		return 2
+	}
+	return 0
+}
+
+func printPreflightUsage() {
+	fmt.Print(`Usage: ventd preflight [flags]
+
+Runs install-time precondition checks and (in --interactive mode) walks
+the operator through Y/N-gated auto-fixes. Designed to run from
+scripts/install.sh before the systemd unit is installed.
+
+Flags:
+  --interactive              Prompt Y/N for each fixable blocker.
+  --auto-yes                 Answer Yes to every prompt (testing).
+  --json                     Emit schema-versioned JSON to stdout.
+  --skip <a,b,...>           Exclude named checks from the run.
+  --only <a,b,...>           Restrict the run to the named checks.
+  --target-module <name>     OOT module to install (default: nct6687).
+  --max-kernel <ver>         Driver's MaxSupportedKernel ceiling.
+  --port-addr <host:port>    Daemon's first-start listen address.
+  --apparmor-profile <path>  Shipped AppArmor profile path (warn check).
+  --max-attempts <n>         Per-check AutoFix retry cap (default: 1).
+
+Exit codes:
+  0  All checks passed.
+  1  Internal error.
+  2  One or more blockers remain (operator declined or fix failed).
+  3  Fix queued; reboot requested.
+`)
+}

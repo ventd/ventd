@@ -182,6 +182,49 @@ func TestClassify_WrappedErrors(t *testing.T) {
 }
 
 // RULE-WIZARD-RECOVERY-09: All declared FailureClass values appear
+// TestClassify_ACPIResourceConflict pins the dual-signal gating
+// for ClassACPIResourceConflict — bare ENODEV alone could mean "no
+// IT chip present" (e.g. AMD board with no IT controller); pairing
+// with the kernel's "ACPI: resource ... conflicts" stamp
+// disambiguates "BIOS won't let us bind" from "no chip here". A
+// regression that fires on bare ENODEV would falsely surface the
+// auto-fix card on every host without an IT chip.
+//
+// Bound: RULE-WIZARD-RECOVERY-10 — ACPI resource conflict requires
+// both modprobe ENODEV AND kernel ACPI conflict stamp.
+func TestClassify_ACPIResourceConflict(t *testing.T) {
+	t.Parallel()
+
+	t.Run("both signals fire", func(t *testing.T) {
+		err := errors.New("modprobe: ERROR: could not insert 'it87': No such device")
+		journal := []string{
+			"kernel: ACPI: resource it87 [io  0x290-0x297] conflicts with ACPI region MOTH",
+			"systemd[1]: Started ventd.service",
+		}
+		got := Classify(PhaseInstallingDriver, err, journal)
+		if got != ClassACPIResourceConflict {
+			t.Fatalf("got %q, want %q", got, ClassACPIResourceConflict)
+		}
+	})
+
+	t.Run("ENODEV alone without ACPI stamp does not fire", func(t *testing.T) {
+		err := errors.New("modprobe: ERROR: could not insert 'it87': No such device")
+		got := Classify(PhaseInstallingDriver, err, []string{"unrelated"})
+		if got == ClassACPIResourceConflict {
+			t.Fatalf("classified ENODEV-only as ACPI conflict")
+		}
+	})
+
+	t.Run("ACPI stamp without ENODEV does not fire", func(t *testing.T) {
+		err := errors.New("some other modprobe failure")
+		journal := []string{"ACPI: resource conflicts with region MOTH"}
+		got := Classify(PhaseInstallingDriver, err, journal)
+		if got == ClassACPIResourceConflict {
+			t.Fatalf("classified ACPI-only as ACPI conflict")
+		}
+	})
+}
+
 // in AllFailureClasses() in display order. Pin the contract so a
 // future addition to the enum forces an update to the catalogue.
 func TestAllFailureClasses_Complete(t *testing.T) {
@@ -201,6 +244,8 @@ func TestAllFailureClasses_Complete(t *testing.T) {
 		ClassDaemonNotRoot,
 		ClassContainerised,
 		ClassConcurrentInstall,
+		ClassACPIResourceConflict,
+		ClassDriverWontBind,
 	}
 	got := AllFailureClasses()
 	if len(got) != len(want) {

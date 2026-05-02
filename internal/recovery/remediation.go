@@ -59,14 +59,25 @@ type Remediation struct {
 //
 // All entries close with a generic "Send diagnostic bundle" option
 // so the operator always has a way to escalate to the maintainers.
-// That bundle button reuses the existing /api/v1/diag/bundle endpoint
+// That bundle button reuses the existing /api/diag/bundle endpoint
 // shipped by PR #799, so no new backend work needed for that arm.
+//
+// Note on install-time vs runtime classes: `ventd preflight`
+// (v0.5.11) catches install-time blockers BEFORE the systemd unit
+// runs, so most operators won't see ClassSecureBoot /
+// ClassMissingHeaders / etc. as wizard errors. But they CAN still
+// fire during wizard re-entry after a failed first attempt — DKMS
+// state from the first attempt, in-tree conflicts that were
+// auto-fixed but reverted on reboot, etc. — so the auto-fix cards
+// stay available here. The narrowing tried in early v0.5.11 was
+// too aggressive and removed the auto-fix path operators relied
+// on for this re-entry case (caught on Phoenix's HIL).
 func RemediationFor(class FailureClass) []Remediation {
 	bundle := Remediation{
 		Label:       "Send diagnostic bundle to maintainers",
 		Description: "Generates a redacted bundle (hostnames, IPs, MACs replaced with stable tokens) you can share with the project maintainers for help.",
 		Kind:        KindActionPost,
-		ActionURL:   "/api/v1/diag/bundle",
+		ActionURL:   "/api/diag/bundle",
 	}
 
 	switch class {
@@ -76,7 +87,7 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Generate MOK signing key",
 				Description: "Secure Boot blocks unsigned kernel modules. Generate a Machine Owner Key, enroll it at next boot, and ventd will sign its module. Walk-through provided.",
 				Kind:        KindModalInstr,
-				ActionURL:   "/api/v1/hwdiag/mok-enroll",
+				ActionURL:   "/api/hwdiag/mok-enroll",
 				DocURL:      "https://github.com/ventd/ventd/wiki/secure-boot",
 			},
 			{
@@ -94,7 +105,7 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Install kernel headers",
 				Description: "Installs linux-headers (Debian/Ubuntu), kernel-headers (Fedora), or linux-headers (Arch) for your running kernel. The OOT driver build will succeed once these are present.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-kernel-headers",
+				ActionURL:   "/api/hwdiag/install-kernel-headers",
 				DocURL:      "https://github.com/ventd/ventd/wiki/kernel-headers",
 			},
 			bundle,
@@ -106,37 +117,11 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Install DKMS",
 				Description: "DKMS rebuilds out-of-tree drivers automatically when the kernel updates. If it isn't installed, the wizard's driver-install step fails before the build even starts.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-dkms",
+				ActionURL:   "/api/hwdiag/install-dkms",
 				DocURL:      "https://github.com/ventd/ventd/wiki/dkms",
 			},
 			bundle,
 		}
-
-	case ClassApparmorDenied:
-		return []Remediation{
-			{
-				Label:       "Reload AppArmor profile",
-				Description: "Loads ventd's shipped AppArmor profile into the running kernel. Distros that enforce AppArmor at boot may not have parsed our profile yet — this wires it up so the wizard's helpers run unblocked.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/load-apparmor",
-				DocURL:      "https://github.com/ventd/ventd/wiki/apparmor",
-			},
-			bundle,
-		}
-
-	case ClassMissingModule:
-		return []Remediation{
-			{
-				Label:       "Try loading the module",
-				Description: "Asks the daemon to modprobe the expected kernel module and persist it via /etc/modules-load.d. If the module isn't installed at all, this surfaces a more specific error.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/setup/load-module",
-				DocURL:      "https://github.com/ventd/ventd/wiki/missing-module",
-			},
-			bundle,
-		}
-
-	// — v0.5.9 PR-D additions ———————————————————————————————————————
 
 	case ClassMissingBuildTools:
 		return []Remediation{
@@ -144,7 +129,7 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Install build tools",
 				Description: "Installs gcc, make, and the distro's build-essentials meta-package. The OOT driver build needs these to compile against your kernel.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-build-tools",
+				ActionURL:   "/api/hwdiag/install-build-tools",
 				DocURL:      "https://github.com/ventd/ventd/wiki/build-tools",
 			},
 			bundle,
@@ -156,7 +141,7 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Reset and reinstall driver",
 				Description: "Removes any partially-installed driver state (DKMS registration, .ko files, modules-load.d entries) and runs a fresh install. Use this when a previous install attempt left half-finished state behind.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
+				ActionURL:   "/api/hwdiag/reset-and-reinstall",
 				DocURL:      "https://github.com/ventd/ventd/wiki/reset-and-reinstall",
 			},
 			bundle,
@@ -168,7 +153,7 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Unbind in-tree driver and blacklist",
 				Description: "Removes the conflicting in-tree kernel driver (e.g. nct6683 when ventd needs nct6687d) and writes a blacklist drop-in so it doesn't reload at boot. Then reruns the OOT install.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
+				ActionURL:   "/api/hwdiag/reset-and-reinstall",
 				DocURL:      "https://github.com/ventd/ventd/wiki/in-tree-conflict",
 			},
 			bundle,
@@ -235,8 +220,72 @@ func RemediationFor(class FailureClass) []Remediation {
 				Label:       "Wait or take over the running wizard",
 				Description: "Another ventd setup wizard is already running on this machine. Wait for it to finish, or take over the run (the existing wizard's state will be released).",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/setup/take-over",
+				ActionURL:   "/api/setup/take-over",
 				DocURL:      "https://github.com/ventd/ventd/wiki/concurrent-wizard",
+			},
+			bundle,
+		}
+
+	case ClassACPIResourceConflict:
+		return []Remediation{
+			{
+				Label:       "Add acpi_enforce_resources=lax to kernel parameters",
+				Description: "Your motherboard's BIOS reserves the SuperIO chip's I/O region via ACPI, blocking ventd's driver from binding. This kernel parameter relaxes that claim. ventd will write a GRUB drop-in, run update-grub, and prompt for reboot. After reboot, the driver will bind and PWM channels will appear.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/grub-cmdline-add",
+				DocURL:      "https://github.com/ventd/ventd/wiki/acpi-resource-conflict",
+			},
+			bundle,
+		}
+
+	case ClassDriverWontBind:
+		// Trio of real actions when the driver installed but
+		// won't bind. Reset+reinstall covers stale-state cases;
+		// ACPI workaround covers the ~70% of bind failures on
+		// MSI/ASUS Z690-class boards. Bundle is the escape hatch.
+		// Operators get usable choices instead of bundle-only.
+		return []Remediation{
+			{
+				Label:       "Reset and reinstall driver",
+				Description: "Clears DKMS state, removes the .ko file, and runs a fresh install. Use this first — the most common cause of bind failure on retry is stale state from a prior attempt.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/reset-and-reinstall",
+				DocURL:      "https://github.com/ventd/ventd/wiki/reset-and-reinstall",
+			},
+			{
+				Label:       "Try the ACPI workaround (acpi_enforce_resources=lax)",
+				Description: "Many MSI / ASUS / Gigabyte Z690-class motherboards reserve the SuperIO chip's I/O region via ACPI, blocking the driver from binding. This kernel parameter relaxes that claim. ventd will write a GRUB drop-in and prompt for reboot.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/grub-cmdline-add",
+				DocURL:      "https://github.com/ventd/ventd/wiki/acpi-resource-conflict",
+			},
+			bundle,
+		}
+
+	case ClassApparmorDenied:
+		return []Remediation{
+			{
+				Label:       "Reload AppArmor profile",
+				Description: "Loads ventd's shipped AppArmor profile into the running kernel. Distros that enforce AppArmor at boot may not have parsed our profile yet — this wires it up so the wizard's helpers run unblocked.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/load-apparmor",
+				DocURL:      "https://github.com/ventd/ventd/wiki/apparmor",
+			},
+			bundle,
+		}
+
+	case ClassMissingModule:
+		// Runtime class: a module that disappeared after install
+		// (manual rmmod, kernel update without DKMS rebuild) reaches
+		// the doctor surface, not the wizard. Keep the load-module
+		// card for that path.
+		return []Remediation{
+			{
+				Label:       "Try loading the module",
+				Description: "Asks the daemon to modprobe the expected kernel module and persist it via /etc/modules-load.d. If the module isn't installed at all, this surfaces a more specific error.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/setup/load-module",
+				DocURL:      "https://github.com/ventd/ventd/wiki/missing-module",
 			},
 			bundle,
 		}

@@ -386,9 +386,38 @@ func liveBuildDirExists(release string) bool {
 	return err == nil
 }
 
+// liveHasBinary tests whether `name` is reachable for execution. It
+// checks PATH first; for "sign-file" specifically it falls back to
+// the canonical kernel-headers location at
+// /usr/src/linux-headers-<release>/scripts/sign-file (Debian/Ubuntu),
+// /usr/src/kernels/<release>/scripts/sign-file (Fedora), and
+// /lib/modules/<release>/build/scripts/sign-file (some distros).
+// DKMS hardcodes those paths so the helper "exists" for module-
+// signing purposes even when not on PATH; without this fallback the
+// install path falsely reports ReasonSignFileMissing on every host
+// that already signs modules successfully (caught on Phoenix's HIL
+// desktop where sign-file lives at /usr/src/linux-headers-<release>/
+// scripts/sign-file but isn't on PATH).
 func liveHasBinary(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	if name == "sign-file" {
+		release, err := exec.Command("uname", "-r").Output()
+		if err == nil {
+			r := strings.TrimSpace(string(release))
+			for _, p := range []string{
+				"/usr/src/linux-headers-" + r + "/scripts/sign-file",
+				"/usr/src/kernels/" + r + "/scripts/sign-file",
+				"/lib/modules/" + r + "/build/scripts/sign-file",
+			} {
+				if _, err := os.Stat(p); err == nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // liveSecureBootEnabled first tries `mokutil --sb-state`. On systems without

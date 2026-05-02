@@ -121,6 +121,37 @@ const (
 	// surfaces a take-over button (after confirming the holder PID
 	// is genuinely alive).
 	ClassConcurrentInstall FailureClass = "concurrent_install"
+
+	// ClassACPIResourceConflict covers boards where BIOS reserves
+	// the SuperIO chip's I/O region via ACPI, blocking the it87 /
+	// nct67xx driver from binding even when the module installs and
+	// loads cleanly. Modprobe returns ENODEV; dmesg shows
+	// "ACPI: resource ... conflicts with" overlapping the LPC base
+	// address. Common on MSI / ASUS Z690 / Z790 / X670 / B650
+	// boards. Remediation appends acpi_enforce_resources=lax to
+	// the kernel cmdline via a GRUB drop-in. Filed as #817.
+	ClassACPIResourceConflict FailureClass = "acpi_resource_conflict"
+
+	// ClassDriverWontBind is the catch-all for "build + sign +
+	// install all succeeded, but modprobe still won't bind the
+	// driver to hardware". The dmesg signature varies by board
+	// (ACPI conflict, BIOS managing the chip, EC lock, EPERM,
+	// ENODEV) — too many subclasses to enumerate cleanly. This
+	// class fires when modprobe's exit status was non-zero AND
+	// the install pipeline reported success (build + sign + lib-
+	// modules write all worked).
+	//
+	// The remediation is a TRIO of real actions:
+	//   1. Reset and reinstall (wipes DKMS / .ko / modules-load.d)
+	//   2. Try acpi_enforce_resources=lax (covers ~70% of cases)
+	//   3. Send diagnostic bundle (last resort)
+	// Operators get usable buttons instead of bundle-only when
+	// the more specific classifier rules miss. Without this,
+	// every novel hardware quirk surfaces as ClassUnknown →
+	// bundle-only, which Phoenix flagged as "ridiculous" during
+	// HIL testing — every iteration was whack-a-mole on a new
+	// class while users hit the same dead-end UI.
+	ClassDriverWontBind FailureClass = "driver_wont_bind"
 )
 
 // AllFailureClasses returns the closed set in display order. Used by tests
@@ -146,6 +177,8 @@ func AllFailureClasses() []FailureClass {
 		ClassDaemonNotRoot,
 		ClassContainerised,
 		ClassConcurrentInstall,
+		ClassACPIResourceConflict,
+		ClassDriverWontBind,
 	}
 }
 
@@ -208,11 +241,40 @@ func Classify(phase string, err error, journal []string) FailureClass {
 		return ClassDKMSBuildFailed
 	}
 
-	// 5. Missing module — `modprobe: FATAL: Module ... not found`,
+	// 5. ACPI/it87 conflict — modprobe returns ENODEV (or
+	// "No such device") AND the kernel journal shows an ACPI
+	// resource conflict for the LPC region. Both signals required
+	// because bare ENODEV could just mean missing hardware (no IT
+	// chip present); pairing it with the ACPI conflict pattern
+	// disambiguates "BIOS won't let us bind" from "no chip here".
+	// Common on MSI / ASUS Z690 / Z790 / X670 / B650 boards. See
+	// issue #817 for the full board list.
+	if (reModprobeENODEV.MatchString(msg) || reModprobeENODEV.MatchString(joined)) &&
+		reACPIResourceConflict.MatchString(joined) {
+		return ClassACPIResourceConflict
+	}
+
+	// 6. Missing module — `modprobe: FATAL: Module ... not found`,
 	// `Module ... not found in directory`. Catch-all for non-signing
 	// load failures.
 	if reMissingModule.MatchString(msg) || reMissingModule.MatchString(joined) {
 		return ClassMissingModule
+	}
+
+	// 7. Driver won't bind catch-all — modprobe failed (ENODEV,
+	// EPERM, "operation not permitted") AFTER the install
+	// pipeline completed. We know the build + sign + install
+	// succeeded if the journal shows "Installed
+	// /lib/modules/.../extra/<mod>.ko" and "Updating module
+	// index..." stamps from the install pipeline. Triggers when
+	// the more specific rules above didn't match but we're
+	// clearly in the "ko installed but won't bind" state.
+	// Trio-of-actions remediation gives operators usable buttons
+	// when classification can't pin the exact hardware quirk.
+	if (reModprobeENODEV.MatchString(msg) || reModprobeEPERM.MatchString(msg) ||
+		reModprobeENODEV.MatchString(joined) || reModprobeEPERM.MatchString(joined)) &&
+		reInstallSucceeded.MatchString(joined) {
+		return ClassDriverWontBind
 	}
 
 	return ClassUnknown
@@ -282,5 +344,42 @@ var (
 	// emit "FATAL" alongside a key-rejection stamp.
 	reMissingModule = regexp.MustCompile(
 		`(modprobe: ?fatal: ?module .* not found|module .* not found in directory|insmod: error inserting .*: -1 unknown symbol)`,
+	)
+	// ACPI/it87 conflict — modprobe ENODEV + dmesg "ACPI: resource"
+	// overlap with LPC base address. Both regexes must match (in
+	// classify.go) before ClassACPIResourceConflict fires; a bare
+	// ENODEV without the ACPI line could legitimately mean "no IT
+	// chip present" (e.g. AMD board with no IT controller).
+	reModprobeENODEV = regexp.MustCompile(
+		`(could not insert.*no such device|enodev|errno -19|insmod.*: -1 no such device)`,
+	)
+	// Kernel emits one of:
+	//   ACPI: resource it87 [io  0x290-0x297] conflicts with ACPI region MOTH
+	//   ACPI Warning: SystemIO range 0x0000000000000295-0x0000000000000296 conflicts ...
+	// We match the broad "acpi" + "resource" + "conflict" trio so
+	// future kernel message variants are still caught. Inevitable
+	// false positives on unrelated ACPI conflicts are accepted —
+	// the modprobe-ENODEV pairing in Classify gates this.
+	reACPIResourceConflict = regexp.MustCompile(
+		`acpi.*(resource|systemio|systemmemory).*conflict`,
+	)
+	// Modprobe EPERM patterns — surface as "operation not
+	// permitted" when the driver's module_init runs but a
+	// subsequent registration fails (ACPI region claim, sysfs
+	// node creation under a locked path, etc.). The wizard's
+	// banner often shows this verbatim, hence Phoenix's HIL
+	// confusion: "operation not permitted" looks like a
+	// permission issue but is usually downstream of an unmappable
+	// I/O region.
+	reModprobeEPERM = regexp.MustCompile(
+		`(could not insert.*operation not permitted|errno -1|eperm|operation not permitted)`,
+	)
+	// Install pipeline success stamps — match if the wizard's
+	// install logs reached the "module installed" + "depmod"
+	// markers. The catch-all driver-wont-bind classifier only
+	// fires when these are present (so we know the failure is at
+	// load-time, not build-time).
+	reInstallSucceeded = regexp.MustCompile(
+		`(installed /lib/modules/[^/]+/extra/.*\.ko|updating module index|driver install: depmod)`,
 	)
 )

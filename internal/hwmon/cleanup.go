@@ -74,22 +74,33 @@ func CleanupOrphanInstall(driver DriverNeed, release string, logger *slog.Logger
 	// covers every version DKMS has registered; we don't try to enumerate
 	// versions because the next InstallDriver run will register a fresh
 	// version anyway. Skipped silently when dkms is not on PATH.
+	// DKMS 3.0+ rejects the older `dkms remove --all <module>`
+	// syntax with "Arguments <module> and <module-version> are
+	// not specified" — caught on Phoenix's HIL desktop where
+	// Ubuntu 24.04 ships dkms 3.0.11 and the cleanup silently
+	// failed (Reset+Reinstall card "ran" but DKMS state stayed).
+	// New syntax requires <module>/<version>; we parse `dkms
+	// status -m <module>` to enumerate registered versions and
+	// remove each one. The next InstallDriver run will register
+	// a fresh version anyway.
 	if driver.Module != "" {
 		if _, err := exec.LookPath("dkms"); err == nil {
-			n, a := rootArgv("dkms", []string{"remove", "--all", driver.Module})
-			out, err := exec.Command(n, a...).CombinedOutput()
-			if err != nil {
-				// dkms exits non-zero when the module isn't registered;
-				// that's the success-from-the-cleanup-perspective path.
-				outStr := strings.ToLower(strings.TrimSpace(string(out)))
-				if !strings.Contains(outStr, "not found") &&
-					!strings.Contains(outStr, "is not in the dkms tree") {
-					report.NonFatalErrors = append(report.NonFatalErrors,
-						fmt.Sprintf("dkms remove --all %s: %s (%s)",
-							driver.Module, err, outStr))
+			versions := dkmsVersionsForModule(driver.Module)
+			for _, v := range versions {
+				spec := driver.Module + "/" + v
+				n, a := rootArgv("dkms", []string{"remove", "--all", spec})
+				out, err := exec.Command(n, a...).CombinedOutput()
+				if err != nil {
+					outStr := strings.ToLower(strings.TrimSpace(string(out)))
+					if !strings.Contains(outStr, "not found") &&
+						!strings.Contains(outStr, "is not in the dkms tree") {
+						report.NonFatalErrors = append(report.NonFatalErrors,
+							fmt.Sprintf("dkms remove --all %s: %s (%s)",
+								spec, err, outStr))
+						continue
+					}
 				}
-			} else {
-				report.DKMSRemoved = append(report.DKMSRemoved, driver.Module)
+				report.DKMSRemoved = append(report.DKMSRemoved, spec)
 			}
 		}
 	}
@@ -239,4 +250,46 @@ func writeBlacklistDropIn(path, module string) error {
 	}
 	body += want + "\n"
 	return os.WriteFile(path, []byte(body), 0o644)
+}
+
+// dkmsVersionsForModule parses `dkms status -m <module>` output to
+// extract every registered version of the module. DKMS 3.0+'s
+// status output format (one record per line):
+//
+//	<module>/<version>, <kernel>, <arch>: <status>
+//
+// We split on "/" then "," to extract just the version portion.
+// Returns nil when dkms is not on PATH, the call fails, or the
+// module has no registered versions.
+func dkmsVersionsForModule(module string) []string {
+	if module == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("dkms"); err != nil {
+		return nil
+	}
+	out, err := exec.Command("dkms", "status", "-m", module).Output()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var versions []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// "it87/2026.05.02, 6.8.0-111-generic, x86_64: installed"
+		head, _, _ := strings.Cut(line, ",")
+		modAndVer := strings.TrimSpace(head)
+		_, ver, ok := strings.Cut(modAndVer, "/")
+		if !ok || ver == "" {
+			continue
+		}
+		if !seen[ver] {
+			seen[ver] = true
+			versions = append(versions, ver)
+		}
+	}
+	return versions
 }

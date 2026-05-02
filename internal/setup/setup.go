@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -105,12 +106,25 @@ type HWProfile struct {
 
 // Manager owns all setup wizard state.
 type Manager struct {
-	mu             sync.Mutex
-	fans           []FanState
-	running        bool
-	done           bool
-	applied        bool
-	errMsg         string
+	mu      sync.Mutex
+	fans    []FanState
+	running bool
+	done    bool
+	applied bool
+	errMsg  string
+	// failureClass is the recovery.FailureClass set DIRECTLY by
+	// failure paths whose root cause maps cleanly without
+	// text-classification (preflight Reason → class bridge,
+	// in-tree-conflict detector → ClassInTreeConflict, etc.).
+	// When non-empty, Status() prefers it over the text-based
+	// recovery.Classify(errMsg) fallback. Without this bridge
+	// the wizard relied on regex-matching the operator-facing
+	// error string, which silently fell through to ClassUnknown
+	// (bundle-only card) for every preflight-classified failure
+	// — caught on Phoenix's HIL where ReasonStaleDKMSState fired
+	// but the recovery cards stayed empty because no text rule
+	// matched "DKMS already tracks" verbatim.
+	failureClass   recovery.FailureClass
 	rebootNeeded   bool
 	rebootMessage  string
 	phase          string
@@ -278,6 +292,7 @@ func (m *Manager) Start() error {
 	m.running = true
 	m.done = false
 	m.errMsg = ""
+	m.failureClass = ""
 	m.rebootNeeded = false
 	m.rebootMessage = ""
 	m.phase = ""
@@ -397,11 +412,34 @@ func (m *Manager) Progress() Progress {
 
 	// v0.5.9 wizard recovery classification (#800). When an error is
 	// present, hand it to the recovery package along with the
-	// wizard's current phase + the install log captured so far. The
-	// classifier returns ClassUnknown when no rule matches, which
-	// the UI handles by showing only the generic diag-bundle card.
+	// wizard's current phase + the install log captured so far +
+	// recent kernel ring-buffer lines. The kernel lines are required
+	// for ClassACPIResourceConflict (#817) — modprobe's stdout only
+	// shows ENODEV, the actual ACPI conflict stamp lives in the
+	// kernel journal. The classifier returns ClassUnknown when no
+	// rule matches, which the UI handles by showing only the
+	// generic diag-bundle card.
 	if m.errMsg != "" {
-		class := recovery.Classify(m.phase, errors.New(m.errMsg), installLog)
+		// Prefer the directly-set failureClass (set by paths
+		// that classify the failure root-cause without needing
+		// text matching — preflight Reason → class bridge,
+		// modprobe-failure detection, etc.). Fall back to
+		// regex-matching the operator-facing error string +
+		// installLog + kernel journal when no class was set
+		// directly. Without this preference, every preflight-
+		// classified failure silently fell through to
+		// ClassUnknown because no Classify() rule matched the
+		// detail-string verbatim — caught on Phoenix's HIL.
+		var class recovery.FailureClass
+		if m.failureClass != "" {
+			class = m.failureClass
+		} else {
+			journal := installLog
+			if klog := readKernelJournal(200); len(klog) > 0 {
+				journal = append(append([]string{}, installLog...), klog...)
+			}
+			class = recovery.Classify(m.phase, errors.New(m.errMsg), journal)
+		}
 		p.FailureClass = string(class)
 		p.Remediation = recovery.RemediationFor(class)
 	}
@@ -563,6 +601,7 @@ func (m *Manager) run(ctx context.Context) {
 			m.emitPreflightDiag(nd, pre)
 			m.mu.Lock()
 			m.errMsg = pre.Detail
+			m.failureClass = preflightReasonToFailureClass(pre.Reason)
 			m.mu.Unlock()
 			return
 		}
@@ -2137,4 +2176,97 @@ func (m *Manager) emitBuildFailedDiag(nd hwmonpkg.DriverNeed, err error) {
 		Detail:    err.Error(),
 		Affected:  []string{nd.Module},
 	})
+}
+
+// preflightReasonToFailureClass maps a hwmon.PreflightOOT Reason
+// directly onto a recovery.FailureClass so the wizard's calibration-
+// page recovery cards include the correct auto-fix actions without
+// relying on regex-matching the operator-facing detail string. The
+// previous text-classification path silently fell through to
+// ClassUnknown (bundle-only card) for every preflight-classified
+// failure — caught on Phoenix's HIL when ReasonStaleDKMSState
+// fired but the wizard banner showed only the diag-bundle button.
+//
+// Each Reason maps to its canonical class. A Reason without a
+// recovery class returns ClassUnknown explicitly — the caller
+// continues with the regex fallback (which currently has no rules
+// for these but the wiring is in place when classify.go grows
+// matching ones).
+func preflightReasonToFailureClass(r hwmonpkg.Reason) recovery.FailureClass {
+	switch r {
+	case hwmonpkg.ReasonKernelHeadersMissing:
+		return recovery.ClassMissingHeaders
+	case hwmonpkg.ReasonDKMSMissing:
+		return recovery.ClassDKMSBuildFailed
+	case hwmonpkg.ReasonSecureBootBlocks,
+		hwmonpkg.ReasonSignFileMissing,
+		hwmonpkg.ReasonMokutilMissing:
+		return recovery.ClassSecureBoot
+	case hwmonpkg.ReasonGCCMissing, hwmonpkg.ReasonMakeMissing:
+		return recovery.ClassMissingBuildTools
+	case hwmonpkg.ReasonContainerised:
+		return recovery.ClassContainerised
+	case hwmonpkg.ReasonNoSudoNoRoot:
+		return recovery.ClassDaemonNotRoot
+	case hwmonpkg.ReasonLibModulesReadOnly:
+		return recovery.ClassReadOnlyRootfs
+	case hwmonpkg.ReasonAptLockHeld:
+		return recovery.ClassPackageManagerBusy
+	case hwmonpkg.ReasonStaleDKMSState:
+		return recovery.ClassDKMSStateCollision
+	case hwmonpkg.ReasonInTreeDriverConflict:
+		return recovery.ClassInTreeConflict
+	case hwmonpkg.ReasonAnotherWizardRunning:
+		return recovery.ClassConcurrentInstall
+	case hwmonpkg.ReasonDiskFull:
+		return recovery.ClassDiskFull
+	}
+	return recovery.ClassUnknown
+}
+
+// readKernelJournal pulls the most recent N kernel ring-buffer
+// lines via `journalctl -k -n N`, falling back to `dmesg | tail`
+// on systems without journald (Alpine without elogind, runit-only
+// distros). Returns nil on any failure — the recovery classifier
+// treats an empty journal as "use installLog only", so a missing
+// kernel log just degrades the ACPI-conflict detection rather
+// than blocking other classifications.
+//
+// Used by the wizard's classifier path to feed kernel-side
+// "ACPI: resource ... conflicts" stamps into Classify so
+// ClassACPIResourceConflict (#817) can fire on MSI Z690-class
+// boards where the ACPI conflict only appears in the kernel
+// journal, not in the install pipeline's stdout.
+func readKernelJournal(n int) []string {
+	if path, err := exec.LookPath("journalctl"); err == nil {
+		cmd := exec.Command(path, "-k", "-n", fmt.Sprintf("%d", n), "--no-pager")
+		out, err := cmd.Output()
+		if err == nil {
+			return splitLines(string(out))
+		}
+	}
+	if path, err := exec.LookPath("dmesg"); err == nil {
+		cmd := exec.Command(path)
+		out, err := cmd.Output()
+		if err != nil {
+			return nil
+		}
+		lines := splitLines(string(out))
+		if len(lines) > n {
+			lines = lines[len(lines)-n:]
+		}
+		return lines
+	}
+	return nil
+}
+
+func splitLines(s string) []string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }

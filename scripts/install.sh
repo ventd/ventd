@@ -590,6 +590,82 @@ install -d -m 755 "$VENTD_PREFIX"
 install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
 echo "  ✓ binary → $VENTD_PREFIX/ventd"
 
+# ── Preflight ────────────────────────────────────────────────────────────────
+#
+# Run the preflight orchestrator now, before any systemd unit is laid down.
+# Detects pre-calibration blockers (Secure Boot prerequisites, missing
+# kernel headers, in-tree driver conflicts, stale DKMS state, competing
+# userspace fan daemons, etc.) and — when running on a TTY — walks the
+# operator through Y/N-gated auto-fixes.
+#
+# TTY detection preserves the curl-pipe-bash one-liner: piped form
+# (`curl -sSL .../install.sh | sudo bash`) gets the JSON+hard-exit path
+# with a re-entry hint; file-form (`sudo bash <(curl ...)` or
+# `sudo ./install.sh`) gets the interactive Y/N flow.
+#
+# Exit code mapping:
+#   0 — preflight clean, continue install
+#   1 — internal error (broken binary, etc.) — abort
+#   2 — operator declined a blocker auto-fix or fix failed — abort
+#   3 — fix queued, reboot requested — exit cleanly so operator can reboot
+#       and re-run install.sh (which will resume from this point)
+if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+    echo
+    echo "Running install-time preflight..."
+    if [[ -t 0 ]]; then
+        "$VENTD_PREFIX/ventd" preflight --interactive
+        rc=$?
+    else
+        # Piped form (curl ... | sudo bash): cannot prompt. Run JSON
+        # detect-only; if any blocker is found, print the human-
+        # readable summary and the actionable re-entry command, then
+        # exit 1.
+        if ! "$VENTD_PREFIX/ventd" preflight --json >/tmp/ventd-preflight.json 2>/dev/null; then
+            echo
+            "$VENTD_PREFIX/ventd" preflight 2>/dev/null || true
+            echo
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo "  ACTION REQUIRED"
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo
+            echo "  Preflight detected blockers that need your consent to fix."
+            echo "  Curl-pipe-bash cannot prompt — re-run install from a real terminal:"
+            echo
+            echo "    sudo bash <(curl -sSL https://github.com/ventd/ventd/releases/latest/download/install.sh)"
+            echo
+            echo "  The interactive installer will walk you through each fix with"
+            echo "  Y/N prompts and a clear post-reboot checklist."
+            echo "═══════════════════════════════════════════════════════════════════"
+            exit 1
+        fi
+        rc=0
+    fi
+    case "$rc" in
+        0)
+            echo "  ✓ preflight clean"
+            ;;
+        2)
+            echo
+            echo "Preflight blockers remain unresolved. Aborting install." >&2
+            echo "Re-run \`sudo $VENTD_PREFIX/ventd preflight --interactive\` to retry." >&2
+            exit 1
+            ;;
+        3)
+            echo
+            echo "A reboot is required to complete the preflight (likely MOK enrollment)."
+            echo "After rebooting and confirming the MOK in the firmware screen, re-run:"
+            echo
+            echo "    sudo bash <(curl -sSL https://github.com/ventd/ventd/releases/latest/download/install.sh)"
+            echo
+            exit 0
+            ;;
+        *)
+            echo "Preflight failed (exit $rc). Aborting install." >&2
+            exit 1
+            ;;
+    esac
+fi
+
 # ventd-wait-hwmon: ExecStartPre gate for the cold-boot udev race
 # (issue #103). Lives under /usr/local/sbin because it's a root-only
 # systemd helper; operators never run it by hand. Only referenced by

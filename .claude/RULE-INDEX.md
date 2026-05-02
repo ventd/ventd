@@ -238,6 +238,7 @@ Regenerate with: `go run ./tools/rule-index`
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
 | preflight-comprehensive.md | Comprehensive preflight rules — v0.5.9 PR-D |
+| preflight-orchestrator.md | Preflight orchestrator rules — v0.5.11 |
 | setup.md | Setup wizard rules |
 | signature.md | Workload signature learning rules (v0.5.6) |
 | signguard.md | Sign-guard rules (v0.5.8) |
