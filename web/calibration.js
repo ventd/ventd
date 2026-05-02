@@ -552,9 +552,19 @@
       // Retry stays available so the operator can re-run discovery
       // after fixing a missing kernel module / cabling / etc.
       if (skipBtn) skipBtn.hidden = !(p.done && (!p.fans || p.fans.length === 0));
+
+      // v0.5.9 wizard recovery cards (#800). Render the per-class
+      // remediation list when the classifier matched. Empty array
+      // (or ClassUnknown ⇒ single bundle entry already in the
+      // existing actions row) hides the cards container.
+      renderRecoveryCards(p.remediation || [], p.failure_class || '');
     } else {
       errorBanner.hidden = true;
       if (skipBtn) skipBtn.hidden = true;
+      // Hide cards when error clears so a Retry that succeeds
+      // doesn't leave stale cards visible.
+      var cardsEl = document.getElementById('cal-recovery-cards');
+      if (cardsEl) cardsEl.hidden = true;
     }
 
     if (p.done && !p.error && !p.applied) {
@@ -787,6 +797,230 @@
     }
     setTimeout(step, 700);
   }
+
+  // ── v0.5.9 wizard recovery cards (#800) ────────────────────────────
+  //
+  // renderRecoveryCards rebuilds the cards list from the latest
+  // /api/v1/setup/status payload. Cards are stateless; clicking an
+  // action button POSTs to action_url and re-renders the result
+  // inline (action_post) or in the modal (modal_instr / docs_only
+  // links open in a new tab).
+  function renderRecoveryCards(remediation, failureClass) {
+    var host = document.getElementById('cal-recovery-cards');
+    if (!host) return;
+    if (!remediation || remediation.length === 0) {
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    host.hidden = false;
+    host.innerHTML = '';
+
+    // Optional class label up top (subtle, just for context).
+    if (failureClass) {
+      var label = document.createElement('div');
+      label.className = 'cal-recovery-class';
+      label.textContent = 'Detected: ' + failureClass.replace(/_/g, ' ');
+      host.appendChild(label);
+    }
+
+    remediation.forEach(function (rem) {
+      var card = document.createElement('div');
+      card.className = 'cal-recovery-card';
+      card.dataset.kind = rem.kind || '';
+
+      var title = document.createElement('div');
+      title.className = 'cal-recovery-title';
+      title.textContent = rem.label || '';
+      card.appendChild(title);
+
+      if (rem.description) {
+        var desc = document.createElement('div');
+        desc.className = 'cal-recovery-desc';
+        desc.textContent = rem.description;
+        card.appendChild(desc);
+      }
+
+      var actions = document.createElement('div');
+      actions.className = 'cal-recovery-actions';
+
+      // Primary button. Behaviour depends on kind:
+      //   - action_post : POST action_url, render structured result.
+      //   - modal_instr : POST action_url, render commands in modal.
+      //   - docs_only   : opens doc_url in a new tab; no POST.
+      if (rem.kind === 'docs_only') {
+        if (rem.doc_url) {
+          var link = document.createElement('a');
+          link.className = 'btn btn--primary btn--sm';
+          link.href = rem.doc_url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = 'Open instructions';
+          actions.appendChild(link);
+        }
+      } else if (rem.action_url) {
+        var btn = document.createElement('button');
+        btn.className = 'btn btn--primary btn--sm';
+        btn.type = 'button';
+        btn.textContent = rem.kind === 'modal_instr' ? 'Show instructions' : 'Apply fix';
+        btn.addEventListener('click', function () {
+          handleRecoveryAction(card, btn, rem);
+        });
+        actions.appendChild(btn);
+      }
+
+      // Secondary "Learn more" link (renders alongside the button).
+      if (rem.doc_url && rem.kind !== 'docs_only') {
+        var docLink = document.createElement('a');
+        docLink.className = 'cal-recovery-doclink';
+        docLink.href = rem.doc_url;
+        docLink.target = '_blank';
+        docLink.rel = 'noopener noreferrer';
+        docLink.textContent = 'Learn more';
+        actions.appendChild(docLink);
+      }
+
+      card.appendChild(actions);
+
+      // Result container — populated on POST response.
+      var result = document.createElement('div');
+      result.className = 'cal-recovery-result';
+      result.hidden = true;
+      card.appendChild(result);
+
+      host.appendChild(card);
+    });
+  }
+
+  // handleRecoveryAction POSTs to a remediation card's action_url
+  // and renders the response (install log / instructions modal).
+  function handleRecoveryAction(card, btn, rem) {
+    var resultEl = card.querySelector('.cal-recovery-result');
+    btn.disabled = true;
+    var oldLabel = btn.textContent;
+    btn.textContent = '…';
+    fetch(rem.action_url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: rem.action_url.indexOf('/diag/bundle') >= 0 ? '' : null,
+    })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        }
+        return r.json();
+      })
+      .then(function (j) {
+        // Modal-instr: open modal with command list.
+        if (rem.kind === 'modal_instr' && Array.isArray(j.commands)) {
+          showInstructionsModal(rem.label, j.detail || '', j.commands);
+          btn.disabled = false;
+          btn.textContent = oldLabel;
+          return;
+        }
+        // diag-bundle: trigger download.
+        if (j.download_url) {
+          var a = document.createElement('a');
+          a.href = j.download_url;
+          a.download = j.filename || '';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          renderRecoveryResult(resultEl, true,
+            'Bundle ready: ' + (j.filename || '') + ' (downloading).');
+          btn.disabled = false;
+          btn.textContent = oldLabel;
+          return;
+        }
+        // install-log shape (install-kernel-headers / install-dkms / load-apparmor / load-module).
+        if (j.kind === 'install_log') {
+          renderRecoveryResult(resultEl, j.success === true,
+            j.success ? 'Done.' : (j.error || 'Failed.'),
+            j.log || []);
+          if (j.success) {
+            btn.disabled = true;
+            btn.textContent = '✓ Applied';
+          } else {
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+          }
+          return;
+        }
+        // Generic OK fallback.
+        renderRecoveryResult(resultEl, true, JSON.stringify(j));
+        btn.disabled = false;
+        btn.textContent = oldLabel;
+      })
+      .catch(function (err) {
+        renderRecoveryResult(resultEl, false,
+          (err && err.message) || 'Request failed.');
+        btn.disabled = false;
+        btn.textContent = oldLabel;
+      });
+  }
+
+  function renderRecoveryResult(el, ok, message, log) {
+    el.hidden = false;
+    el.classList.toggle('is-error', !ok);
+    el.innerHTML = '';
+    var msg = document.createElement('div');
+    msg.className = 'cal-recovery-result-msg';
+    msg.textContent = message;
+    el.appendChild(msg);
+    if (log && log.length > 0) {
+      var pre = document.createElement('pre');
+      pre.className = 'cal-recovery-result-log';
+      pre.textContent = log.join('\n');
+      el.appendChild(pre);
+    }
+  }
+
+  // ── instructions modal (used for MOK enrollment) ───────────────────
+  function showInstructionsModal(title, detail, commands) {
+    var overlay = document.getElementById('cal-modal-overlay');
+    var titleEl = document.getElementById('cal-modal-title');
+    var bodyEl = document.getElementById('cal-modal-body');
+    if (!overlay || !titleEl || !bodyEl) return;
+    titleEl.textContent = title || 'Instructions';
+    bodyEl.innerHTML = '';
+    if (detail) {
+      var p = document.createElement('p');
+      p.textContent = detail;
+      bodyEl.appendChild(p);
+    }
+    var pre = document.createElement('pre');
+    pre.className = 'cal-modal-commands';
+    pre.textContent = commands.join('\n');
+    bodyEl.appendChild(pre);
+
+    var copy = document.createElement('button');
+    copy.className = 'btn btn--ghost btn--sm';
+    copy.type = 'button';
+    copy.textContent = 'Copy commands';
+    copy.addEventListener('click', function () {
+      navigator.clipboard.writeText(commands.join('\n')).then(function () {
+        copy.textContent = '✓ Copied';
+        setTimeout(function () { copy.textContent = 'Copy commands'; }, 1500);
+      });
+    });
+    bodyEl.appendChild(copy);
+
+    overlay.hidden = false;
+  }
+
+  (function setupModalClose() {
+    var overlay = document.getElementById('cal-modal-overlay');
+    var close = document.getElementById('cal-modal-close');
+    if (!overlay || !close) return;
+    close.addEventListener('click', function () { overlay.hidden = true; });
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) overlay.hidden = true;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !overlay.hidden) overlay.hidden = true;
+    });
+  })();
 
   // ── start ───────────────────────────────────────────────────────────
   paintPipeline('detecting');

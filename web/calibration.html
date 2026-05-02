@@ -279,6 +279,11 @@
       <div class="cal-error-title">Calibration could not complete</div>
       <div class="cal-error-sub" id="cal-error-sub">—</div>
     </div>
+    <!-- v0.5.9 wizard recovery cards (#800). Populated from
+         /api/v1/setup/status's `remediation` array when the
+         classifier identified the failure. Hidden when remediation
+         is empty (ClassUnknown ⇒ generic bundle button only). -->
+    <div class="cal-recovery-cards" id="cal-recovery-cards" hidden></div>
     <div class="cal-error-actions">
       <button class="btn btn--ghost" id="cal-retry-btn">Retry</button>
       <button class="btn btn--ghost" id="cal-bundle-btn">Send diagnostic bundle</button>
@@ -286,6 +291,17 @@
     </div>
     <div class="cal-error-bundle-status" id="cal-bundle-status" hidden></div>
   </section>
+
+  <!-- Modal hosting "Show instructions" card output (e.g. MOK enrollment). -->
+  <div class="cal-modal-overlay" id="cal-modal-overlay" hidden>
+    <div class="cal-modal" role="dialog" aria-labelledby="cal-modal-title">
+      <header class="cal-modal-header">
+        <h3 id="cal-modal-title">Instructions</h3>
+        <button class="btn btn--ghost cal-modal-close" id="cal-modal-close" aria-label="Close">×</button>
+      </header>
+      <div class="cal-modal-body" id="cal-modal-body"></div>
+    </div>
+  </div>
 
 </main>
 

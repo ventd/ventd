@@ -1,0 +1,2 @@
+modprobe: ERROR: could not insert 'nct6687': Required key not available
+insmod: ERROR: could not insert module /lib/modules/6.8.0-49-generic/extra/nct6687.ko: Key was rejected by service

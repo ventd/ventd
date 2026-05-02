@@ -27,6 +27,7 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
+	"github.com/ventd/ventd/internal/recovery"
 )
 
 // FanState describes a single fan during/after the setup process.
@@ -64,6 +65,20 @@ type Progress struct {
 	Fans          []FanState     `json:"fans"`
 	Config        *config.Config `json:"config,omitempty"`
 	Profile       *HWProfile     `json:"profile,omitempty"`
+
+	// v0.5.9 wizard recovery (#800). When Error is non-empty,
+	// FailureClass classifies the error and Remediation lists
+	// actionable cards the UI renders above the existing error
+	// banner buttons. Both fields are empty when Error is empty
+	// or when the classifier returns ClassUnknown — the UI
+	// falls back to the generic "Send diagnostic bundle" card.
+	//
+	// The shape mirrors the cross-cutting recovery package
+	// (internal/recovery) so the doctor surface can reuse it
+	// for runtime issues post-install. JSON tag string-typed for
+	// schema stability.
+	FailureClass string                 `json:"failure_class,omitempty"`
+	Remediation  []recovery.Remediation `json:"remediation,omitempty"`
 }
 
 // GPUProfile holds per-GPU hardware metadata for one NVML or AMD GPU.
@@ -377,6 +392,17 @@ func (m *Manager) Progress() Progress {
 		Fans:          fans,
 		Config:        m.result,
 		Profile:       m.profile,
+	}
+
+	// v0.5.9 wizard recovery classification (#800). When an error is
+	// present, hand it to the recovery package along with the
+	// wizard's current phase + the install log captured so far. The
+	// classifier returns ClassUnknown when no rule matches, which
+	// the UI handles by showing only the generic diag-bundle card.
+	if m.errMsg != "" {
+		class := recovery.Classify(m.phase, errors.New(m.errMsg), installLog)
+		p.FailureClass = string(class)
+		p.Remediation = recovery.RemediationFor(class)
 	}
 	m.mu.Unlock()
 

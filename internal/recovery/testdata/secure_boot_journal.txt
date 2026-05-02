@@ -1,0 +1,3 @@
+May 02 01:22:54 phoenix kernel: Loading of unsigned module is rejected
+May 02 01:22:54 phoenix kernel: nct6687: module verification failed: signature and/or required key missing - tainting kernel
+May 02 01:22:54 phoenix ventd[93450]: time=2026-05-02T01:22:54Z level=ERROR msg="modprobe failed" module=nct6687 err="modprobe: ERROR: could not insert 'nct6687': Required key not available"
