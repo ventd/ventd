@@ -528,14 +528,23 @@
 }
 
 /* ── error banner ─────────────────────────────────────────── */
+/* Column layout so the banner stacks: title row → recovery cards
+ * (full-width below) → result log (full-width below). The previous
+ * row layout with align-items: center collapsed long install-log
+ * text into a narrow per-character column on Phoenix's HIL desktop
+ * (caught when the wizard's failed install streamed its stderr
+ * into the recovery-result <pre> and the flex row constrained
+ * each line to a few characters of width). */
 .cal-error-banner {
-  display: flex; gap: 14px; align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 14px 18px;
   background: var(--red-bg);
   border: 1px solid var(--red);
   border-radius: 10px;
 }
-.cal-error-text { flex: 1; min-width: 0; }
+.cal-error-text { min-width: 0; }
 .cal-error-title {
   font-size: 0.95rem; color: var(--red); font-weight: 600;
 }

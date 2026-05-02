@@ -406,7 +406,20 @@
 
   // ── live card update from a Progress payload ────────────────────────
   function updateLiveCard(p, liveStatus) {
-    headlineEl.textContent = PHASE_HEADLINES[p.phase] || (p.phase_msg || 'Calibrating');
+    // Phases without per-fan progress (detecting, installing_driver,
+    // scanning_fans) get an "elapsed" suffix so the operator sees the
+    // counter tick — without it the headline is a static line and
+    // the wizard appears frozen during the OOT module build (which
+    // can take 60s+). Phoenix's HIL feedback: "drivers installing
+    // need to show some sort of progress".
+    var head = PHASE_HEADLINES[p.phase] || (p.phase_msg || 'Calibrating');
+    if (p.phase === 'detecting' || p.phase === 'installing_driver' || p.phase === 'scanning_fans') {
+      var elapsed = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+      if (elapsed >= 2) {
+        head = head + ' · ' + elapsed + 's elapsed';
+      }
+    }
+    headlineEl.textContent = head;
     livePhaseSubEl.textContent = p.phase_msg || '';
 
     var running = null;

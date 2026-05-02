@@ -274,6 +274,29 @@ func TestKernelAbove(t *testing.T) {
 	}
 }
 
+// TestLiveHasBinary_PassesAndRejects pins the regression-against-
+// PATH-only contract for the SB chain. PATH-only LookPath was the
+// cause of false-positive ReasonSignFileMissing on Phoenix's HIL
+// desktop where sign-file lives at /usr/src/linux-headers-<release>/
+// scripts/sign-file. The fallback walks the three known canonical
+// locations (Debian/Ubuntu, Fedora, /lib/modules build symlink). A
+// regression that reverts to PATH-only would re-introduce the false
+// positive on every Debian/Ubuntu host that successfully signs.
+//
+// We don't write a synthetic /usr/src tree here — that would need
+// root and pollute /usr/src on the dev box. The HIL run on
+// Phoenix's desktop is the canonical "PATH miss but canonical path
+// hit" coverage; this test just pins the basic PATH-positive and
+// nonsense-name-negative behaviour.
+func TestLiveHasBinary_PathBasics(t *testing.T) {
+	if !liveHasBinary("ls") {
+		t.Fatal("liveHasBinary(ls) returned false; expected PATH hit")
+	}
+	if liveHasBinary("definitely-not-a-real-binary-name-xyz") {
+		t.Fatal("liveHasBinary returned true for nonsense name")
+	}
+}
+
 func TestHumanBytes(t *testing.T) {
 	cases := []struct {
 		in   uint64
