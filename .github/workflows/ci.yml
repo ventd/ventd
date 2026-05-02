@@ -116,8 +116,29 @@ jobs:
       - name: Parse AppArmor profile (Ubuntu host)
         if: matrix.container == ''
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends apparmor-utils
+          # Issue #805: GitHub Actions ubuntu-latest defaults to
+          # azure.archive.ubuntu.com, which intermittently DNS-fails
+          # ("Temporary failure resolving"). Switch to the canonical
+          # archive.ubuntu.com mirror first, then retry the install up
+          # to three times against whichever mirror is reachable.
+          sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' \
+            /etc/apt/sources.list.d/ubuntu.sources \
+            /etc/apt/sources.list 2>/dev/null || true
+          for i in 1 2 3; do
+            if sudo apt-get update && \
+               sudo apt-get install -y --no-install-recommends apparmor-utils; then
+              break
+            fi
+            echo "apt attempt $i failed; sleeping 30s before retry"
+            sleep 30
+          done
+          # Verify the parser landed; surface a clear error if all
+          # three retries failed (rather than the cryptic "command not
+          # found" from the next step).
+          command -v apparmor_parser >/dev/null || {
+            echo "apparmor_parser not installed after 3 retries — see issue #805" >&2
+            exit 1
+          }
           sudo apparmor_parser -QK deploy/apparmor.d/ventd
           sudo apparmor_parser -QK deploy/apparmor.d/ventd-ipmi
 
