@@ -177,26 +177,47 @@ func DefaultProbes() Probes {
 // Chain order (most-blocking first; each refused gate prevents later gates
 // from masking it):
 //
-//  1. Containerised — calibration is unsafe and writes can't reach hwmon.
-//  2. No root/passwordless-sudo — every later step needs elevation.
-//  3. Another wizard already running — abort early so we don't race a
+//  1. Kernel version ceiling — pure-metadata refuse: this driver simply
+//     won't compile against the running kernel. Comes first so the
+//     deterministic test fixture in cmd/ventd/preflightcheck_smoke_test.go
+//     (which relies on KERNEL_TOO_NEW being reachable on every CI lane,
+//     including ones that fail later live-system probes) keeps its
+//     contract.
+//  2. Containerised — calibration is unsafe and writes can't reach hwmon.
+//  3. No root/passwordless-sudo — every later step needs elevation.
+//  4. Another wizard already running — abort early so we don't race a
 //     sibling's modprobe.
-//  4. In-tree driver conflict — must unbind before insmod will succeed.
-//  5. /lib/modules read-only — cannot install regardless of build.
-//  6. Disk full on any of /lib/modules, /usr/src, /var/cache.
-//  7. Apt lock held — auto-fix is "wait", not "bypass".
-//  8. Secure Boot enforcing → check sign-file, then mokutil, then MOK key
+//  5. In-tree driver conflict — must unbind before insmod will succeed.
+//  6. /lib/modules read-only — cannot install regardless of build.
+//  7. Disk full on any of /lib/modules, /usr/src, /var/cache.
+//  8. Apt lock held — auto-fix is "wait", not "bypass".
+//  9. Secure Boot enforcing → check sign-file, then mokutil, then MOK key
 //     (each missing piece returns its own Reason).
-//  9. Kernel version ceiling — known-incompatible kernel.
 //
-// 10.  Kernel headers — cannot build without them.
-// 11.  Build tools (gcc, make).
-// 12.  DKMS — soft, last in the chain.
-// 13.  Stale DKMS state for this module — warn so we run the cleanup auto-fix.
+// 10. Kernel headers — cannot build without them.
+// 11. Build tools (gcc, make).
+// 12. DKMS — soft, last in the chain.
+// 13. Stale DKMS state for this module — warn so we run the cleanup auto-fix.
 //
 // Each "if probe == nil" arm is a deliberate "skip when caller didn't wire
 // the probe" — required for the partial-fixture test pattern.
 func PreflightOOT(nd DriverNeed, p Probes) PreflightResult {
+	release := ""
+	if p.KernelRelease != nil {
+		release = p.KernelRelease()
+	}
+
+	if nd.MaxSupportedKernel != "" && release != "" {
+		if kernelAbove(release, nd.MaxSupportedKernel) {
+			return PreflightResult{
+				Reason: ReasonKernelTooNew,
+				Detail: "Kernel " + release + " is newer than the last version " +
+					nd.ChipName + " is known to build against (" + nd.MaxSupportedKernel +
+					"). The upstream driver has not been updated; build will likely fail.",
+			}
+		}
+	}
+
 	if p.IsContainerised != nil && p.IsContainerised() {
 		return PreflightResult{
 			Reason: ReasonContainerised,
@@ -227,7 +248,6 @@ func PreflightOOT(nd DriverNeed, p Probes) PreflightResult {
 		}
 	}
 
-	release := p.KernelRelease()
 	if p.LibModulesWritable != nil && release != "" && !p.LibModulesWritable(release) {
 		return PreflightResult{
 			Reason: ReasonLibModulesReadOnly,
@@ -284,17 +304,6 @@ func PreflightOOT(nd DriverNeed, p Probes) PreflightResult {
 					Reason: ReasonSecureBootBlocks,
 					Detail: "Secure Boot is enforcing and no MOK signing key is enrolled yet. Generate and enroll a key, then ventd can sign the " + nd.Module + " module.",
 				}
-			}
-		}
-	}
-
-	if nd.MaxSupportedKernel != "" && release != "" {
-		if kernelAbove(release, nd.MaxSupportedKernel) {
-			return PreflightResult{
-				Reason: ReasonKernelTooNew,
-				Detail: "Kernel " + release + " is newer than the last version " +
-					nd.ChipName + " is known to build against (" + nd.MaxSupportedKernel +
-					"). The upstream driver has not been updated; build will likely fail.",
 			}
 		}
 	}

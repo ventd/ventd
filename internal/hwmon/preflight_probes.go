@@ -180,11 +180,15 @@ func liveInTreeDriverConflict(target string) (string, bool) {
 	return "", false
 }
 
-// wizardLockPath returns the canonical path of the wizard run lock. Root-
-// mode uses /run; rootless uses $XDG_RUNTIME_DIR (falling back to /tmp
-// when neither is available — preflight's job is detection, not policy).
-// The internal/setup/lock.go writer agrees on the same path resolution.
+// wizardLockPath returns the canonical path of the wizard run lock.
+// Precedence matches internal/setup.WizardLockPath():
+// $VENTD_WIZARD_LOCK_DIR overrides; root → /run; rootless →
+// $XDG_RUNTIME_DIR; fallback /tmp. The two helpers must agree
+// because the preflight reads what the gate writes.
 func wizardLockPath() string {
+	if dir := os.Getenv("VENTD_WIZARD_LOCK_DIR"); dir != "" {
+		return filepath.Join(dir, "ventd-wizard.lock")
+	}
 	if os.Geteuid() == 0 {
 		return "/run/ventd-wizard.lock"
 	}
