@@ -337,6 +337,15 @@
   var pollInterval = 1000;
   var inDemo = false;
   var pollTimer = null;
+  var demoTimer = null;
+  // Phoenix's HIL feedback (#820): a single 401 / network blip flipped
+  // the dashboard into demo mode and never came back, so a transient
+  // session expiry painted fake data over a healthy daemon. Require
+  // N consecutive failures before we conclude the API is gone — and
+  // keep polling the real API even after entering demo so we can
+  // recover the moment it returns.
+  var DEMO_ACTIVATE_AFTER_FAILS = 3;
+  var consecutiveFailures = 0;
 
   // /api/v1/profile/active is POST-only (it switches the active profile);
   // the dashboard summary is built from the GET on /api/v1/profile.
@@ -362,10 +371,32 @@
         .then(shapeProfile)
         .catch(function () { return null; })
     ])
-      .then(function (out) { applyStatus(out[0]); if (out[1]) applyProfile(out[1]); })
+      .then(function (out) {
+        consecutiveFailures = 0;
+        // API came back — exit demo if we were in it.
+        if (inDemo) leaveDemo();
+        applyStatus(out[0]);
+        if (out[1]) applyProfile(out[1]);
+      })
       .catch(function () {
-        if (!inDemo) { inDemo = true; startDemo(); }
+        consecutiveFailures += 1;
+        if (!inDemo && consecutiveFailures >= DEMO_ACTIVATE_AFTER_FAILS) {
+          enterDemo();
+        }
       });
+  }
+
+  function enterDemo() {
+    inDemo = true;
+    var banner = document.getElementById('dash-demo-banner');
+    if (banner) banner.hidden = false;
+    startDemo();
+  }
+  function leaveDemo() {
+    inDemo = false;
+    if (demoTimer) { clearInterval(demoTimer); demoTimer = null; }
+    var banner = document.getElementById('dash-demo-banner');
+    if (banner) banner.hidden = true;
   }
 
   fetch('/api/v1/version', { credentials: 'same-origin' })
@@ -402,8 +433,14 @@
 
     function tick() {
       t += 1;
-      cpuTemp = clamp(cpuTemp + (Math.random() - 0.4) * 1.5, 35, 90);
-      gpuTemp = clamp(gpuTemp + (Math.random() - 0.4) * 1.8, 38, 88);
+      // Mean-zero drift — the previous (Math.random() - 0.4) had a +0.1
+      // positive bias, so demo CPU/GPU temps slowly walked up to the
+      // 90°C / 88°C clamp ceiling. On Phoenix's HIL desktop a transient
+      // 401 flipped the dashboard into demo mode and the climbing temps
+      // looked like a thermal runaway, panicking the operator (#820).
+      // (Math.random() - 0.5) is the unbiased symmetric form.
+      cpuTemp = clamp(cpuTemp + (Math.random() - 0.5) * 1.5, 35, 90);
+      gpuTemp = clamp(gpuTemp + (Math.random() - 0.5) * 1.8, 38, 88);
       var data = {
         sensors: [
           { name: 'CPU package',     value: cpuTemp,            unit: '°C' },
@@ -433,7 +470,8 @@
       });
     }
     tick();
-    pollTimer = setInterval(tick, 900);
+    if (demoTimer) clearInterval(demoTimer);
+    demoTimer = setInterval(tick, 900);
     applyVersion({ version: '0.5.4' });
   }
 
