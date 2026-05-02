@@ -236,3 +236,266 @@
   border-radius: 50%;
   background: currentColor;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * v0.5.9: 5-state confidence pill (topbar)
+ *
+ * Per spec-v0_5_9 §2.9 — five visually-distinct states map a
+ * controller's combined Layer A/B/C signal onto one glanceable
+ * indicator:
+ *
+ *   refused     — halt-grey static (no animation)
+ *   drifting    — red↔amber strobe at 1 Hz (re-cabling, drift)
+ *   cold-start  — gradient sweep (just calibrated, warming up)
+ *   warming     — amber pulse at 2 s (matches the controller tick)
+ *   converged   — steady green with subtle breathing glow
+ *
+ * State is selected via the [data-state="…"] attribute set in
+ * dashboard.js on each /api/v1/confidence/status poll. Reduced-
+ * motion users see the same colours but no animation —
+ * @media (prefers-reduced-motion: reduce) replaces every animation
+ * with a static glyph change.
+ * ───────────────────────────────────────────────────────────── */
+
+.dash-conf-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+}
+.dash-conf-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* refused — halt grey, no animation, clear "ventd is not predicting" signal. */
+.dash-conf-pill[data-state="refused"] {
+  background: var(--surface-2, #2a2a30);
+  color: var(--fg2, #99a);
+  border-color: var(--border, #444);
+}
+.dash-conf-pill[data-state="refused"] .dash-conf-pill-dot {
+  background: var(--fg3, #66677a);
+  animation: none;
+}
+
+/* drifting — 1 Hz strobe between red and amber. Re-cabled fan or
+ * sustained drift from R16; visually loud because something needs
+ * attention. */
+.dash-conf-pill[data-state="drifting"] {
+  background: var(--red-bg, #3a1f24);
+  color: var(--red, #ee4d5a);
+  border-color: var(--red, #ee4d5a);
+  animation: dash-conf-strobe 1s steps(2, jump-none) infinite;
+}
+.dash-conf-pill[data-state="drifting"] .dash-conf-pill-dot {
+  animation: dash-conf-dot-strobe 1s steps(2, jump-none) infinite;
+}
+@keyframes dash-conf-strobe {
+  0%, 49%   { background: var(--red-bg, #3a1f24); color: var(--red, #ee4d5a); border-color: var(--red, #ee4d5a); }
+  50%, 100% { background: var(--amber-bg, #3a2f17); color: var(--amber, #ffb35e); border-color: var(--amber, #ffb35e); }
+}
+@keyframes dash-conf-dot-strobe {
+  0%, 49%   { background: var(--red, #ee4d5a); }
+  50%, 100% { background: var(--amber, #ffb35e); }
+}
+
+/* cold-start — gradient sweep across the pill. The 5-min hard pin
+ * after Envelope C completion shows here; transitions to warming
+ * once the aggregator unfreezes. */
+.dash-conf-pill[data-state="cold-start"] {
+  color: var(--fg1, #e3e3ee);
+  background: linear-gradient(
+    90deg,
+    var(--surface-2, #20223a) 0%,
+    var(--blue-bg, #1c2c4f) 33%,
+    var(--cyan, #5dd6e0) 50%,
+    var(--blue-bg, #1c2c4f) 67%,
+    var(--surface-2, #20223a) 100%
+  );
+  background-size: 250% 100%;
+  border-color: var(--blue, #6c93ff);
+  animation: dash-conf-sweep 3s linear infinite;
+}
+.dash-conf-pill[data-state="cold-start"] .dash-conf-pill-dot {
+  background: var(--cyan, #5dd6e0);
+  box-shadow: 0 0 6px var(--cyan, #5dd6e0);
+}
+@keyframes dash-conf-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -150% 0; }
+}
+
+/* warming — amber pulse at 2 s, the controller tick rate. */
+.dash-conf-pill[data-state="warming"] {
+  background: var(--amber-bg, #3a2f17);
+  color: var(--amber, #ffb35e);
+  border-color: var(--amber, #ffb35e);
+}
+.dash-conf-pill[data-state="warming"] .dash-conf-pill-dot {
+  animation: dash-conf-pulse 2s ease-in-out infinite;
+}
+@keyframes dash-conf-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50%      { opacity: 1.0;  transform: scale(1.15); }
+}
+
+/* converged — steady green with a subtle 4-second breathing glow
+ * that says "ventd is in the groove" without being attention-
+ * grabbing. */
+.dash-conf-pill[data-state="converged"] {
+  background: var(--green-bg, #1f3a26);
+  color: var(--green, #5dd28d);
+  border-color: var(--green, #5dd28d);
+  animation: dash-conf-breath 4s ease-in-out infinite;
+}
+.dash-conf-pill[data-state="converged"] .dash-conf-pill-dot {
+  background: var(--green, #5dd28d);
+  box-shadow: 0 0 4px var(--green, #5dd28d);
+}
+@keyframes dash-conf-breath {
+  /* Halo lives in tokens.css as --shadow-conf-converged-glow so the
+     alpha tuple is a single source of truth and RULE-UI-02 stays
+     satisfied. The keyframe-zero shadow uses an existing token
+     (--green-bg) at zero offset/blur so it collapses to invisible
+     without a second alpha literal. */
+  0%, 100% { box-shadow: 0 0 0 0 var(--green-bg); }
+  50%      { box-shadow: var(--shadow-conf-converged-glow); }
+}
+
+/* Boundary-crossing transition ribbon — emitted briefly when the
+ * UI state changes (e.g. warming → converged). Anchored above the
+ * pill; auto-fades. */
+.dash-conf-ribbon {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-2, #2a2a30);
+  color: var(--fg1, #e3e3ee);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border, #444);
+  opacity: 0;
+  pointer-events: none;
+  animation: dash-conf-ribbon 2.4s ease-out forwards;
+}
+@keyframes dash-conf-ribbon {
+  0%   { opacity: 0; transform: translate(-50%, 4px); }
+  10%  { opacity: 1; transform: translate(-50%, 0); }
+  85%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -4px); }
+}
+
+/* Click-popover anchored under the confidence pill — surfaces the
+ * R12 §Q7 long-form per-layer reasons with no raw conf numbers
+ * (those live in v0.5.10 doctor internals). Pure CSS positioning
+ * + JS .open class toggle. */
+.dash-conf-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 280px;
+  max-width: 400px;
+  background: var(--surface-1, #1d1d24);
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-popover-strong);
+  z-index: 30;
+  font-size: 0.78rem;
+  color: var(--fg1, #e3e3ee);
+  display: none;
+}
+.dash-conf-popover.open {
+  display: block;
+}
+.dash-conf-popover h4 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  color: var(--fg1, #e3e3ee);
+  font-weight: 600;
+}
+.dash-conf-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.dash-conf-popover li {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+.dash-conf-popover .layer-name {
+  font-weight: 600;
+  color: var(--fg2, #b3b3c2);
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+.dash-conf-popover .layer-reason {
+  color: var(--fg1, #e3e3ee);
+  line-height: 1.35;
+}
+.dash-conf-popover .layer-reason.is-warm {
+  color: var(--amber, #ffb35e);
+}
+.dash-conf-popover .layer-reason.is-cold {
+  color: var(--cyan, #5dd6e0);
+}
+.dash-conf-popover .layer-reason.is-good {
+  color: var(--green, #5dd28d);
+}
+.dash-conf-popover .layer-reason.is-bad {
+  color: var(--red, #ee4d5a);
+}
+
+/* Per-channel chips inside the popover — list every controllable
+ * channel's individual state so a multi-fan box can spot the one
+ * stuck in 'warming' while the rest converged. */
+.dash-conf-popover .ch-list {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border, #444);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dash-conf-popover .ch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--surface-2, #2a2a30);
+  border: 1px solid var(--border, #444);
+}
+.dash-conf-popover .ch-chip[data-state="converged"] { color: var(--green, #5dd28d); border-color: var(--green, #5dd28d); }
+.dash-conf-popover .ch-chip[data-state="warming"]   { color: var(--amber, #ffb35e); border-color: var(--amber, #ffb35e); }
+.dash-conf-popover .ch-chip[data-state="cold-start"] { color: var(--cyan, #5dd6e0); border-color: var(--cyan, #5dd6e0); }
+.dash-conf-popover .ch-chip[data-state="drifting"]  { color: var(--red, #ee4d5a); border-color: var(--red, #ee4d5a); }
+.dash-conf-popover .ch-chip[data-state="refused"]   { color: var(--fg2, #b3b3c2); border-color: var(--border, #444); }
+
+/* Reduced-motion: disable strobe / sweep / pulse / breath / ribbon
+ * but preserve the colour signal so the state is still legible.
+ * Replaces motion with a static label glyph (set in JS for
+ * accessibility on top of the visual fallback). */
+@media (prefers-reduced-motion: reduce) {
+  .dash-conf-pill[data-state] { animation: none !important; }
+  .dash-conf-pill[data-state] .dash-conf-pill-dot { animation: none !important; }
+  .dash-conf-ribbon { animation: none; opacity: 1; transition: opacity 0.4s linear; }
+  .dash-conf-pill[data-state="cold-start"] {
+    /* Gradient still readable, just frozen mid-sweep */
+    background-position: 50% 0 !important;
+  }
+}
