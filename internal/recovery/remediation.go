@@ -290,6 +290,48 @@ func RemediationFor(class FailureClass) []Remediation {
 			bundle,
 		}
 
+	case ClassVendorDaemonActive:
+		// Detect-and-defer to vendor-shipped fan daemons (R28 Agent G's
+		// #1 architectural finding). The right move is monitor-only —
+		// the vendor daemon is already controlling fans correctly on
+		// these Linux-first OEM laptops. Installing ventd on top creates
+		// conflict, not value.
+		return []Remediation{
+			{
+				Label:       "Switch ventd to monitor-only mode",
+				Description: "Your laptop's vendor daemon (system76-power, asusctl, tccd, slimbookbattery, …) already controls fans correctly. ventd will register temperature and PWM readings as monitor-only and step out of the vendor's way. You can re-enable control later from Settings if you uninstall the vendor tool.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/setup/apply-monitor-only",
+				DocURL:      "https://github.com/ventd/ventd/wiki/vendor-daemon-coexistence",
+			},
+			bundle,
+		}
+
+	case ClassThinkpadACPIDisabled:
+		return []Remediation{
+			{
+				Label:       "Enable thinkpad_acpi fan_control",
+				Description: "ThinkPads ship with the kernel's `thinkpad_acpi` driver but its fan_control parameter is off by default — Lenovo's docs warn that the EC may override software writes. ventd will write /etc/modprobe.d/ventd-thinkpad.conf with `options thinkpad_acpi fan_control=1` and reload the module. Reboot recommended so the EC re-arbitrates with the option flipped.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/modprobe-options-write",
+				DocURL:      "https://github.com/ventd/ventd/wiki/thinkpad-fan-control",
+				// Reboot prompt picks up via #828 once that lands; for
+				// now the wiki page covers the manual reboot step.
+			},
+			bundle,
+		}
+
+	case ClassNixOSPathIgnored:
+		return []Remediation{
+			{
+				Label:       "NixOS: declarative integration required",
+				Description: "ventd writes modprobe drop-ins to /etc/modprobe.d/, but NixOS silently ignores those paths in favour of declarative configuration.nix entries. The fix isn't a click here — see the wiki for the exact `boot.extraModprobeConfig` and `boot.extraModulePackages` expressions to add to your configuration.nix, then run `nixos-rebuild switch`.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/nixos",
+			},
+			bundle,
+		}
+
 	default:
 		// ClassUnknown — generic bundle option only.
 		return []Remediation{bundle}
