@@ -161,6 +161,7 @@ func DetectNixOS(rootFS fs.FS) bool {
 	}
 	return false
 }
+
 // AMDOverdriveState captures the status of the amdgpu OverDrive bit
 // (0x4000 in `amdgpu.ppfeaturemask`) which gates the entire
 // `gpu_od/fan_ctrl/` sysfs tree on RDNA1 → RDNA4 cards. Without
