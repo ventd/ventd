@@ -111,6 +111,38 @@ string, so the classifier's `err.Error()` call sees the full text.
 
 Bound: internal/recovery/classify_test.go:TestClassify_WrappedErrors
 
+## RULE-WIZARD-RECOVERY-13: AMD OverDrive bit detection reports kernel-cmdline state + 6.14+ taint warning.
+
+`DetectAMDOverdrive(sysFS, procFS)` reads
+`/sys/module/amdgpu/parameters/ppfeaturemask` and returns an
+`AMDOverdriveState` struct describing whether bit 14 (0x4000) is
+set. The bit is required for fan control on every RDNA generation
+(RDNA1/2 expose `pwm1` writes only with the OD-enabled mask;
+RDNA3/4 expose the entire `gpu_od/fan_ctrl/` sysfs tree only when
+this bit is set). When the bit is absent the wizard surfaces a
+recovery card asking the operator to add `amdgpu.ppfeaturemask=0x4000`
+(or `0xffffffff`) to the kernel cmdline.
+
+Two parsing forms accepted: hex (`0xNNNNNNNN`, the canonical kernel-
+emit shape when the user passed cmdline) and bare decimal (resilient
+against future format changes).
+
+The `TaintsKernel` field reports whether the running kernel is
+≥ 6.14 — commit b472b8d829c1 ("drm/amd: Taint the kernel when
+enabling overdrive") landed in 6.14 and marks the kernel
+`TAINT_CPU_OUT_OF_SPEC` whenever 0x4000 is set in ppfeaturemask. The
+wizard surfaces this as an explicit opt-in warning so operators
+know the trade-off before enabling. Strict prefix parse: 6.14.x
+through 7.x.x return true; 6.13 and earlier return false; empty /
+unparseable returns false (conservative).
+
+`PpfeaturemaskFound=false` means the amdgpu module isn't loaded
+(no AMD discrete GPU on the host) — caller should treat as out-
+of-scope, not as "OverDrive disabled".
+
+Bound: internal/recovery/probe_amd_test.go:TestDetectAMDOverdrive
+Bound: internal/recovery/probe_amd_test.go:TestDetectAMDOverdrive_TaintWarning
+
 ## RULE-WIZARD-RECOVERY-09: AllFailureClasses() enumerates every declared FailureClass in display order.
 
 Pinned so a future addition to the enum forces an update to the
