@@ -299,7 +299,7 @@ func RemediationFor(class FailureClass) []Remediation {
 		return []Remediation{
 			{
 				Label:       "Switch ventd to monitor-only mode",
-				Description: "Your laptop's vendor daemon (system76-power, asusctl, tccd, slimbookbattery, …) already controls fans correctly. ventd will register temperature and PWM readings as monitor-only and step out of the vendor's way. You can re-enable control later from Settings if you uninstall the vendor tool.",
+				Description: "Your laptop's vendor daemon (system76-power, asusd, tccd / tailord, legiond, fw-fanctrl) already controls fans correctly. ventd will register temperature and PWM readings as monitor-only and step out of the vendor's way. You can re-enable control later from Settings if you uninstall the vendor tool.",
 				Kind:        KindActionPost,
 				ActionURL:   "/api/setup/apply-monitor-only",
 				DocURL:      "https://github.com/ventd/ventd/wiki/vendor-daemon-coexistence",
