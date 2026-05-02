@@ -1028,6 +1028,18 @@
           if (j.success) {
             btn.disabled = true;
             btn.textContent = '✓ Applied';
+            // Phoenix's HIL feedback (#818): a successful recovery action
+            // whose effect only takes hold on next boot used to leave the
+            // operator wondering whether anything happened. When the
+            // remediation declares requires_reboot=true, surface a Reboot
+            // now / Later prompt below the result so the next step is
+            // unambiguous.
+            if (rem.requires_reboot) {
+              showRebootPrompt(card,
+                rem.kind === 'modal_instr'
+                  ? 'After confirming the MOK enrollment in firmware MOK Manager at next boot, ventd will sign and load the driver automatically.'
+                  : 'A reboot makes the blacklist drop-in fully effective — no stray udev rule or initramfs hook can reload the in-tree driver after the next power-on.');
+            }
           } else {
             btn.disabled = false;
             btn.textContent = 'Retry';
@@ -1045,6 +1057,51 @@
         btn.disabled = false;
         btn.textContent = oldLabel;
       });
+  }
+
+  // showRebootPrompt appends a "Reboot now / Later" prompt below a
+  // successful recovery card whose remediation set requires_reboot=true
+  // (#818). POSTs to /api/v1/system/reboot on confirm; the existing
+  // server-side rebootEnvironmentBlocker decides whether reboot is
+  // safe (refuses inside containers / rack chassis without consent).
+  function showRebootPrompt(card, hint) {
+    var existing = card.querySelector('.cal-recovery-reboot');
+    if (existing) return; // idempotent — multiple successful Apply clicks
+    var box = document.createElement('div');
+    box.className = 'cal-recovery-reboot';
+    box.innerHTML =
+        '<div class="cal-recovery-reboot-text">'
+      +   '<strong>Reboot required.</strong> ' + (hint || 'The fix takes effect on next boot.')
+      + '</div>'
+      + '<div class="cal-recovery-reboot-actions">'
+      +   '<button class="btn btn--ghost cal-recovery-reboot-later" type="button">Later</button>'
+      +   '<button class="btn btn--primary cal-recovery-reboot-now" type="button">Reboot now</button>'
+      + '</div>';
+    card.appendChild(box);
+    box.querySelector('.cal-recovery-reboot-later').addEventListener('click', function () {
+      box.remove();
+    });
+    box.querySelector('.cal-recovery-reboot-now').addEventListener('click', function () {
+      if (!confirm('Reboot the host now? Any unsaved work in other apps will be lost.')) return;
+      var nowBtn = box.querySelector('.cal-recovery-reboot-now');
+      nowBtn.disabled = true;
+      nowBtn.textContent = 'Rebooting…';
+      fetch('/api/v1/system/reboot', { method: 'POST', credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+          }
+          // Reboot in flight — daemon will go down. The page will eventually
+          // fail to refresh; user will see the host coming back up via SSH /
+          // power button. No need to wait here.
+          nowBtn.textContent = 'Reboot triggered';
+        })
+        .catch(function (err) {
+          nowBtn.disabled = false;
+          nowBtn.textContent = 'Reboot now';
+          alert('Could not reboot: ' + ((err && err.message) || 'unknown error'));
+        });
+    });
   }
 
   function renderRecoveryResult(el, ok, message, log) {
