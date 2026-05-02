@@ -230,12 +230,14 @@ Regenerate with: `go run ./tools/rule-index`
 | hwmon-safety.md | Hardware Safety Rules |
 | hwmon-sentinel.md | hwmon Sentinel Acceptance Invariants |
 | install-contract.md | Install Contract Rules |
+| install-pipeline.md | Controlled install pipeline rules — v0.5.9 PR-D |
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
 | marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
 | nvml-helper.md | NVML helper rules — SUID-root write-helper for unprivileged ventd |
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
+| preflight-comprehensive.md | Comprehensive preflight rules — v0.5.9 PR-D |
 | signature.md | Workload signature learning rules (v0.5.6) |
 | signguard.md | Sign-guard rules (v0.5.8) |
 | smart-preset.md | Smart-mode preset config rules — v0.5.9 PR-A.4 |
@@ -243,5 +245,6 @@ Regenerate with: `go run ./tools/rule-index`
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |
 | web-ui.md | Web UI Rules |
+| wizard-gates.md | Wizard PhaseGate machinery rules — v0.5.9 PR-D |
 | wizard-recovery.md | Wizard recovery classifier rules — v0.5.9 PR-C (#800) |
 
