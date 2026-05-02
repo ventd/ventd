@@ -171,6 +171,10 @@ type Controller struct {
 	// not emit observation records (pre-v0.5.6 behaviour).
 	obsAppend func(rec *ObsRecord)
 	obsLabel  func() string
+
+	// blendFn is the v0.5.9 confidence-gated blend hook. Called
+	// after curve eval + clamp, before hysteresis. nil-safe.
+	blendFn BlendFn
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -239,6 +243,23 @@ func WithObservation(appendFn func(rec *ObsRecord), labelFn func() string) Optio
 		c.obsAppend = appendFn
 		c.obsLabel = labelFn
 	}
+}
+
+// BlendFn is the v0.5.9 confidence-gated blend hook. The controller
+// hot path invokes it after curve evaluation + clamp but BEFORE
+// hysteresis + write, with the reactive PWM as the input and the
+// final PWM as the return. Implementations live in the wiring
+// layer (cmd/ventd/main.go) where the BlendedController + upstream
+// runtime Snapshots are accessible.
+//
+// nil means no blend — pre-v0.5.9 behaviour. Returning `reactive`
+// unchanged is also a valid no-op (used by the wiring layer when
+// w_pred is zero or the predictive arm is refused).
+type BlendFn func(channelID string, sensorTemp float64, reactivePWM uint8, dt time.Duration, now time.Time) uint8
+
+// WithBlend installs the v0.5.9 confidence-gated blend hook.
+func WithBlend(fn BlendFn) Option {
+	return func(c *Controller) { c.blendFn = fn }
 }
 
 func New(
@@ -563,6 +584,24 @@ func (c *Controller) tick() {
 	// Clamp to the fan's configured PWM range. This is the hard safety layer:
 	// the fan config is authoritative — the curve cannot drive PWM outside it.
 	pwm := clamp(raw, fan.MinPWM, fan.MaxPWM)
+
+	// v0.5.9 confidence-gated blend hook. The wiring layer in main.go
+	// constructs `blendFn` from the BlendedController + upstream Layer
+	// Snapshots; nil here means pre-v0.5.9 (reactive-only) behaviour.
+	// The blend runs AFTER the safety clamp so the fan config's
+	// [MinPWM, MaxPWM] is still authoritative — the predictive arm
+	// can't drive the fan outside the operator's bounds. The blend
+	// runs BEFORE hysteresis so the predictive contribution feeds
+	// back into the ramp-down suppression logic naturally.
+	if c.blendFn != nil && curveCfg.Sensor != "" {
+		if t, ok := sensors[curveCfg.Sensor]; ok {
+			blended := c.blendFn(c.pwmPath, t, pwm, time.Duration(dtSeconds*float64(time.Second)), now)
+			// Re-clamp post-blend: the wiring layer's BlendedController
+			// already clamps internally, but the controller package
+			// owns the final safety boundary so we double-clamp here.
+			pwm = clamp(blended, fan.MinPWM, fan.MaxPWM)
+		}
+	}
 
 	// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
 	// AllowStop=true. clamp already enforces the MinPWM floor, so pwm==0

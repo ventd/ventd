@@ -24,6 +24,8 @@ import (
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -63,6 +65,11 @@ type Server struct {
 	cal            *calibrate.Manager
 	setup          *setupmgr.Manager
 	opp            *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
+	// v0.5.9 confidence-controller surfaces: aggregator + LayerA
+	// estimator are read-only on the web side. nil until
+	// SetConfidence is called (monitor-only mode).
+	aggregator *aggregator.Aggregator
+	layerA     *layer_a.Estimator
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
 	diag           *hwdiag.Store
@@ -311,6 +318,12 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// separately (trailing-slash route) because registerAPIRoutes only
 		// expresses exact paths.
 		{name: "diag/bundle", handler: s.handleDiagBundle, auth: true},
+		// v0.5.9 confidence-controller surfaces (PR-B). status returns
+		// per-channel aggregator + LayerA snapshots for the 5-state
+		// dashboard pill; preset GET/PUT exposes the smart-mode
+		// aggressiveness selector.
+		{name: "confidence/status", handler: s.handleConfidenceStatus, auth: true},
+		{name: "confidence/preset", handler: s.handleConfidencePreset, auth: true},
 	})
 
 	dlHandler := s.requireAuth(s.handleDiagDownload)
@@ -1067,6 +1080,167 @@ func (s *Server) handleOpportunisticStatus(w http.ResponseWriter, r *http.Reques
 // Safe to call once at daemon start; subsequent calls overwrite.
 func (s *Server) SetOpportunisticScheduler(sched *opportunistic.Scheduler) {
 	s.opp = sched
+}
+
+// SetConfidence wires the v0.5.9 aggregator + LayerA estimator so the
+// /api/v1/confidence/status endpoint can return per-channel snapshots.
+// Both arguments are nil-safe: monitor-only mode skips construction.
+func (s *Server) SetConfidence(agg *aggregator.Aggregator, est *layer_a.Estimator) {
+	s.aggregator = agg
+	s.layerA = est
+}
+
+// confidenceChannel is the JSON wire shape for one channel's
+// confidence snapshot. UI renders this directly.
+type confidenceChannel struct {
+	ChannelID         string  `json:"channel_id"`
+	Wpred             float64 `json:"w_pred"`
+	UIState           string  `json:"ui_state"`
+	ConfA             float64 `json:"conf_a"`
+	ConfB             float64 `json:"conf_b"`
+	ConfC             float64 `json:"conf_c"`
+	Tier              uint8   `json:"tier"`
+	Coverage          float64 `json:"coverage"`
+	SeenFirstContact  bool    `json:"seen_first_contact"`
+	AgeSeconds        float64 `json:"age_seconds"`
+}
+
+type confidenceStatus struct {
+	Enabled  bool                 `json:"enabled"`
+	Global   string               `json:"global_state"` // worst-of-channels collapse
+	Preset   string               `json:"preset"`
+	Channels []confidenceChannel  `json:"channels"`
+}
+
+// handleConfidenceStatus GET /api/v1/confidence/status (v0.5.9).
+// Returns the live aggregator + LayerA snapshots per channel for
+// the dashboard's 5-state pill UI. Read-only; never blocks the
+// controller hot loop (atomic.Pointer reads + a brief mutex on
+// SnapshotAll).
+func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	live := s.cfg.Load()
+	preset := "balanced"
+	if live != nil {
+		if name, _ := live.Smart.SmartPreset(); name != "" {
+			preset = name
+		}
+	}
+	if s.aggregator == nil || s.layerA == nil {
+		s.writeJSON(r, w, confidenceStatus{Enabled: false, Preset: preset})
+		return
+	}
+
+	aggSnaps := s.aggregator.SnapshotAll()
+	out := confidenceStatus{
+		Enabled:  true,
+		Preset:   preset,
+		Channels: make([]confidenceChannel, 0, len(aggSnaps)),
+	}
+	worst := "converged" // best state; downgrades below
+	priority := map[string]int{
+		"refused": 0, "drifting": 1, "cold-start": 2,
+		"warming": 3, "converged": 4,
+	}
+	for _, a := range aggSnaps {
+		la := s.layerA.Read(a.ChannelID)
+		entry := confidenceChannel{
+			ChannelID: a.ChannelID,
+			Wpred:     a.Wpred,
+			UIState:   a.UIState,
+			ConfA:     a.ConfA,
+			ConfB:     a.ConfB,
+			ConfC:     a.ConfC,
+		}
+		if la != nil {
+			entry.Tier = la.Tier
+			entry.Coverage = la.Coverage
+			entry.SeenFirstContact = la.SeenFirstContact
+			entry.AgeSeconds = la.Age.Seconds()
+		}
+		out.Channels = append(out.Channels, entry)
+		if priority[a.UIState] < priority[worst] {
+			worst = a.UIState
+		}
+	}
+	if len(out.Channels) > 0 {
+		out.Global = worst
+	} else {
+		out.Global = "converged"
+	}
+	s.writeJSON(r, w, out)
+}
+
+// handleConfidencePreset GET/PUT /api/v1/confidence/preset (v0.5.9).
+// GET returns the active preset; PUT mutates the live Config in
+// memory + persists via Save. Recognised values: silent / balanced /
+// performance. Unknown values produce 400.
+func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodGet {
+		live := s.cfg.Load()
+		preset := "balanced"
+		if live != nil {
+			if name, _ := live.Smart.SmartPreset(); name != "" {
+				preset = name
+			}
+		}
+		s.writeJSON(r, w, map[string]string{"preset": preset})
+		return
+	}
+
+	// PUT: read+validate body.
+	var body struct {
+		Preset string `json:"preset"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	switch body.Preset {
+	case "silent", "balanced", "performance":
+	default:
+		http.Error(w, "preset must be silent|balanced|performance", http.StatusBadRequest)
+		return
+	}
+
+	live := s.cfg.Load()
+	if live == nil {
+		http.Error(w, "no config loaded", http.StatusServiceUnavailable)
+		return
+	}
+	// Deep-copy via JSON so we don't mutate the live pointer's
+	// state under a concurrent reader.
+	var next config.Config
+	raw, err := json.Marshal(live)
+	if err != nil {
+		http.Error(w, "marshal", http.StatusInternalServerError)
+		return
+	}
+	if err := json.Unmarshal(raw, &next); err != nil {
+		http.Error(w, "unmarshal", http.StatusInternalServerError)
+		return
+	}
+	next.Smart.Preset = body.Preset
+	saved, err := config.Save(&next, s.configPath)
+	if err != nil {
+		s.logger.Warn("web: confidence preset save failed", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.cfg.Store(saved)
+	s.logger.Info("web: confidence preset updated", "preset", body.Preset)
+	s.writeJSON(r, w, map[string]string{"preset": body.Preset})
 }
 
 // handleCalibrateResults GET /api/calibrate/results

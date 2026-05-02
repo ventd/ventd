@@ -19,11 +19,14 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	calibstore "github.com/ventd/ventd/internal/calibration"
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
+	"github.com/ventd/ventd/internal/fallback"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
@@ -467,9 +470,12 @@ func run() error {
 		SigFactory: func(liveCfg *atomic.Pointer[config.Config]) *signature.Library {
 			return buildSignatureLibrary(channels, sysDet, liveCfg, logger)
 		},
-		State:    st,
-		Coupling: buildCouplingRuntime(channels, st, dmiFingerprint, logger),
-		Marginal: buildMarginalRuntime(channels, st, dmiFingerprint, logger),
+		State:      st,
+		Coupling:   buildCouplingRuntime(channels, st, dmiFingerprint, logger),
+		Marginal:   buildMarginalRuntime(channels, st, dmiFingerprint, logger),
+		LayerA:     buildLayerAEstimator(channels, logger),
+		Aggregator: buildAggregator(channels, logger),
+		Blended:    buildBlendedController(channels, cfg, logger),
 	}
 	if obsWriter != nil {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
@@ -660,6 +666,228 @@ func buildMarginalRuntime(
 	return rt
 }
 
+// buildLayerAEstimator constructs the v0.5.9 conf_A estimator with one
+// channel admitted per controllable PWM. Tier is selected via
+// fallback.SelectTier — Tier 0 (tach present), Tier 4 (laptop EC), or
+// Tier 7 (open-loop refusal). Per spec-v0_5_9 §2.4 + RULE-CONFA-FORMULA-01.
+//
+// Returns nil when there are no controllable channels (monitor-only).
+func buildLayerAEstimator(
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) *layer_a.Estimator {
+	if len(channels) == 0 {
+		logger.Info("layer_a: no controllable channels; estimator not constructed")
+		return nil
+	}
+	est, err := layer_a.New(layer_a.Config{})
+	if err != nil {
+		logger.Warn("layer_a: New failed", "err", err)
+		return nil
+	}
+	now := time.Now()
+	for _, ch := range channels {
+		tier := fallback.SelectTier(ch)
+		if err := est.Admit(ch.PWMPath, tier, layer_a.DefaultNoiseFloor, now); err != nil {
+			logger.Warn("layer_a: Admit failed",
+				"channel", ch.PWMPath, "tier", tier, "err", err)
+			continue
+		}
+	}
+	logger.Info("layer_a: estimator initialised", "channels", len(channels))
+	return est
+}
+
+// buildAggregator constructs the v0.5.9 R12-locked confidence
+// aggregator. Per-channel state is admitted lazily on first Tick;
+// no per-channel pre-warm here.
+//
+// Returns nil when there are no controllable channels.
+func buildAggregator(
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) *aggregator.Aggregator {
+	if len(channels) == 0 {
+		logger.Info("aggregator: no controllable channels; not constructed")
+		return nil
+	}
+	a := aggregator.New(aggregator.Config{})
+	logger.Info("aggregator: initialised", "channels", len(channels))
+	return a
+}
+
+// buildBlendedController constructs the v0.5.9 IMC-PI blended
+// controller. The Preset enum is resolved from Config.Smart.Preset
+// at construction; SIGHUP-driven preset changes require restart for
+// the gain cache to refresh (acceptable per spec §3.7 — gains are
+// cached for 60-NSamples cycles already).
+//
+// Returns nil when there are no controllable channels.
+func buildBlendedController(
+	channels []*probe.ControllableChannel,
+	cfg *config.Config,
+	logger *slog.Logger,
+) *controller.BlendedController {
+	if len(channels) == 0 {
+		logger.Info("blended: no controllable channels; not constructed")
+		return nil
+	}
+	preset, ok := controller.PresetFromString(cfg.Smart.Preset)
+	if !ok {
+		logger.Warn("blended: unknown smart.preset; falling back to balanced",
+			"got", cfg.Smart.Preset)
+	}
+	bc := controller.NewBlended(controller.BlendedConfig{
+		Preset:     preset,
+		PWMUnitMax: 255,
+	})
+	logger.Info("blended: controller initialised",
+		"channels", len(channels), "preset", preset.String())
+	return bc
+}
+
+// buildBlendFn returns a controller.BlendFn closure that bridges
+// the per-controller hot path to the v0.5.9 BlendedController. It
+// pulls Layer-B / Layer-C Snapshots, computes conf_A from the
+// LayerA estimator, asks the aggregator for w_pred, and routes
+// through BlendedController.Compute. PWM bounds come from the live
+// fan config so SIGHUP reloads track operator changes.
+//
+// Returns nil when the smart bundle isn't fully populated (any of
+// LayerA / Aggregator / Blended unset) — caller-side check; the
+// produced closure assumes non-nil bundle pointers.
+//
+// The closure is cheap on the hot path: each Snapshot read is a
+// single atomic.Pointer load; the aggregator + BlendedController
+// each take a per-channel mutex briefly. Total per-call work fits
+// in <100µs at d=2 IMC-PI math, well under the 2s controller tick.
+func buildBlendFn(
+	channelID string,
+	fanCfg config.Fan,
+	liveCfg *atomic.Pointer[config.Config],
+	smart *SmartModeBundle,
+	labelFn func() string,
+	logger *slog.Logger,
+) controller.BlendFn {
+	if smart == nil || smart.LayerA == nil || smart.Aggregator == nil || smart.Blended == nil {
+		return nil
+	}
+	// We capture the channel ID and fan config snapshot once. PWM
+	// bounds and Setpoint are re-read on every call from the live
+	// Config so SIGHUP-driven changes propagate immediately.
+	return func(chID string, sensorTemp float64, reactivePWM uint8, dt time.Duration, now time.Time) uint8 {
+		live := liveCfg.Load()
+		if live == nil {
+			return reactivePWM
+		}
+		setpoint, ok := live.Smart.Setpoints[chID]
+		if !ok {
+			// Fallback: setpoint matches the bound sensor's normal
+			// operating range. Per spec §3.7's silence on absence,
+			// we use a class-default of 70°C — a conservative
+			// midpoint for desktop CPU/GPU temperatures. v0.6.x
+			// can refine this from the system class.
+			setpoint = 70.0
+		}
+
+		var couplingSnap *coupling.Snapshot
+		if smart.Coupling != nil {
+			if shard := smart.Coupling.Shard(chID); shard != nil {
+				couplingSnap = shard.Read()
+			}
+		}
+		var marginalSnap *marginal.Snapshot
+		var sigLabel string
+		if smart.Marginal != nil && labelFn != nil {
+			sigLabel = labelFn()
+			if shard := smart.Marginal.Shard(chID, sigLabel); shard != nil {
+				marginalSnap = shard.Read()
+			}
+		}
+		layerASnap := smart.LayerA.Read(chID)
+
+		// conf_A from Layer-A's atomic snapshot.
+		var confA float64
+		if layerASnap != nil {
+			confA = layerASnap.ConfA
+		}
+		// conf_B from Layer-B's R12 §Q1 four-term product.
+		confB := couplingSnap.Confidence()
+		// conf_C from Layer-C's per-(channel, signature) product.
+		// Returns 0 when the active signature has no warmed shard
+		// (R12 §Q6 active-signature collapse — accept the drop, the
+		// LPF rides w_pred down at L_max).
+		var confC float64
+		if marginalSnap != nil && !marginalSnap.WarmingUp {
+			cc := marginalSnap.Confidence
+			if cc.SaturationAdmit {
+				confC = cc.ResidualTerm * cc.CovarianceTerm * cc.SampleCountTerm
+			}
+		}
+
+		// v0.5.9 ships drift detection as RFCV (R16) future work;
+		// stub at false. Global gate is also a stub — true when the
+		// daemon is up + has a config + has the wizard outcome
+		// "control_mode". This is a coarse approximation of the
+		// spec §2.5 4-term AND-gate; doctor-surface refinements
+		// land in v0.5.10.
+		driftFlags := [3]bool{}
+		wPredSystem := true
+
+		aggSnap := smart.Aggregator.Tick(chID, confA, confB, confC,
+			driftFlags, wPredSystem, now)
+		if aggSnap == nil {
+			return reactivePWM
+		}
+
+		// Resolve the system load fraction once — same proxy that
+		// drives Path-A re-derive at the controller call site.
+		// Cheap: idle.CaptureLoadAvg reads /proc/loadavg.
+		loadFrac := captureLoadFraction()
+
+		res := smart.Blended.Compute(controller.BlendedInputs{
+			ChannelID:    chID,
+			SensorTemp:   sensorTemp,
+			Setpoint:     setpoint,
+			ReactivePWM:  reactivePWM,
+			WPred:        aggSnap.Wpred,
+			Coupling:     couplingSnap,
+			Marginal:     marginalSnap,
+			LayerA:       layerASnap,
+			LoadFraction: loadFrac,
+			DT:           dt,
+			Now:          now,
+			MinPWM:       fanCfg.MinPWM,
+			MaxPWM:       fanCfg.MaxPWM,
+		})
+
+		// First-contact mark: persisted only after the clamped tick
+		// succeeds — same lifecycle as RULE-CTRL-BLEND-02.
+		if res.FirstContactClamp || (res.WPred > 0 && layerASnap != nil && !layerASnap.SeenFirstContact) {
+			smart.LayerA.MarkFirstContact(chID, now)
+		}
+		return res.OutputPWM
+	}
+}
+
+// captureLoadFraction returns the system's normalised load over
+// the last minute, in [0, 1]. Reuses idle.CaptureLoadAvg +
+// LoadAvgPerCPU so the v0.5.9 controller and the existing R5 idle
+// gate share a single /proc/loadavg parser. Stub for v0.5.9 —
+// v0.6.x can substitute PSI-based fractions for laptop / NAS
+// classes where loadavg is noisy.
+func captureLoadFraction() float64 {
+	la := idle.CaptureLoadAvg("/proc")
+	frac := idle.LoadAvgPerCPU(la)
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	return frac
+}
+
 func runEnvelopeBackground(
 	ctx context.Context,
 	st *state.State,
@@ -835,6 +1063,25 @@ type SmartModeBundle struct {
 	// runDaemonInternal). Snapshot.Read is consumed by v0.5.9's
 	// confidence-gated controller.
 	Marginal *marginal.Runtime
+
+	// LayerA is the v0.5.9 conf_A estimator (R8 fallback tier ×
+	// coverage × residual × recency). Pre-built with one channel
+	// admitted per controllable channel via fallback.SelectTier.
+	// nil in monitor-only mode.
+	LayerA *layer_a.Estimator
+
+	// Aggregator is the v0.5.9 R12-locked confidence aggregator
+	// that collapses (conf_A, conf_B, conf_C) into a per-channel
+	// w_pred ∈ [0,1] every controller tick. Lock-free reads via
+	// atomic.Pointer. nil in monitor-only mode.
+	Aggregator *aggregator.Aggregator
+
+	// Blended is the v0.5.9 IMC-PI confidence-gated controller.
+	// Compute() takes the upstream Snapshots + reactive PWM and
+	// returns the blended PWM. nil in monitor-only mode and when
+	// no controllable channels exist. Drives the per-controller
+	// BlendFn closure constructed in runDaemonInternal.
+	Blended *controller.BlendedController
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -1036,6 +1283,14 @@ func runDaemonInternal(
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
 
+	// v0.5.9: expose the aggregator + LayerA estimator to the web
+	// layer so the dashboard's 5-state confidence pill has a data
+	// source. Both arguments are nil-safe — monitor-only mode
+	// skips construction and the endpoint reports enabled=false.
+	if smartMode != nil {
+		webSrv.SetConfidence(smartMode.Aggregator, smartMode.LayerA)
+	}
+
 	// v0.5.5: build and launch the opportunistic-probe scheduler when
 	// the factory is set (production path). Tests pass a nil factory
 	// and skip this entire block.
@@ -1170,6 +1425,24 @@ func runDaemonInternal(
 				opts = append(opts, controller.WithObservation(
 					smartMode.ObsAppend, labelFn,
 				))
+			}
+			// v0.5.9: install the confidence-gated blend hook when
+			// the smart-mode bundle has a BlendedController. The
+			// closure pulls the per-channel Snapshots from the
+			// upstream runtimes, computes w_pred via the aggregator,
+			// and routes through BlendedController.Compute.
+			if smartMode != nil && smartMode.Blended != nil {
+				labelFn := func() string { return signature.FallbackLabelDisabled }
+				if sigLib != nil {
+					labelFn = sigLib.Label
+				}
+				blendFn := buildBlendFn(
+					fanCfg.PWMPath, fanCfg, &liveCfg,
+					smartMode, labelFn, logger,
+				)
+				if blendFn != nil {
+					opts = append(opts, controller.WithBlend(blendFn))
+				}
 			}
 			c := controller.New(
 				ctrl.Fan, ctrl.Curve,

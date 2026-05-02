@@ -516,6 +516,163 @@
       });
   }
 
+  // pollConfidence drives the v0.5.9 5-state confidence pill +
+  // popover. Reads /api/v1/confidence/status, collapses to the
+  // worst-of-channels state for the topbar pill, emits a one-off
+  // ribbon on state transitions, and rebuilds the click-popover
+  // body with R12 §Q7 long-form per-layer reasons.
+  //
+  // Hidden when the daemon reports enabled=false (monitor-only
+  // mode). Polls every 5s; underlying aggregator updates faster.
+  var prevConfState = null;
+  function pollConfidence() {
+    fetch('/api/v1/confidence/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        var pill = document.getElementById('dash-conf-pill');
+        var text = document.getElementById('dash-conf-pill-text');
+        if (!pill || !text) return;
+        if (!s || !s.enabled || !s.global_state) {
+          pill.hidden = true;
+          prevConfState = null;
+          return;
+        }
+        pill.hidden = false;
+
+        // State transition detection — emit a one-off ribbon.
+        if (prevConfState !== null && prevConfState !== s.global_state) {
+          emitConfidenceRibbon(pill, s.global_state);
+        }
+        prevConfState = s.global_state;
+
+        pill.dataset.state = s.global_state;
+        text.textContent = s.global_state;
+        var n = s.channels ? s.channels.length : 0;
+        pill.title = 'smart-mode confidence — ' + s.global_state +
+          ' across ' + n + ' channel' + (n === 1 ? '' : 's') +
+          ' (preset: ' + (s.preset || 'balanced') + ')';
+
+        // Refresh the popover body in case it's open.
+        updateConfidencePopover(s);
+      })
+      .catch(function () {
+        var pill = document.getElementById('dash-conf-pill');
+        if (pill) pill.hidden = true;
+      });
+  }
+
+  // emitConfidenceRibbon attaches a "Now: <state>" ribbon over the
+  // pill that animates in, holds, then fades. Removes the previous
+  // ribbon if one is in flight so back-to-back transitions don't
+  // stack visually.
+  function emitConfidenceRibbon(pill, state) {
+    var prev = pill.querySelector('.dash-conf-ribbon');
+    if (prev) prev.remove();
+    var r = document.createElement('span');
+    r.className = 'dash-conf-ribbon';
+    r.textContent = 'now: ' + state;
+    pill.appendChild(r);
+    // Auto-cleanup after the CSS animation completes (2.4s).
+    setTimeout(function () { if (r && r.parentNode) r.remove(); }, 2600);
+  }
+
+  // Layer-reason classifiers for the popover. Each function turns
+  // a Snapshot-shaped object into { reason, mood } where mood is
+  // one of "good" / "warm" / "cold" / "bad" (drives the colour
+  // tint of the row).
+  function reasonLayerA(ch) {
+    if (!ch) return { reason: 'no Layer-A snapshot', mood: 'cold' };
+    var tierName = ['rpm-tach', 'coupled-ref', 'bmc-ipmi', 'ec-stepped',
+                    'thermal-invert', 'rapl-echo', 'pwm-echo', 'open-loop'][ch.tier] || 'unknown';
+    if (ch.tier >= 7) return { reason: 'open-loop tier — predictive controller refused', mood: 'cold' };
+    if (ch.coverage < 0.25) return { reason: tierName + ' (coverage ' + Math.round(ch.coverage * 100) + '% — needs more samples across PWM range)', mood: 'warm' };
+    if (ch.coverage < 0.6) return { reason: tierName + ' — coverage ' + Math.round(ch.coverage * 100) + '%, building confidence', mood: 'warm' };
+    return { reason: tierName + ' — coverage ' + Math.round(ch.coverage * 100) + '% (good)', mood: 'good' };
+  }
+  function reasonLayerB(ch) {
+    if (!ch) return { reason: 'no Layer-B snapshot', mood: 'cold' };
+    if (ch.conf_b < 0.05) return { reason: 'thermal-coupling estimator warming up or unidentifiable', mood: 'warm' };
+    if (ch.conf_b < 0.4) return { reason: 'thermal-coupling estimator partial — early-life noise still high', mood: 'warm' };
+    return { reason: 'thermal-coupling estimator healthy (κ in range, low residual)', mood: 'good' };
+  }
+  function reasonLayerC(ch) {
+    if (!ch || ch.conf_c <= 0) return { reason: 'marginal-benefit shard not warm yet for this workload', mood: 'cold' };
+    if (ch.conf_c < 0.4) return { reason: 'marginal-benefit shard learning current workload signature', mood: 'warm' };
+    return { reason: 'marginal-benefit shard converged for current workload', mood: 'good' };
+  }
+
+  // updateConfidencePopover refreshes the popover's body with the
+  // latest snapshot. The popover open/close is toggled by the click
+  // handler installed below.
+  function updateConfidencePopover(s) {
+    var pop = document.getElementById('dash-conf-popover');
+    if (!pop) return;
+    if (!s || !s.channels || s.channels.length === 0) {
+      pop.innerHTML = '<h4>Smart-mode confidence</h4><p>No controllable channels.</p>';
+      return;
+    }
+    // The "global" representative channel for the per-layer
+    // reasons is the one driving the worst-of-channels state.
+    var worst = s.channels[0];
+    var priority = { 'refused': 0, 'drifting': 1, 'cold-start': 2, 'warming': 3, 'converged': 4 };
+    s.channels.forEach(function (c) {
+      if (priority[c.ui_state] < priority[worst.ui_state]) worst = c;
+    });
+
+    var rA = reasonLayerA(worst);
+    var rB = reasonLayerB(worst);
+    var rC = reasonLayerC(worst);
+
+    var html = '<h4>Smart-mode confidence — ' + s.global_state + '</h4>' +
+      '<ul>' +
+      '<li><span class="layer-name">Layer A</span><span class="layer-reason is-' + rA.mood + '">' + escapeHtml(rA.reason) + '</span></li>' +
+      '<li><span class="layer-name">Layer B</span><span class="layer-reason is-' + rB.mood + '">' + escapeHtml(rB.reason) + '</span></li>' +
+      '<li><span class="layer-name">Layer C</span><span class="layer-reason is-' + rC.mood + '">' + escapeHtml(rC.reason) + '</span></li>' +
+      '</ul>';
+    if (s.channels.length > 1) {
+      html += '<div class="ch-list">';
+      s.channels.forEach(function (c) {
+        var label = (c.channel_id || '').split('/').pop() || c.channel_id;
+        html += '<span class="ch-chip" data-state="' + escapeHtml(c.ui_state) + '">' +
+          escapeHtml(label) + ' · ' + escapeHtml(c.ui_state) +
+          '</span>';
+      });
+      html += '</div>';
+    }
+    pop.innerHTML = html;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Wire the click-popover. Lazy-initialise the popover element
+  // (added under the pill only when the user first clicks).
+  (function setupConfidencePopover() {
+    var pill = document.getElementById('dash-conf-pill');
+    if (!pill) return;
+    pill.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var pop = document.getElementById('dash-conf-popover');
+      if (!pop) {
+        pop = document.createElement('div');
+        pop.id = 'dash-conf-popover';
+        pop.className = 'dash-conf-popover';
+        pop.addEventListener('click', function (e) { e.stopPropagation(); });
+        pill.appendChild(pop);
+        // Repopulate now from whatever the most-recent poll cached.
+        // Force a fetch so the popover doesn't render stale.
+        pollConfidence();
+      }
+      pop.classList.toggle('open');
+    });
+    document.addEventListener('click', function () {
+      var pop = document.getElementById('dash-conf-popover');
+      if (pop) pop.classList.remove('open');
+    });
+  })();
+
   // ── start ──────────────────────────────────────────────────────────
   seedHistory();
   pollOnce();
@@ -525,4 +682,6 @@
   setInterval(pollOpportunisticStatus, 5000);
   pollSmartMode();
   setInterval(pollSmartMode, 10000);
+  pollConfidence();
+  setInterval(pollConfidence, 5000);
 })();
