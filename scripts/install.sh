@@ -616,18 +616,26 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
         "$VENTD_PREFIX/ventd" preflight --interactive
         rc=$?
     else
-        # Piped form: cannot prompt. Run JSON detect-only; if any
-        # blocker is found, print the human-readable summary and
-        # the actionable re-entry command, then exit 1.
+        # Piped form (curl ... | sudo bash): cannot prompt. Run JSON
+        # detect-only; if any blocker is found, print the human-
+        # readable summary and the actionable re-entry command, then
+        # exit 1.
         if ! "$VENTD_PREFIX/ventd" preflight --json >/tmp/ventd-preflight.json 2>/dev/null; then
             echo
             "$VENTD_PREFIX/ventd" preflight 2>/dev/null || true
             echo
-            echo "Preflight blockers detected. Curl-pipe-bash cannot prompt for"
-            echo "auto-fix consent — re-run from a real terminal:"
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo "  ACTION REQUIRED"
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo
+            echo "  Preflight detected blockers that need your consent to fix."
+            echo "  Curl-pipe-bash cannot prompt — re-run install from a real terminal:"
             echo
             echo "    sudo bash <(curl -sSL https://github.com/ventd/ventd/releases/latest/download/install.sh)"
             echo
+            echo "  The interactive installer will walk you through each fix with"
+            echo "  Y/N prompts and a clear post-reboot checklist."
+            echo "═══════════════════════════════════════════════════════════════════"
             exit 1
         fi
         rc=0

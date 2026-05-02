@@ -151,15 +151,18 @@ func runPreflight(args []string, logger *slog.Logger) int {
 		prompter = preflight.NewIOPrompter(os.Stdin, os.Stdout)
 	}
 
-	// Interactive runs already render the human-readable summary +
+	// The orchestrator already renders a human-readable summary +
 	// per-fix prompts; the per-check INFO log lines are noise that
-	// flood the operator's terminal and bury the actual instruction
-	// blocks. Drop the runtime logger to WARN so the UX stays
-	// readable. JSON / non-interactive paths keep the full INFO trace
-	// (it's machine-consumable and the verbosity helps install.sh
-	// debugging).
+	// floods the terminal and buries the actual instruction blocks.
+	// Drop the runtime logger to WARN by default. JSON mode keeps
+	// the full INFO trace (it's machine-consumable and useful for
+	// install.sh debugging). This applies to BOTH interactive runs
+	// and pipe-mode summary runs (install.sh's curl-pipe-bash path
+	// re-runs `ventd preflight` without --json after a JSON probe
+	// finds blockers, to print the human-readable summary; without
+	// this suppression that path was the noisiest of all).
 	runLogger := logger
-	if interactive && !emitJSON {
+	if !emitJSON {
 		runLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 
