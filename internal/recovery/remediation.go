@@ -226,6 +226,42 @@ func RemediationFor(class FailureClass) []Remediation {
 			bundle,
 		}
 
+	case ClassACPIResourceConflict:
+		return []Remediation{
+			{
+				Label:       "Add acpi_enforce_resources=lax to kernel parameters",
+				Description: "Your motherboard's BIOS reserves the SuperIO chip's I/O region via ACPI, blocking ventd's driver from binding. This kernel parameter relaxes that claim. ventd will write a GRUB drop-in, run update-grub, and prompt for reboot. After reboot, the driver will bind and PWM channels will appear.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/grub-cmdline-add",
+				DocURL:      "https://github.com/ventd/ventd/wiki/acpi-resource-conflict",
+			},
+			bundle,
+		}
+
+	case ClassDriverWontBind:
+		// Trio of real actions when the driver installed but
+		// won't bind. Reset+reinstall covers stale-state cases;
+		// ACPI workaround covers the ~70% of bind failures on
+		// MSI/ASUS Z690-class boards. Bundle is the escape hatch.
+		// Operators get usable choices instead of bundle-only.
+		return []Remediation{
+			{
+				Label:       "Reset and reinstall driver",
+				Description: "Clears DKMS state, removes the .ko file, and runs a fresh install. Use this first — the most common cause of bind failure on retry is stale state from a prior attempt.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/reset-and-reinstall",
+				DocURL:      "https://github.com/ventd/ventd/wiki/reset-and-reinstall",
+			},
+			{
+				Label:       "Try the ACPI workaround (acpi_enforce_resources=lax)",
+				Description: "Many MSI / ASUS / Gigabyte Z690-class motherboards reserve the SuperIO chip's I/O region via ACPI, blocking the driver from binding. This kernel parameter relaxes that claim. ventd will write a GRUB drop-in and prompt for reboot.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/hwdiag/grub-cmdline-add",
+				DocURL:      "https://github.com/ventd/ventd/wiki/acpi-resource-conflict",
+			},
+			bundle,
+		}
+
 	case ClassApparmorDenied:
 		return []Remediation{
 			{

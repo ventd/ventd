@@ -126,9 +126,9 @@ func runPreflight(args []string, logger *slog.Logger) int {
 			apparmorProfile = strings.TrimPrefix(arg, "--apparmor-profile=")
 		case arg == "--max-attempts" && i+1 < len(args):
 			i++
-			fmt.Sscanf(args[i], "%d", &maxAttempts)
+			_, _ = fmt.Sscanf(args[i], "%d", &maxAttempts)
 		case strings.HasPrefix(arg, "--max-attempts="):
-			fmt.Sscanf(strings.TrimPrefix(arg, "--max-attempts="), "%d", &maxAttempts)
+			_, _ = fmt.Sscanf(strings.TrimPrefix(arg, "--max-attempts="), "%d", &maxAttempts)
 		case arg == "--help", arg == "-h":
 			printPreflightUsage()
 			return 0

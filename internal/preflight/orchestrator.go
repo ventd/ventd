@@ -146,7 +146,7 @@ func NewStdPrompter() *IOPrompter {
 }
 
 func (p *IOPrompter) AskYN(question string) PromptResponse {
-	fmt.Fprintf(p.out, "%s [Y/n] ", question)
+	_, _ = fmt.Fprintf(p.out, "%s [Y/n] ", question)
 	line, err := p.in.ReadString('\n')
 	if err != nil {
 		return PromptAbort
@@ -166,7 +166,7 @@ func (p *IOPrompter) AskYN(question string) PromptResponse {
 	return PromptNo
 }
 
-func (p *IOPrompter) Print(line string) { fmt.Fprintln(p.out, line) }
+func (p *IOPrompter) Print(line string) { _, _ = fmt.Fprintln(p.out, line) }
 
 // AutoYesPrompter answers Yes to every question. Used by --auto-yes
 // for non-interactive smoke tests; never wired into install.sh's
@@ -175,14 +175,14 @@ type AutoYesPrompter struct{ Out io.Writer }
 
 func (a *AutoYesPrompter) AskYN(q string) PromptResponse {
 	if a.Out != nil {
-		fmt.Fprintf(a.Out, "%s [auto-yes]\n", q)
+		_, _ = fmt.Fprintf(a.Out, "%s [auto-yes]\n", q)
 	}
 	return PromptYes
 }
 
 func (a *AutoYesPrompter) Print(line string) {
 	if a.Out != nil {
-		fmt.Fprintln(a.Out, line)
+		_, _ = fmt.Fprintln(a.Out, line)
 	}
 }
 

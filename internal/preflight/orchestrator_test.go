@@ -362,7 +362,7 @@ func TestOrchestrator(t *testing.T) {
 		if hi < 0 || mid < 0 || lo < 0 {
 			t.Fatalf("missing one of BLOCKER/WARNING/INFO in summary:\n%s", out)
 		}
-		if !(hi < mid && mid < lo) {
+		if hi >= mid || mid >= lo {
 			t.Fatalf("severity ordering wrong (hi=%d mid=%d lo=%d):\n%s", hi, mid, lo, out)
 		}
 	})

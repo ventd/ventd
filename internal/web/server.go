@@ -22,6 +22,7 @@ import (
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	"github.com/ventd/ventd/internal/grub"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/monitor"
@@ -309,6 +310,8 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
 		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
 		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
+		{name: "hwdiag/grub-cmdline-add", handler: s.handleGrubCmdlineAdd, auth: true},
+		{name: "hwdiag/reset-and-reinstall", handler: s.handleResetAndReinstall, auth: true},
 		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
 		{name: "system/security", handler: s.handleSystemSecurity, auth: true},
@@ -1618,6 +1621,149 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 // Installs the distro's kernel-headers package for the running kernel.
 func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
 	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
+}
+
+// handleResetAndReinstall POST /api/hwdiag/reset-and-reinstall
+//
+// Clears stale OOT driver state — DKMS registration, .ko in
+// /lib/modules/<rel>/extra, /etc/modules-load.d entry, build dirs
+// under /tmp/ventd-driver-* — so a subsequent wizard run starts
+// from a clean slate. Used as the recovery action when the
+// wizard's first install attempt left half-finished state behind
+// (DKMS state collision, module installed but binding failed,
+// etc.). Without this endpoint, operators saw bundle-only
+// remediation and had to clean up state by hand — the regression
+// class Phoenix flagged on HIL as "ridiculous".
+//
+// Body: optional {"module": "it87"}; empty falls through to
+// guessInstalledOOTModule which inspects /lib/modules/.../extra/.
+func (s *Server) handleResetAndReinstall(w http.ResponseWriter, r *http.Request) {
+	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
+		module := ""
+		if r.Body != nil && r.ContentLength > 0 {
+			var body struct {
+				Module string `json:"module"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+				module = body.Module
+			}
+		}
+		if module == "" {
+			module = guessInstalledOOTModule()
+		}
+		if module == "" {
+			return fmt.Errorf("no installed OOT driver found to clean up under /lib/modules/<release>/extra/")
+		}
+		nd := hwmon.DriverNeed{Module: module}
+		release := strings.TrimSpace(execOutput("uname", "-r"))
+		logFn("Cleaning up prior driver state for module: " + module)
+		report, err := hwmon.CleanupOrphanInstall(nd, release, s.logger)
+		if err != nil {
+			return err
+		}
+		for _, m := range report.ModulesRemoved {
+			logFn("  ✓ removed module: " + m)
+		}
+		for _, d := range report.DKMSRemoved {
+			logFn("  ✓ removed DKMS: " + d)
+		}
+		for _, p := range report.BuildDirsRemoved {
+			logFn("  ✓ removed build dir: " + p)
+		}
+		if report.ModulesLoadDClean {
+			logFn("  ✓ cleared /etc/modules-load.d entry")
+		}
+		for _, e := range report.NonFatalErrors {
+			logFn("  ! non-fatal: " + e)
+		}
+		logFn("Cleanup complete. Re-run the wizard to trigger a fresh install.")
+		return nil
+	})
+}
+
+// guessInstalledOOTModule walks /lib/modules/<release>/extra/ and
+// returns the first .ko basename, preferring "it87" when multiple
+// are present. Returns "" when /extra/ is empty or inaccessible.
+func guessInstalledOOTModule() string {
+	release := strings.TrimSpace(execOutput("uname", "-r"))
+	if release == "" {
+		return ""
+	}
+	entries, err := os.ReadDir("/lib/modules/" + release + "/extra")
+	if err != nil {
+		return ""
+	}
+	var first string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".ko") {
+			continue
+		}
+		mod := strings.TrimSuffix(name, ".ko")
+		if mod == "it87" {
+			return mod
+		}
+		if first == "" {
+			first = mod
+		}
+	}
+	return first
+}
+
+// execOutput runs cmd with args and returns trimmed stdout, or ""
+// on error. Tiny helper for the reset-and-reinstall handler.
+func execOutput(name string, args ...string) string {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// handleGrubCmdlineAdd POST /api/hwdiag/grub-cmdline-add
+//
+// Adds a kernel command-line parameter to GRUB via a drop-in at
+// /etc/default/grub.d/ventd-cmdline.cfg, then runs the per-distro
+// bootloader-rebuild tool. Wired into the wizard-recovery
+// classifier as the action_url for ClassACPIResourceConflict
+// (issue #817) — the only param ventd currently writes is
+// `acpi_enforce_resources=lax`, which unblocks the it87 / nct67xx
+// drivers on MSI / ASUS Z690-class boards where BIOS reserves the
+// SuperIO I/O region via ACPI.
+//
+// The handler accepts an optional JSON body {"param": "..."}; if
+// absent, defaults to the canonical acpi_enforce_resources=lax.
+// The grub package's validParam gate refuses anything containing
+// shell-special chars so a future caller-controlled input source
+// can't trigger shell injection in /etc/default/grub.
+func (s *Server) handleGrubCmdlineAdd(w http.ResponseWriter, r *http.Request) {
+	param := "acpi_enforce_resources=lax"
+	if r.Body != nil && r.ContentLength > 0 {
+		var body struct {
+			Param string `json:"param"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Param != "" {
+			param = body.Param
+		}
+	}
+	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
+		logFn("Writing GRUB drop-in to " + grub.DropInPath)
+		logFn("  param: " + param)
+		err := grub.AddParam(param, func() error {
+			logFn("Rebuilding bootloader configuration...")
+			if regenErr := grub.DefaultRegenerator(); regenErr != nil {
+				logFn("Bootloader rebuild failed: " + regenErr.Error())
+				return regenErr
+			}
+			logFn("Bootloader rebuild complete.")
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		logFn("Reboot to apply the new kernel parameter.")
+		return nil
+	})
 }
 
 // handleLoadAppArmor POST /api/hwdiag/load-apparmor

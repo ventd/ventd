@@ -235,7 +235,7 @@ func TestSecureBootChecks(t *testing.T) {
 			t.Fatalf("hex suffix length: got %d, want 4", len(hex))
 		}
 		for _, c := range hex {
-			if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 				t.Fatalf("non-hex char in suffix: %s", got)
 			}
 		}
