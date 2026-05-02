@@ -409,7 +409,11 @@
   border-radius: 8px;
   padding: 12px 14px;
   box-shadow: var(--shadow-popover-strong);
-  z-index: 30;
+  /* z-index high enough to overlay any sibling page-section content
+   * inside .shell-content. .topbar gets z-index:5 so this 100 lands
+   * above every dashboard layer without fighting modal overlays
+   * (which live in the 1000s). */
+  z-index: 100;
   font-size: 0.78rem;
   color: var(--fg1, #e3e3ee);
   display: none;
