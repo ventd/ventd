@@ -31,8 +31,10 @@ ventd_create_account
 # Record security-module status to /var/log/ventd/install.log so a
 # silent confinement downgrade (see #202, #211) is still auditable
 # after the .deb / .rpm postinstall output scrolls away. Best-effort.
-# The .deb / .rpm flow leaves apparmor profile registration to the
-# package manager's apparmor hook; we only log what ended up loaded.
+# We can't rely on Debian's dh_apparmor / triggers — Ubuntu 24.04 and
+# Debian 13 .deb installs ship the profile to /etc/apparmor.d/ventd
+# but the running kernel is never told to (re)load it (#763). Load it
+# explicitly here so the profile is enforcing on first daemon start.
 log_security_outcome() {
     module="$1"; outcome="$2"; detail="$3"
     mkdir -p /var/log/ventd 2>/dev/null || return 0
@@ -49,28 +51,132 @@ log_security_outcome() {
     fi
 }
 
-if [ -f /etc/apparmor.d/ventd ]; then
-    if command -v aa-status >/dev/null 2>&1 \
-       && aa-status --enabled 2>/dev/null \
-       && aa-status 2>/dev/null | grep -qE '^[[:space:]]*ventd$'; then
-        log_security_outcome apparmor loaded "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm"
-    else
-        log_security_outcome apparmor refused "profile=/etc/apparmor.d/ventd pkg=dpkg/rpm hint=aa-status-did-not-list-profile"
+# Load every shipped AppArmor profile via apparmor_parser -r. -r
+# (replace) is idempotent: equivalent to -a on first run, and updates
+# the in-kernel profile in place on package upgrade without
+# unprotecting the daemon mid-replace. Skip cleanly when AppArmor is
+# not present (no kernel module, no parser binary, or aa-status reports
+# disabled) so the postinst never fails on systems that don't run
+# AppArmor (RHEL/CentOS/Fedora/openSUSE, containers without
+# CAP_MAC_ADMIN). Each load decision is logged for audit.
+load_apparmor_profile() {
+    profile="$1"
+    profile_path="/etc/apparmor.d/${profile}"
+    if [ ! -f "$profile_path" ]; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=not-shipped pkg=dpkg/rpm"
+        return 0
     fi
-else
-    log_security_outcome apparmor skipped "reason=profile-not-shipped-by-pkg pkg=dpkg/rpm"
-fi
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=parser-not-installed pkg=dpkg/rpm"
+        return 0
+    fi
+    if command -v aa-status >/dev/null 2>&1 && ! aa-status --enabled 2>/dev/null; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=apparmor-disabled pkg=dpkg/rpm"
+        return 0
+    fi
+    parser_rc=0
+    apparmor_parser -r "$profile_path" 2>/dev/null || parser_rc=$?
+    if [ "$parser_rc" -eq 0 ]; then
+        log_security_outcome apparmor loaded "profile=${profile_path} mode=enforce pkg=dpkg/rpm"
+    else
+        log_security_outcome apparmor refused "profile=${profile_path} parser_exit=${parser_rc} pkg=dpkg/rpm hint=run-apparmor_parser-r-by-hand"
+    fi
+}
+
+# AppArmor handling for v0.5.8.1 (#787):
+#   - Profile files SHIP to /etc/apparmor.d/ for operator opt-in via
+#     `systemctl edit ventd` adding `AppArmorProfile=ventd`.
+#   - Upgrade path: a prior ventd install (≤ v0.5.8.0) shipped a profile
+#     that auto-attached to /usr/local/bin/ventd by file-path mediation.
+#     v0.5.8.1's profile drops that path constraint, but the kernel still
+#     has the old (path-bound) profile loaded — kmod / sudo / dkms execs
+#     would still hit DENIED. Reload the new (unbound) profile in place
+#     so the kernel forgets the old declaration.
+#   - The reload is a no-op when AppArmor isn't on the host or the parser
+#     binary is missing.
+reload_or_skip_apparmor() {
+    profile="$1"
+    profile_path="/etc/apparmor.d/${profile}"
+    if [ ! -f "$profile_path" ]; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=not-shipped pkg=dpkg/rpm"
+        return 0
+    fi
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=parser-not-installed pkg=dpkg/rpm"
+        return 0
+    fi
+    if command -v aa-status >/dev/null 2>&1 && ! aa-status --enabled 2>/dev/null; then
+        log_security_outcome apparmor skipped "profile=${profile_path} reason=apparmor-disabled pkg=dpkg/rpm"
+        return 0
+    fi
+    parser_rc=0
+    apparmor_parser -r "$profile_path" 2>/dev/null || parser_rc=$?
+    if [ "$parser_rc" -eq 0 ]; then
+        log_security_outcome apparmor reloaded-unbound "profile=${profile_path} mode=opt-in pkg=dpkg/rpm note=daemon-runs-without-AppArmorProfile"
+    else
+        log_security_outcome apparmor reload-refused "profile=${profile_path} parser_exit=${parser_rc} pkg=dpkg/rpm"
+    fi
+}
+
+reload_or_skip_apparmor ventd
+reload_or_skip_apparmor ventd-ipmi
+
+# Sweep stale ventd*.service files left under /etc/systemd/system/ by
+# previous installs of ventd. systemd reads /etc before /lib, so a
+# stale unit at /etc/systemd/system/ventd.service silently wins over the
+# .deb-shipped /lib/systemd/system/ventd.service and the new postinst's
+# changes (NoNewPrivileges relaxations, AppArmor profile attach, etc.)
+# never take effect. Only remove files that contain the canonical
+# ventd-shipped marker — a user with a hand-crafted /etc override (no
+# marker) is left alone with a WARNING. Drop-ins under
+# /etc/systemd/system/ventd.service.d/ are never touched: those are the
+# documented operator override mechanism.
+sweep_stale_ventd_units() {
+    units="ventd.service ventd-recover.service ventd-postreboot-verify.service ventd-ipmi.service"
+    for unit in $units; do
+        path="/etc/systemd/system/$unit"
+        if [ ! -f "$path" ]; then
+            continue
+        fi
+        # Identify a ventd-shipped unit by its Documentation= line.
+        # Every unit we ship carries `Documentation=https://github.com/ventd/ventd`.
+        if grep -qE '^Documentation=https://github\.com/ventd/ventd' "$path" 2>/dev/null; then
+            rm -f "$path" && \
+                log_security_outcome systemd-unit removed-stale "path=${path} reason=overrides-deb-shipped-unit pkg=dpkg/rpm"
+        else
+            log_security_outcome systemd-unit kept-user-override "path=${path} reason=no-ventd-marker-found pkg=dpkg/rpm hint=remove-by-hand-if-unintentional"
+        fi
+    done
+}
+
+sweep_stale_ventd_units
 
 if command -v semodule >/dev/null 2>&1 && semodule -l 2>/dev/null | grep -q '^ventd'; then
     log_security_outcome selinux loaded "module=ventd pkg=dpkg/rpm"
 fi
 
 # nfpms.contents writes config.example.yaml to /etc/ventd/ as root. The
-# daemon will run as ventd:ventd and needs to read its own config dir,
-# so normalise ownership and mode here.
+# daemon runs as root in v0.5.8.1 (#787); the dir mode is 0750 so it's
+# unreadable to other accounts but root has full access. After the v0.6.0
+# split, this chown switches back to ventd:ventd.
 if [ -d /etc/ventd ]; then
-    chown -R ventd:ventd /etc/ventd
+    chown -R root:root /etc/ventd
     chmod 0750 /etc/ventd
+fi
+
+# Relocate ventd-nvml-helper to /usr/local/sbin (FHS convention for
+# privileged helpers; .deb / .rpm bindir is /usr/local/bin). Mode 0755
+# (NOT SUID) — the v0.5.8.1 daemon runs as root so it can call NVML
+# directly without the helper. The binary stays shipped because the
+# v0.6.0 split-daemon model uses it again from the unprivileged main
+# daemon. Best-effort: no-op when the binary isn't present (musl /
+# GPU-less archive).
+if [ -x /usr/local/bin/ventd-nvml-helper ]; then
+    mkdir -p /usr/local/sbin
+    mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+    chown root:root /usr/local/sbin/ventd-nvml-helper
+    chmod 0755 /usr/local/sbin/ventd-nvml-helper
+    log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=0755"
 fi
 
 # Apply the shipped udev rule (/lib/udev/rules.d/90-ventd-hwmon.rules)
@@ -114,8 +220,7 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 
     echo ""
-    echo "ventd installed. Open http://$(hostname -I | awk '{print $1}'):9999 to set up."
-    echo "The one-time setup token is in: journalctl -u ventd --since '1 minute ago' | grep 'Setup token'"
+    echo "ventd installed. Open https://$(hostname -I | awk '{print $1}'):9999 to set up."
     echo ""
 fi
 

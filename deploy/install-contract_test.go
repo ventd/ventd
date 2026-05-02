@@ -63,15 +63,19 @@ func loadSysusers(t *testing.T, name string) map[string]bool {
 	return parseSysusersUsers(string(data))
 }
 
-// TestInstallContract_UserDeclared — RULE-INSTALL-01
-// Every User= directive in deploy/*.service must have a matching sysusers.d drop-in.
+// TestInstallContract_UserDeclared — RULE-INSTALL-01 (v0.5.8.1 amendment)
+// Every non-root User= directive in deploy/*.service must have a matching
+// sysusers.d drop-in. v0.5.8.1 ships ventd.service as User=root (#787) so
+// no sysusers entry is required for the main unit; ventd-ipmi.service
+// keeps its dedicated user. v0.6.0 split-daemon restores User=ventd on
+// ventd.service and re-asserts the matching sysusers entry.
 func TestInstallContract_UserDeclared(t *testing.T) {
 	cases := []struct {
 		unit     string
 		user     string
-		sysusers string
+		sysusers string // empty = root, no sysusers drop-in required
 	}{
-		{"ventd.service", "ventd", "sysusers.d-ventd.conf"},
+		{"ventd.service", "root", ""},
 		{"ventd-ipmi.service", "ventd-ipmi", "sysusers.d-ventd-ipmi.conf"},
 	}
 	for _, tc := range cases {
@@ -79,6 +83,9 @@ func TestInstallContract_UserDeclared(t *testing.T) {
 			u := loadUnit(t, tc.unit)
 			if !slices.Contains(u["User"], tc.user) {
 				t.Fatalf("%s: User=%s not found; got %v", tc.unit, tc.user, u["User"])
+			}
+			if tc.sysusers == "" {
+				return // root needs no sysusers entry
 			}
 			users := loadSysusers(t, tc.sysusers)
 			if !users[tc.user] {
@@ -125,6 +132,53 @@ func TestInstallContract_AppArmorProfileShipped(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestInstallContract_PostinstallShipsAppArmor — RULE-INSTALL-06 (v0.5.8.1 amendment)
+// AppArmor profiles must still be SHIPPED to /etc/apparmor.d/ so an operator
+// who opts in (`systemctl edit ventd` adding `AppArmorProfile=ventd`) finds
+// the profile available. v0.5.8.1 (#787) does NOT auto-load the profile via
+// postinstall.sh because the daemon runs as User=root and AppArmor's profile
+// attach point on /usr/local/bin/ventd would either neutralise sudo (NNP=1
+// behavior) or surface gratuitous DENIED audit lines (#786). v0.6.0's split
+// daemon will restore User=ventd on the steady-state unit and re-attach the
+// profile there. For now, this test asserts:
+//   - the profile files are still shipped (not removed from .goreleaser)
+//   - postinstall.sh acknowledges them with a "shipped-not-loaded" log line
+//     (regression guard so a future cleanup doesn't silently delete the
+//     ship-without-load logic)
+func TestInstallContract_PostinstallShipsAppArmor(t *testing.T) {
+	postinst, err := os.ReadFile("../scripts/postinstall.sh")
+	if err != nil {
+		t.Fatalf("read postinstall.sh: %v", err)
+	}
+	body := string(postinst)
+	// v0.5.8.1 ships the profile and reloads it (`apparmor_parser -r`)
+	// so any prior path-bound version installed by ≤ v0.5.8.0 is
+	// replaced by the unbound declaration. The unit does NOT carry
+	// AppArmorProfile=ventd; the loaded-but-unbound profile only
+	// attaches when an operator opts in via `systemctl edit ventd`.
+	// Either acknowledgement string counts.
+	if !strings.Contains(body, "reloaded-unbound") &&
+		!strings.Contains(body, "shipped-not-loaded") {
+		t.Error("postinstall.sh missing the v0.5.8.1 apparmor acknowledgement (#787): expected `reloaded-unbound` or `shipped-not-loaded` log token")
+	}
+	entries, err := os.ReadDir("apparmor.d")
+	if err != nil {
+		t.Fatalf("read apparmor.d: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || e.Name() == "README.md" || e.Name() == "FIREWALL.md" {
+			continue
+		}
+		profile := e.Name()
+		t.Run("profile_shipped="+profile, func(t *testing.T) {
+			path := filepath.Join("apparmor.d", profile)
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("profile %q expected at %s: %v", profile, path, err)
+			}
+		})
 	}
 }
 

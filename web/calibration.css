@@ -540,7 +540,158 @@
   font-size: 0.95rem; color: var(--red); font-weight: 600;
 }
 .cal-error-sub { font-size: 0.82rem; color: var(--fg1); margin-top: 2px; }
-.cal-error-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.cal-error-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.cal-error-bundle-status {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--fg2);
+  margin-top: 6px;
+}
+.cal-error-bundle-status.is-error { color: var(--red); }
+
+/* ── v0.5.9 wizard recovery cards (#800) ─────────────────── */
+/*
+ * Shared classifier between wizard + doctor surfaces. Cards render
+ * one Remediation per failure class, with action buttons that POST
+ * to /api/v1/hwdiag/* endpoints.
+ */
+.cal-recovery-cards {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.cal-recovery-class {
+  font-size: 0.72rem;
+  color: var(--fg2);
+  font-variant: small-caps;
+  letter-spacing: 0.05em;
+}
+.cal-recovery-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cal-recovery-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--fg1);
+}
+.cal-recovery-desc {
+  font-size: 0.78rem;
+  color: var(--fg2);
+  line-height: 1.45;
+}
+.cal-recovery-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cal-recovery-doclink {
+  font-size: 0.78rem;
+  color: var(--blue);
+  text-decoration: none;
+}
+.cal-recovery-doclink:hover { text-decoration: underline; }
+.cal-recovery-result {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  font-size: 0.76rem;
+  color: var(--fg1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cal-recovery-result.is-error {
+  border-color: var(--red);
+  color: var(--red);
+}
+.cal-recovery-result-msg {
+  font-weight: 500;
+}
+.cal-recovery-result-log {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--fg2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Modal (used for MOK enrollment + future modal_instr cards) */
+.cal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.cal-modal {
+  width: min(640px, calc(100% - 32px));
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover-strong);
+  display: flex;
+  flex-direction: column;
+}
+.cal-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.cal-modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.cal-modal-close {
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 0 8px;
+}
+.cal-modal-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--fg1);
+  line-height: 1.5;
+}
+.cal-modal-commands {
+  margin: 0;
+  padding: 12px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--fg1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width: 1080px) {

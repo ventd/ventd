@@ -374,7 +374,10 @@ func runSensorsDetect(logger *slog.Logger) sensorsDetectResult {
 		return sensorsDetectResult{}
 	}
 	logger.Info("running sensors-detect to identify hardware")
-	out, err := exec.Command(path, "--auto").CombinedOutput()
+	// sensors-detect --auto may write to /etc/modprobe.d/ to persist
+	// module options; needs root via the shipped sudoers drop-in (#768).
+	name, args := rootArgv(path, []string{"--auto"})
+	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
 		logger.Warn("sensors-detect failed", "err", err,
 			"output", strings.TrimSpace(string(out)))

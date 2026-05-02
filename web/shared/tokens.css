@@ -31,6 +31,16 @@
      overrides each shadow + tuple value below. */
   --shadow-card: 0 1px 0 rgba(255,255,255,0.02) inset, 0 24px 60px rgba(0,0,0,0.4), 0 6px 16px rgba(0,0,0,0.25);
   --shadow-floating: 0 12px 32px rgba(0,0,0,0.4);
+  /* v0.5.9 confidence-pill tokens. Popover shadow is a deeper
+     variant of --shadow-floating; converged-state breathing glow
+     is a green-tinted halo that reads as "in the groove" rather
+     than an alert. */
+  --shadow-popover-strong: 0 8px 28px rgba(0, 0, 0, 0.45);
+  --shadow-conf-converged-glow: 0 0 0 4px rgba(93, 210, 141, 0.18);
+  /* Modal overlay backdrop. Used by the v0.5.9 wizard recovery
+     instructions modal (#800) and any future full-screen dialogs.
+     Light-theme override below uses a lighter tint. */
+  --overlay-strong: rgba(0, 0, 0, 0.65);
   --rgb-black: 0, 0, 0;
   --rgb-white: 255, 255, 255;
   --rgb-teal:  79, 195, 161;
@@ -59,6 +69,9 @@
 
   --shadow-card: 0 1px 0 rgba(255,255,255,0.6) inset, 0 12px 32px rgba(50,72,109,0.12), 0 4px 10px rgba(50,72,109,0.08);
   --shadow-floating: 0 8px 24px rgba(50,72,109,0.18);
+  --shadow-popover-strong: 0 8px 28px rgba(50, 72, 109, 0.32);
+  --shadow-conf-converged-glow: 0 0 0 4px rgba(11, 138, 110, 0.18);
+  --overlay-strong: rgba(50, 72, 109, 0.45);
   --rgb-black: 50, 72, 109;
   --rgb-white: 255, 255, 255;
   --rgb-teal:  11, 138, 110;

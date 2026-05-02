@@ -26,21 +26,63 @@ var knownSchemaVersions = map[int]struct{}{
 
 // knownPWMModules is the v1 allowlist of kernel module names accepted in
 // hardware.pwm_control. Adding a name is a v1.x amendment, not a schema break.
+//
+// The "unknown" sentinel is permitted for monitor-only catalog entries whose
+// hardware has no Linux fan-control driver path yet (typical for laptop ECs
+// behind NDA, ARM SBCs without a hwmon driver, and BMC-managed servers). The
+// catalog still benefits from the fingerprint match — the wizard renders an
+// accurate model name in monitor-only mode — even when the write path stays
+// disabled. Validators downstream gate on capability == ro_unsupported, not
+// on the pwm_control string.
 var knownPWMModules = map[string]struct{}{
+	"unknown": {}, // monitor-only sentinel (see comment above)
+
+	// Nuvoton Super I/O — desktop/workstation
 	"nct6775": {}, "nct6779": {}, "nct6791": {}, "nct6792": {}, "nct6793": {},
 	"nct6795": {}, "nct6796": {}, "nct6797": {}, "nct6798": {}, "nct6798d": {},
-	"nct6799": {}, "it87": {}, "it8728": {}, "it8772": {}, "it8728f": {},
-	"it8732e": {}, "it8771e": {}, "it8772e": {}, "f71808e": {}, "f71869": {},
-	"f71869a": {}, "f71889ad": {}, "f71889ed": {}, "f71889fg": {}, "w83627dhg": {},
-	"w83627ehf": {}, "w83627uhg": {}, "w83795g": {}, "w83795adg": {},
+	"nct6799": {},
+	// nct6686/nct6687 are the modern NCT6687D family; the upstream driver is
+	// out-of-tree (LibreHardwareMonitor + dimitry-s/nct6687d), shipping as the
+	// MSI/Z890/X870 OEM choice. Recognise the names so the catalog matcher can
+	// surface monitor-only mode + the recommended_alternative_driver hint.
+	"nct6686": {}, "nct6687": {}, "nct6687d": {},
+	"nct7802": {}, "nct7904": {}, "nct7904d": {},
+
+	// ITE Super I/O + EC
+	"it87": {}, "it8728": {}, "it8772": {}, "it8728f": {},
+	"it8732e": {}, "it8771e": {}, "it8772e": {},
+	// IT86xx Aspire/TerraMaster EC family — upstream coverage is partial.
+	"it8625": {}, "it8625e": {}, "it8628": {}, "it8628e": {}, "it8689e": {},
+	// ITE laptop EC (ASUS ROG/TUF, Intel NUC) — Linux drivers are scarce; we
+	// list the names so monitor-only entries pass the schema.
+	"it5570": {}, "it5570-fan": {}, "it5571": {}, "it5572": {},
+
+	// Fintek
+	"f71808e": {}, "f71869": {}, "f71869a": {}, "f71889ad": {}, "f71889ed": {},
+	"f71889fg": {}, "f71882fg": {},
+
+	// Winbond legacy
+	"w83627dhg": {}, "w83627ehf": {}, "w83627uhg": {}, "w83795g": {}, "w83795adg": {},
+
+	// Vendor / EC drivers (in-tree or near-tree)
 	"asus-ec-sensors": {}, "asus-wmi-sensors": {}, "dell-smm-hwmon": {},
 	"hp-wmi-sensors": {}, "thinkpad_acpi": {}, "applesmc": {}, "surface_fan": {},
+	"msi-ec":        {}, // mainline since kernel 6.10 (MSI gaming laptops)
+	"legion-laptop": {}, // out-of-tree (johnfanv2/legion-laptop), Lenovo Legion
+	"qnap8528":      {}, // out-of-tree, QNAP TS-series NAS
+	"macsmc-hwmon":  {}, // upstream-pending (Asahi), Apple Silicon
+
+	// Liquid / fan controllers
 	"gigabyte-waterforce": {}, "asus-rog-ryujin": {}, "corsair-cpro": {},
 	"corsair-psu": {}, "nzxt-kraken2": {}, "nzxt-kraken3": {}, "nzxt-smart2": {},
-	"aquacomputer-d5next": {}, "drivetemp": {}, "k10temp": {}, "coretemp": {},
-	"amdgpu": {}, "peci-cputemp": {}, "sch5627": {}, "sch5636": {}, "f71882fg": {},
-	"fam15h_power": {}, "lm75": {}, "lm85": {}, "adt7475": {}, "adt7476": {},
-	"max6645": {}, "max31790": {}, "emc2103": {}, "nct7802": {}, "pwm-fan": {},
+	"aquacomputer-d5next": {},
+
+	// Generic temperature / health sensors (read-side; included so combined
+	// driver-pairing entries don't hit the validator).
+	"drivetemp": {}, "k10temp": {}, "coretemp": {}, "amdgpu": {},
+	"peci-cputemp": {}, "sch5627": {}, "sch5636": {}, "fam15h_power": {},
+	"lm75": {}, "lm85": {}, "adt7475": {}, "adt7476": {}, "max6645": {},
+	"max31790": {}, "emc2103": {}, "pwm-fan": {},
 }
 
 // contributedByRE accepts "anonymous" or a GitHub handle (1-39 alphanumeric/-).

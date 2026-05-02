@@ -8,7 +8,19 @@ abi <abi/4.0>,
 #include <tunables/global>
 
 # attach_disconnected required for hwmon paths under namespaced runtimes (TrueNAS Scale, Unraid).
-profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
+# Profile declaration without a file-path constraint. v0.5.8.1 (#787)
+# ships ventd as User=root with no AppArmorProfile= attachment in the
+# unit; the profile is shipped for operator opt-in via
+# `systemctl edit ventd` adding `AppArmorProfile=ventd`. Including a
+# file-path here (the previous `profile ventd /usr/local/bin/ventd`
+# form) causes kernel-level mediation to auto-attach the profile any
+# time the binary is exec'd — even from systemd unit files that don't
+# reference it — which produced spurious DENIED audit lines and
+# blocked legitimate /usr/bin/kmod, /usr/bin/sudo, /usr/bin/dkms exec
+# calls during HIL. The unbound declaration restores opt-in semantics.
+# v0.6.0 split-daemon will re-add the path constraint on the
+# hardened steady-state unit.
+profile ventd flags=(attach_disconnected) {
   #include <abstractions/base>
   # nameservice: nsswitch.conf + passwd/group reads needed by `id`,
   # by libc user lookups, and by the bash interpreter that runs
@@ -178,6 +190,45 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   /usr/bin/find                   rix,
   /usr/bin/realpath               rix,
 
+  # Driver install path (#768 / #770). The setup wizard's InstallDriver
+  # routine mkdirs a temp tree under /tmp to clone the OOT driver
+  # source, then execs into package managers / sudo / dkms / modprobe
+  # which legitimately need root. Those execs transition to unconfined
+  # (Ux) so they escape the profile's deny-rules below (sys_module,
+  # /sys/kernel/**) — confining them inside the parent profile would
+  # render the install path unusable. The daemon's own mkdir under
+  # /tmp/ventd-driver-* is explicitly allowed by the rwk rules below.
+  /tmp/                           rw,
+  /tmp/**                         rwlk,
+  /usr/bin/tar                    Ux,
+  /bin/tar                        Ux,
+  /usr/bin/make                   Ux,
+  /usr/bin/sudo                   Ux,
+  /usr/bin/apt-get                Ux,
+  /usr/bin/dnf                    Ux,
+  /usr/bin/dnf-3                  Ux,
+  /usr/bin/yum                    Ux,
+  /usr/bin/pacman                 Ux,
+  /usr/bin/zypper                 Ux,
+  /usr/sbin/apk                   Ux,
+  /sbin/apk                       Ux,
+  /usr/sbin/dkms                  Ux,
+  /usr/bin/dkms                   Ux,
+  /sbin/modprobe                  Ux,
+  /usr/sbin/modprobe              Ux,
+  /sbin/depmod                    Ux,
+  /usr/sbin/depmod                Ux,
+  /usr/local/sbin/ventd-nvml-helper Ux,
+  # Bootloader regeneration (ACPI auto-patch path).
+  /usr/sbin/update-grub           Ux,
+  /usr/sbin/grub2-mkconfig        Ux,
+  /usr/bin/grub-mkconfig          Ux,
+  /usr/bin/bootctl                Ux,
+  # Super-I/O discovery; may write /etc/modprobe.d/.
+  /usr/sbin/sensors-detect        Ux,
+  /usr/bin/curl                   rix,
+  /usr/bin/wget                   rix,
+
   /dev/tty                        rw,
 
   /run/systemd/journal/socket     rw,
@@ -203,12 +254,31 @@ profile ventd /{usr/bin,usr/local/bin}/ventd flags=(attach_disconnected) {
   # explicit access list is required. Issue #694.
   unix (create, accept, bind, listen, connect, send, receive, getattr, getopt, setopt, shutdown),
 
+  # ventd runs as root (User=root in the unit) — the profile must grant
+  # the capabilities root would normally hold for the daemon to read its
+  # own state files (dac_override / dac_read_search to traverse dirs
+  # owned by other uids), chown state-dir entries on first boot, and
+  # bind low ports for the web UI. The deny rules below still block the
+  # truly dangerous caps even when the daemon runs as root.
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability chown,
+  capability fsetid,
+  capability setuid,
+  capability setgid,
+  capability kill,
   capability net_bind_service,
+  capability net_raw,
+  capability sys_ptrace,
 
   deny /dev/mem rwklx,
   deny /dev/kmem rwklx,
   deny /sys/kernel/** rwklx,
   deny capability sys_admin,
   deny capability net_admin,
+  # sys_module is denied here so the daemon proper can't init_module(2)
+  # — but modprobe runs via the Ux transition above, exiting this
+  # profile, so OOT driver loading still works.
   deny capability sys_module,
 }

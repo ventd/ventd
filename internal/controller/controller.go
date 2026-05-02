@@ -171,6 +171,10 @@ type Controller struct {
 	// not emit observation records (pre-v0.5.6 behaviour).
 	obsAppend func(rec *ObsRecord)
 	obsLabel  func() string
+
+	// blendFn is the v0.5.9 confidence-gated blend hook. Called
+	// after curve eval + clamp, before hysteresis. nil-safe.
+	blendFn BlendFn
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -209,6 +213,12 @@ func WithCalibration(cal *hwdb.ChannelCalibration, pwmUnitMax int) Option {
 // on internal/observation directly. main.go wires a closure that
 // maps these fields into the real observation.Record (computing
 // ChannelID via observation.ChannelID(PWMPath)) + calls Writer.Append.
+//
+// SensorReadings carries the per-tick sensor map (keyed by sensor
+// name from config, value in °C). main.go's adapter converts to
+// observation.Record's map[uint16]int16 (key=SensorID, value=°C×100)
+// at write time. The map is cloned by emitObservation so the next
+// tick's mutation of rawSensorsBuf cannot race the writer.
 type ObsRecord struct {
 	Ts             int64  // Unix microseconds
 	PWMPath        string // sysfs path of the channel that just wrote
@@ -216,6 +226,7 @@ type ObsRecord struct {
 	RPM            int32 // -1 when tach-less
 	SignatureLabel string
 	EventFlags     uint32
+	SensorReadings map[string]float64
 }
 
 // WithObservation wires the v0.5.4 observation log into the
@@ -232,6 +243,23 @@ func WithObservation(appendFn func(rec *ObsRecord), labelFn func() string) Optio
 		c.obsAppend = appendFn
 		c.obsLabel = labelFn
 	}
+}
+
+// BlendFn is the v0.5.9 confidence-gated blend hook. The controller
+// hot path invokes it after curve evaluation + clamp but BEFORE
+// hysteresis + write, with the reactive PWM as the input and the
+// final PWM as the return. Implementations live in the wiring
+// layer (cmd/ventd/main.go) where the BlendedController + upstream
+// runtime Snapshots are accessible.
+//
+// nil means no blend — pre-v0.5.9 behaviour. Returning `reactive`
+// unchanged is also a valid no-op (used by the wiring layer when
+// w_pred is zero or the predictive arm is refused).
+type BlendFn func(channelID string, sensorTemp float64, reactivePWM uint8, dt time.Duration, now time.Time) uint8
+
+// WithBlend installs the v0.5.9 confidence-gated blend hook.
+func WithBlend(fn BlendFn) Option {
+	return func(c *Controller) { c.blendFn = fn }
 }
 
 func New(
@@ -556,6 +584,24 @@ func (c *Controller) tick() {
 	// Clamp to the fan's configured PWM range. This is the hard safety layer:
 	// the fan config is authoritative — the curve cannot drive PWM outside it.
 	pwm := clamp(raw, fan.MinPWM, fan.MaxPWM)
+
+	// v0.5.9 confidence-gated blend hook. The wiring layer in main.go
+	// constructs `blendFn` from the BlendedController + upstream Layer
+	// Snapshots; nil here means pre-v0.5.9 (reactive-only) behaviour.
+	// The blend runs AFTER the safety clamp so the fan config's
+	// [MinPWM, MaxPWM] is still authoritative — the predictive arm
+	// can't drive the fan outside the operator's bounds. The blend
+	// runs BEFORE hysteresis so the predictive contribution feeds
+	// back into the ramp-down suppression logic naturally.
+	if c.blendFn != nil && curveCfg.Sensor != "" {
+		if t, ok := sensors[curveCfg.Sensor]; ok {
+			blended := c.blendFn(c.pwmPath, t, pwm, time.Duration(dtSeconds*float64(time.Second)), now)
+			// Re-clamp post-blend: the wiring layer's BlendedController
+			// already clamps internally, but the controller package
+			// owns the final safety boundary so we double-clamp here.
+			pwm = clamp(blended, fan.MinPWM, fan.MaxPWM)
+		}
+	}
 
 	// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
 	// AllowStop=true. clamp already enforces the MinPWM floor, so pwm==0
@@ -887,6 +933,12 @@ func clamp(v, lo, hi uint8) uint8 {
 // (its ChannelID is computed by main.go's wiring closure) and the
 // signature library's lock-free Label reader.
 //
+// SensorReadings is cloned from the per-tick rawSensorsBuf so the
+// next tick's overwrite cannot race main.go's adapter or any
+// downstream consumer. Cost is one short-lived map allocation per
+// channel per tick (≈10 entries × 24 bytes ≈ 240 bytes); negligible
+// at controller frequencies (≤1 Hz typical).
+//
 // Nil-safe: when neither obsAppend nor obsLabel is wired, the
 // controller behaves exactly as it did pre-v0.5.6.
 func (c *Controller) emitObservation(pwm uint8) {
@@ -897,11 +949,19 @@ func (c *Controller) emitObservation(pwm uint8) {
 	if c.obsLabel != nil {
 		label = c.obsLabel()
 	}
+	var sensors map[string]float64
+	if len(c.rawSensorsBuf) > 0 {
+		sensors = make(map[string]float64, len(c.rawSensorsBuf))
+		for k, v := range c.rawSensorsBuf {
+			sensors[k] = v
+		}
+	}
 	c.obsAppend(&ObsRecord{
 		Ts:             time.Now().UnixMicro(),
 		PWMPath:        c.pwmPath,
 		PWMWritten:     pwm,
 		RPM:            -1, // tach reads not yet wired into controller
 		SignatureLabel: label,
+		SensorReadings: sensors,
 	})
 }

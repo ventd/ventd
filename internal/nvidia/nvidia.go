@@ -349,10 +349,23 @@ func ReadFanSpeed(index uint) (uint8, error) {
 
 // WriteFanSpeed sets all fans on the GPU to the given PWM value (0-255).
 // Converts to NVML percentage (0-100) internally.
+//
+// Dispatch: when the calling process lacks root euid AND the SUID-root
+// helper binary is installed, this delegates to ventd-nvml-helper(8)
+// which has the privileges NVML's write APIs require. Otherwise (helper
+// running under SUID, daemon running as root, or test fixtures) the
+// call goes direct to libnvidia-ml.so.1 via purego.
 func WriteFanSpeed(index uint, pwm uint8) error {
 	if !Available() {
 		return ErrNotAvailable
 	}
+	if needsHelper() {
+		return writeFanSpeedViaHelper(index, pwm)
+	}
+	return writeFanSpeedDirect(index, pwm)
+}
+
+func writeFanSpeedDirect(index uint, pwm uint8) error {
 	dev, err := deviceHandle(index)
 	if err != nil {
 		return err
@@ -376,10 +389,20 @@ func WriteFanSpeed(index uint, pwm uint8) error {
 }
 
 // ResetFanSpeed restores all fans on the GPU to automatic control.
+//
+// Dispatch: same as WriteFanSpeed — non-root euid with helper present
+// → SUID helper; otherwise → direct NVML call.
 func ResetFanSpeed(index uint) error {
 	if !Available() {
 		return ErrNotAvailable
 	}
+	if needsHelper() {
+		return resetFanSpeedViaHelper(index)
+	}
+	return resetFanSpeedDirect(index)
+}
+
+func resetFanSpeedDirect(index uint) error {
 	dev, err := deviceHandle(index)
 	if err != nil {
 		return err
@@ -409,6 +432,13 @@ func SetFanControlPolicy(index uint, fanIdx int, policy int) (bool, error) {
 	if !Available() {
 		return false, ErrNotAvailable
 	}
+	if needsHelper() {
+		return setFanControlPolicyViaHelper(index, fanIdx, policy)
+	}
+	return setFanControlPolicyDirect(index, fanIdx, policy)
+}
+
+func setFanControlPolicyDirect(index uint, fanIdx int, policy int) (bool, error) {
 	if pDeviceSetFanControlPolicy == 0 {
 		return false, nil // R515-/R470: symbol absent → rw_quirk cap
 	}

@@ -58,6 +58,29 @@ corresponding file exists under `deploy/apparmor.d/`.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_AppArmorProfileShipped
 
+## RULE-INSTALL-06: AppArmor profiles ship to /etc/apparmor.d/ but are NOT auto-loaded by postinstall (v0.5.8.1+)
+
+v0.5.8.1's root-flip (#787) moved ventd.service to `User=root` and
+removed the `AppArmorProfile=ventd` directive from the unit. With no
+attach-point the profile would be either dead policy or, under
+operator-led opt-in, re-attached via `systemctl edit ventd`.
+postinstall.sh therefore SHIPS the profile (so it's present for the
+opt-in path) but does NOT call `apparmor_parser -r` on it.
+
+The contract test reads `scripts/postinstall.sh` and asserts:
+1. The literal "shipped-not-loaded" log line is present (regression
+   guard so a future cleanup doesn't silently re-introduce auto-load
+   without thinking through the v0.6.0 split-daemon plan).
+2. Every profile under `deploy/apparmor.d/` is still present in the
+   tree (i.e. we haven't dropped the file from .goreleaser.yml's
+   nfpms.contents).
+
+When the v0.6.0 split-daemon refactor lands, this rule reverts to
+"postinstall.sh MUST apparmor_parser -r every shipped profile" with a
+separate ventd-control.service that holds AppArmorProfile=ventd-control.
+
+Bound: deploy/install-contract_test.go:TestInstallContract_PostinstallShipsAppArmor
+
 ## RULE-INSTALL-05: Every shipped AppArmor profile must have a HIL validation log under enforce mode
 
 For each profile under `deploy/apparmor.d/*` (excluding README.md), a

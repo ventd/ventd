@@ -1,6 +1,6 @@
 // login.js — post-first-boot login screen.
 // Uses the same setup.css as setup.html for visual coherence; the form
-// posts a password (no setup_token) to /login.
+// posts a password to /login.
 
 (function () {
   'use strict';

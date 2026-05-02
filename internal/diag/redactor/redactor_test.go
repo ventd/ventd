@@ -313,6 +313,79 @@ func TestP4IP_Redacts(t *testing.T) {
 	}
 }
 
+// RULE-DIAG-PR2C-IPV6-01: ISO-8601 timestamps and other punctuation-
+// delimited hex runs MUST NOT be eaten by the IPv6 regex. The pattern
+// over-matches by design (allowing 0-hex groups so `::` compression
+// works) and historically corrupted every slog timestamp in diag
+// bundles by mapping `T01:08:33` to `fd00:obf::N`. The fix in v0.5.9
+// validates each candidate via net.ParseIP so only genuine IPv6
+// addresses get redacted.
+func TestP4IP_ISOTimestampsSurvive(t *testing.T) {
+	store := redactor.NewMappingStore()
+	p := &redactor.P4IP{}
+	cases := []struct {
+		name string
+		in   string
+	}{
+		{"slog timestamp", `time=2026-05-02T01:08:33.816Z level=INFO msg="boot"`},
+		{"std log timestamp", `2026/05/02 01:06:59 http: handshake error`},
+		{"captured_at field", `captured_at: 2026-05-02T01:09:09Z`},
+		{"plain time-of-day", `seen at 12:34:56 today`},
+		{"date with sub-second", `2026-05-02T23:59:59.999999Z`},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			out, n := p.Redact([]byte(tc.in), store)
+			if string(out) != tc.in {
+				t.Fatalf("ISO timestamp mangled:\n  in:  %q\n  out: %q\n  redactions=%d",
+					tc.in, string(out), n)
+			}
+			if n != 0 {
+				t.Errorf("expected 0 redactions on timestamp-only input, got %d", n)
+			}
+		})
+	}
+}
+
+// RULE-DIAG-PR2C-IPV6-02: Real IPv6 addresses still get redacted
+// post-fix — the net.ParseIP gate must not be so strict it lets
+// genuine v6 through unchanged. Covers full + compressed + loopback
+// passthrough.
+//
+// The case `fd00:obf::N` (already-redacted token round-tripping
+// through the redactor) is intentionally NOT covered here. The
+// regex finds the inner `::N` substring as valid IPv6 and remaps,
+// which is harmless in a single-pass redaction (tokens don't
+// appear in input) but would matter for re-redacting already-
+// redacted bundles. Tracked separately.
+func TestP4IP_RealIPv6StillRedacted(t *testing.T) {
+	store := redactor.NewMappingStore()
+	p := &redactor.P4IP{}
+	cases := []struct {
+		name       string
+		in         string
+		mustRedact bool
+	}{
+		{"full form", "src 2001:db8:0:0:0:0:0:1 dst", true},
+		{"compressed", "src 2001:db8::1 dst", true},
+		{"link-local passthrough", "fe80::1234 alone", false},
+		{"loopback passthrough", "::1 alone", false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			out, n := p.Redact([]byte(tc.in), store)
+			if tc.mustRedact && n == 0 {
+				t.Fatalf("expected redaction in %q, got %q (n=0)", tc.in, string(out))
+			}
+			if !tc.mustRedact && n != 0 {
+				t.Fatalf("expected pass-through for %q, got %d redactions: %q", tc.in, n, string(out))
+			}
+		})
+	}
+}
+
 func TestP7USBPhysical_PreservesTopology(t *testing.T) {
 	store := redactor.NewMappingStore()
 	p := &redactor.P7USBPhysical{}

@@ -39,7 +39,7 @@ jobs:
             --output /tmp/drift-report.json
           echo "drift_count=$(jq '.drifts | length' /tmp/drift-report.json)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: drift-report

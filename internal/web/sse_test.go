@@ -46,7 +46,7 @@ func newSSEServer(t *testing.T, tickInterval time.Duration) (*httptest.Server, *
 	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, "", hwdiag.NewStore())
+	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, hwdiag.NewStore())
 	srv.sseInterval = tickInterval
 
 	ts := httptest.NewServer(srv.handler)

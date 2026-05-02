@@ -43,7 +43,7 @@ func newAuthHarness(t *testing.T) (srv *Server, dir string, cancel context.Cance
 	restart := make(chan struct{}, 1)
 	ctx, cancelFn := context.WithCancel(context.Background())
 
-	srv = New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, "tok123", hwdiag.NewStore())
+	srv = New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
 	return srv, dir, cancelFn
 }
 
@@ -61,10 +61,10 @@ func loginWith(t *testing.T, srv *Server, password string) int {
 	return rr.Code
 }
 
-// firstBootLogin exercises the setup-token + new-password flow.
-func firstBootLogin(t *testing.T, srv *Server, token, password string) int {
+// firstBootLogin exercises the new-password flow (issue #765 eliminated the setup token).
+func firstBootLogin(t *testing.T, srv *Server, password string) int {
 	t.Helper()
-	body := strings.NewReader("setup_token=" + token + "&new_password=" + password)
+	body := strings.NewReader("new_password=" + password)
 	req := httptest.NewRequest(http.MethodPost, "/login", body)
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
@@ -83,7 +83,7 @@ func TestRegression_Issue463_PasswordSurvivesRestart(t *testing.T) {
 	defer cancel()
 
 	const password = "CorrectHorseBattery1"
-	if got := firstBootLogin(t, srv, "tok123", password); got != http.StatusOK {
+	if got := firstBootLogin(t, srv, password); got != http.StatusOK {
 		t.Fatalf("first-boot login: status=%d want 200", got)
 	}
 
@@ -107,7 +107,7 @@ func TestRegression_Issue463_PasswordSurvivesRestart(t *testing.T) {
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
 	srv2 := New(ctx2, &cfgPtr2, filepath.Join(dir, "config.yaml"), authPath,
-		logger, cal2, sm2, restart2, "", hwdiag.NewStore())
+		logger, cal2, sm2, restart2, hwdiag.NewStore())
 
 	// Login with the original password must succeed on the new server.
 	if got := loginWith(t, srv2, password); got != http.StatusOK {
@@ -123,7 +123,7 @@ func TestRegression_Issue463_CalibrationSaveDoesNotWipeAuth(t *testing.T) {
 	defer cancel()
 
 	const password = "StablePassword99"
-	if got := firstBootLogin(t, srv, "tok123", password); got != http.StatusOK {
+	if got := firstBootLogin(t, srv, password); got != http.StatusOK {
 		t.Fatalf("first-boot login: status=%d want 200", got)
 	}
 
@@ -181,7 +181,7 @@ func TestRegression_Issue463_StartupDetectsMissingAuth(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, "", hwdiag.NewStore())
+	srv := New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
 
 	// With no auth.json and no hash in config, authHashValue must be empty.
 	if srv.authHashValue() != "" {
@@ -267,7 +267,7 @@ func PropAuthSurvivesConfigWrite(t *testing.T) {
 
 	// Set the initial password via first-boot flow.
 	const initial = "InitialPassword99"
-	if got := firstBootLogin(t, srv, "tok123", initial); got != http.StatusOK {
+	if got := firstBootLogin(t, srv, initial); got != http.StatusOK {
 		t.Fatalf("initial first-boot login: status=%d", got)
 	}
 

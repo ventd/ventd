@@ -1,6 +1,8 @@
 #include <tunables/global>
 
-profile ventd-ipmi /usr/libexec/ventd/ventd-ipmi {
+# Profile declaration without a file-path constraint — see
+# deploy/apparmor.d/ventd for the rationale (#787 v0.5.8.1 root-flip).
+profile ventd-ipmi flags=(attach_disconnected) {
   #include <abstractions/base>
 
   /usr/libexec/ventd/ventd-ipmi mr,

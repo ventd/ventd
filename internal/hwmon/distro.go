@@ -52,19 +52,67 @@ func parseOSRelease(content string) DistroInfo {
 // MOKInstallCommand returns the distro-appropriate package-install command
 // for `mokutil`, used verbatim in the MOK-enrollment instructions panel.
 func (d DistroInfo) MOKInstallCommand() string {
+	return d.installCmd("mokutil")
+}
+
+// KmodInstallCommand returns the distro-appropriate package-install command
+// for the package that ships `sign-file`. On Debian/Fedora/SUSE/Alpine the
+// package is `kmod`; on Arch the helper is bundled with `linux-headers` so
+// the install command points there instead. Used by the SecureBoot
+// missing-sign-file remediation card.
+func (d DistroInfo) KmodInstallCommand() string {
+	if d.familyKey() == "arch" {
+		// pacman ships sign-file alongside linux-headers; no separate package.
+		return "sudo pacman -S --noconfirm linux-headers"
+	}
+	return d.installCmd("kmod")
+}
+
+// BuildToolsInstallCommand returns the distro-appropriate command to install
+// gcc + make + the umbrella build-essentials meta-package. Used by the
+// missing-build-tools remediation card.
+func (d DistroInfo) BuildToolsInstallCommand() string {
 	switch d.familyKey() {
 	case "debian":
-		return "sudo apt-get install -y mokutil"
+		return "sudo apt-get install -y build-essential"
 	case "fedora":
-		return "sudo dnf install -y mokutil"
+		return "sudo dnf install -y gcc make"
 	case "arch":
-		return "sudo pacman -S --noconfirm mokutil"
+		return "sudo pacman -S --noconfirm base-devel"
 	case "suse":
-		return "sudo zypper install -y mokutil"
+		return "sudo zypper install -y gcc make"
 	case "alpine":
-		return "sudo apk add mokutil"
+		return "sudo apk add build-base"
 	}
-	return "install the `mokutil` package for your distribution"
+	return "install gcc and make for your distribution"
+}
+
+// BlacklistDropInPath returns the path of the modprobe drop-in this distro
+// loads at boot to blacklist a kernel module. Every glibc-distro plus
+// Alpine reads /etc/modprobe.d/*.conf, so the path is identical across
+// the families this binary supports — kept on DistroInfo so future
+// distro-specific divergence is a one-place edit.
+func (d DistroInfo) BlacklistDropInPath() string {
+	return "/etc/modprobe.d/ventd-blacklist.conf"
+}
+
+// installCmd is the small dispatch helper shared by MOKInstallCommand,
+// KmodInstallCommand, and any future single-package installer. Returns
+// generic guidance when the family is unknown.
+func (d DistroInfo) installCmd(pkg string) string {
+	switch d.familyKey() {
+	case "debian":
+		return "sudo apt-get install -y " + pkg
+	case "fedora":
+		return "sudo dnf install -y " + pkg
+	case "arch":
+		return "sudo pacman -S --noconfirm " + pkg
+	case "suse":
+		return "sudo zypper install -y " + pkg
+	case "alpine":
+		return "sudo apk add " + pkg
+	}
+	return "install the `" + pkg + "` package for your distribution"
 }
 
 // familyKey collapses ID and ID_LIKE into a broad family bucket so callers

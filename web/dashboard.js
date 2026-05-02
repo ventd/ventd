@@ -59,22 +59,40 @@
     if (arr.length > SPARK_N) arr.shift();
   }
 
-  function sparkPath(buf, w, h) {
+  // sparkPath autoscales the y-axis to the buffer's min/max — with a
+  // floor of `minRange` so that a sensor wobbling within ±0.5°C doesn't
+  // look like it's climbing a mountain. This was the root cause of the
+  // \"GPU temp keeps climbing on every page refresh\" report (#797):
+  // the dashboard polled new samples into an empty buffer; auto-fit
+  // collapsed the y-axis to the noise floor of the first 2-3 readings;
+  // tiny variance got drawn as a steep slope. minRange=5 for temps,
+  // 200 for RPM, 5 for percent gives realistic dynamic range.
+  function sparkPath(buf, w, h, minRange) {
     if (!buf || buf.length < 2) return '';
+    if (minRange == null) minRange = 1;
     var max = -Infinity, min = Infinity;
     for (var i = 0; i < buf.length; i++) {
       if (buf[i] > max) max = buf[i];
       if (buf[i] < min) min = buf[i];
     }
-    var range = Math.max(max - min, max * 0.05, 1);
+    var range = Math.max(max - min, minRange);
+    // Centre the data within the range so a flat-line sample sits
+    // mid-card rather than at the bottom edge.
+    var mid = (max + min) / 2;
+    var lo = mid - range / 2;
     var d = '';
     for (var j = 0; j < buf.length; j++) {
       var x = (j / (SPARK_N - 1)) * w;
-      var y = (h - 2) - ((buf[j] - min) / range) * (h - 4);
+      var y = (h - 2) - ((buf[j] - lo) / range) * (h - 4);
       d += (j === 0 ? 'M ' : ' L ') + x.toFixed(1) + ' ' + y.toFixed(1);
     }
     return d;
   }
+  // sparkPathTemp / sparkPathRPM / sparkPathPct are thin wrappers that
+  // bake the right minRange for the metric class.
+  function sparkPathTemp(buf, w, h) { return sparkPath(buf, w, h, 5); }
+  function sparkPathRPM(buf, w, h)  { return sparkPath(buf, w, h, 200); }
+  function sparkPathPct(buf, w, h)  { return sparkPath(buf, w, h, 5); }
 
   // ── classification heuristics ──────────────────────────────────────
   function looksLikeCPU(name) {
@@ -130,7 +148,7 @@
       if (s.value == null) valEl.textContent = '—';
       else valEl.textContent = Number(s.value).toFixed(1);
       var path = tile.querySelector('.js-spark');
-      if (path) path.setAttribute('d', sparkPath(sensorHistory[s.name], 240, 28));
+      if (path) path.setAttribute('d', sparkPathTemp(sensorHistory[s.name], 240, 28));
     });
     // Remove tiles for sensors that disappeared.
     Object.keys(existing).forEach(function (k) {
@@ -196,7 +214,7 @@
       var duty = tile.querySelector('.js-duty');
       if (duty) duty.textContent = Math.round(f.duty_pct || 0);
       var path = tile.querySelector('.js-spark');
-      if (path) path.setAttribute('d', sparkPath(fanHistory[f.name], 240, 28));
+      if (path) path.setAttribute('d', sparkPathRPM(fanHistory[f.name], 240, 28));
 
       tile.classList.toggle('is-spinning', !!(rpm && rpm > 60));
       tile.classList.toggle('is-stalled', rpm === 0 && (f.duty_pct || 0) > 5);
@@ -222,8 +240,8 @@
 
     var cpuEl = $('hero-cpu-val'); if (cpuEl) cpuEl.textContent = cpu == null ? '—' : Number(cpu).toFixed(1);
     var gpuEl = $('hero-gpu-val'); if (gpuEl) gpuEl.textContent = gpu == null ? '—' : Number(gpu).toFixed(1);
-    var cpuP  = $('hero-cpu-path'); if (cpuP) cpuP.setAttribute('d', sparkPath(heroCpuHistory, 240, 48));
-    var gpuP  = $('hero-gpu-path'); if (gpuP) gpuP.setAttribute('d', sparkPath(heroGpuHistory, 240, 48));
+    var cpuP  = $('hero-cpu-path'); if (cpuP) cpuP.setAttribute('d', sparkPathTemp(heroCpuHistory, 240, 48));
+    var gpuP  = $('hero-gpu-path'); if (gpuP) gpuP.setAttribute('d', sparkPathTemp(heroGpuHistory, 240, 48));
     var cpuS = $('hero-cpu-sub'); if (cpuS) cpuS.textContent = cpu == null ? 'no source' : 'last 60s';
     var gpuS = $('hero-gpu-sub'); if (gpuS) gpuS.textContent = gpu == null ? 'no source' : 'last 60s';
 
@@ -427,10 +445,243 @@
       });
   }
 
+  // seedHistory pre-populates the in-memory sparkline buffers from
+  // ventd's server-side ring (/api/history) so a fresh page load shows
+  // the last 60s of samples instead of an empty chart that fills
+  // sample-by-sample over 60s — which produced the \"GPU temp keeps
+  // climbing on every refresh\" report (#797). The visible \"climb\"
+  // was actually the chart filling left-to-right with a buffer that
+  // contained too few samples for sparkPath's auto-fit y-axis.
+  function seedHistory() {
+    fetch('/api/v1/history?window_s=60', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.metrics) return;
+        Object.keys(data.metrics).forEach(function (name) {
+          var samples = data.metrics[name];
+          if (!Array.isArray(samples) || samples.length === 0) return;
+          // Truncate to the last SPARK_N samples so the buffer matches
+          // the chart's display window exactly. Server ring may hold
+          // more — we only want the most recent.
+          var start = Math.max(0, samples.length - SPARK_N);
+          var values = samples.slice(start).map(function (s) { return s.v; });
+          if (looksLikeCPU(name) || looksLikeGPU(name)) {
+            // Hero chart for CPU/GPU. Seed the matching hero buffer
+            // (idempotent if multiple sensors match — last wins).
+            if (looksLikeCPU(name)) heroCpuHistory = values.slice();
+            if (looksLikeGPU(name)) heroGpuHistory = values.slice();
+          }
+          if (/rpm$|fan/i.test(name)) {
+            fanHistory[name] = values.slice();
+          } else {
+            sensorHistory[name] = values.slice();
+          }
+        });
+      })
+      .catch(function () { /* monitor-only or pre-data — pollOnce will catch up */ });
+  }
+
+  // pollSmartMode populates the topbar smart-mode pill from the live
+  // config — surfaces which smart-mode subsystems are active so users
+  // get visible at-a-glance evidence that ventd is being intelligent
+  // rather than running a dumb curve. Updates every 10s.
+  function pollSmartMode() {
+    fetch('/api/v1/config', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (c) {
+        if (!c) return;
+        var pill = document.getElementById('dash-smart-pill');
+        var text = document.getElementById('dash-smart-pill-text');
+        if (!pill || !text) return;
+        var states = [];
+        if (c.acoustic_optimisation === undefined ||
+            c.acoustic_optimisation === null ||
+            c.acoustic_optimisation === true) {
+          states.push('acoustic');
+        }
+        if (!c.signature_learning_disabled) states.push('learning');
+        if (!c.never_actively_probe_after_install) states.push('probing-ok');
+        if (!c.smart_marginal_benefit_disabled) states.push('marginal');
+        if (states.length === 0) {
+          pill.hidden = true;
+          return;
+        }
+        text.textContent = 'smart · ' + states.length + ' active';
+        pill.title = 'smart-mode subsystems active: ' + states.join(', ');
+        pill.hidden = false;
+      })
+      .catch(function () {
+        var pill = document.getElementById('dash-smart-pill');
+        if (pill) pill.hidden = true;
+      });
+  }
+
+  // pollConfidence drives the v0.5.9 5-state confidence pill +
+  // popover. Reads /api/v1/confidence/status, collapses to the
+  // worst-of-channels state for the topbar pill, emits a one-off
+  // ribbon on state transitions, and rebuilds the click-popover
+  // body with R12 §Q7 long-form per-layer reasons.
+  //
+  // Hidden when the daemon reports enabled=false (monitor-only
+  // mode). Polls every 5s; underlying aggregator updates faster.
+  var prevConfState = null;
+  function pollConfidence() {
+    fetch('/api/v1/confidence/status', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        var pill = document.getElementById('dash-conf-pill');
+        var text = document.getElementById('dash-conf-pill-text');
+        if (!pill || !text) return;
+        if (!s || !s.enabled || !s.global_state) {
+          pill.hidden = true;
+          prevConfState = null;
+          return;
+        }
+        pill.hidden = false;
+
+        // State transition detection — emit a one-off ribbon.
+        if (prevConfState !== null && prevConfState !== s.global_state) {
+          emitConfidenceRibbon(pill, s.global_state);
+        }
+        prevConfState = s.global_state;
+
+        pill.dataset.state = s.global_state;
+        text.textContent = s.global_state;
+        var n = s.channels ? s.channels.length : 0;
+        pill.title = 'smart-mode confidence — ' + s.global_state +
+          ' across ' + n + ' channel' + (n === 1 ? '' : 's') +
+          ' (preset: ' + (s.preset || 'balanced') + ')';
+
+        // Refresh the popover body in case it's open.
+        updateConfidencePopover(s);
+      })
+      .catch(function () {
+        var pill = document.getElementById('dash-conf-pill');
+        if (pill) pill.hidden = true;
+      });
+  }
+
+  // emitConfidenceRibbon attaches a "Now: <state>" ribbon over the
+  // pill that animates in, holds, then fades. Removes the previous
+  // ribbon if one is in flight so back-to-back transitions don't
+  // stack visually.
+  function emitConfidenceRibbon(pill, state) {
+    var prev = pill.querySelector('.dash-conf-ribbon');
+    if (prev) prev.remove();
+    var r = document.createElement('span');
+    r.className = 'dash-conf-ribbon';
+    r.textContent = 'now: ' + state;
+    pill.appendChild(r);
+    // Auto-cleanup after the CSS animation completes (2.4s).
+    setTimeout(function () { if (r && r.parentNode) r.remove(); }, 2600);
+  }
+
+  // Layer-reason classifiers for the popover. Each function turns
+  // a Snapshot-shaped object into { reason, mood } where mood is
+  // one of "good" / "warm" / "cold" / "bad" (drives the colour
+  // tint of the row).
+  function reasonLayerA(ch) {
+    if (!ch) return { reason: 'no Layer-A snapshot', mood: 'cold' };
+    var tierName = ['rpm-tach', 'coupled-ref', 'bmc-ipmi', 'ec-stepped',
+                    'thermal-invert', 'rapl-echo', 'pwm-echo', 'open-loop'][ch.tier] || 'unknown';
+    if (ch.tier >= 7) return { reason: 'open-loop tier — predictive controller refused', mood: 'cold' };
+    if (ch.coverage < 0.25) return { reason: tierName + ' (coverage ' + Math.round(ch.coverage * 100) + '% — needs more samples across PWM range)', mood: 'warm' };
+    if (ch.coverage < 0.6) return { reason: tierName + ' — coverage ' + Math.round(ch.coverage * 100) + '%, building confidence', mood: 'warm' };
+    return { reason: tierName + ' — coverage ' + Math.round(ch.coverage * 100) + '% (good)', mood: 'good' };
+  }
+  function reasonLayerB(ch) {
+    if (!ch) return { reason: 'no Layer-B snapshot', mood: 'cold' };
+    if (ch.conf_b < 0.05) return { reason: 'thermal-coupling estimator warming up or unidentifiable', mood: 'warm' };
+    if (ch.conf_b < 0.4) return { reason: 'thermal-coupling estimator partial — early-life noise still high', mood: 'warm' };
+    return { reason: 'thermal-coupling estimator healthy (κ in range, low residual)', mood: 'good' };
+  }
+  function reasonLayerC(ch) {
+    if (!ch || ch.conf_c <= 0) return { reason: 'marginal-benefit shard not warm yet for this workload', mood: 'cold' };
+    if (ch.conf_c < 0.4) return { reason: 'marginal-benefit shard learning current workload signature', mood: 'warm' };
+    return { reason: 'marginal-benefit shard converged for current workload', mood: 'good' };
+  }
+
+  // updateConfidencePopover refreshes the popover's body with the
+  // latest snapshot. The popover open/close is toggled by the click
+  // handler installed below.
+  function updateConfidencePopover(s) {
+    var pop = document.getElementById('dash-conf-popover');
+    if (!pop) return;
+    if (!s || !s.channels || s.channels.length === 0) {
+      pop.innerHTML = '<h4>Smart-mode confidence</h4><p>No controllable channels.</p>';
+      return;
+    }
+    // The "global" representative channel for the per-layer
+    // reasons is the one driving the worst-of-channels state.
+    var worst = s.channels[0];
+    var priority = { 'refused': 0, 'drifting': 1, 'cold-start': 2, 'warming': 3, 'converged': 4 };
+    s.channels.forEach(function (c) {
+      if (priority[c.ui_state] < priority[worst.ui_state]) worst = c;
+    });
+
+    var rA = reasonLayerA(worst);
+    var rB = reasonLayerB(worst);
+    var rC = reasonLayerC(worst);
+
+    var html = '<h4>Smart-mode confidence — ' + s.global_state + '</h4>' +
+      '<ul>' +
+      '<li><span class="layer-name">Layer A</span><span class="layer-reason is-' + rA.mood + '">' + escapeHtml(rA.reason) + '</span></li>' +
+      '<li><span class="layer-name">Layer B</span><span class="layer-reason is-' + rB.mood + '">' + escapeHtml(rB.reason) + '</span></li>' +
+      '<li><span class="layer-name">Layer C</span><span class="layer-reason is-' + rC.mood + '">' + escapeHtml(rC.reason) + '</span></li>' +
+      '</ul>';
+    if (s.channels.length > 1) {
+      html += '<div class="ch-list">';
+      s.channels.forEach(function (c) {
+        var label = (c.channel_id || '').split('/').pop() || c.channel_id;
+        html += '<span class="ch-chip" data-state="' + escapeHtml(c.ui_state) + '">' +
+          escapeHtml(label) + ' · ' + escapeHtml(c.ui_state) +
+          '</span>';
+      });
+      html += '</div>';
+    }
+    pop.innerHTML = html;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Wire the click-popover. Lazy-initialise the popover element
+  // (added under the pill only when the user first clicks).
+  (function setupConfidencePopover() {
+    var pill = document.getElementById('dash-conf-pill');
+    if (!pill) return;
+    pill.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var pop = document.getElementById('dash-conf-popover');
+      if (!pop) {
+        pop = document.createElement('div');
+        pop.id = 'dash-conf-popover';
+        pop.className = 'dash-conf-popover';
+        pop.addEventListener('click', function (e) { e.stopPropagation(); });
+        pill.appendChild(pop);
+        // Repopulate now from whatever the most-recent poll cached.
+        // Force a fetch so the popover doesn't render stale.
+        pollConfidence();
+      }
+      pop.classList.toggle('open');
+    });
+    document.addEventListener('click', function () {
+      var pop = document.getElementById('dash-conf-popover');
+      if (pop) pop.classList.remove('open');
+    });
+  })();
+
   // ── start ──────────────────────────────────────────────────────────
+  seedHistory();
   pollOnce();
   pollTimer = setInterval(pollOnce, pollInterval);
   setInterval(function () { if (!inDemo) tickUptime(); }, 1000);
   pollOpportunisticStatus();
   setInterval(pollOpportunisticStatus, 5000);
+  pollSmartMode();
+  setInterval(pollSmartMode, 10000);
+  pollConfidence();
+  setInterval(pollConfidence, 5000);
 })();

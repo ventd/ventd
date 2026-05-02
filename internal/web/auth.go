@@ -101,19 +101,6 @@ func checkPassword(hash, plaintext string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext)) == nil
 }
 
-// GenerateSetupToken returns a cryptographically random token formatted as
-// XXXXX-XXXXX-XXXXX for display in the terminal on first boot.
-func GenerateSetupToken() (string, error) {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("web: read random bytes for setup token: %w", err)
-	}
-	h := hex.EncodeToString(b) // 16 hex chars
-	// Format as XXXXX-XXXXX-XXXXX (use first 15 chars, upper-cased)
-	h = h[:15]
-	return h[0:5] + "-" + h[5:10] + "-" + h[10:15], nil
-}
-
 // sessionToken reads the session cookie value from r.
 func sessionToken(r *http.Request) string {
 	c, err := r.Cookie(sessionCookie)

@@ -56,30 +56,6 @@
     <form class="setup-form" id="setup-form" autocomplete="off">
 
       <div class="setup-field">
-        <label class="setup-label" for="setup-token">
-          Setup Token
-          <span class="setup-label-hint">printed once on first systemd start</span>
-        </label>
-        <div class="setup-input-wrap">
-          <input
-            id="setup-token"
-            name="setup_token"
-            class="setup-input mono setup-input--token"
-            type="text"
-            inputmode="text"
-            autocapitalize="characters"
-            spellcheck="false"
-            placeholder="XXXXX-XXXXX-XXXXX"
-            aria-describedby="setup-token-hint"
-            maxlength="17"
-            required>
-          <button type="button" class="setup-input-action" id="token-paste" aria-label="Paste from clipboard">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 012 2v13a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h2"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="setup-field">
         <label class="setup-label" for="setup-password">
           Create Password
           <span class="setup-label-hint">min 8 chars</span>
@@ -131,10 +107,8 @@
     </form>
 
     <footer class="setup-foot">
-      <div class="setup-foot-label">Find your setup token in the terminal via:</div>
-      <pre class="setup-foot-code mono"><span class="cmd-prompt">$</span> <span class="cmd-name">journalctl</span> <span class="cmd-flag">-u</span> <span class="cmd-arg">ventd</span> <span class="cmd-pipe">|</span> <span class="cmd-name">grep</span> <span class="cmd-string">"Setup token"</span></pre>
       <div class="setup-foot-hint">
-        Token rotates on every <span class="mono">systemctl restart ventd</span> until first login completes. After that, this screen is replaced by the regular login.
+        This is the first time ventd is running on this machine. Set an admin password to lock the daemon — anyone on this network can complete this wizard until you do.
       </div>
     </footer>
 

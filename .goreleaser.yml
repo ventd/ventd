@@ -66,6 +66,28 @@ builds:
     ldflags:
       - -s -w
 
+  # ventd-nvml-helper: SUID-root helper for NVML write operations
+  # (#770). The unprivileged ventd daemon dispatches to this helper
+  # when it needs to call nvmlDeviceSetFanSpeed_v2 et al, which NVML
+  # gates on root euid. Installed to /usr/local/sbin with mode 04755.
+  # The helper is intentionally tiny (~150 LOC) and validates every
+  # numeric input against bounded ranges before any NVML touch.
+  - id: ventd-nvml-helper
+    main: ./cmd/ventd-nvml-helper
+    binary: ventd-nvml-helper
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    ldflags:
+      - -s -w
+
   # musl-compatible build — fully static, NVIDIA support compiled out.
   # Required for Alpine, Void-musl, and other musl-libc distros where
   # purego's fakecgo shim would drag in glibc SONAMEs and fail to exec.
@@ -96,6 +118,7 @@ archives:
       - ventd
       - ventd-recover
       - ventd-ipmi
+      - ventd-nvml-helper
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     files:
@@ -187,6 +210,7 @@ nfpms:
   - id: ventd-pkg
     ids:
       - ventd
+      - ventd-nvml-helper
     package_name: ventd
     vendor: ventd
     homepage: https://github.com/ventd/ventd

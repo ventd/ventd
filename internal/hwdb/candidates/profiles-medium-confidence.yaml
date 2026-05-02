@@ -1,0 +1,325 @@
+- id: asus-rog-strix-z690-f-gaming-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG STRIX Z690-F GAMING WIFI
+    superio_chip: nct6798
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3, max_pwm: 255 }
+      - { id: m2_fan,        header_label: M.2_FAN,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-prime-z790-a-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: PRIME Z790-A WIFI
+    superio_chip: nct6798
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3, max_pwm: 255 }
+      - { id: chassis_fan_4, header_label: CHA_FAN4, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-rog-strix-z790-e-gaming-wifi-ii
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG STRIX Z790-E GAMING WIFI II
+    superio_chip: nct6798
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: m2_fan,        header_label: M.2_FAN,  max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: msi-meg-z690-ace
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Micro-Star International Co., Ltd.
+    dmi_board_name: MEG Z690 ACE
+    superio_chip: nct6687
+  hardware:
+    pwm_control: nct6687  # out-of-tree, not nct6683/nct6775
+    fans:
+      - { id: cpu_fan_1,     header_label: CPU_FAN1,      max_pwm: 255 }
+      - { id: pump_fan_1,    header_label: PUMP_FAN1,     max_pwm: 255 }
+      - { id: sys_fan_1,     header_label: SYS_FAN1,      max_pwm: 255 }
+      - { id: sys_fan_2,     header_label: SYS_FAN2,      max_pwm: 255 }
+      - { id: sys_fan_3,     header_label: SYS_FAN3,      max_pwm: 255 }
+      - { id: sys_fan_4,     header_label: SYS_FAN4,      max_pwm: 255 }
+      - { id: sys_fan_5,     header_label: SYS_FAN5,      max_pwm: 255 }
+      - { id: sys_fan_6,     header_label: SYS_FAN6,      max_pwm: 255 }
+      - { id: pump_sys_fan_1, header_label: PUMP_SYS_FAN1, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: msi-mpg-z790-edge-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Micro-Star International Co., Ltd.
+    dmi_board_name: MPG Z790 EDGE WIFI
+    superio_chip: nct6687
+  hardware:
+    pwm_control: nct6687
+    fans:
+      - { id: cpu_fan_1,  header_label: CPU_FAN1,  max_pwm: 255 }
+      - { id: pump_fan_1, header_label: PUMP_FAN1, max_pwm: 255 }
+      - { id: sys_fan_1,  header_label: SYS_FAN1,  max_pwm: 255 }
+      - { id: sys_fan_2,  header_label: SYS_FAN2,  max_pwm: 255 }
+      - { id: sys_fan_3,  header_label: SYS_FAN3,  max_pwm: 255 }
+      - { id: sys_fan_4,  header_label: SYS_FAN4,  max_pwm: 255 }
+      - { id: sys_fan_5,  header_label: SYS_FAN5,  max_pwm: 255 }
+      - { id: sys_fan_6,  header_label: SYS_FAN6,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: gigabyte-z790-aorus-master
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Gigabyte Technology Co., Ltd.
+    dmi_board_name: Z790 AORUS MASTER
+    superio_chip: it8689
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,       max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,       max_pwm: 255 }
+      - { id: sys_fan_1,     header_label: SYS_FAN1,      max_pwm: 255 }
+      - { id: sys_fan_2,     header_label: SYS_FAN2,      max_pwm: 255 }
+      - { id: sys_fan_3,     header_label: SYS_FAN3,      max_pwm: 255 }
+      - { id: sys_fan_4,     header_label: SYS_FAN4,      max_pwm: 255 }
+      - { id: sys_fan_5,     header_label: SYS_FAN5,      max_pwm: 255 }
+      - { id: sys_fan_5_pump, header_label: SYS_FAN5_PUMP, max_pwm: 255 }
+      - { id: sys_fan_6_pump, header_label: SYS_FAN6_PUMP, max_pwm: 255 }
+      - { id: ec_fan_1,      header_label: EC_FAN1,       max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: gigabyte-z790-aorus-elite-ax
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Gigabyte Technology Co., Ltd.
+    dmi_board_name: Z790 AORUS ELITE AX
+    superio_chip: it8689
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: cpu_fan,        header_label: CPU_FAN,       max_pwm: 255 }
+      - { id: cpu_opt_pump,   header_label: CPU_OPT/W_PUMP, max_pwm: 255 }
+      - { id: sys_fan_1,      header_label: SYS_FAN1,      max_pwm: 255 }
+      - { id: sys_fan_2,      header_label: SYS_FAN2,      max_pwm: 255 }
+      - { id: sys_fan_3,      header_label: SYS_FAN3,      max_pwm: 255 }
+      - { id: sys_fan_4,      header_label: SYS_FAN4,      max_pwm: 255 }
+      - { id: sys_fan_5_pump, header_label: SYS_FAN5_PUMP, max_pwm: 255 }
+      - { id: sys_fan_6_pump, header_label: SYS_FAN6_PUMP, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-tuf-gaming-x670e-plus-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: TUF GAMING X670E-PLUS WIFI
+    superio_chip: nct6799
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: cpu_opt,       header_label: CPU_OPT,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3, max_pwm: 255 }
+      - { id: chassis_fan_4, header_label: CHA_FAN4, max_pwm: 255 }
+      - { id: m2_fan,        header_label: M.2_FAN,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asus-rog-strix-b850-i-gaming-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASUSTeK COMPUTER INC.
+    dmi_board_name: ROG STRIX B850-I GAMING WIFI
+    superio_chip: nct6701
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan,       header_label: CPU_FAN,  max_pwm: 255 }
+      - { id: aio_pump,      header_label: AIO_PUMP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1, max_pwm: 255 }
+      - { id: m2_fan,        header_label: M.2_FAN,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: msi-mag-b650-tomahawk-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Micro-Star International Co., Ltd.
+    dmi_board_name: MAG B650 TOMAHAWK WIFI
+    superio_chip: nct6687
+  hardware:
+    pwm_control: nct6687
+    fans:
+      - { id: cpu_fan_1,  header_label: CPU_FAN1,  max_pwm: 255 }
+      - { id: pump_fan_1, header_label: PUMP_FAN1, max_pwm: 255 }
+      - { id: sys_fan_1,  header_label: SYS_FAN1,  max_pwm: 255 }
+      - { id: sys_fan_2,  header_label: SYS_FAN2,  max_pwm: 255 }
+      - { id: sys_fan_3,  header_label: SYS_FAN3,  max_pwm: 255 }
+      - { id: sys_fan_4,  header_label: SYS_FAN4,  max_pwm: 255 }
+      - { id: sys_fan_5,  header_label: SYS_FAN5,  max_pwm: 255 }
+      - { id: sys_fan_6,  header_label: SYS_FAN6,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: msi-mag-x670e-tomahawk-wifi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Micro-Star International Co., Ltd.
+    dmi_board_name: MAG X670E TOMAHAWK WIFI
+    superio_chip: nct6687
+  hardware:
+    pwm_control: nct6687
+    fans:
+      - { id: cpu_fan_1,  header_label: CPU_FAN1,  max_pwm: 255 }
+      - { id: pump_fan_1, header_label: PUMP_FAN1, max_pwm: 255 }
+      - { id: sys_fan_1,  header_label: SYS_FAN1,  max_pwm: 255 }
+      - { id: sys_fan_2,  header_label: SYS_FAN2,  max_pwm: 255 }
+      - { id: sys_fan_3,  header_label: SYS_FAN3,  max_pwm: 255 }
+      - { id: sys_fan_4,  header_label: SYS_FAN4,  max_pwm: 255 }
+      - { id: sys_fan_5,  header_label: SYS_FAN5,  max_pwm: 255 }
+      - { id: sys_fan_6,  header_label: SYS_FAN6,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: gigabyte-b650-aorus-elite-ax
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Gigabyte Technology Co., Ltd.
+    dmi_board_name: B650 AORUS ELITE AX
+    superio_chip: it8689
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: cpu_fan,        header_label: CPU_FAN,       max_pwm: 255 }
+      - { id: cpu_opt,        header_label: CPU_OPT,       max_pwm: 255 }
+      - { id: sys_fan_1,      header_label: SYS_FAN1,      max_pwm: 255 }
+      - { id: sys_fan_2,      header_label: SYS_FAN2,      max_pwm: 255 }
+      - { id: sys_fan_3,      header_label: SYS_FAN3,      max_pwm: 255 }
+      - { id: sys_fan_4,      header_label: SYS_FAN4,      max_pwm: 255 }
+      - { id: sys_fan_5_pump, header_label: SYS_FAN5_PUMP, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: asrock-x670e-taichi
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: ASRock
+    dmi_board_name: X670E Taichi
+    superio_chip: nct6796
+  hardware:
+    pwm_control: nct6775
+    fans:
+      - { id: cpu_fan_1,     header_label: CPU_FAN1,    max_pwm: 255 }
+      - { id: cpu_fan_2_wp,  header_label: CPU_FAN2/WP, max_pwm: 255 }
+      - { id: chassis_fan_1, header_label: CHA_FAN1/WP, max_pwm: 255 }
+      - { id: chassis_fan_2, header_label: CHA_FAN2/WP, max_pwm: 255 }
+      - { id: chassis_fan_3, header_label: CHA_FAN3/WP, max_pwm: 255 }
+      - { id: chassis_fan_4, header_label: CHA_FAN4/WP, max_pwm: 255 }
+      - { id: chassis_fan_5, header_label: CHA_FAN5/WP, max_pwm: 255 }
+      - { id: aio_pump_1,    header_label: AIO_PUMP_1,  max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: supermicro-x12sca-f
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Supermicro
+    dmi_board_name: X12SCA-F
+    superio_chip: unknown
+  hardware:
+    pwm_control: ipmi-supermicro
+    fans:
+      - { id: fan_1, header_label: FAN1, max_pwm: 255 }
+      - { id: fan_2, header_label: FAN2, max_pwm: 255 }
+      - { id: fan_3, header_label: FAN3, max_pwm: 255 }
+      - { id: fan_4, header_label: FAN4, max_pwm: 255 }
+      - { id: fan_a, header_label: FANA, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: dell-poweredge-r750
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: Dell Inc.
+    dmi_board_name: PowerEdge R750
+  hardware:
+    pwm_control: ipmi-dell
+    fans:
+      - { id: fan_1a, header_label: Fan1A, max_pwm: 255 }
+      - { id: fan_1b, header_label: Fan1B, max_pwm: 255 }
+      - { id: fan_2a, header_label: Fan2A, max_pwm: 255 }
+      - { id: fan_2b, header_label: Fan2B, max_pwm: 255 }
+      - { id: fan_3a, header_label: Fan3A, max_pwm: 255 }
+      - { id: fan_3b, header_label: Fan3B, max_pwm: 255 }
+      - { id: fan_4a, header_label: Fan4A, max_pwm: 255 }
+      - { id: fan_4b, header_label: Fan4B, max_pwm: 255 }
+      - { id: fan_5a, header_label: Fan5A, max_pwm: 255 }
+      - { id: fan_5b, header_label: Fan5B, max_pwm: 255 }
+      - { id: fan_6a, header_label: Fan6A, max_pwm: 255 }
+      - { id: fan_6b, header_label: Fan6B, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: hpe-proliant-dl360-gen10
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: HPE
+    dmi_board_name: ProLiant DL360 Gen10
+  hardware:
+    pwm_control: ipmi-hpe
+    fans:
+      - { id: fan_1, header_label: "Fan 1", max_pwm: 255 }
+      - { id: fan_2, header_label: "Fan 2", max_pwm: 255 }
+      - { id: fan_3, header_label: "Fan 3", max_pwm: 255 }
+      - { id: fan_4, header_label: "Fan 4", max_pwm: 255 }
+      - { id: fan_5, header_label: "Fan 5", max_pwm: 255 }
+      - { id: fan_6, header_label: "Fan 6", max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false
+- id: terramaster-f4-424
+  schema_version: "1.0"
+  fingerprint:
+    dmi_board_vendor: TERRAMASTER
+    dmi_board_name: F4-424
+    superio_chip: it8613
+  hardware:
+    pwm_control: it87
+    fans:
+      - { id: chassis_fan, header_label: SYS_FAN, max_pwm: 255 }
+  contributed_by: anonymous
+  captured_at: 2026-05-01T00:00:00Z
+  verified: false

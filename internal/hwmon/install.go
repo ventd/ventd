@@ -73,75 +73,41 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 		return fmt.Errorf("extract tarball: %w", err)
 	}
 
-	// ── Step 3: build ───────────────────────────────────────────────────────
-	log("Building driver (this may take a minute)...")
-	if err := runLogDir(repoDir, log, "make"); err != nil {
-		return fmt.Errorf("make: %w", err)
+	// ── Steps 3–9: controlled install pipeline ──────────────────────────────
+	//
+	// The pipeline replaces the legacy `make install` (which atomically
+	// did cp + depmod + modprobe) with an explicit step sequence we own.
+	// Signing is interleaved at the right point for Secure Boot enforcing
+	// systems; depmod errors are surfaced; modprobe runs strictly after
+	// signing.
+	//
+	// The PipelineConfig caches the SecureBoot probe + MOK key resolution
+	// so the steps don't re-run them per-call. SecureBootEnforcing=false
+	// short-circuits both signing steps without changing the legacy
+	// non-SB path's bytes-on-disk outcome.
+	release := liveKernelRelease()
+	sbEnforcing := false
+	if enabled, known := liveSecureBootEnabled(); known && enabled {
+		sbEnforcing = true
 	}
-
-	// ── Step 4: install ─────────────────────────────────────────────────────
-	log("Installing driver...")
-	if err := runLogDir(repoDir, log, "make", "install"); err != nil {
-		return fmt.Errorf("make install: %w", err)
-	}
-
-	// ── Step 5: register with DKMS (best-effort) ────────────────────────────
-	registerDKMS(repoDir, nd, log, logger)
-
-	// ── Step 6: update module index ─────────────────────────────────────────
-	log("Updating module index...")
-	_ = exec.Command("depmod", "-a").Run()
-
-	// ── Step 7: load the module ─────────────────────────────────────────────
-	log("Loading driver...")
-	// Unload any previous failed attempt first.
-	_ = exec.Command("modprobe", "-r", nd.Module).Run()
-	if out, err := exec.Command("modprobe", nd.Module).CombinedOutput(); err != nil {
-		outStr := strings.TrimSpace(string(out))
-		if strings.Contains(outStr, "resource busy") {
-			// ACPI has claimed the fan controller's I/O ports.
-			// Auto-apply the standard fix and ask the user to reboot.
-			log("ACPI resource conflict detected — updating boot configuration...")
-			manualInstr, bootErr := addKernelParam("acpi_enforce_resources=lax", log)
-			if bootErr != nil {
-				logger.Warn("could not auto-patch bootloader", "err", bootErr)
-				return &ErrRebootRequired{
-					Message: "Your system firmware (ACPI) has reserved the " + nd.ChipName +
-						" fan controller's hardware ports. Auto-patching the bootloader failed (" + bootErr.Error() + "). " +
-						manualInstr + " Then reboot.",
-				}
-			}
-			return &ErrRebootRequired{
-				Message: "Your system firmware (ACPI) had reserved the " + nd.ChipName +
-					" fan controller's hardware ports. We've updated your boot configuration to fix this. " +
-					"Click Reboot Now to continue — setup will resume automatically after reboot.",
-			}
+	var mokKey MOKKeyPair
+	if sbEnforcing {
+		k, kerr := LocateMOKKey()
+		if kerr != nil {
+			return fmt.Errorf("locate MOK key: %w (preflight should have caught this)", kerr)
 		}
-		return fmt.Errorf("modprobe %s: %w\n%s", nd.Module, err, outStr)
+		mokKey = k
 	}
-
-	// ── Step 8: verify PWM channels appeared ────────────────────────────────
-	var pwmPaths []string
-	for i := 0; i < 6; i++ {
-		time.Sleep(250 * time.Millisecond)
-		pwmPaths = findPWMPaths()
-		if countControllablePWM(pwmPaths) > 0 {
-			break
-		}
-	}
-	if countControllablePWM(pwmPaths) == 0 {
-		return fmt.Errorf("driver installed but no controllable fan channels appeared — " +
-			"your board may use a different chip variant")
-	}
-
-	log(fmt.Sprintf("Driver installed successfully — found %d fan controller channel(s).", countControllablePWM(pwmPaths)))
-
-	// ── Step 9: persist ─────────────────────────────────────────────────────
-	if err := persistModule(nd.Module, ""); err != nil {
-		logger.Warn("could not persist module after install", "module", nd.Module, "err", err)
-	}
-
-	return nil
+	pipeErr := RunPipeline(PipelineConfig{
+		Driver:              nd,
+		RepoDir:             repoDir,
+		Release:             release,
+		Logger:              logger,
+		Log:                 log,
+		SecureBootEnforcing: sbEnforcing,
+		MOKKey:              mokKey,
+	})
+	return pipeErr
 }
 
 // registerDKMS registers the driver source with DKMS so the module rebuilds
@@ -168,6 +134,24 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 				pkgVersion = strings.Trim(v, `"`)
 			}
 		}
+		// Some upstream OOT-driver dkms.conf files (e.g. it87) ship with
+		// PACKAGE_VERSION="#MODULE_VERSION#" as a sed-substitution
+		// template that the upstream Makefile fills in. ventd's install
+		// path doesn't run that step, so the literal placeholder leaks
+		// into `dkms add` and ends up in the source path. Detect any
+		// `#TOKEN#`-shaped value and fall back to a synthesised version
+		// so DKMS register actually succeeds (#785).
+		if strings.HasPrefix(pkgVersion, "#") && strings.HasSuffix(pkgVersion, "#") {
+			synthesised := time.Now().UTC().Format("2006.01.02")
+			logger.Info("DKMS: replacing unsubstituted version placeholder",
+				"raw", pkgVersion, "substituted", synthesised)
+			pkgVersion = synthesised
+			// Rewrite dkms.conf so `dkms add` reads the substituted
+			// value when it walks the source dir.
+			if err := rewriteDKMSVersion(confPath, pkgVersion); err != nil {
+				logger.Warn("DKMS: could not rewrite version placeholder in dkms.conf", "err", err)
+			}
+		}
 	} else {
 		// Write a minimal dkms.conf so dkms add can proceed.
 		conf := fmt.Sprintf(
@@ -185,17 +169,42 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 	nameVer := pkgName + "/" + pkgVersion
 	log("Registering with DKMS (" + nameVer + ") for automatic rebuild on kernel updates...")
 
-	if err := runLogDir(repoDir, log, "dkms", "add", repoDir); err != nil {
+	if err := runLogDirRoot(repoDir, log, "dkms", "add", repoDir); err != nil {
 		logger.Warn("DKMS add failed — module will not auto-rebuild on kernel update", "err", err)
 		return
 	}
-	if err := runLogDir("", log, "dkms", "build", nameVer); err != nil {
+	if err := runLogDirRoot("", log, "dkms", "build", nameVer); err != nil {
 		logger.Warn("DKMS build failed", "err", err)
 		return
 	}
-	if err := runLogDir("", log, "dkms", "install", nameVer); err != nil {
+	if err := runLogDirRoot("", log, "dkms", "install", nameVer); err != nil {
 		logger.Warn("DKMS install failed", "err", err)
 	}
+}
+
+// rewriteDKMSVersion edits dkms.conf in place, replacing any
+// `PACKAGE_VERSION="..."` line with the supplied version string. Used
+// when the upstream OOT-driver ships an unsubstituted `#MODULE_VERSION#`
+// placeholder that ventd has to fill in itself (#785).
+func rewriteDKMSVersion(confPath, version string) error {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", confPath, err)
+	}
+	out := make([]string, 0)
+	replaced := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "PACKAGE_VERSION=") {
+			out = append(out, fmt.Sprintf("PACKAGE_VERSION=%q", version))
+			replaced = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !replaced {
+		out = append(out, fmt.Sprintf("PACKAGE_VERSION=%q", version))
+	}
+	return os.WriteFile(confPath, []byte(strings.Join(out, "\n")), 0o644)
 }
 
 // ensureBuildTools installs make, gcc, and kernel headers if any are missing.
@@ -240,7 +249,7 @@ func ensureBuildTools(log func(string)) error {
 				continue
 			}
 			args := m.pkgArgs(needed)
-			if out, err := exec.Command(m.mgr, args...).CombinedOutput(); err != nil {
+			if out, err := runInstallWithTimeout(m.mgr, args); err != nil {
 				return fmt.Errorf("%s install failed: %w\n%s", m.mgr, err, strings.TrimSpace(string(out)))
 			}
 			installed = true
@@ -289,7 +298,7 @@ func EnsureDKMS(log func(string)) error {
 			continue
 		}
 		log("Installing dkms via " + c.mgr + "...")
-		if out, err := exec.Command(c.mgr, c.args...).CombinedOutput(); err != nil {
+		if out, err := runInstallWithTimeout(c.mgr, c.args); err != nil {
 			return fmt.Errorf("dkms install failed: %w\n%s", err, strings.TrimSpace(string(out)))
 		}
 		log("DKMS installed successfully.")
@@ -300,9 +309,22 @@ func EnsureDKMS(log func(string)) error {
 
 // ensureKernelHeaders installs kernel headers needed to build kernel modules.
 // It is a no-op if the build symlink already exists.
+//
+// Fail-fast on missing/invalid kernel version (#769): without a release
+// string, the apt-get install command would expand to
+// `apt-get install -y linux-headers- build-essential` and hang on an
+// interactive package-selection prompt the daemon can't answer. Detect
+// via the three-source chain in detectKernelVersion, validate the shape,
+// and surface a clean error if anything is off — the wizard turns that
+// into "Could not detect kernel version" instead of an indefinite spinner.
 func ensureKernelHeaders(log func(string)) error {
-	uname, _ := exec.Command("uname", "-r").Output()
-	kernelRelease := strings.TrimSpace(string(uname))
+	kernelRelease, err := detectKernelVersion("/")
+	if err != nil {
+		return fmt.Errorf("driver install: %w", err)
+	}
+	if !validKernelVersion(kernelRelease) {
+		return fmt.Errorf("driver install: refusing to install kernel headers for invalid kernel version %q (expected e.g. \"6.8.0-111-generic\")", kernelRelease)
+	}
 
 	// Fast path: if /lib/modules/<release>/build exists, headers are installed.
 	buildDir := "/lib/modules/" + kernelRelease + "/build"
@@ -347,7 +369,7 @@ func ensureKernelHeaders(log func(string)) error {
 		if _, err := exec.LookPath(c.mgr); err != nil {
 			continue
 		}
-		out, err := exec.Command(c.mgr, c.args...).CombinedOutput()
+		out, err := runInstallWithTimeout(c.mgr, c.args)
 		if err != nil {
 			return fmt.Errorf("kernel headers install failed: %w\n%s", err, strings.TrimSpace(string(out)))
 		}
@@ -511,7 +533,7 @@ func addGRUBParam(param string, log func(string)) error {
 			continue
 		}
 		log("Updating bootloader (" + c.bin + ")...")
-		if err := runLog(log, c.bin, c.args...); err != nil {
+		if err := runLogDirRoot("", log, append([]string{c.bin}, c.args...)...); err != nil {
 			return fmt.Errorf("%s: %w", c.bin, err)
 		}
 		return nil
@@ -595,11 +617,6 @@ func addSystemdBootParam(param string, log func(string)) error {
 	return nil
 }
 
-// runLog runs a command and calls logFn for each output line.
-func runLog(logFn func(string), name string, args ...string) error {
-	return runLogDir("", logFn, append([]string{name}, args...)...)
-}
-
 // runLogDir runs a command in dir and calls logFn for each output line.
 // GIT_TERMINAL_PROMPT=0 prevents git from trying to open /dev/tty when
 // running without a controlling terminal (e.g. inside a systemd service).
@@ -619,4 +636,15 @@ func runLogDir(dir string, logFn func(string), nameAndArgs ...string) error {
 		return fmt.Errorf("hwmon: run %s: %w", nameAndArgs[0], err)
 	}
 	return nil
+}
+
+// runLogDirRoot is runLogDir with a `sudo -n` prefix when the daemon is
+// not already running as root (#768). Used for `make install`, `dkms`,
+// and any other step that touches root-owned filesystem state.
+func runLogDirRoot(dir string, logFn func(string), nameAndArgs ...string) error {
+	if len(nameAndArgs) == 0 {
+		return fmt.Errorf("runLogDirRoot: empty argv")
+	}
+	name, args := rootArgv(nameAndArgs[0], nameAndArgs[1:])
+	return runLogDir(dir, logFn, append([]string{name}, args...)...)
 }

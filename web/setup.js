@@ -1,9 +1,9 @@
 // setup.js — first-boot screen.
 //
-// Wires the design's token + password form to ventd's auth API:
+// Wires the password-only first-boot form to ventd's auth API:
 //   GET  /api/v1/auth/state   → { first_boot: bool }
 //   GET  /api/v1/version       → { version: "...", ... }
-//   POST /login                → form-encoded { setup_token, new_password }
+//   POST /login                → form-encoded { new_password }
 //
 // On a successful first-boot login the daemon sets a session cookie and
 // returns 200; we then redirect to /.
@@ -52,40 +52,26 @@
     })
     .catch(function () {});
 
-  // ── Token paste shortcut ──
-  // The token is lowercase hex (XXXXX-XXXXX-XXXXX) as written by the
-  // daemon to /run/ventd/setup-token; do not mangle the case here —
-  // the server compares byte-for-byte, so an uppercase form would be
-  // rejected as invalid.
-  var tokenField = document.getElementById('setup-token');
-  var tokenPaste = document.getElementById('token-paste');
-  if (tokenField && tokenPaste) {
-    tokenPaste.addEventListener('click', async function () {
-      try {
-        var t = await navigator.clipboard.readText();
-        tokenField.value = (t || '').trim();
-        tokenField.dispatchEvent(new Event('input'));
-      } catch (_) {
-        tokenField.focus();
-      }
-    });
-  }
-
-  // ── Password reveal ──
-  var pwField = document.getElementById('setup-password');
-  var pwReveal = document.getElementById('pw-reveal');
-  if (pwField && pwReveal) {
-    pwReveal.addEventListener('click', function () {
-      pwField.type = pwField.type === 'password' ? 'text' : 'password';
-    });
-  }
-
   // ── Password strength + confirm match ──
   var strengthEl = document.getElementById('pw-strength');
   var strengthFill = document.getElementById('pw-strength-fill');
   var strengthLabel = document.getElementById('pw-strength-label');
+  var pwField = document.getElementById('setup-password');
   var confirmField = document.getElementById('setup-confirm');
   var card = document.querySelector('.setup-card');
+
+  // ── Password reveal ──
+  // The single reveal toggle on the create-password field also flips the
+  // confirm field, so the operator only needs one button on a screen
+  // where the two inputs always carry the same value.
+  var pwReveal = document.getElementById('pw-reveal');
+  if (pwField && pwReveal) {
+    pwReveal.addEventListener('click', function () {
+      var nextType = pwField.type === 'password' ? 'text' : 'password';
+      pwField.type = nextType;
+      if (confirmField) confirmField.type = nextType;
+    });
+  }
 
   function classifyStrength(p) {
     if (!p) return null;
@@ -158,17 +144,14 @@
       e.preventDefault();
       clearError();
 
-      var token = tokenField ? tokenField.value.trim() : '';
       var pw    = pwField ? pwField.value : '';
       var conf  = confirmField ? confirmField.value : '';
 
-      if (!token) { showError('Setup token required.'); tokenField && tokenField.focus(); return; }
       if (pw.length < 8) { showError('Password must be at least 8 characters.'); pwField && pwField.focus(); return; }
       if (pw !== conf)   { showError('Passwords do not match.'); confirmField && confirmField.focus(); return; }
 
       setBusy(true);
       var body = new URLSearchParams();
-      body.set('setup_token', token);
       body.set('new_password', pw);
 
       fetch('/login', {

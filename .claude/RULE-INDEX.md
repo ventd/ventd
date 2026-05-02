@@ -177,6 +177,12 @@ Regenerate with: `go run ./tools/rule-index`
 |------|---------------|---------|
 | schema-08.md | TestSchemaValidator_RejectsBothFingerprintTypes | Board catalog loader rejects a profile with both `dmi_fingerprint` and `dt_fingerprint` set. |
 
+## RULE-SETUP
+
+| File | Bound subtest | Summary |
+|------|---------------|---------|
+| RULE-SETUP-REPROBE-01.md | TestReProber_FiresAfterLoadModule | Setup Manager re-runs the daemon-level probe after a successful driver install or kernel-module load. |
+
 ## RULE-STATE
 
 | File | Bound subtest | Summary |
@@ -209,10 +215,14 @@ Regenerate with: `go run ./tools/rule-index`
 | File | Summary |
 |------|---------|
 | attribution.md | Attribution & Commit Identity |
+| blended-controller.md | Blended IMC-PI controller rules — v0.5.9 PR-A.3 |
 | calibrate-persist.md | Calibration Result Persistence Rules |
 | calibration-safety.md | Calibration Safety Rules |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | collaboration.md | Collaboration Rules |
+| confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
+| confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
+| coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | go-conventions.md | Go Conventions — ventd |
 | hal-contract.md | HAL Backend Contract |
 | hidraw-safety.md | hidraw-safety — invariant bindings for pure-Go Linux hidraw substrate |
@@ -220,13 +230,21 @@ Regenerate with: `go run ./tools/rule-index`
 | hwmon-safety.md | Hardware Safety Rules |
 | hwmon-sentinel.md | hwmon Sentinel Acceptance Invariants |
 | install-contract.md | Install Contract Rules |
+| install-pipeline.md | Controlled install pipeline rules — v0.5.9 PR-D |
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
+| marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
+| nvml-helper.md | NVML helper rules — SUID-root write-helper for unprivileged ventd |
 | observation.md | Observation Log Rules |
 | opportunistic.md | Opportunistic active probing rules (v0.5.5) |
+| preflight-comprehensive.md | Comprehensive preflight rules — v0.5.9 PR-D |
 | signature.md | Workload signature learning rules (v0.5.6) |
+| signguard.md | Sign-guard rules (v0.5.8) |
+| smart-preset.md | Smart-mode preset config rules — v0.5.9 PR-A.4 |
 | ui.md | Web UI Invariants (spec-12) |
 | usability.md | Usability — Universal Linux Compatibility |
 | watchdog-safety.md | Watchdog Safety Rules |
 | web-ui.md | Web UI Rules |
+| wizard-gates.md | Wizard PhaseGate machinery rules — v0.5.9 PR-D |
+| wizard-recovery.md | Wizard recovery classifier rules — v0.5.9 PR-C (#800) |
 

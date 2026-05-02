@@ -19,10 +19,14 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	calibstore "github.com/ventd/ventd/internal/calibration"
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
+	"github.com/ventd/ventd/internal/fallback"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
@@ -36,6 +40,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
+	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
@@ -293,20 +298,12 @@ func run() error {
 			"auth_path", authPath)
 	}
 
-	// Generate a one-time setup token if no password is configured yet.
-	// The token is a first-boot credential: anyone who can read it can set
-	// the admin password. Never write the plaintext to slog/journald — it
-	// would be retrievable by any journal reader. Instead: print to the
-	// controlling TTY when present (operator running ventd manually), and
-	// always drop a 0600 file under /run/ventd for systemd deployments.
-	var setupToken string
+	// First-boot mode: when no admin password is configured yet, the
+	// wizard's password-set step is open without auth (#765). The
+	// daemon logs a security note so journald shows a clear record of
+	// the first-boot window for audit.
 	if authHash == "" {
-		tok, tokErr := web.GenerateSetupToken()
-		if tokErr != nil {
-			return fmt.Errorf("generate setup token: %w", tokErr)
-		}
-		setupToken = tok
-		publishSetupToken(setupToken, cfg.Web.Listen, cfg.Web.TLSEnabled(), logger)
+		logger.Info("first-boot: no admin password set; wizard accepts password-set without auth — set a password promptly to lock the daemon")
 	}
 
 	// Diagnose hwmon state at startup. This is READ-ONLY — the daemon
@@ -473,13 +470,18 @@ func run() error {
 		SigFactory: func(liveCfg *atomic.Pointer[config.Config]) *signature.Library {
 			return buildSignatureLibrary(channels, sysDet, liveCfg, logger)
 		},
-		State: st,
+		State:      st,
+		Coupling:   buildCouplingRuntime(channels, st, dmiFingerprint, logger),
+		Marginal:   buildMarginalRuntime(channels, st, dmiFingerprint, logger),
+		LayerA:     buildLayerAEstimator(channels, logger),
+		Aggregator: buildAggregator(channels, logger),
+		Blended:    buildBlendedController(channels, cfg, logger),
 	}
 	if obsWriter != nil {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, setupToken, sigCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
@@ -582,9 +584,310 @@ func buildOpportunisticScheduler(
 	return sched
 }
 
+// buildCouplingRuntime constructs the v0.5.7 Layer-B thermal coupling
+// estimator runtime with one shard per controllable channel. Returns
+// nil when there are no controllable channels (monitor-only mode);
+// the daemon then never starts the coupling goroutine.
+//
+// N_coupled is fixed at 0 for v0.5.7 — the well-posed reduced-model
+// case (R9 §U4) where each shard learns its own thermal time constant
+// `a` and load coefficient `c`. v0.5.8 raises N_coupled to enable
+// cross-fan b_ij learning once Layer C is in.
+//
+// hwmonFingerprint invalidates persisted shards on hardware change
+// per RULE-CPL-PERSIST-01. dmiFingerprint is host-stable and
+// changes when the motherboard changes — sufficient for v0.5.7;
+// v0.5.10 doctor refines.
+//
+// RULE-CPL-WIRING-01: Runtime is constructed only when len(channels) > 0.
+// RULE-CPL-WIRING-02: Exactly one shard per controllable channel is registered.
+func buildCouplingRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *coupling.Runtime {
+	if len(channels) == 0 {
+		logger.Info("coupling: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := coupling.NewRuntime(st.Dir, hwmonFingerprint, logger)
+	for _, ch := range channels {
+		shard, err := coupling.New(coupling.DefaultConfig(ch.PWMPath, 0))
+		if err != nil {
+			logger.Warn("coupling: shard init failed",
+				"channel", ch.PWMPath, "err", err)
+			continue
+		}
+		if addErr := rt.AddShard(shard); addErr != nil {
+			logger.Warn("coupling: AddShard failed",
+				"channel", ch.PWMPath, "err", addErr)
+			continue
+		}
+	}
+	logger.Info("coupling: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
+}
+
 // runEnvelopeBackground waits for the idle gate then runs the Envelope C/D
 // probe sequentially across all controllable channels (RULE-ENVELOPE-11).
 // Called from run() as a goroutine; ctx is cancelled when run() returns.
+// buildMarginalRuntime constructs the v0.5.8 Layer-C
+// marginal-benefit estimator runtime. Returns nil when there are
+// no controllable channels (monitor-only mode); the daemon then
+// never starts the goroutine.
+//
+// Per spec-v0_5_8 §6.2: wiring-only. Shards are admitted lazily
+// on the first OnObservation call carrying a non-fallback
+// signature; v0.5.9 wires the actual feed (sensor readings live
+// in the controller, not in the controller→obsWriter Record).
+//
+// hwmonFingerprint matches v0.5.7's choice — dmiFingerprint —
+// for v0.5.8; v0.5.10 doctor refines.
+//
+// RULE-CMB-WIRING-01: Returns nil when len(channels) == 0.
+// RULE-CMB-WIRING-03: Caller starts Run exactly once.
+func buildMarginalRuntime(
+	channels []*probe.ControllableChannel,
+	st *state.State,
+	hwmonFingerprint string,
+	logger *slog.Logger,
+) *marginal.Runtime {
+	if len(channels) == 0 {
+		logger.Info("marginal: no controllable channels; runtime not started")
+		return nil
+	}
+	rt := marginal.NewRuntime(st.Dir, hwmonFingerprint, nil, nil, logger)
+	logger.Info("marginal: runtime initialised",
+		"channels", len(channels),
+		"hwmon_fp", hwmonFingerprint)
+	return rt
+}
+
+// buildLayerAEstimator constructs the v0.5.9 conf_A estimator with one
+// channel admitted per controllable PWM. Tier is selected via
+// fallback.SelectTier — Tier 0 (tach present), Tier 4 (laptop EC), or
+// Tier 7 (open-loop refusal). Per spec-v0_5_9 §2.4 + RULE-CONFA-FORMULA-01.
+//
+// Returns nil when there are no controllable channels (monitor-only).
+func buildLayerAEstimator(
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) *layer_a.Estimator {
+	if len(channels) == 0 {
+		logger.Info("layer_a: no controllable channels; estimator not constructed")
+		return nil
+	}
+	est, err := layer_a.New(layer_a.Config{})
+	if err != nil {
+		logger.Warn("layer_a: New failed", "err", err)
+		return nil
+	}
+	now := time.Now()
+	for _, ch := range channels {
+		tier := fallback.SelectTier(ch)
+		if err := est.Admit(ch.PWMPath, tier, layer_a.DefaultNoiseFloor, now); err != nil {
+			logger.Warn("layer_a: Admit failed",
+				"channel", ch.PWMPath, "tier", tier, "err", err)
+			continue
+		}
+	}
+	logger.Info("layer_a: estimator initialised", "channels", len(channels))
+	return est
+}
+
+// buildAggregator constructs the v0.5.9 R12-locked confidence
+// aggregator. Per-channel state is admitted lazily on first Tick;
+// no per-channel pre-warm here.
+//
+// Returns nil when there are no controllable channels.
+func buildAggregator(
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) *aggregator.Aggregator {
+	if len(channels) == 0 {
+		logger.Info("aggregator: no controllable channels; not constructed")
+		return nil
+	}
+	a := aggregator.New(aggregator.Config{})
+	logger.Info("aggregator: initialised", "channels", len(channels))
+	return a
+}
+
+// buildBlendedController constructs the v0.5.9 IMC-PI blended
+// controller. The Preset enum is resolved from Config.Smart.Preset
+// at construction; SIGHUP-driven preset changes require restart for
+// the gain cache to refresh (acceptable per spec §3.7 — gains are
+// cached for 60-NSamples cycles already).
+//
+// Returns nil when there are no controllable channels.
+func buildBlendedController(
+	channels []*probe.ControllableChannel,
+	cfg *config.Config,
+	logger *slog.Logger,
+) *controller.BlendedController {
+	if len(channels) == 0 {
+		logger.Info("blended: no controllable channels; not constructed")
+		return nil
+	}
+	preset, ok := controller.PresetFromString(cfg.Smart.Preset)
+	if !ok {
+		logger.Warn("blended: unknown smart.preset; falling back to balanced",
+			"got", cfg.Smart.Preset)
+	}
+	bc := controller.NewBlended(controller.BlendedConfig{
+		Preset:     preset,
+		PWMUnitMax: 255,
+	})
+	logger.Info("blended: controller initialised",
+		"channels", len(channels), "preset", preset.String())
+	return bc
+}
+
+// buildBlendFn returns a controller.BlendFn closure that bridges
+// the per-controller hot path to the v0.5.9 BlendedController. It
+// pulls Layer-B / Layer-C Snapshots, computes conf_A from the
+// LayerA estimator, asks the aggregator for w_pred, and routes
+// through BlendedController.Compute. PWM bounds come from the live
+// fan config so SIGHUP reloads track operator changes.
+//
+// Returns nil when the smart bundle isn't fully populated (any of
+// LayerA / Aggregator / Blended unset) — caller-side check; the
+// produced closure assumes non-nil bundle pointers.
+//
+// The closure is cheap on the hot path: each Snapshot read is a
+// single atomic.Pointer load; the aggregator + BlendedController
+// each take a per-channel mutex briefly. Total per-call work fits
+// in <100µs at d=2 IMC-PI math, well under the 2s controller tick.
+func buildBlendFn(
+	channelID string,
+	fanCfg config.Fan,
+	liveCfg *atomic.Pointer[config.Config],
+	smart *SmartModeBundle,
+	labelFn func() string,
+	logger *slog.Logger,
+) controller.BlendFn {
+	if smart == nil || smart.LayerA == nil || smart.Aggregator == nil || smart.Blended == nil {
+		return nil
+	}
+	// We capture the channel ID and fan config snapshot once. PWM
+	// bounds and Setpoint are re-read on every call from the live
+	// Config so SIGHUP-driven changes propagate immediately.
+	return func(chID string, sensorTemp float64, reactivePWM uint8, dt time.Duration, now time.Time) uint8 {
+		live := liveCfg.Load()
+		if live == nil {
+			return reactivePWM
+		}
+		setpoint, ok := live.Smart.Setpoints[chID]
+		if !ok {
+			// Fallback: setpoint matches the bound sensor's normal
+			// operating range. Per spec §3.7's silence on absence,
+			// we use a class-default of 70°C — a conservative
+			// midpoint for desktop CPU/GPU temperatures. v0.6.x
+			// can refine this from the system class.
+			setpoint = 70.0
+		}
+
+		var couplingSnap *coupling.Snapshot
+		if smart.Coupling != nil {
+			if shard := smart.Coupling.Shard(chID); shard != nil {
+				couplingSnap = shard.Read()
+			}
+		}
+		var marginalSnap *marginal.Snapshot
+		var sigLabel string
+		if smart.Marginal != nil && labelFn != nil {
+			sigLabel = labelFn()
+			if shard := smart.Marginal.Shard(chID, sigLabel); shard != nil {
+				marginalSnap = shard.Read()
+			}
+		}
+		layerASnap := smart.LayerA.Read(chID)
+
+		// conf_A from Layer-A's atomic snapshot.
+		var confA float64
+		if layerASnap != nil {
+			confA = layerASnap.ConfA
+		}
+		// conf_B from Layer-B's R12 §Q1 four-term product.
+		confB := couplingSnap.Confidence()
+		// conf_C from Layer-C's per-(channel, signature) product.
+		// Returns 0 when the active signature has no warmed shard
+		// (R12 §Q6 active-signature collapse — accept the drop, the
+		// LPF rides w_pred down at L_max).
+		var confC float64
+		if marginalSnap != nil && !marginalSnap.WarmingUp {
+			cc := marginalSnap.Confidence
+			if cc.SaturationAdmit {
+				confC = cc.ResidualTerm * cc.CovarianceTerm * cc.SampleCountTerm
+			}
+		}
+
+		// v0.5.9 ships drift detection as RFCV (R16) future work;
+		// stub at false. Global gate is also a stub — true when the
+		// daemon is up + has a config + has the wizard outcome
+		// "control_mode". This is a coarse approximation of the
+		// spec §2.5 4-term AND-gate; doctor-surface refinements
+		// land in v0.5.10.
+		driftFlags := [3]bool{}
+		wPredSystem := true
+
+		aggSnap := smart.Aggregator.Tick(chID, confA, confB, confC,
+			driftFlags, wPredSystem, now)
+		if aggSnap == nil {
+			return reactivePWM
+		}
+
+		// Resolve the system load fraction once — same proxy that
+		// drives Path-A re-derive at the controller call site.
+		// Cheap: idle.CaptureLoadAvg reads /proc/loadavg.
+		loadFrac := captureLoadFraction()
+
+		res := smart.Blended.Compute(controller.BlendedInputs{
+			ChannelID:    chID,
+			SensorTemp:   sensorTemp,
+			Setpoint:     setpoint,
+			ReactivePWM:  reactivePWM,
+			WPred:        aggSnap.Wpred,
+			Coupling:     couplingSnap,
+			Marginal:     marginalSnap,
+			LayerA:       layerASnap,
+			LoadFraction: loadFrac,
+			DT:           dt,
+			Now:          now,
+			MinPWM:       fanCfg.MinPWM,
+			MaxPWM:       fanCfg.MaxPWM,
+		})
+
+		// First-contact mark: persisted only after the clamped tick
+		// succeeds — same lifecycle as RULE-CTRL-BLEND-02.
+		if res.FirstContactClamp || (res.WPred > 0 && layerASnap != nil && !layerASnap.SeenFirstContact) {
+			smart.LayerA.MarkFirstContact(chID, now)
+		}
+		return res.OutputPWM
+	}
+}
+
+// captureLoadFraction returns the system's normalised load over
+// the last minute, in [0, 1]. Reuses idle.CaptureLoadAvg +
+// LoadAvgPerCPU so the v0.5.9 controller and the existing R5 idle
+// gate share a single /proc/loadavg parser. Stub for v0.5.9 —
+// v0.6.x can substitute PSI-based fractions for laptop / NAS
+// classes where loadavg is noisy.
+func captureLoadFraction() float64 {
+	la := idle.CaptureLoadAvg("/proc")
+	frac := idle.LoadAvgPerCPU(la)
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	return frac
+}
+
 func runEnvelopeBackground(
 	ctx context.Context,
 	st *state.State,
@@ -713,7 +1016,6 @@ func runDaemon(
 	configPath string,
 	authPath string,
 	logger *slog.Logger,
-	setupToken string,
 	sigCh <-chan os.Signal,
 	expFlags experimental.Flags,
 	kvWiper func() error,
@@ -721,7 +1023,7 @@ func runDaemon(
 	smartMode *SmartModeBundle,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, setupToken, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -748,6 +1050,38 @@ type SmartModeBundle struct {
 	// write. nil means the controller skips observation emission
 	// (pre-v0.5.6 behaviour).
 	ObsAppend func(*controller.ObsRecord)
+	// Coupling is the v0.5.7 Layer-B thermal coupling estimator
+	// runtime. Pre-built with one shard per controllable channel.
+	// nil in monitor-only mode (no controllable channels) — daemon
+	// then never starts the coupling goroutine. Snapshot.Read is
+	// consumed by v0.5.9's confidence-gated controller.
+	Coupling *coupling.Runtime
+	// Marginal is the v0.5.8 Layer-C per-(channel, signature)
+	// marginal-benefit estimator runtime. Pre-built but admits
+	// shards lazily on observation. nil in monitor-only mode and
+	// when SmartMarginalBenefitDisabled is true (toggle read by
+	// runDaemonInternal). Snapshot.Read is consumed by v0.5.9's
+	// confidence-gated controller.
+	Marginal *marginal.Runtime
+
+	// LayerA is the v0.5.9 conf_A estimator (R8 fallback tier ×
+	// coverage × residual × recency). Pre-built with one channel
+	// admitted per controllable channel via fallback.SelectTier.
+	// nil in monitor-only mode.
+	LayerA *layer_a.Estimator
+
+	// Aggregator is the v0.5.9 R12-locked confidence aggregator
+	// that collapses (conf_A, conf_B, conf_C) into a per-channel
+	// w_pred ∈ [0,1] every controller tick. Lock-free reads via
+	// atomic.Pointer. nil in monitor-only mode.
+	Aggregator *aggregator.Aggregator
+
+	// Blended is the v0.5.9 IMC-PI confidence-gated controller.
+	// Compute() takes the upstream Snapshots + reactive PWM and
+	// returns the blended PWM. nil in monitor-only mode and when
+	// no controllable channels exist. Drives the per-controller
+	// BlendFn closure constructed in runDaemonInternal.
+	Blended *controller.BlendedController
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -767,7 +1101,6 @@ func runDaemonInternal(
 	configPath string,
 	authPath string,
 	logger *slog.Logger,
-	setupToken string,
 	sigCh <-chan os.Signal,
 	restartCh chan struct{},
 	expFlags experimental.Flags,
@@ -876,6 +1209,24 @@ func runDaemonInternal(
 	// /calibration redirect on every subsequent daemon restart even
 	// though len(cfg.Controls) == 0 keeps Needed(cfg) saying yes.
 	setupMgr.SetAppliedMarkerPath(setupmgr.DefaultAppliedMarkerPath)
+	// Re-run the daemon-level hardware probe and persist the updated
+	// outcome to KV after a successful driver install / module load
+	// (#766). Without this, a fresh install whose driver populates pwm
+	// channels mid-wizard leaves wizard.initial_outcome at "monitor_only"
+	// until the next daemon restart, so the wizard's apply step (or any
+	// other KV consumer) reads stale state. State access goes via the
+	// SmartModeBundle since `st` is owned by run() and passed to
+	// runDaemonInternal only through the bundle.
+	if smartMode != nil && smartMode.State != nil {
+		kv := smartMode.State.KV
+		setupMgr.SetReProber(func(ctx context.Context) error {
+			r, probeErr := probe.New(probe.Config{Logger: logger}).Probe(ctx)
+			if probeErr != nil {
+				return fmt.Errorf("re-probe: %w", probeErr)
+			}
+			return probe.PersistOutcome(kv, r)
+		})
+	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
@@ -927,10 +1278,18 @@ func runDaemonInternal(
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
 	// requests before run() returns — otherwise the HTTP handler goroutines
 	// outlive wd.Restore() and can observe a half-torn-down daemon.
-	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, setupToken, diagStore)
+	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, diagStore)
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
+
+	// v0.5.9: expose the aggregator + LayerA estimator to the web
+	// layer so the dashboard's 5-state confidence pill has a data
+	// source. Both arguments are nil-safe — monitor-only mode
+	// skips construction and the endpoint reports enabled=false.
+	if smartMode != nil {
+		webSrv.SetConfidence(smartMode.Aggregator, smartMode.LayerA)
+	}
 
 	// v0.5.5: build and launch the opportunistic-probe scheduler when
 	// the factory is set (production path). Tests pass a nil factory
@@ -994,6 +1353,40 @@ func runDaemonInternal(
 		}()
 	}
 
+	// v0.5.7: launch the Layer-B thermal coupling estimator runtime.
+	// Per spec §8.2 PR-B: wiring-only — the snapshot is read by
+	// v0.5.9's confidence-gated controller, not the v0.5.7 hot loop.
+	// RULE-CPL-WIRING-03: Runtime.Run goroutine started exactly once
+	// per daemon lifetime, scoped to ctx.
+	if smartMode != nil && smartMode.Coupling != nil {
+		cplCtx, cplCancel := context.WithCancel(ctx)
+		defer cplCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Coupling.Run(cplCtx); err != nil && err != context.Canceled {
+				logger.Warn("coupling: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
+	// v0.5.8: launch the Layer-C marginal-benefit estimator runtime.
+	// Same lifecycle pattern as Layer B — wiring-only, snapshot
+	// consumed by v0.5.9's controller. Disabled by toggle.
+	// RULE-CMB-WIRING-03.
+	if smartMode != nil && smartMode.Marginal != nil &&
+		!cfg.SmartMarginalBenefitDisabled {
+		mgnCtx, mgnCancel := context.WithCancel(ctx)
+		defer mgnCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.Marginal.Run(mgnCtx); err != nil && err != context.Canceled {
+				logger.Warn("marginal: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
 		calMap := loadCalibrationByChannel(logger)
@@ -1032,6 +1425,24 @@ func runDaemonInternal(
 				opts = append(opts, controller.WithObservation(
 					smartMode.ObsAppend, labelFn,
 				))
+			}
+			// v0.5.9: install the confidence-gated blend hook when
+			// the smart-mode bundle has a BlendedController. The
+			// closure pulls the per-channel Snapshots from the
+			// upstream runtimes, computes w_pred via the aggregator,
+			// and routes through BlendedController.Compute.
+			if smartMode != nil && smartMode.Blended != nil {
+				labelFn := func() string { return signature.FallbackLabelDisabled }
+				if sigLib != nil {
+					labelFn = sigLib.Label
+				}
+				blendFn := buildBlendFn(
+					fanCfg.PWMPath, fanCfg, &liveCfg,
+					smartMode, labelFn, logger,
+				)
+				if blendFn != nil {
+					opts = append(opts, controller.WithBlend(blendFn))
+				}
 			}
 			c := controller.New(
 				ctrl.Fan, ctrl.Curve,
@@ -1283,68 +1694,6 @@ func resolveControl(cfg *config.Config, ctrl config.Control) (config.Fan, error)
 	return config.Fan{}, fmt.Errorf("fan %q not found (should have been caught by validation)", ctrl.Fan)
 }
 
-// publishSetupToken makes the first-boot token available to the operator
-// without leaking it into journald. It always logs the retrieval paths;
-// the plaintext goes only to /dev/tty (if one is attached to the daemon)
-// and to the two token files (runtime + persistent) with 0640 perms.
-func publishSetupToken(tok, listen string, tls bool, logger *slog.Logger) {
-	scheme := "http"
-	if tls {
-		scheme = "https"
-	}
-	host, port, err := net.SplitHostPort(listen)
-	if err != nil {
-		host, port = "", "9999"
-	}
-	// Pick a display host the operator can actually paste into a browser:
-	// wildcard binds → the machine's LAN IP; loopback binds → 127.0.0.1 as-is.
-	displayHost := host
-	switch host {
-	case "", "0.0.0.0", "::":
-		displayHost = localIP()
-	case "127.0.0.1", "::1", "localhost":
-		displayHost = "127.0.0.1"
-	}
-	url := scheme + "://" + net.JoinHostPort(displayHost, port)
-
-	// Write the token to both the tmpfs runtime path and the persistent state
-	// path so it survives daemon restarts. Each write is atomic (temp+rename).
-	if err := web.WriteSetupTokenFiles(tok, web.SetupTokenRuntimePath, web.SetupTokenPersistPath); err != nil {
-		logger.Warn("first-boot: write setup token files", "err", err)
-	}
-
-	// Best-effort TTY print. Fails silently under systemd where there is
-	// no controlling TTY, which is intentional — the file paths below
-	// cover that case.
-	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
-		_, _ = fmt.Fprintf(tty, "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-		_, _ = fmt.Fprintf(tty, "  Ventd — First Boot\n")
-		_, _ = fmt.Fprintf(tty, "  Open your browser to %s\n", url)
-		_, _ = fmt.Fprintf(tty, "  Setup token: %s\n", tok)
-		_, _ = fmt.Fprintf(tty, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-		_ = tty.Close()
-	}
-
-	logger.Info("first-boot: setup pending", "url", url, "ttl", web.SetupTokenTTL)
-	logger.Info("first-boot pending — setup token available",
-		"command", "sudo cat "+web.SetupTokenRuntimePath,
-		"ttl", web.SetupTokenTTL,
-	)
-}
-
-// localIP returns the machine's preferred outbound IP address.
-// It uses a UDP "connect" (no packets are sent) to pick the interface
-// that would be used to reach the internet, which is the address a user
-// on the same LAN would type into their browser.
-func localIP() string {
-	conn, err := net.Dial("udp4", "8.8.8.8:53")
-	if err != nil {
-		return "<this-machine-ip>"
-	}
-	defer func() { _ = conn.Close() }()
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
-}
-
 func buildLogger(level string) *slog.Logger {
 	var l slog.Level
 	switch level {
@@ -1551,6 +1900,14 @@ func runSignatureTickLoop(
 // ObsRecord shape to the real observation.Record (computing
 // ChannelID from the path) and calls Writer.Append.
 //
+// SensorReadings is converted from map[string]float64 (sensor name →
+// °C) to map[uint16]int16 (SensorID → centi-celsius) so the persisted
+// schema obeys RULE-OBS-PRIVACY-02 (no unconstrained string keys).
+// Readings outside [-150°C, 150°C] are filtered (RULE-HWMON-SENTINEL-
+// TEMP-CAP plausibility bound) — defensive only; the controller's
+// readAllSensors already filters sentinels before populating
+// rawSensorsBuf.
+//
 // Errors from Append are logged at warn level and swallowed —
 // observation loss is preferable to a stalled control loop.
 func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
@@ -1562,7 +1919,29 @@ func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
 			RPM:            rec.RPM,
 			SignatureLabel: rec.SignatureLabel,
 			EventFlags:     rec.EventFlags,
+			SensorReadings: convertSensorReadings(rec.SensorReadings),
 		}
 		_ = obsWriter.Append(obsRec)
 	}
+}
+
+// convertSensorReadings translates the controller's name→°C map into
+// the observation log's SensorID→centi-celsius shape. Skips readings
+// outside the sensible plausibility band so a sentinel that escaped
+// the controller's read-side filter cannot reach the persisted log.
+func convertSensorReadings(readings map[string]float64) map[uint16]int16 {
+	if len(readings) == 0 {
+		return nil
+	}
+	out := make(map[uint16]int16, len(readings))
+	for name, celsius := range readings {
+		if celsius < -150 || celsius > 150 {
+			continue
+		}
+		out[observation.SensorID(name)] = int16(celsius * 100)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

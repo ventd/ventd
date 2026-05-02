@@ -59,6 +59,34 @@ func preflightReasonString(r hwmon.Reason) string {
 		return "SECURE_BOOT_BLOCKS"
 	case hwmon.ReasonKernelTooNew:
 		return "KERNEL_TOO_NEW"
+
+	// v0.5.9 PR-D additions — every new Reason gets a string so the
+	// CLI surface stays exhaustive (the smoke test in
+	// preflightcheck_smoke_test.go pins this).
+	case hwmon.ReasonGCCMissing:
+		return "GCC_MISSING"
+	case hwmon.ReasonMakeMissing:
+		return "MAKE_MISSING"
+	case hwmon.ReasonSignFileMissing:
+		return "SIGN_FILE_MISSING"
+	case hwmon.ReasonMokutilMissing:
+		return "MOKUTIL_MISSING"
+	case hwmon.ReasonLibModulesReadOnly:
+		return "LIB_MODULES_READ_ONLY"
+	case hwmon.ReasonContainerised:
+		return "CONTAINERISED"
+	case hwmon.ReasonAptLockHeld:
+		return "APT_LOCK_HELD"
+	case hwmon.ReasonNoSudoNoRoot:
+		return "NO_SUDO_NO_ROOT"
+	case hwmon.ReasonStaleDKMSState:
+		return "STALE_DKMS_STATE"
+	case hwmon.ReasonInTreeDriverConflict:
+		return "IN_TREE_DRIVER_CONFLICT"
+	case hwmon.ReasonAnotherWizardRunning:
+		return "ANOTHER_WIZARD_RUNNING"
+	case hwmon.ReasonDiskFull:
+		return "DISK_FULL"
 	}
 	return "UNKNOWN"
 }

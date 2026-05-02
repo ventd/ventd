@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -15,11 +14,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
@@ -31,11 +31,6 @@ import (
 	"github.com/ventd/ventd/internal/web/authpersist"
 	webstatic "github.com/ventd/ventd/web"
 )
-
-// SetupTokenTTL bounds how long the first-boot setup token stays valid.
-// After this window the token is wiped from memory; an operator must
-// restart the daemon to mint a new one.
-const SetupTokenTTL = 15 * time.Minute
 
 // The per-IP brute-force guard thresholds live on config.Web so operators
 // can tune them without a rebuild. See config.DefaultLoginFailThreshold
@@ -59,22 +54,24 @@ func loginCooldownOrDefault(d time.Duration) time.Duration {
 }
 
 type Server struct {
-	cfg            *atomic.Pointer[config.Config]
-	configPath     string
-	authPath       string
-	liveHash       atomic.Pointer[string] // current bcrypt hash; separate from config.yaml
-	logger         *slog.Logger
-	mux            *http.ServeMux
-	handler        http.Handler
-	httpSrv        *http.Server
-	cal            *calibrate.Manager
-	setup          *setupmgr.Manager
-	opp            *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
+	cfg        *atomic.Pointer[config.Config]
+	configPath string
+	authPath   string
+	liveHash   atomic.Pointer[string] // current bcrypt hash; separate from config.yaml
+	logger     *slog.Logger
+	mux        *http.ServeMux
+	handler    http.Handler
+	httpSrv    *http.Server
+	cal        *calibrate.Manager
+	setup      *setupmgr.Manager
+	opp        *opportunistic.Scheduler // v0.5.5 PR-B; nil until SetOpportunisticScheduler is called
+	// v0.5.9 confidence-controller surfaces: aggregator + LayerA
+	// estimator are read-only on the web side. nil until
+	// SetConfidence is called (monitor-only mode).
+	aggregator     *aggregator.Aggregator
+	layerA         *layer_a.Estimator
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
-	setupMu        sync.Mutex
-	setupToken     string    // one-time first-boot token; empty once consumed or expired
-	setupExp       time.Time // zero when no token
 	diag           *hwdiag.Store
 	ctx            context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
 	loginLim       *loginLimiter
@@ -149,9 +146,14 @@ type Server struct {
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
 // to skip dedicated auth-file persistence (used in tests that set the hash
-// directly on the config pointer). setupToken is the one-time first-boot
-// token printed to the terminal; pass "" if a password is already configured.
-func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, setupToken string, diag *hwdiag.Store) *Server {
+// directly on the config pointer).
+//
+// First-boot mode (no admin password set yet) is auto-detected from the
+// liveHash; the wizard's password-set step is open to anyone on the LAN
+// during this window. After the wizard completes, normal auth applies.
+// Issue #765 documents the trade-off and the one-line recovery path
+// (`rm /etc/ventd/auth.json && systemctl restart ventd`).
+func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, diag *hwdiag.Store) *Server {
 	live := cfg.Load()
 	if diag == nil {
 		diag = hwdiag.NewStore()
@@ -166,7 +168,6 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		setup:          sm,
 		restartCh:      restartCh,
 		sessions:       newSessionStore(ctx, live.Web.SessionTTL.Duration),
-		setupToken:     setupToken,
 		diag:           diag,
 		ctx:            ctx,
 		loginLim:       newLoginLimiter(ctx, loginThresholdOrDefault(live.Web.LoginFailThreshold), loginCooldownOrDefault(live.Web.LoginLockoutCooldown.Duration)),
@@ -205,13 +206,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	if setupToken != "" {
-		s.setupExp = time.Now().Add(SetupTokenTTL)
-		// Auto-invalidate on expiry so a leaked token stops working even
-		// if the operator never logs in. One-shot — the daemon can't
-		// silently re-mint it without restart.
-		go s.expireSetupToken(ctx)
-	}
+	// First-boot detection (#765): when no auth hash is configured yet,
+	// the wizard's password-set step is open without a token. Once
+	// MarkApplied has fired and auth.json holds a hash, normal auth
+	// gates every request.
 
 	// Non-/api/ unauthenticated endpoints — these stay outside the
 	// registerAPIRoutes helper because /api/v1 aliasing does not apply.
@@ -309,12 +307,29 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "hwdiag", handler: s.handleHwdiag, auth: true},
 		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
 		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
+		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
 		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
 		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
 		{name: "system/security", handler: s.handleSystemSecurity, auth: true},
 		{name: "system/diagnostics", handler: s.handleSystemDiagnostics, auth: true},
+		// #792 wizard recovery surface — generate a redacted diag bundle on
+		// demand so the calibration error banner can offer the operator a
+		// download instead of a Go error string. Download path is registered
+		// separately (trailing-slash route) because registerAPIRoutes only
+		// expresses exact paths.
+		{name: "diag/bundle", handler: s.handleDiagBundle, auth: true},
+		// v0.5.9 confidence-controller surfaces (PR-B). status returns
+		// per-channel aggregator + LayerA snapshots for the 5-state
+		// dashboard pill; preset GET/PUT exposes the smart-mode
+		// aggressiveness selector.
+		{name: "confidence/status", handler: s.handleConfidenceStatus, auth: true},
+		{name: "confidence/preset", handler: s.handleConfidencePreset, auth: true},
 	})
+
+	dlHandler := s.requireAuth(s.handleDiagDownload)
+	s.mux.HandleFunc("/api/diag/download/", dlHandler)
+	s.mux.HandleFunc("/api/v1/diag/download/", dlHandler)
 
 	// Root document is served from the catch-all handler, authenticated.
 	s.mux.HandleFunc("/", s.requireAuth(s.handleUI))
@@ -421,69 +436,6 @@ func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 // wizard and probe KV namespaces on "Reset to initial setup" (RULE-PROBE-09).
 // Pass probe.WipeNamespaces(st.KV) from main.go.
 func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
-
-// expireSetupToken wipes the first-boot token from memory when its TTL
-// lapses or the daemon shuts down. Safe against races with consumption —
-// consumeSetupToken holds the same mutex.
-func (s *Server) expireSetupToken(ctx context.Context) {
-	s.setupMu.Lock()
-	exp := s.setupExp
-	s.setupMu.Unlock()
-	if exp.IsZero() {
-		return
-	}
-	timer := time.NewTimer(time.Until(exp))
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return
-	case <-timer.C:
-	}
-	s.setupMu.Lock()
-	defer s.setupMu.Unlock()
-	if s.setupToken == "" {
-		return
-	}
-	s.setupToken = ""
-	s.setupExp = time.Time{}
-	s.logger.Warn("web: first-boot setup token expired; restart ventd to mint a new one")
-}
-
-// consumeSetupToken returns true iff provided matches the live token and
-// the token has not expired. Compares in constant time against a padded
-// copy to avoid leaking length via early-exit timing. Does NOT clear the
-// token — caller decides when the first-boot flow has actually succeeded.
-func (s *Server) consumeSetupToken(provided string) bool {
-	s.setupMu.Lock()
-	defer s.setupMu.Unlock()
-	if s.setupToken == "" {
-		return false
-	}
-	if !s.setupExp.IsZero() && time.Now().After(s.setupExp) {
-		s.setupToken = ""
-		s.setupExp = time.Time{}
-		return false
-	}
-	a := []byte(provided)
-	b := []byte(s.setupToken)
-	if len(a) != len(b) {
-		// Length check first avoids the obvious length oracle; run a dummy
-		// constant-time compare against a padded buffer so attackers cannot
-		// distinguish length-mismatch rejects from content-mismatch ones by
-		// timing the response path.
-		pad := make([]byte, len(b))
-		subtle.ConstantTimeCompare(pad, b)
-		return false
-	}
-	return subtle.ConstantTimeCompare(a, b) == 1
-}
-
-func (s *Server) clearSetupToken() {
-	s.setupMu.Lock()
-	s.setupToken = ""
-	s.setupExp = time.Time{}
-	s.setupMu.Unlock()
-}
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that
@@ -626,20 +578,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 		live := s.cfg.Load()
 
-		// First-boot: no password set yet. If the client sent a setup token,
-		// process the first-boot handshake. An empty POST is rejected with
-		// 400 so it is impossible for a misbehaving or malicious caller to
-		// use the /login endpoint as a zero-cost oracle for "is the daemon
-		// still in first-boot mode" — that probe moved to GET /api/auth/state
-		// which does not touch the rate limiter. See audit finding S2.
+		// First-boot: no password set yet. POST any new_password to set
+		// the initial admin password and start a session — no token
+		// gate (#765). An empty POST gets a 400 with first_boot:true so
+		// the wizard can render the password-set form.
 		if s.authHashValue() == "" {
-			if r.FormValue("setup_token") != "" {
+			if r.FormValue("new_password") != "" {
 				s.handleFirstBootLogin(w, r, live, ipKey)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			s.writeJSON(r, w, map[string]interface{}{"error": "first boot: use /api/auth/state to check status, then POST setup_token + new_password", "first_boot": true})
+			s.writeJSON(r, w, map[string]interface{}{"error": "first boot: use /api/auth/state to check status, then POST new_password to set the initial admin password", "first_boot": true})
 			return
 		}
 
@@ -683,23 +633,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFirstBootLogin processes the setup token + new password submission.
+// handleFirstBootLogin processes the new-password submission on the
+// first-boot wizard. Issue #765 eliminated the setup-token gate: when
+// no admin password is configured yet, any LAN client hitting POST
+// /login can complete the wizard. Once the password is set, normal
+// auth applies — every subsequent request must present the session
+// cookie obtained via /login.
 func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, live *config.Config, ipKey string) {
-	token := r.FormValue("setup_token")
 	newPassword := r.FormValue("new_password")
 
-	if !s.consumeSetupToken(token) {
-		locked := s.loginLim.recordFailure(ipKey)
-		if locked {
-			s.logger.Warn("web: login lockout after bad setup tokens", "remote", r.RemoteAddr, "ip", ipKey, "cooldown", live.Web.LoginLockoutCooldown.Duration)
-		} else {
-			s.logger.Warn("web: invalid setup token attempt", "remote", r.RemoteAddr)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		s.writeJSON(r, w, map[string]string{"error": "invalid setup token"})
-		return
-	}
 	if len(newPassword) < 8 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -743,8 +685,6 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		s.liveHash.Store(&hash)
 	}
 
-	// Invalidate the one-time setup token.
-	s.clearSetupToken()
 	s.loginLim.recordSuccess(ipKey)
 	s.logger.Info("web: first-boot password set", "remote", r.RemoteAddr)
 
@@ -1143,6 +1083,167 @@ func (s *Server) SetOpportunisticScheduler(sched *opportunistic.Scheduler) {
 	s.opp = sched
 }
 
+// SetConfidence wires the v0.5.9 aggregator + LayerA estimator so the
+// /api/v1/confidence/status endpoint can return per-channel snapshots.
+// Both arguments are nil-safe: monitor-only mode skips construction.
+func (s *Server) SetConfidence(agg *aggregator.Aggregator, est *layer_a.Estimator) {
+	s.aggregator = agg
+	s.layerA = est
+}
+
+// confidenceChannel is the JSON wire shape for one channel's
+// confidence snapshot. UI renders this directly.
+type confidenceChannel struct {
+	ChannelID        string  `json:"channel_id"`
+	Wpred            float64 `json:"w_pred"`
+	UIState          string  `json:"ui_state"`
+	ConfA            float64 `json:"conf_a"`
+	ConfB            float64 `json:"conf_b"`
+	ConfC            float64 `json:"conf_c"`
+	Tier             uint8   `json:"tier"`
+	Coverage         float64 `json:"coverage"`
+	SeenFirstContact bool    `json:"seen_first_contact"`
+	AgeSeconds       float64 `json:"age_seconds"`
+}
+
+type confidenceStatus struct {
+	Enabled  bool                `json:"enabled"`
+	Global   string              `json:"global_state"` // worst-of-channels collapse
+	Preset   string              `json:"preset"`
+	Channels []confidenceChannel `json:"channels"`
+}
+
+// handleConfidenceStatus GET /api/v1/confidence/status (v0.5.9).
+// Returns the live aggregator + LayerA snapshots per channel for
+// the dashboard's 5-state pill UI. Read-only; never blocks the
+// controller hot loop (atomic.Pointer reads + a brief mutex on
+// SnapshotAll).
+func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	live := s.cfg.Load()
+	preset := "balanced"
+	if live != nil {
+		if name, _ := live.Smart.SmartPreset(); name != "" {
+			preset = name
+		}
+	}
+	if s.aggregator == nil || s.layerA == nil {
+		s.writeJSON(r, w, confidenceStatus{Enabled: false, Preset: preset})
+		return
+	}
+
+	aggSnaps := s.aggregator.SnapshotAll()
+	out := confidenceStatus{
+		Enabled:  true,
+		Preset:   preset,
+		Channels: make([]confidenceChannel, 0, len(aggSnaps)),
+	}
+	worst := "converged" // best state; downgrades below
+	priority := map[string]int{
+		"refused": 0, "drifting": 1, "cold-start": 2,
+		"warming": 3, "converged": 4,
+	}
+	for _, a := range aggSnaps {
+		la := s.layerA.Read(a.ChannelID)
+		entry := confidenceChannel{
+			ChannelID: a.ChannelID,
+			Wpred:     a.Wpred,
+			UIState:   a.UIState,
+			ConfA:     a.ConfA,
+			ConfB:     a.ConfB,
+			ConfC:     a.ConfC,
+		}
+		if la != nil {
+			entry.Tier = la.Tier
+			entry.Coverage = la.Coverage
+			entry.SeenFirstContact = la.SeenFirstContact
+			entry.AgeSeconds = la.Age.Seconds()
+		}
+		out.Channels = append(out.Channels, entry)
+		if priority[a.UIState] < priority[worst] {
+			worst = a.UIState
+		}
+	}
+	if len(out.Channels) > 0 {
+		out.Global = worst
+	} else {
+		out.Global = "converged"
+	}
+	s.writeJSON(r, w, out)
+}
+
+// handleConfidencePreset GET/PUT /api/v1/confidence/preset (v0.5.9).
+// GET returns the active preset; PUT mutates the live Config in
+// memory + persists via Save. Recognised values: silent / balanced /
+// performance. Unknown values produce 400.
+func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method == http.MethodGet {
+		live := s.cfg.Load()
+		preset := "balanced"
+		if live != nil {
+			if name, _ := live.Smart.SmartPreset(); name != "" {
+				preset = name
+			}
+		}
+		s.writeJSON(r, w, map[string]string{"preset": preset})
+		return
+	}
+
+	// PUT: read+validate body.
+	var body struct {
+		Preset string `json:"preset"`
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	switch body.Preset {
+	case "silent", "balanced", "performance":
+	default:
+		http.Error(w, "preset must be silent|balanced|performance", http.StatusBadRequest)
+		return
+	}
+
+	live := s.cfg.Load()
+	if live == nil {
+		http.Error(w, "no config loaded", http.StatusServiceUnavailable)
+		return
+	}
+	// Deep-copy via JSON so we don't mutate the live pointer's
+	// state under a concurrent reader.
+	var next config.Config
+	raw, err := json.Marshal(live)
+	if err != nil {
+		http.Error(w, "marshal", http.StatusInternalServerError)
+		return
+	}
+	if err := json.Unmarshal(raw, &next); err != nil {
+		http.Error(w, "unmarshal", http.StatusInternalServerError)
+		return
+	}
+	next.Smart.Preset = body.Preset
+	saved, err := config.Save(&next, s.configPath)
+	if err != nil {
+		s.logger.Warn("web: confidence preset save failed", "err", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.cfg.Store(saved)
+	s.logger.Info("web: confidence preset updated", "preset", body.Preset)
+	s.writeJSON(r, w, map[string]string{"preset": body.Preset})
+}
+
 // handleCalibrateResults GET /api/calibrate/results
 func (s *Server) handleCalibrateResults(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -1517,6 +1618,58 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 // Installs the distro's kernel-headers package for the running kernel.
 func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
 	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
+}
+
+// handleLoadAppArmor POST /api/hwdiag/load-apparmor
+//
+// Loads ventd's shipped AppArmor profile (`/etc/apparmor.d/ventd`)
+// into the running kernel via `apparmor_parser -r`. Distros that
+// enforce AppArmor at boot may not have parsed our profile yet —
+// this endpoint wires it up so the wizard's helpers run unblocked.
+//
+// Wired into the v0.5.9 wizard-recovery classifier (#800) as the
+// action_url for ClassApparmorDenied. Returns the same
+// installLogResponse shape as the install endpoints so the UI can
+// render the parser output uniformly.
+func (s *Server) handleLoadAppArmor(w http.ResponseWriter, r *http.Request) {
+	s.runInstallHandler(w, r, "", loadAppArmorProfile)
+}
+
+// loadAppArmorProfile shells `apparmor_parser -r` against the
+// shipped profile path. Returns nil on success; the parser's stdout
+// + stderr are logged via logFn line-by-line for the response body.
+//
+// Failure modes:
+//   - apparmor_parser binary missing: distro doesn't have apparmor
+//     userspace installed. Surfaces a clear error to the operator.
+//   - profile file missing: ventd install incomplete. Same.
+//   - parser rejects the profile: shouldn't happen on a current
+//     build (apparmor-parse-debian13 CI gates this), but possible
+//     on a stale profile vs a newer parser.
+func loadAppArmorProfile(log func(string)) error {
+	const profilePath = "/etc/apparmor.d/ventd"
+	if _, err := exec.LookPath("apparmor_parser"); err != nil {
+		log("apparmor_parser binary not found in PATH")
+		log("(install the apparmor / apparmor-utils package for your distro)")
+		return fmt.Errorf("apparmor_parser missing: %w", err)
+	}
+	if _, err := os.Stat(profilePath); err != nil {
+		log("profile file " + profilePath + " not found")
+		log("(re-run the install — the profile ships in the .deb / .rpm)")
+		return fmt.Errorf("stat %s: %w", profilePath, err)
+	}
+	cmd := exec.Command("sudo", "-n", "apparmor_parser", "-r", profilePath)
+	out, err := cmd.CombinedOutput()
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line != "" {
+			log(line)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("apparmor_parser -r %s: %w", profilePath, err)
+	}
+	log("OK — profile loaded")
+	return nil
 }
 
 // handleInstallDKMS POST /api/hwdiag/install-dkms

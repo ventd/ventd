@@ -31,7 +31,7 @@ func newSecuritySrv(t *testing.T) (*Server, string) {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	srv := New(ctx, &liveCfg, t.TempDir()+"/config.yaml", "", logger, cal, sm, restartCh, "", hwdiag.NewStore())
+	srv := New(ctx, &liveCfg, t.TempDir()+"/config.yaml", "", logger, cal, sm, restartCh, hwdiag.NewStore())
 	tok, err := srv.sessions.create()
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -407,30 +407,5 @@ func TestSetPasswordRejectsOversizedBody(t *testing.T) {
 	}
 }
 
-// --- Setup token ---------------------------------------------------------
-
-func TestConsumeSetupTokenConstantTimeAndTTL(t *testing.T) {
-	srv, _ := newSecuritySrv(t)
-	srv.setupMu.Lock()
-	srv.setupToken = "ABCDE-FGHIJ-KLMNO"
-	srv.setupExp = time.Now().Add(time.Minute)
-	srv.setupMu.Unlock()
-
-	if srv.consumeSetupToken("wrong") {
-		t.Fatal("wrong token accepted")
-	}
-	if srv.consumeSetupToken("short") {
-		t.Fatal("length-mismatch token accepted")
-	}
-	if !srv.consumeSetupToken("ABCDE-FGHIJ-KLMNO") {
-		t.Fatal("correct token rejected")
-	}
-
-	// Expire the token and verify subsequent calls fail.
-	srv.setupMu.Lock()
-	srv.setupExp = time.Now().Add(-time.Second)
-	srv.setupMu.Unlock()
-	if srv.consumeSetupToken("ABCDE-FGHIJ-KLMNO") {
-		t.Fatal("expired token accepted")
-	}
-}
+// Setup token tests removed by issue #765 (eliminate setup token).
+// First-boot login is now password-only — see auth_regression_test.go.

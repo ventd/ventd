@@ -56,9 +56,22 @@
       </div>
       <div class="topbar-actions">
         <span class="status-pill ok" id="dash-mode-pill"><span id="dash-mode-name">auto</span></span>
+        <span class="status-pill ok dash-smart-pill" id="dash-smart-pill" hidden title="Smart mode status — predictions, acoustic optimisation, workload signature">
+          <span class="dash-smart-pill-dot"></span>
+          <span id="dash-smart-pill-text">smart</span>
+        </span>
         <span class="status-pill warn dash-opp-pill" id="dash-opp-pill" hidden title="Opportunistic probe in flight">
           <span class="dash-opp-pill-dot"></span>
           <span id="dash-opp-pill-text">probing</span>
+        </span>
+        <!-- v0.5.9: 5-state confidence pill — collapses worst-of-channels
+             into refused / drifting / cold-start / warming / converged.
+             Hidden until /api/v1/confidence/status reports enabled=true. -->
+        <span class="status-pill dash-conf-pill" id="dash-conf-pill" hidden
+              title="Smart-mode confidence — combined Layer A/B/C signal"
+              data-state="warming">
+          <span class="dash-conf-pill-dot"></span>
+          <span id="dash-conf-pill-text">warming</span>
         </span>
         <button class="btn btn--ghost" id="dash-panic" type="button" title="Pin all fans to max for 60 seconds">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v6M5.6 5.6l4.2 4.2M2 12h6M5.6 18.4l4.2-4.2M12 22v-6M18.4 18.4l-4.2-4.2M22 12h-6M18.4 5.6l-4.2 4.2"/></svg>
