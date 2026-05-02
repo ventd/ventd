@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -911,6 +912,15 @@ func (m *Manager) run(ctx context.Context) {
 		})
 	}
 
+	// RULE-SETUP-NO-ORPHANED-CHANNELS: every channel that was probed but did
+	// NOT make it into doneFans (detection failed, calibration aborted on
+	// sentinel, phantom, etc.) MUST be handed back to BIOS auto-curve before
+	// the wizard returns. Without this the channel sits at pwm_enable=1 with
+	// the calibration sweep's last-written PWM byte forever — fan stuck off,
+	// no diagnostic surface (issue #753). The watchdog only restores on
+	// daemon-exit; during normal operation it never fires.
+	restoreExcludedChannels(fans, doneFans, m.logger)
+
 	if len(doneFans) == 0 {
 		m.mu.Lock()
 		m.errMsg = setupFailMessage(fans)
@@ -1067,6 +1077,77 @@ type fanDiscovery struct {
 	maxRPM      int
 	isPump      bool
 	controlKind string // "rpm_target" for fan*_target channels; "" means pwm
+}
+
+// restoreExcludedChannels enforces RULE-SETUP-NO-ORPHANED-CHANNELS.
+//
+// Every channel in `fans` whose PWMPath does not appear in `doneFans`
+// (i.e. detection or calibration could not classify it as a controlled
+// fan) is left in pwm_enable=1 (manual mode) by the calibration sweep
+// per the deliberate "leave manual to avoid EBUSY on pwm=0" pattern
+// at line ~597 above. That pattern is correct DURING the sweep but
+// must be undone for excluded channels before the wizard returns —
+// otherwise the channel sits at the sweep's last-written PWM byte
+// forever (issue #753). The daemon's watchdog only restores on exit;
+// during normal operation, no restore ever fires.
+//
+// We write pwm_enable=2 (BIOS auto) for every excluded channel that
+// has a hwmon-style path. NVML/IPMI paths are skipped (their restore
+// surfaces live in their respective backends). Errors are logged at
+// WARN level and never fatal — the wizard's success path is more
+// important than perfect cleanup of every excluded sysfs node.
+func restoreExcludedChannels(fans []FanState, doneFans []fanDiscovery, logger *slog.Logger) {
+	included := make(map[string]struct{}, len(doneFans))
+	for _, df := range doneFans {
+		if df.pwmPath != "" {
+			included[df.pwmPath] = struct{}{}
+		}
+	}
+	for _, f := range fans {
+		if f.Type != "hwmon" {
+			continue // NVML / IPMI: handled by their own backends
+		}
+		if f.PWMPath == "" {
+			continue
+		}
+		if _, ok := included[f.PWMPath]; ok {
+			continue
+		}
+		if err := hwmonpkg.WritePWMEnable(f.PWMPath, 2); err != nil {
+			// Some chips (e.g. nct6683 for NCT6687D) have no pwm_enable;
+			// fall through silently — the channel never had manual mode
+			// in the first place.
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			logger.Warn("setup: restore excluded channel to BIOS auto failed",
+				"pwm_path", f.PWMPath, "fan", f.Name, "err", err)
+			continue
+		}
+		logger.Info("setup: excluded channel handed back to BIOS auto-curve",
+			"pwm_path", f.PWMPath, "fan", f.Name,
+			"reason", excludedReason(f))
+	}
+}
+
+// excludedReason classifies why a fan was excluded from doneFans, for
+// logging + downstream diagnostic surfaces (#757). The classification
+// is best-effort and not load-bearing for control behaviour.
+//
+// Uses the DetectPhase / CalPhase values set by the wizard's detection
+// + calibration loops — see lines ~640 / ~767 / ~770 of this file for
+// the assignment sites.
+func excludedReason(f FanState) string {
+	switch {
+	case f.DetectPhase == "none":
+		return "detect_failed"
+	case f.CalPhase == "error":
+		return "calibration_aborted"
+	case f.CalPhase == "skipped":
+		return "phantom"
+	default:
+		return "unclassified"
+	}
 }
 
 // buildConfig constructs a Config from calibrated fan data and discovered sensors.
