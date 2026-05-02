@@ -200,6 +200,46 @@ func TestProbe_Rules(t *testing.T) {
 		if !r3.RuntimeEnvironment.Containerised {
 			t.Error("cgroup v2: /.dockerenv + overlay root must set Containerised=true")
 		}
+
+		// 2 sources (Podman rootless): /run/.containerenv + systemd-detect-virt.
+		// Pre-research, podman fired only systemd-detect-virt and fell below the
+		// score threshold. /run/.containerenv is the canonical Podman marker per
+		// upstream docs and the agent-validated catch.
+		podmanRoot := fstest.MapFS{
+			"run/.containerenv": {Data: []byte("name=fedora-toolbox-39\n")},
+		}
+		p4 := probe.New(probe.Config{
+			SysFS:      fixtures.SysWithThermalAndPWM(),
+			ProcFS:     noCgroup,
+			RootFS:     podmanRoot,
+			ExecFn:     makeExecFn("none", "podman"),
+			WriteCheck: stubWriteCheck(false, new([]string)),
+		})
+		r4, _ := p4.Probe(context.Background())
+		if !r4.RuntimeEnvironment.Containerised {
+			t.Error("podman: /run/.containerenv + systemd-detect-virt:podman must set Containerised=true")
+		}
+
+		// 2 sources (systemd-nspawn): container=systemd-nspawn in
+		// /proc/1/environ + systemd-detect-virt --container = systemd-nspawn.
+		// Pre-research, nspawn fired only systemd-detect-virt and went
+		// undetected. The /proc/1/environ token is the canonical second
+		// signal that nspawn always publishes.
+		nspawnProc := fstest.MapFS{
+			"1/cgroup":  {Data: []byte("0::/\n")},
+			"1/environ": {Data: []byte("TERM=linux\x00container=systemd-nspawn\x00PATH=/usr/bin\x00")},
+		}
+		p5 := probe.New(probe.Config{
+			SysFS:      fixtures.SysWithThermalAndPWM(),
+			ProcFS:     nspawnProc,
+			RootFS:     fstest.MapFS{},
+			ExecFn:     makeExecFn("none", "systemd-nspawn"),
+			WriteCheck: stubWriteCheck(false, new([]string)),
+		})
+		r5, _ := p5.Probe(context.Background())
+		if !r5.RuntimeEnvironment.Containerised {
+			t.Error("nspawn: /proc/1/environ:container= + systemd-detect-virt must set Containerised=true")
+		}
 	})
 
 	// RULE-PROBE-04: ClassifyOutcome follows the §3.2 algorithm exactly.
