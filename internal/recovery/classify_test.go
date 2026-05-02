@@ -225,6 +225,48 @@ func TestClassify_ACPIResourceConflict(t *testing.T) {
 	})
 }
 
+// RULE-WIZARD-RECOVERY-10: ThinkPad fan_control gate classifies to
+// ClassThinkpadACPIDisabled — covers both the journal stamp form
+// emitted by the kernel's thinkpad_acpi driver and the Go-error
+// shape returned by ventd's pwm_enable write helper. Fires before
+// the catch-all ClassDriverWontBind so the specific ThinkPad
+// remediation card runs instead of the generic trio.
+func TestClassify_ThinkpadACPIDisabled(t *testing.T) {
+	t.Parallel()
+	t.Run("kernel journal stamp", func(t *testing.T) {
+		journal := []string{
+			"thinkpad_acpi: ThinkPad ACPI Extras v0.26",
+			"thinkpad_acpi: Disabling fan write commands",
+			"thinkpad_acpi: Possibly support fan_control=1",
+		}
+		got := Classify(PhaseScanningFans, errors.New("write pwm_enable: operation not permitted"), journal)
+		if got != ClassThinkpadACPIDisabled {
+			t.Fatalf("got %q, want %q", got, ClassThinkpadACPIDisabled)
+		}
+	})
+	t.Run("error string contains thinkpad_acpi + fan_control", func(t *testing.T) {
+		err := errors.New("thinkpad_acpi: cannot write to pwm — fan_control=0 in modprobe options")
+		got := Classify(PhaseInstallingDriver, err, nil)
+		if got != ClassThinkpadACPIDisabled {
+			t.Fatalf("got %q, want %q", got, ClassThinkpadACPIDisabled)
+		}
+	})
+	t.Run("fires before driver-wont-bind catch-all", func(t *testing.T) {
+		// Build a fixture that ALSO matches the driver-wont-bind
+		// trigger (modprobe ENODEV + install pipeline succeeded)
+		// and verify the more-specific ThinkPad rule still wins.
+		err := errors.New("thinkpad_acpi: fan_control disabled — could not insert: no such device")
+		journal := []string{
+			"driver install: depmod -a complete",
+			"installed /lib/modules/6.8.0-49-generic/extra/thinkpad_acpi.ko",
+		}
+		got := Classify(PhaseInstallingDriver, err, journal)
+		if got != ClassThinkpadACPIDisabled {
+			t.Fatalf("got %q, want %q (specific rule should beat catch-all)", got, ClassThinkpadACPIDisabled)
+		}
+	})
+}
+
 // in AllFailureClasses() in display order. Pin the contract so a
 // future addition to the enum forces an update to the catalogue.
 func TestAllFailureClasses_Complete(t *testing.T) {

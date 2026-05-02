@@ -298,6 +298,18 @@ func Classify(phase string, err error, journal []string) FailureClass {
 		return ClassACPIResourceConflict
 	}
 
+	// 5a. ThinkPad fan_control disabled — kernel's thinkpad_acpi
+	// driver loaded but writes to pwm*_enable return EPERM because
+	// the operator hasn't passed `fan_control=1`. The signature is
+	// either an explicit thinkpad_acpi journal stamp ("Disabling
+	// fan write commands" / "fan_control disabled") OR EPERM during
+	// pwm_enable write on a Lenovo board. Classified before the
+	// generic ClassDriverWontBind catch-all so the more-specific
+	// ThinkPad remediation card fires.
+	if reThinkpadACPI.MatchString(joined) || reThinkpadACPI.MatchString(msg) {
+		return ClassThinkpadACPIDisabled
+	}
+
 	// 6. Missing module — `modprobe: FATAL: Module ... not found`,
 	// `Module ... not found in directory`. Catch-all for non-signing
 	// load failures.
@@ -425,5 +437,17 @@ var (
 	// load-time, not build-time).
 	reInstallSucceeded = regexp.MustCompile(
 		`(installed /lib/modules/[^/]+/extra/.*\.ko|updating module index|driver install: depmod)`,
+	)
+	// ThinkPad fan_control gate — the in-tree thinkpad_acpi driver
+	// loads with fan writes disabled by default and emits one of
+	// these stamps to dmesg when an operator (or ventd) tries to
+	// write pwm*_enable without `options thinkpad_acpi fan_control=1`.
+	// Writing to /sys/devices/platform/thinkpad_hwmon/fan*_pwm_enable
+	// also returns EPERM with messages of the same shape on userspace
+	// tools. Pattern matches the stable English keywords from the
+	// upstream `drivers/platform/x86/thinkpad_acpi.c` (the kernel's
+	// fan-control gate enforcement), independent of distro.
+	reThinkpadACPI = regexp.MustCompile(
+		`(thinkpad_acpi.*(fan_control|disabling fan write commands|cannot write to pwm)|thinkpad-acpi.*fan_control disabled)`,
 	)
 )

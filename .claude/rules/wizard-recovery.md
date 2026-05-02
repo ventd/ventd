@@ -121,3 +121,21 @@ ClassApparmorDenied. ClassUnknown is intentionally excluded — it's
 the fallback, not a catalogue entry.
 
 Bound: internal/recovery/classify_test.go:TestAllFailureClasses_Complete
+
+## RULE-WIZARD-RECOVERY-10: ThinkPad fan_control gate classifies to ClassThinkpadACPIDisabled.
+
+The kernel's `thinkpad_acpi` driver loads with fan writes disabled by
+default and emits a journal stamp ("Disabling fan write commands" /
+"fan_control disabled" / "cannot write to pwm") when an operator
+or ventd attempts to write `pwm*_enable` without the
+`options thinkpad_acpi fan_control=1` modprobe entry. The classifier
+matches those stamps in the err string OR the journal and returns
+`ClassThinkpadACPIDisabled` — which surfaces a one-click auto-fix
+card that writes `/etc/modprobe.d/ventd-thinkpad.conf` and reloads
+the module via `/api/hwdiag/modprobe-options-write`.
+
+The rule fires BEFORE the catch-all `ClassDriverWontBind` so the
+specific ThinkPad remediation runs instead of the generic trio of
+"reset / acpi-lax / bundle".
+
+Bound: internal/recovery/classify_test.go:TestClassify_ThinkpadACPIDisabled
