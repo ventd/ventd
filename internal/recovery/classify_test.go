@@ -246,6 +246,9 @@ func TestAllFailureClasses_Complete(t *testing.T) {
 		ClassConcurrentInstall,
 		ClassACPIResourceConflict,
 		ClassDriverWontBind,
+		ClassVendorDaemonActive,
+		ClassThinkpadACPIDisabled,
+		ClassNixOSPathIgnored,
 	}
 	got := AllFailureClasses()
 	if len(got) != len(want) {

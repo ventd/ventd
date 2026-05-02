@@ -152,6 +152,47 @@ const (
 	// HIL testing — every iteration was whack-a-mole on a new
 	// class while users hit the same dead-end UI.
 	ClassDriverWontBind FailureClass = "driver_wont_bind"
+
+	// ClassVendorDaemonActive covers Linux-first laptop OEM systems
+	// where a vendor-shipped userspace daemon already controls fans:
+	// system76-power (System76), asusctl (ASUS ROG), tccd / Tuxedo
+	// Control Centre (Tuxedo Computers), slimbookbattery (Slimbook).
+	// Installing ventd on top of these creates conflict, not value —
+	// the right move is to detect-and-defer into monitor-only mode
+	// and tell the operator that their vendor tool is already doing
+	// the job correctly.
+	//
+	// Detection signals (any one): the corresponding systemd unit is
+	// active, OR the vendor binary is present on PATH and reachable
+	// (asusctl --version, system76-power, etc.). Remediation is a
+	// docs-only card naming the running daemon and pointing at
+	// monitor-only mode in ventd.
+	ClassVendorDaemonActive FailureClass = "vendor_daemon_active"
+
+	// ClassThinkpadACPIDisabled covers ThinkPads where the
+	// `thinkpad_acpi` driver is loaded but its fan_control parameter
+	// is not enabled — the kernel default refuses fan writes for
+	// safety because Lenovo's documentation says the EC will
+	// override anyway. ventd auto-writes a modprobe drop-in with
+	// `options thinkpad_acpi fan_control=1` and reloads the module.
+	//
+	// Detection: dmesg shows `thinkpad_acpi: ... unsupported BIOS or
+	// hardware` or pwm sysfs is present but `_enable` writes return
+	// EPERM with "Operation not permitted" on a ThinkPad DMI vendor.
+	// Remediation: write /etc/modprobe.d/ventd-thinkpad.conf, modprobe
+	// -r + modprobe thinkpad_acpi.
+	ClassThinkpadACPIDisabled FailureClass = "thinkpad_acpi_disabled"
+
+	// ClassNixOSPathIgnored covers NixOS hosts where ventd's auto-fix
+	// endpoints write to /etc/modprobe.d/ or /etc/modules-load.d/ —
+	// paths that NixOS silently ignores in favour of declarative
+	// `configuration.nix` entries. The fix isn't a click but operator
+	// action; the card surfaces the exact Nix expression to add and
+	// the rebuild command to run.
+	//
+	// Detection: `/etc/NIXOS` exists OR `os-release` ID is `nixos`.
+	// Remediation: docs-only card with Nix expression to copy.
+	ClassNixOSPathIgnored FailureClass = "nixos_path_ignored"
 )
 
 // AllFailureClasses returns the closed set in display order. Used by tests
@@ -179,6 +220,9 @@ func AllFailureClasses() []FailureClass {
 		ClassConcurrentInstall,
 		ClassACPIResourceConflict,
 		ClassDriverWontBind,
+		ClassVendorDaemonActive,
+		ClassThinkpadACPIDisabled,
+		ClassNixOSPathIgnored,
 	}
 }
 
