@@ -125,17 +125,33 @@ Bound: internal/recovery/classify_test.go:TestAllFailureClasses_Complete
 ## RULE-WIZARD-RECOVERY-10: ThinkPad fan_control gate classifies to ClassThinkpadACPIDisabled.
 
 The kernel's `thinkpad_acpi` driver loads with fan writes disabled by
-default and emits a journal stamp ("Disabling fan write commands" /
-"fan_control disabled" / "cannot write to pwm") when an operator
-or ventd attempts to write `pwm*_enable` without the
-`options thinkpad_acpi fan_control=1` modprobe entry. The classifier
-matches those stamps in the err string OR the journal and returns
-`ClassThinkpadACPIDisabled` — which surfaces a one-click auto-fix
-card that writes `/etc/modprobe.d/ventd-thinkpad.conf` and reloads
-the module via `/api/hwdiag/modprobe-options-write`.
+default and refuses `pwm_enable` writes with `-EPERM` when the
+operator hasn't passed `options thinkpad_acpi fan_control=1`. Crucial
+upstream constraint validated against
+`drivers/platform/x86/thinkpad_acpi.c` (kernel v6.13): every guarded
+path returns `-EPERM` SILENTLY — there is no per-write printk. The
+init-time "fan control features disabled by parameter" message is
+wrapped in `dbg_printk()`, gated behind `CONFIG_THINKPAD_ACPI_DEBUG`
+which is off on every stock distro kernel. So the classifier cannot
+reliably match on dmesg / journal stamps for this case.
 
-The rule fires BEFORE the catch-all `ClassDriverWontBind` so the
-specific ThinkPad remediation runs instead of the generic trio of
-"reset / acpi-lax / bundle".
+The classifier therefore matches a narrow regex against:
+
+- **thinkfan's userspace error** — `Module thinkpad_acpi doesn't seem
+  to support fan_control` from `vmatare/thinkfan`. Stable English
+  across thinkfan releases (issues #45, #94).
+- **ventd's pwm_enable wrap shape** — when the daemon's write helper
+  formats an EPERM with `thinkpad_acpi` context.
+
+A negative subtest pins that journal-only fixtures containing the
+dbg_printk strings (which stock distro kernels do not produce) MUST
+NOT trigger this class on unrelated wizard failures.
+
+Canonical pre-emptive detection lives elsewhere: a sysfs probe of
+`/sys/module/thinkpad_acpi/parameters/fan_control` reading `N` is the
+load-bearing signal, added in a follow-up PR (alongside
+`DetectVendorDaemon` and `DetectNixOS` in probe.go). The classifier
+rule is the after-the-fact catch when an operator pastes a thinkfan
+error into a bug report, not the primary detection path.
 
 Bound: internal/recovery/classify_test.go:TestClassify_ThinkpadACPIDisabled
