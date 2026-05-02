@@ -66,10 +66,6 @@ func (d *PreflightSubsetDetector) Probe(ctx context.Context, deps doctor.Deps) (
 		return nil, nil
 	}
 
-	now := deps.Now
-	if now == nil {
-		now = func() time.Time { return time.Time{} }
-	}
 	severity, class := classifyReason(res.Reason)
 
 	fact := doctor.Fact{
@@ -79,9 +75,19 @@ func (d *PreflightSubsetDetector) Probe(ctx context.Context, deps doctor.Deps) (
 		Title:      preflightReasonTitle(res.Reason),
 		Detail:     res.Detail,
 		EntityHash: doctor.HashEntity(d.Driver.Module, reasonToken(res.Reason)),
-		Observed:   now(),
+		Observed:   timeNowFromDeps(deps),
 	}
 	return []doctor.Fact{fact}, nil
+}
+
+// timeNowFromDeps returns deps.Now() or time.Now if deps.Now is nil.
+// Detectors call through this so tests can pass Deps{} without
+// panicking on a nil Now field.
+func timeNowFromDeps(deps doctor.Deps) time.Time {
+	if deps.Now != nil {
+		return deps.Now()
+	}
+	return time.Now()
 }
 
 // classifyReason maps a hwmon.Reason to (Severity, FailureClass).
