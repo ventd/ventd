@@ -93,6 +93,20 @@ gate the install. Only Blockers go through the fix loop.
 
 Bound: internal/preflight/orchestrator_test.go:RULE-PREFLIGHT-ORCH-09_warning_does_not_drive_fix_loop
 
+## RULE-PREFLIGHT-ORCH-11: RequiresReboot fix skips post-fix re-detect.
+
+AutoFix on a `RequiresReboot=true` check (canonical: `mokutil
+--import` for MOK enrollment) QUEUES a change that only takes
+effect after firmware MOK Manager confirmation at next boot. A
+generic post-fix Detect would still report `triggered=true`
+(`mokutil --list-enrolled` doesn't include queued imports), causing
+the orchestrator to falsely treat the fix as failed and exhaust
+MaxFixAttempts. The orchestrator MUST trust AutoFix's nil return
+for these checks: skip the re-detect, mark StillTriggered=false,
+set Report.NeedsReboot. Caught on Phoenix's HIL desktop.
+
+Bound: internal/preflight/orchestrator_test.go:RULE-PREFLIGHT-ORCH-11_requires_reboot_skips_redetect
+
 ## RULE-PREFLIGHT-ORCH-10: Summary groups by severity (Blocker → Warning → Info).
 
 Operators read top-down. The pre-fix summary block MUST list

@@ -169,16 +169,10 @@ func TestOrchestrator(t *testing.T) {
 		checks := []Check{{
 			Name:           "needs_reboot",
 			Severity:       SeverityBlocker,
-			Detect:         func(context.Context) (bool, string) { return false, "" }, // already cleared after fix
+			Detect:         func(context.Context) (bool, string) { return true, "" },
 			AutoFix:        func(context.Context) error { return nil },
 			RequiresReboot: true,
 		}}
-		// Pre-trigger by making detect return true once, then false.
-		var calls int
-		checks[0].Detect = func(context.Context) (bool, string) {
-			calls++
-			return calls == 1, ""
-		}
 		p := &scriptedPrompter{answers: []PromptResponse{PromptYes}}
 		report, err := Run(context.Background(), checks, Options{Interactive: true, Prompter: p})
 		if err != nil {
@@ -300,6 +294,53 @@ func TestOrchestrator(t *testing.T) {
 		}
 		if report.WarningCount != 1 {
 			t.Fatalf("WarningCount: got %d, want 1", report.WarningCount)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-ORCH-11_requires_reboot_skips_redetect", func(t *testing.T) {
+		// AutoFix on a RequiresReboot check (canonical: mokutil
+		// --import) only QUEUES the change for next-boot firmware
+		// confirmation. The post-fix Detect would still report
+		// triggered=true (mokutil --list-enrolled won't include the
+		// queued import), so a generic re-detect-and-loop would
+		// falsely treat the fix as failed and exhaust
+		// MaxFixAttempts. The orchestrator MUST trust AutoFix's nil
+		// return for these checks: skip the re-detect, mark
+		// StillTriggered=false, set Report.NeedsReboot. Caught on
+		// Phoenix's HIL desktop where mokutil --import correctly
+		// queued enrollment but the test failed before this fix.
+		var detectCalls int
+		var fixCalls int
+		checks := []Check{{
+			Name:     "reboot_check",
+			Severity: SeverityBlocker,
+			Detect: func(context.Context) (bool, string) {
+				detectCalls++
+				return true, "still queued"
+			},
+			AutoFix:        func(context.Context) error { fixCalls++; return nil },
+			RequiresReboot: true,
+		}}
+		p := &scriptedPrompter{answers: []PromptResponse{PromptYes}}
+		report, err := Run(context.Background(), checks, Options{
+			Interactive:    true,
+			Prompter:       p,
+			MaxFixAttempts: 3, // would normally retry until exhausted
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if fixCalls != 1 {
+			t.Fatalf("fixCalls: got %d, want 1 (RequiresReboot must not retry)", fixCalls)
+		}
+		if detectCalls != 1 {
+			t.Fatalf("detectCalls: got %d, want 1 (initial only; no post-fix re-detect)", detectCalls)
+		}
+		if !report.NeedsReboot {
+			t.Fatalf("NeedsReboot=false")
+		}
+		if report.BlockerCount != 0 {
+			t.Fatalf("BlockerCount: got %d, want 0 (RequiresReboot fix is treated as cleared)", report.BlockerCount)
 		}
 	})
 

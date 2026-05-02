@@ -360,6 +360,21 @@ func runFixInteractive(ctx context.Context, c Check, r *Result, opts Options) bo
 			r.StillTriggered = true
 			return true
 		}
+		// RequiresReboot fixes (canonical case: mokutil --import for
+		// MOK enrollment) take effect only at next boot — the
+		// effect is observable by Detect only AFTER the firmware
+		// MOK Manager confirmation. A re-detect here would always
+		// report still-triggered and falsely treat the fix as
+		// failed, looping until MaxFixAttempts. Trust the AutoFix's
+		// nil return and let the end-of-run reboot prompt drive the
+		// completion. The rollup loop reads RequiresReboot +
+		// !StillTriggered to set Report.NeedsReboot.
+		if c.RequiresReboot {
+			r.StillTriggered = false
+			r.FixError = ""
+			opts.Prompter.Print(fmt.Sprintf("  ✓ %s queued — completes after reboot.", c.Name))
+			return true
+		}
 		// Re-detect to verify the fix actually cleared the condition.
 		triggered, detail := c.Detect(ctx)
 		r.StillTriggered = triggered
