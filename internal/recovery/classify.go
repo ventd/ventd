@@ -69,11 +69,67 @@ const (
 	// reloads the shipped profile so the operator's local-AppArmor
 	// policy stops blocking the wizard.
 	ClassApparmorDenied FailureClass = "apparmor_denied"
+
+	// — v0.5.9 PR-D additions ———————————————————————————————————————
+
+	// ClassMissingBuildTools covers gcc / make / build-essentials
+	// absence on a fresh install. Remediation surfaces a one-click
+	// install via the existing /api/setup/load-module-prep style
+	// install path; the dispatcher here keys on the distro family
+	// to render the right command in the modal instructions.
+	ClassMissingBuildTools FailureClass = "missing_build_tools"
+
+	// ClassDKMSStateCollision covers a stale DKMS registration of
+	// the target module (any version, any state). Remediation
+	// surfaces the ResetAndReinstall card whose action endpoint
+	// runs `dkms remove --all <module>` before re-registering.
+	ClassDKMSStateCollision FailureClass = "dkms_state_collision"
+
+	// ClassInTreeConflict covers an in-tree driver bound to the
+	// same hardware as the OOT module we want to install (e.g.
+	// nct6683 currently loaded when we want nct6687d). Remediation
+	// is a `modprobe -r` + blacklist drop-in.
+	ClassInTreeConflict FailureClass = "in_tree_conflict"
+
+	// ClassContainerised covers refusal when ventd is running
+	// inside a container. There is no auto-fix — the daemon must
+	// run on the host. Remediation is docs-only.
+	ClassContainerised FailureClass = "containerised"
+
+	// ClassPackageManagerBusy covers an apt/dpkg lock held by
+	// another process. Remediation is "wait + retry" — no
+	// auto-bypass, since clobbering the lock corrupts package DB.
+	ClassPackageManagerBusy FailureClass = "package_manager_busy"
+
+	// ClassDaemonNotRoot covers the no-root-no-sudo case where
+	// ventd cannot elevate to write under /lib/modules. Remediation
+	// is docs-only (operator action: configure passwordless sudo or
+	// run as root).
+	ClassDaemonNotRoot FailureClass = "daemon_not_root"
+
+	// ClassReadOnlyRootfs covers /lib/modules being immutable
+	// (Silverblue, NixOS, Ubuntu Core). Remediation is docs-only
+	// pointing at the distro-specific procedure for system mods.
+	ClassReadOnlyRootfs FailureClass = "read_only_rootfs"
+
+	// ClassDiskFull covers a critical install path with insufficient
+	// free bytes. Remediation is docs-only — we do not auto-purge.
+	ClassDiskFull FailureClass = "disk_full"
+
+	// ClassConcurrentInstall covers the wizard-lock case where a
+	// sibling ventd setup wizard is already running. Remediation
+	// surfaces a take-over button (after confirming the holder PID
+	// is genuinely alive).
+	ClassConcurrentInstall FailureClass = "concurrent_install"
 )
 
-// All returns the closed set in display order. Used by tests and the
-// /api/v1/hwdiag/recovery-classes route (future) to enumerate the
+// AllFailureClasses returns the closed set in display order. Used by tests
+// and the /api/v1/hwdiag/recovery-classes route (future) to enumerate the
 // catalogue without hard-coding the list at every call site.
+//
+// Display order: most-blocking (refuse) first, then preflight-fixable, then
+// runtime-fixable. ClassUnknown is intentionally excluded — it is the
+// fallback bucket, not a catalogue entry.
 func AllFailureClasses() []FailureClass {
 	return []FailureClass{
 		ClassSecureBoot,
@@ -81,6 +137,15 @@ func AllFailureClasses() []FailureClass {
 		ClassMissingHeaders,
 		ClassDKMSBuildFailed,
 		ClassApparmorDenied,
+		ClassMissingBuildTools,
+		ClassInTreeConflict,
+		ClassDKMSStateCollision,
+		ClassReadOnlyRootfs,
+		ClassDiskFull,
+		ClassPackageManagerBusy,
+		ClassDaemonNotRoot,
+		ClassContainerised,
+		ClassConcurrentInstall,
 	}
 }
 

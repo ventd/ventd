@@ -136,6 +136,111 @@ func RemediationFor(class FailureClass) []Remediation {
 			bundle,
 		}
 
+	// — v0.5.9 PR-D additions ———————————————————————————————————————
+
+	case ClassMissingBuildTools:
+		return []Remediation{
+			{
+				Label:       "Install build tools",
+				Description: "Installs gcc, make, and the distro's build-essentials meta-package. The OOT driver build needs these to compile against your kernel.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/v1/hwdiag/install-build-tools",
+				DocURL:      "https://github.com/ventd/ventd/wiki/build-tools",
+			},
+			bundle,
+		}
+
+	case ClassDKMSStateCollision:
+		return []Remediation{
+			{
+				Label:       "Reset and reinstall driver",
+				Description: "Removes any partially-installed driver state (DKMS registration, .ko files, modules-load.d entries) and runs a fresh install. Use this when a previous install attempt left half-finished state behind.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
+				DocURL:      "https://github.com/ventd/ventd/wiki/reset-and-reinstall",
+			},
+			bundle,
+		}
+
+	case ClassInTreeConflict:
+		return []Remediation{
+			{
+				Label:       "Unbind in-tree driver and blacklist",
+				Description: "Removes the conflicting in-tree kernel driver (e.g. nct6683 when ventd needs nct6687d) and writes a blacklist drop-in so it doesn't reload at boot. Then reruns the OOT install.",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
+				DocURL:      "https://github.com/ventd/ventd/wiki/in-tree-conflict",
+			},
+			bundle,
+		}
+
+	case ClassContainerised:
+		return []Remediation{
+			{
+				Label:       "Run ventd on the host instead",
+				Description: "ventd cannot calibrate fans from inside a container — hwmon writes don't reach real hardware. Install and run ventd directly on the host system.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/containers",
+			},
+			bundle,
+		}
+
+	case ClassPackageManagerBusy:
+		return []Remediation{
+			{
+				Label:       "Wait and retry",
+				Description: "Another package manager (apt/dpkg) is currently running. Wait for it to finish (or close any open Software Updater windows), then retry the install.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/apt-lock",
+			},
+			bundle,
+		}
+
+	case ClassDaemonNotRoot:
+		return []Remediation{
+			{
+				Label:       "Configure passwordless sudo or run as root",
+				Description: "ventd is not running as root and cannot escalate non-interactively. Either run the daemon as root (via systemd unit) or configure passwordless sudo for the ventd user.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/sudo",
+			},
+			bundle,
+		}
+
+	case ClassReadOnlyRootfs:
+		return []Remediation{
+			{
+				Label:       "Use your distro's system-modification path",
+				Description: "/lib/modules is read-only on this distro (Silverblue, NixOS, Ubuntu Core, etc.). Driver install requires using the distro's system-modification procedure — see docs.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/immutable-distros",
+			},
+			bundle,
+		}
+
+	case ClassDiskFull:
+		return []Remediation{
+			{
+				Label:       "Free disk space",
+				Description: "One of /lib/modules, /usr/src, or /var/cache has less than 256 MiB free. Free up space — typically by clearing the package cache or old kernel headers — then retry.",
+				Kind:        KindDocsOnly,
+				DocURL:      "https://github.com/ventd/ventd/wiki/disk-full",
+			},
+			bundle,
+		}
+
+	case ClassConcurrentInstall:
+		return []Remediation{
+			{
+				Label:       "Wait or take over the running wizard",
+				Description: "Another ventd setup wizard is already running on this machine. Wait for it to finish, or take over the run (the existing wizard's state will be released).",
+				Kind:        KindActionPost,
+				ActionURL:   "/api/v1/setup/take-over",
+				DocURL:      "https://github.com/ventd/ventd/wiki/concurrent-wizard",
+			},
+			bundle,
+		}
+
 	default:
 		// ClassUnknown — generic bundle option only.
 		return []Remediation{bundle}

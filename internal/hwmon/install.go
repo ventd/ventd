@@ -73,82 +73,41 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 		return fmt.Errorf("extract tarball: %w", err)
 	}
 
-	// ── Step 3: build ───────────────────────────────────────────────────────
-	log("Building driver (this may take a minute)...")
-	if err := runLogDir(repoDir, log, "make"); err != nil {
-		return fmt.Errorf("make: %w", err)
+	// ── Steps 3–9: controlled install pipeline ──────────────────────────────
+	//
+	// The pipeline replaces the legacy `make install` (which atomically
+	// did cp + depmod + modprobe) with an explicit step sequence we own.
+	// Signing is interleaved at the right point for Secure Boot enforcing
+	// systems; depmod errors are surfaced; modprobe runs strictly after
+	// signing.
+	//
+	// The PipelineConfig caches the SecureBoot probe + MOK key resolution
+	// so the steps don't re-run them per-call. SecureBootEnforcing=false
+	// short-circuits both signing steps without changing the legacy
+	// non-SB path's bytes-on-disk outcome.
+	release := liveKernelRelease()
+	sbEnforcing := false
+	if enabled, known := liveSecureBootEnabled(); known && enabled {
+		sbEnforcing = true
 	}
-
-	// ── Step 4: install ─────────────────────────────────────────────────────
-	log("Installing driver...")
-	if err := runLogDirRoot(repoDir, log, "make", "install"); err != nil {
-		return fmt.Errorf("make install: %w", err)
-	}
-
-	// ── Step 5: register with DKMS (best-effort) ────────────────────────────
-	registerDKMS(repoDir, nd, log, logger)
-
-	// ── Step 6: update module index ─────────────────────────────────────────
-	log("Updating module index...")
-	{
-		n, a := rootArgv("depmod", []string{"-a"})
-		_ = exec.Command(n, a...).Run()
-	}
-
-	// ── Step 7: load the module ─────────────────────────────────────────────
-	log("Loading driver...")
-	// Unload any previous failed attempt first.
-	{
-		n, a := rootArgv("modprobe", []string{"-r", nd.Module})
-		_ = exec.Command(n, a...).Run()
-	}
-	mpName, mpArgs := rootArgv("modprobe", []string{nd.Module})
-	if out, err := exec.Command(mpName, mpArgs...).CombinedOutput(); err != nil {
-		outStr := strings.TrimSpace(string(out))
-		if strings.Contains(outStr, "resource busy") {
-			// ACPI has claimed the fan controller's I/O ports.
-			// Auto-apply the standard fix and ask the user to reboot.
-			log("ACPI resource conflict detected — updating boot configuration...")
-			manualInstr, bootErr := addKernelParam("acpi_enforce_resources=lax", log)
-			if bootErr != nil {
-				logger.Warn("could not auto-patch bootloader", "err", bootErr)
-				return &ErrRebootRequired{
-					Message: "Your system firmware (ACPI) has reserved the " + nd.ChipName +
-						" fan controller's hardware ports. Auto-patching the bootloader failed (" + bootErr.Error() + "). " +
-						manualInstr + " Then reboot.",
-				}
-			}
-			return &ErrRebootRequired{
-				Message: "Your system firmware (ACPI) had reserved the " + nd.ChipName +
-					" fan controller's hardware ports. We've updated your boot configuration to fix this. " +
-					"Click Reboot Now to continue — setup will resume automatically after reboot.",
-			}
+	var mokKey MOKKeyPair
+	if sbEnforcing {
+		k, kerr := LocateMOKKey()
+		if kerr != nil {
+			return fmt.Errorf("locate MOK key: %w (preflight should have caught this)", kerr)
 		}
-		return fmt.Errorf("modprobe %s: %w\n%s", nd.Module, err, outStr)
+		mokKey = k
 	}
-
-	// ── Step 8: verify PWM channels appeared ────────────────────────────────
-	var pwmPaths []string
-	for i := 0; i < 6; i++ {
-		time.Sleep(250 * time.Millisecond)
-		pwmPaths = findPWMPaths()
-		if countControllablePWM(pwmPaths) > 0 {
-			break
-		}
-	}
-	if countControllablePWM(pwmPaths) == 0 {
-		return fmt.Errorf("driver installed but no controllable fan channels appeared — " +
-			"your board may use a different chip variant")
-	}
-
-	log(fmt.Sprintf("Driver installed successfully — found %d fan controller channel(s).", countControllablePWM(pwmPaths)))
-
-	// ── Step 9: persist ─────────────────────────────────────────────────────
-	if err := persistModule(nd.Module, ""); err != nil {
-		logger.Warn("could not persist module after install", "module", nd.Module, "err", err)
-	}
-
-	return nil
+	pipeErr := RunPipeline(PipelineConfig{
+		Driver:              nd,
+		RepoDir:             repoDir,
+		Release:             release,
+		Logger:              logger,
+		Log:                 log,
+		SecureBootEnforcing: sbEnforcing,
+		MOKKey:              mokKey,
+	})
+	return pipeErr
 }
 
 // registerDKMS registers the driver source with DKMS so the module rebuilds

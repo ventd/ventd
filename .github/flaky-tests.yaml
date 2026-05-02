@@ -20,7 +20,26 @@
 #     since: 2026-04-15
 
 flaky:
-  - test: ./internal/scheduler:TestScheduler_ManualOverrideStaysUntilTransition
+  - test: github.com/ventd/ventd/internal/web:TestScheduler_ManualOverrideStaysUntilTransition
     issue: https://github.com/ventd/ventd/issues/623
     reason: timer scheduling jitter on shared GitHub Actions runners
     since: 2026-04-15
+    # Path corrected from ./internal/scheduler in PR #811 — the test
+    # actually lives at internal/web/schedule_test.go:195. retry-flaky's
+    # python parser keys on the full Go module path (the JSON stream's
+    # Package field), so the registry entry must match exactly. With the
+    # old `./internal/scheduler:` path, retries never fired and the
+    # test has been failing CI without retry for weeks.
+  - test: github.com/ventd/ventd/internal/web:TestHandleProfileSchedule_UpdatesAndPersists
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: depends on /sys/class/hwmon being readable; cloud-VM
+            ubuntu runners occasionally hit "open .: no such file or
+            directory" from the package-level os.DirFS hwmonRootFS.
+            Container lanes (Arch/Alpine/Fedora) inherit /sys from
+            the host kernel and pass deterministically.
+    since: 2026-05-02
+  - test: github.com/ventd/ventd/internal/web:TestConfig_ProfileScheduleRoundTrip
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: same /sys/class/hwmon dependency as
+            TestHandleProfileSchedule_UpdatesAndPersists.
+    since: 2026-05-02
