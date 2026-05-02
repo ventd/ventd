@@ -8,10 +8,37 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/ventd/ventd/internal/preflight"
 	"github.com/ventd/ventd/internal/preflight/checks"
 )
+
+// printMOKWalkthrough renders the post-reboot MOK Manager
+// instructions inside an ASCII box so the steps stand out from the
+// surrounding log lines + prompt text. The same banner is shown
+// twice in the reboot path: once at the prompt (operator decides
+// whether to reboot) and once right before the systemctl reboot
+// fires (so it's the last thing on screen before the firmware
+// screen appears).
+func printMOKWalkthrough() {
+	const sep = "═══════════════════════════════════════════════════════════════════"
+	fmt.Println()
+	fmt.Println(sep)
+	fmt.Println("  ACTION REQUIRED AFTER REBOOT")
+	fmt.Println(sep)
+	fmt.Println("  At the blue MOK Manager screen:")
+	fmt.Println()
+	fmt.Println("    1. Choose 'Enroll MOK'")
+	fmt.Println("    2. Choose 'Continue'")
+	fmt.Println("    3. Choose 'Yes' to enroll")
+	fmt.Println("    4. Press Enter at the password prompt (no password was set)")
+	fmt.Println("    5. Choose 'Reboot'")
+	fmt.Println()
+	fmt.Println("  The system will reboot a second time. ventd will then be able")
+	fmt.Println("  to load its kernel module under Secure Boot.")
+	fmt.Println(sep)
+}
 
 // runPreflight implements the `ventd preflight` subcommand. It is the
 // orchestrator-driven counterpart of the legacy `ventd
@@ -124,13 +151,25 @@ func runPreflight(args []string, logger *slog.Logger) int {
 		prompter = preflight.NewIOPrompter(os.Stdin, os.Stdout)
 	}
 
+	// Interactive runs already render the human-readable summary +
+	// per-fix prompts; the per-check INFO log lines are noise that
+	// flood the operator's terminal and bury the actual instruction
+	// blocks. Drop the runtime logger to WARN so the UX stays
+	// readable. JSON / non-interactive paths keep the full INFO trace
+	// (it's machine-consumable and the verbosity helps install.sh
+	// debugging).
+	runLogger := logger
+	if interactive && !emitJSON {
+		runLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	}
+
 	report, runErr := preflight.Run(context.Background(), checkList, preflight.Options{
 		Interactive:    interactive,
 		Skip:           preflight.ParseList(skipList),
 		Only:           preflight.ParseList(onlyList),
 		MaxFixAttempts: maxAttempts,
 		Prompter:       prompter,
-		Logger:         logger,
+		Logger:         runLogger,
 	})
 
 	if emitJSON {
@@ -146,22 +185,23 @@ func runPreflight(args []string, logger *slog.Logger) int {
 	// when any successful AutoFix queued one. The orchestrator
 	// captures this via report.NeedsReboot.
 	if interactive && report.NeedsReboot && !autoYes {
-		fmt.Println()
-		fmt.Println("One or more fixes require a reboot to take effect.")
-		fmt.Println("After rebooting, confirm MOK enrollment at the blue MOK Manager screen:")
-		fmt.Println("  1. Choose 'Enroll MOK'")
-		fmt.Println("  2. Choose 'Continue'")
-		fmt.Println("  3. Choose 'Yes' to enroll")
-		fmt.Println("  4. Press Enter at the password prompt (no password was set)")
-		fmt.Println("  5. Choose 'Reboot'")
+		printMOKWalkthrough()
 		resp := preflight.NewStdPrompter().AskYN("Reboot now?")
 		if resp == preflight.PromptYes {
-			// Trigger the reboot via systemctl. We use --no-wall to
-			// avoid spamming logged-in TTYs with the wall message
+			// Show the walkthrough one more time RIGHT before reboot
+			// so it's the last thing the operator sees on screen
+			// before the system goes down. The countdown gives them
+			// time to read it (or photograph the screen) before the
+			// firmware screen appears.
+			printMOKWalkthrough()
+			fmt.Println()
+			fmt.Println("Rebooting in 10 seconds — Ctrl-C to cancel.")
+			time.Sleep(10 * time.Second)
+			// Trigger the reboot via systemctl. --no-wall avoids
+			// spamming other logged-in TTYs with the wall message
 			// (the operator who answered Y is presumably aware they
 			// asked for it). exec.Command without a context: we
 			// want the reboot to outlive this process.
-			fmt.Println("Initiating reboot in 3 seconds — Ctrl-C to cancel...")
 			rebootCmd := exec.Command("systemctl", "reboot", "--no-wall")
 			rebootCmd.Stdout = os.Stdout
 			rebootCmd.Stderr = os.Stderr
@@ -175,6 +215,7 @@ func runPreflight(args []string, logger *slog.Logger) int {
 			}
 			return 3 // signals "preflight done, reboot requested"
 		}
+		fmt.Println()
 		fmt.Println("Reboot deferred. Run `sudo reboot` when ready, then confirm MOK at firmware.")
 	}
 
