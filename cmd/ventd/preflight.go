@@ -16,12 +16,14 @@ import (
 
 // printMOKWalkthrough renders the post-reboot MOK Manager
 // instructions inside an ASCII box so the steps stand out from the
-// surrounding log lines + prompt text. The same banner is shown
-// twice in the reboot path: once at the prompt (operator decides
-// whether to reboot) and once right before the systemctl reboot
-// fires (so it's the last thing on screen before the firmware
-// screen appears).
-func printMOKWalkthrough() {
+// surrounding log lines + prompt text. password is the firmware
+// MOK Manager password generated during this preflight run — the
+// operator types it at step 4. The same banner is shown twice in
+// the reboot path: once at the prompt (operator decides whether to
+// reboot) and once right before the systemctl reboot fires (so
+// it's the last thing on screen before the firmware screen
+// appears).
+func printMOKWalkthrough(password string) {
 	const sep = "═══════════════════════════════════════════════════════════════════"
 	fmt.Println()
 	fmt.Println(sep)
@@ -32,9 +34,13 @@ func printMOKWalkthrough() {
 	fmt.Println("    1. Choose 'Enroll MOK'")
 	fmt.Println("    2. Choose 'Continue'")
 	fmt.Println("    3. Choose 'Yes' to enroll")
-	fmt.Println("    4. Press Enter at the password prompt (no password was set)")
+	fmt.Println("    4. Type this password (case-sensitive):")
+	fmt.Println()
+	fmt.Println("                       " + password)
+	fmt.Println()
 	fmt.Println("    5. Choose 'Reboot'")
 	fmt.Println()
+	fmt.Println("  Write this password down NOW — it disappears with the screen.")
 	fmt.Println("  The system will reboot a second time. ventd will then be able")
 	fmt.Println("  to load its kernel module under Secure Boot.")
 	fmt.Println(sep)
@@ -133,12 +139,14 @@ func runPreflight(args []string, logger *slog.Logger) int {
 		}
 	}
 
-	checkList := checks.Default(checks.DefaultOptions{
+	bundle := checks.Default(checks.DefaultOptions{
 		TargetModule:        targetModule,
 		MaxSupportedKernel:  maxKernel,
 		PortAddr:            portAddr,
 		AppArmorProfilePath: apparmorProfile,
 	})
+	checkList := bundle.Checks
+	mokPassword := bundle.SB.MOKPassword
 
 	var prompter preflight.Prompter
 	if autoYes {
@@ -188,7 +196,7 @@ func runPreflight(args []string, logger *slog.Logger) int {
 	// when any successful AutoFix queued one. The orchestrator
 	// captures this via report.NeedsReboot.
 	if interactive && report.NeedsReboot && !autoYes {
-		printMOKWalkthrough()
+		printMOKWalkthrough(mokPassword)
 		resp := preflight.NewStdPrompter().AskYN("Reboot now?")
 		if resp == preflight.PromptYes {
 			// Show the walkthrough one more time RIGHT before reboot
@@ -196,7 +204,7 @@ func runPreflight(args []string, logger *slog.Logger) int {
 			// before the system goes down. The countdown gives them
 			// time to read it (or photograph the screen) before the
 			// firmware screen appears.
-			printMOKWalkthrough()
+			printMOKWalkthrough(mokPassword)
 			fmt.Println()
 			fmt.Println("Rebooting in 10 seconds — Ctrl-C to cancel.")
 			time.Sleep(10 * time.Second)

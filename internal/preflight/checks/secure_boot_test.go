@@ -20,6 +20,7 @@ func fakeProbes() *SecureBootProbes {
 		MOKEnrolled:  func(context.Context) (bool, error) { return true, nil },
 		Distro:       hwmon.DistroInfo{ID: "ubuntu", IDLike: "debian"},
 		MOKKeyDir:    "/tmp/test-mok",
+		MOKPassword:  "ventd-test1",
 	}
 }
 
@@ -177,6 +178,66 @@ func TestSecureBootChecks(t *testing.T) {
 		tr, _ := c.Detect(context.Background())
 		if tr {
 			t.Fatal("signfile_missing triggered when probe says present")
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-10_enroll_pipes_password_to_mokutil_twice", func(t *testing.T) {
+		// shim's MOK Manager firmware enforces a minimum password
+		// length and rejects empty queues. mokutil --import reads
+		// the password TWICE (with echo off) and only queues if both
+		// reads match. The AutoFix MUST pipe the SecureBootProbes
+		// MOKPassword to mokutil's stdin via two echo statements so
+		// both reads see the same value. Caught on Phoenix's HIL
+		// where firmware rejected the empty-stdin queue with
+		// "unacceptable password length".
+		p := fakeProbes()
+		p.MOKKeyExists = func() bool { return true }
+		p.MOKEnrolled = func(context.Context) (bool, error) { return false, nil }
+		p.MOKPassword = "ventd-abcd"
+		r := &recordingRunner{}
+		p.Run = r.run
+
+		c := SecureBootChecks(*p)[3] // mok_not_enrolled
+		if err := c.AutoFix(context.Background()); err != nil {
+			t.Fatalf("AutoFix: %v", err)
+		}
+		if len(r.commands) != 1 {
+			t.Fatalf("commands: got %d, want 1", len(r.commands))
+		}
+		cmd := r.commands[0]
+		if !strings.Contains(cmd, "mokutil --import") {
+			t.Fatalf("missing mokutil --import: %s", cmd)
+		}
+		// Both echo statements must reference the password — two
+		// reads, two echoes.
+		if strings.Count(cmd, "ventd-abcd") != 2 {
+			t.Fatalf("password not piped twice: %s", cmd)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-11_password_format_is_ventd_4hex", func(t *testing.T) {
+		// generateMOKPassword produces a "ventd-XXXX" string with
+		// 4 hex chars. 10 chars total — long enough to clear shim's
+		// minimum (we haven't seen one above 8 in the wild) and
+		// short enough to type at firmware where keyboard layout
+		// may be quirky and there's no copy-paste. Stable format
+		// lets operators recognise the password as theirs (vs
+		// random goop).
+		got, err := generateMOKPassword()
+		if err != nil {
+			t.Fatalf("generate: %v", err)
+		}
+		if !strings.HasPrefix(got, "ventd-") {
+			t.Fatalf("missing prefix: %s", got)
+		}
+		hex := strings.TrimPrefix(got, "ventd-")
+		if len(hex) != 4 {
+			t.Fatalf("hex suffix length: got %d, want 4", len(hex))
+		}
+		for _, c := range hex {
+			if !(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f') {
+				t.Fatalf("non-hex char in suffix: %s", got)
+			}
 		}
 	})
 

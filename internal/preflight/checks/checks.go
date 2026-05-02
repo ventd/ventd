@@ -28,11 +28,25 @@ type DefaultOptions struct {
 	AppArmorProfilePath string
 }
 
-// Default returns the standard ordered Check slice. Order matters
-// because some checks share preconditions (e.g. all SB checks short-
-// circuit when SB isn't enforcing). The orchestrator runs every
-// Detect even on a no-fix run, so ordering is purely about which
-// blocker the operator is asked to fix first.
+// Bundle is the construction-time pair of (Check slice, side-info
+// the orchestrator caller needs to render its UI). The SB probes
+// are exposed so cmd/ventd/preflight.go can read the generated
+// MOKPassword and surface it in the boxed walkthrough — the
+// password is what the operator types at the firmware MOK Manager
+// screen, so it has to be stable across the AutoFix invocation
+// and the post-AutoFix render.
+type Bundle struct {
+	Checks []preflight.Check
+	SB     SecureBootProbes
+}
+
+// Default returns the standard ordered Check slice plus the
+// constructed SB probes (Bundle.SB.MOKPassword carries the
+// generated firmware password). Order matters because some
+// checks share preconditions (e.g. all SB checks short-circuit
+// when SB isn't enforcing). The orchestrator runs every Detect
+// even on a no-fix run, so ordering is purely about which blocker
+// the operator is asked to fix first.
 //
 // Sequence:
 //
@@ -47,7 +61,7 @@ type DefaultOptions struct {
 //  6. Concurrent install + apt lock + disk full — fast read-only
 //     gates, last because their detail strings are the most
 //     timing-dependent.
-func Default(opts DefaultOptions) []preflight.Check {
+func Default(opts DefaultOptions) Bundle {
 	if opts.TargetModule == "" {
 		opts.TargetModule = "nct6687"
 	}
@@ -58,7 +72,8 @@ func Default(opts DefaultOptions) []preflight.Check {
 	cp.TargetModule = opts.TargetModule
 	out = append(out, ConflictChecks(cp)...)
 	out = append(out, BuildChecks(DefaultBuildProbes())...)
-	out = append(out, SecureBootChecks(DefaultSecureBootProbes())...)
+	sb := DefaultSecureBootProbes()
+	out = append(out, SecureBootChecks(sb)...)
 	if opts.MaxSupportedKernel != "" {
 		out = append(out, KernelTooNewCheck(KernelTooNewProbes{
 			KernelRelease:      DefaultBuildProbes().KernelRelease,
@@ -72,5 +87,5 @@ func Default(opts DefaultOptions) []preflight.Check {
 	if opts.PortAddr != "" {
 		out = append(out, PortHeldCheck(opts.PortAddr))
 	}
-	return out
+	return Bundle{Checks: out, SB: sb}
 }

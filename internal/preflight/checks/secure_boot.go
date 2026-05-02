@@ -2,6 +2,8 @@ package checks
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,11 +42,30 @@ type SecureBootProbes struct {
 	// MOKKeyDir is the directory the keypair is generated into.
 	// Defaults to /var/lib/shim-signed/mok.
 	MOKKeyDir string
+	// MOKPassword is the password we'll pipe to `mokutil --import`
+	// AND display to the operator (they type it at firmware MOK
+	// Manager). Generated at orchestrator construction so the
+	// password is stable across the AutoFix call and the
+	// walkthrough render. cmd/ventd/preflight.go reads this off
+	// the Default()-constructed probes to surface in the boxed
+	// walkthrough.
+	MOKPassword string
 }
 
 // DefaultSecureBootProbes wires the live system. Each field is
 // non-nil; tests can copy this and override individual fields.
+//
+// The MOKPassword field is generated once at construction time so
+// the operator-displayed password matches what's piped to
+// `mokutil --import`. A generation failure produces a fixed
+// fallback ("ventd-changeme") — getting random bytes shouldn't
+// fail outside a broken sandbox, but the install path mustn't
+// abort over crypto/rand.
 func DefaultSecureBootProbes() SecureBootProbes {
+	pw, err := generateMOKPassword()
+	if err != nil {
+		pw = "ventd-changeme"
+	}
 	return SecureBootProbes{
 		Enabled:      liveSecureBootEnabled,
 		HasBinary:    liveHasBinary,
@@ -53,6 +74,7 @@ func DefaultSecureBootProbes() SecureBootProbes {
 		Distro:       hwmon.DetectDistro(),
 		Run:          liveRunShell,
 		MOKKeyDir:    "/var/lib/shim-signed/mok",
+		MOKPassword:  pw,
 	}
 }
 
@@ -158,12 +180,12 @@ func SecureBootChecks(p SecureBootProbes) []preflight.Check {
 				return true, "MOK on disk but not enrolled in firmware"
 			}),
 			Explain: func(string) string {
-				return "Queue MOK for enrollment. After reboot, confirm the key in the blue MOK Manager screen (just press Enter at the password prompt — no password is set)."
+				return "Queue MOK for enrollment. After reboot, confirm the key in the blue MOK Manager screen with the password shown below."
 			},
 			AutoFix: func(ctx context.Context) error {
-				return enrollMOK(ctx, p.MOKKeyDir, p.Run)
+				return enrollMOK(ctx, p.MOKKeyDir, p.MOKPassword, p.Run)
 			},
-			PromptText:     "Queue MOK enrollment? (you'll be prompted to reboot — no password to remember)",
+			PromptText:     "Queue MOK enrollment? (you'll be shown a one-time password to type at firmware boot)",
 			DocURL:         "https://github.com/ventd/ventd/wiki/secure-boot#enroll",
 			RequiresReboot: true,
 		},
@@ -208,22 +230,48 @@ func generateMOKKey(ctx context.Context, dir string, runner cmdRunner) error {
 }
 
 // enrollMOK queues the on-disk .der for next-boot firmware
-// enrollment via `mokutil --import`. We deliberately wire stdin to
-// /dev/null so mokutil sees EOF on both password reads — the queue
-// is recorded with an empty password, and the operator confirms at
-// the firmware MOK Manager screen by pressing Enter at the password
-// prompt.
+// enrollment via `mokutil --import`. We pipe a generated password
+// to mokutil's two password prompts and surface the same password
+// to the operator via the returned MOKPassword field on the
+// preflight Report — they need to type it at the firmware MOK
+// Manager screen.
 //
-// Threat-model note: skipping the password is intentional. Physical
-// access to the MOK Manager screen at boot already implies a
-// legitimate operator (or someone who has physical control of the
-// machine, in which case any tamper protection is moot). The
-// password adds friction without adding meaningful protection in
-// the install threat model. Operators who want password protection
-// can run `mokutil --import` themselves before invoking preflight.
-func enrollMOK(ctx context.Context, dir string, runner cmdRunner) error {
-	cmd := "mokutil --import " + dir + "/MOK.der </dev/null"
+// Empty passwords don't work in practice: shim's MOK Manager
+// enforces a minimum password length (caught on Phoenix's HIL
+// desktop where firmware rejected the empty queue with
+// "unacceptable password length"). We generate a short random
+// suffix ("ventd-<4-hex>") rather than asking the operator to
+// invent one — short enough to type at the firmware screen, long
+// enough to satisfy any reasonable shim min-length check.
+func enrollMOK(ctx context.Context, dir, password string, runner cmdRunner) error {
+	// Echo the password twice into mokutil's stdin (mokutil reads
+	// it twice, with echo off). Quote-escape the password just
+	// enough to survive /bin/sh -c — generated passwords are
+	// alphanumeric so this is belt-and-braces.
+	safePass := strings.ReplaceAll(password, "'", `'\''`)
+	cmd := "( echo '" + safePass + "'; echo '" + safePass + "' ) | mokutil --import " + dir + "/MOK.der"
 	return runner(ctx, cmd)
+}
+
+// generateMOKPassword returns a short, memorable password the
+// operator types at the firmware MOK Manager screen. Format:
+// "ventd-XXXX" where XXXX is 4 hex chars from crypto/rand. 10
+// chars total — long enough to clear shim's min-length check (we
+// haven't seen one above 8 in the wild), short enough to type at
+// firmware where the keyboard layout may be quirky and there's no
+// copy-paste.
+func generateMOKPassword() (string, error) {
+	var buf [2]byte
+	if _, err := cryptoRandRead(buf[:]); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("ventd-%04x", binary.BigEndian.Uint16(buf[:])), nil
+}
+
+// cryptoRandRead is a var so tests can stub it; production points
+// at crypto/rand.Read.
+var cryptoRandRead = func(b []byte) (int, error) {
+	return rand.Read(b)
 }
 
 // liveSecureBootEnabled bridges to hwmon's existing live probe so we
