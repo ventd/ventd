@@ -321,13 +321,20 @@ func (b *BlendedController) Compute(in BlendedInputs) BlendedResult {
 		return res
 	}
 
-	var Kp, Ki, tau float64
+	// τ is computed inside deriveIMCPIGains and cached on piState for
+	// future doctor-surface exposure (v0.5.10), but Compute itself
+	// only uses Kp/Ki — so we drop the local tau variable to keep
+	// staticcheck happy. The cache write below preserves the value
+	// for that future surface.
+	var Kp, Ki float64
 	if st.cachedKp != 0 && in.Coupling.NSamples-st.cachedNSamples < gainRefreshSamples {
 		Kp = st.cachedKp
 		Ki = st.cachedKi
-		tau = st.cachedTau
 	} else {
-		var ok bool
+		var (
+			tau float64
+			ok  bool
+		)
 		Kp, Ki, tau, ok = deriveIMCPIGains(a, bii, dtSec, b.cfg.Preset)
 		if !ok {
 			res.PIRefused = true
