@@ -42,6 +42,21 @@ fan to MaxPWM on every tick.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_rejects_above_plausible_cap
 
+## RULE-SENTINEL-TEMP-FLOOR: temperature at or below absolute zero is rejected as a sensor latch / driver underflow
+
+`IsSentinelSensorVal` must reject temperature readings at or below
+`PlausibleTempMinCelsius` (−273.15°C). A reading at or below the absolute-
+zero floor is physically impossible — it indicates a sensor latch error or a
+signed/unsigned underflow in the driver (e.g. a driver returning the int32
+sentinel `-2147483648` divided by 1000 = −2147483.648°C). Drivers historically
+have no canonical "value unavailable" signal, so a sub-absolute-zero filter
+is the defensive complement to the high-end `PlausibleTempMaxCelsius` cap.
+Real-world degraded readings such as the Framework 13 AMD 7040 EC's −17°C
+I2C bus underflow remain above this floor and pass through to the operator
+UI for triage; only physically impossible values are filtered here.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_rejects_sub_absolute_zero
+
 ## RULE-SENTINEL-TEMP-VALID: a normal temperature reading passes through the sentinel filter unchanged
 
 `IsSentinelSensorVal` must return false for temperature readings in the

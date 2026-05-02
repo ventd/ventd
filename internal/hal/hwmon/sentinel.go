@@ -34,6 +34,20 @@ const (
 	// operational above this threshold.
 	PlausibleTempMaxCelsius = 150.0
 
+	// PlausibleTempMinCelsius is the lowest temperature (in °C, post-scale)
+	// the controller treats as a valid reading. Any reading at or below
+	// −273.15°C is below absolute zero — physically impossible and a
+	// sign of a sensor latch error or signed/unsigned underflow in a
+	// driver. Research-validated against R28 hostile-fan agent + kernel
+	// hwmon sysfs-interface docs: drivers historically have no canonical
+	// "value unavailable" signal, so a sub-absolute-zero filter is the
+	// defensive complement to the high-end PlausibleTempMaxCelsius cap.
+	// The Framework 13 AMD 7040 EC reports −17.x°C from an I2C bus
+	// underflow; that real-world degraded reading is still passed
+	// through (operator UI surfaces it for triage). Only physically
+	// impossible values are filtered here.
+	PlausibleTempMinCelsius = -273.15
+
 	// PlausibleVoltageMaxVolts is the highest voltage (in V, post-scale) that
 	// the controller treats as valid. The 0xFFFF sentinel maps to ~65.5 V;
 	// no standard PSU rail exceeds 20 V.
@@ -54,14 +68,14 @@ func IsSentinelRPM(raw int) bool {
 //
 // Inference rules (matching hwmon.ReadValue's divisors):
 //
-//	temp* files → val is in °C  → cap at PlausibleTempMaxCelsius
+//	temp* files → val is in °C  → reject ≥ PlausibleTempMaxCelsius OR ≤ PlausibleTempMinCelsius
 //	in*   files → val is in V   → cap at PlausibleVoltageMaxVolts
 //	fan*  files → val is in RPM → cap at PlausibleRPMMax; sentinel = SentinelRPMRaw
 func IsSentinelSensorVal(path string, val float64) bool {
 	base := filepath.Base(path)
 	switch {
 	case strings.HasPrefix(base, "temp"):
-		return val >= PlausibleTempMaxCelsius
+		return val >= PlausibleTempMaxCelsius || val <= PlausibleTempMinCelsius
 	case strings.HasPrefix(base, "in"):
 		return val > PlausibleVoltageMaxVolts
 	case strings.HasPrefix(base, "fan"):
