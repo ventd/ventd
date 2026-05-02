@@ -7,18 +7,18 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/ventd/ventd/blob/main/LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-lightgrey)](#supported-platforms)
 
-**Automatic Linux fan control. Install, open the browser, click Apply — ventd handles the rest.**
+**Automatic Linux fan control. Install, open the browser, click Apply — ventd handles the rest on most consumer hardware.**
 
-One static binary, one install command, one URL. Hardware detection, calibration, curve editing, and recovery all happen in the web UI. The terminal install command is the last terminal command you need to run.
+One static binary, one install command, one URL. Hardware detection, calibration, curve editing, and recovery all happen in the web UI. The terminal install command is the last terminal command you need to run on the happy path. When the kernel doesn't expose writable fan control for your hardware (some laptops, datacenter GPUs, recent Dell EC-locked chassis — see [What ventd cannot control](#what-ventd-cannot-control)), ventd falls back to monitor-only mode with a clear explanation rather than pretending.
 
 > [!NOTE]
 > **ventd is pre-1.0.** Safety guarantees are production-quality and verified by tests CI enforces. The config schema and curve format may evolve before v1.0. See [What's coming](#whats-coming) for the smart-mode roadmap to v0.6.0.
 
 ## Why ventd
 
-Existing Linux fan tools assume you're willing to write YAML by hand, run `liquidctl` as a Python sidecar, and figure out which Super I/O chip your motherboard uses. ventd doesn't. It enumerates everything writable through `hwmon`, `NVML`, and a native USB HID stack, calibrates each fan's start/stop PWM and PWM→RPM curve in the background, and gives you a browser tab to edit curves in. No config file, no Python runtime, no root daemon.
+Existing Linux fan tools assume you're willing to write YAML by hand, run `liquidctl` as a Python sidecar, and figure out which Super I/O chip your motherboard uses. ventd doesn't. It enumerates everything writable through `hwmon`, `NVML`, and a native USB HID stack, calibrates each fan's start/stop PWM and PWM→RPM curve in the background, and gives you a browser tab to edit curves in. No config file, no Python runtime.
 
-It is also — to our knowledge — the only Linux fan daemon in its class that runs unprivileged. fan2go and CoolerControl both run as `User=root`. ventd runs as `User=ventd` with an empty capability bounding set. See [Safety](#safety).
+What no other Linux fan tool does: when something goes wrong on your hardware (Secure Boot blocking module load, in-tree driver conflict, ACPI region reservation, missing kernel headers, DKMS state collision, …) ventd classifies the failure and offers one-click auto-fixes — generate a MOK key, queue its enrollment, install kernel headers, write modprobe quirks, blacklist a conflicting in-tree module, and re-run install with cleared state. fan2go, CoolerControl, fancontrol, and thinkfan all just emit error strings.
 
 [![ventd dashboard — live fan speeds, temperatures, and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](/ventd/ventd/blob/main/docs/images/dashboard.png)
 
@@ -54,19 +54,22 @@ It is also — to our knowledge — the only Linux fan daemon in its class that 
 * **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
 * **Native USB HID for AIO pumps.** Corsair Commander Core, Core XT, and Commander ST shipped in v0.4.0 — talking directly to the device through a pure-Go hidraw stack with no `liquidctl` Python sidecar. Read-only by default; writes opt-in behind `--enable-corsair-write`.
 * **IPMI for server BMCs.** ASRock Rack, Supermicro, and other server boards exposing IPMI fan control. Shipped in v0.3.1.
-* **Hardware database (52 boards, 6 vendors).** Curated catalog covering MSI, ASUS, Gigabyte, ASRock, Dell (consumer + PowerEdge), HP, HPE, Lenovo (IdeaPad/ThinkPad/Legion), Supermicro, and Raspberry Pi. Three-tier matcher: exact board match, then BIOS-version glob, then chip-family fallback. GPU vendor coverage: NVIDIA (NVML), AMD (amdgpu), Intel (i915/xe). Shipped in v0.5.0. The catalog is a fast-path overlay — smart-mode probes and controls hardware without a matching board profile, using the profile as an optimisation when it exists.
+* **Hardware database (130+ boards, 6 vendors, growing).** Curated catalog covering MSI, ASUS, Gigabyte, ASRock, Dell (consumer + PowerEdge), HP, HPE, Lenovo (IdeaPad/ThinkPad/Legion), Supermicro, and Raspberry Pi. Three-tier matcher: exact board match, then BIOS-version glob, then chip-family fallback. With v0.5.11's probe-then-pick refactor, the catalog is a hint, not an oracle — ventd tries each candidate driver and trusts the kernel's chip-ID rejection as the authoritative signal, so a stale catalog entry costs ~30 s of compile time, not 12 hours of debugging. GPU vendor coverage: NVIDIA (NVML), AMD (amdgpu), Intel (i915/xe). Catalog grows from user diagnostic bundles.
+* **Self-healing recovery.** When something goes wrong (Secure Boot, DKMS state, in-tree driver conflict, ACPI region reservation), ventd's classifier identifies the failure class and offers one-click auto-fixes through the wizard. Reboots are surfaced explicitly when a fix only takes effect at next boot (MOK enrollment, blacklist drop-ins). No other Linux fan tool ships this.
+* **Terminal-first preflight (`ventd preflight`).** Before the systemd unit is installed, the install script runs an interactive preflight that detects Secure Boot prerequisites, missing kernel headers, in-tree driver conflicts, and 20+ other install-time blockers. It walks you through Y/N-gated auto-fixes for each — no opening a wiki, no guessing modprobe options. The web UI never shows install-time errors because they're caught and fixed in the terminal first.
+* **Coexistence with vendor tools.** ventd detects `system76-power`, `tccd` (Tuxedo Control Centre), `slimbookbattery`, and `asusctl` and steps aside — your vendor tool already controls fans correctly on Linux-first OEM laptops. ventd registers as monitor-only on those systems rather than fighting the vendor daemon for control.
 * **Calibration safety: runtime probe + apply-path enforcement.** Calibration produces a real per-PWM probe result. The apply path refuses to write to channels that haven't been runtime-probed or are flagged unsupported in the catalog. Shipped in v0.5.0.
 * **Diagnostic bundle.** `ventd diag` produces a redacted NDJSON bundle for support and bug reports. Built-in redactor with fuzz-tested anonymisation. Shipped in v0.5.0.
 * **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI. The curve editor uses calibration data to draw the stall zone in red, so you can't accidentally set a curve below the fan's stop threshold.
 * **Hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
-* **Zero terminal after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI.
+* **Browser-first after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI on the happy path. The terminal-first preflight catches install-time blockers up-front so the wizard is browser-only on success.
 * **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
 
 ## Safety
 
 ventd controls physical hardware. Two things follow from that, and both are load-bearing design decisions rather than marketing copy.
 
-**The daemon runs as an unprivileged user.** The shipped systemd unit sets `User=ventd` with an empty `CapabilityBoundingSet` and empty `AmbientCapabilities` — no `CAP_DAC_OVERRIDE`, no `CAP_SYS_RAWIO`, nothing. Write access to hwmon PWM sysfs files comes from a DAC grant via the installed udev rule (`deploy/90-ventd-hwmon.rules` chgrps the files to the `ventd` group). A process compromise lands the attacker as `ventd:ventd`, not as root. To our knowledge ventd is the only Linux fan daemon in its class that does this — fan2go and CoolerControl both run as `User=root`.
+**Daemon privilege is `User=root` today (v0.5.8.1+).** The original design ran ventd unprivileged with udev DAC grants for hwmon PWM access, but the OOT-driver install path (DKMS register, depmod, modprobe, /lib/modules write, MOK key signing) needs root and the unprivileged-with-sudo approach proved fragile across distros. The v0.6.0 split-daemon plan separates control + install responsibilities so the long-running control loop can run unprivileged again while the install path gets a one-shot privileged helper. Until then, ventd ships as `User=root` honestly. The shipped AppArmor profile remains in the package for the v0.6.0 split (RULE-INSTALL-06).
 
 **Every exit path restores firmware control within two seconds.** Two layers, working together:
 
@@ -118,7 +121,7 @@ Detailed design in [specs/spec-smart-mode.md](https://github.com/ventd/ventd/blo
 
 ## Install
 
-ventd runs as an unprivileged system user with no root capabilities (see [Safety](#safety) above). The install script is small and plaintext — read it before you run it:
+The install script is small and plaintext — read it before you run it:
 
 ```
 curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh -o install.sh
@@ -132,42 +135,72 @@ If you already trust the script, or you're in a trusted-provisioning environment
 curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh | sudo bash
 ```
 
-Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), downloads the binary, **verifies its SHA-256 against the published `checksums.txt` for the release**, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
+Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), runs the [terminal-first preflight](#features) (Y/N gates for any install-time blockers), downloads the binary, **verifies its SHA-256 against the published `checksums.txt` for the release**, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
 
-Open the printed URL. The setup wizard prompts for a one-time token on first run. The daemon does **not** log the token to journald; it writes it to `/run/ventd/setup-token` (0600, root-only) and, if a controlling TTY is attached, to that TTY. Recover it with:
-
-```
-sudo cat /run/ventd/setup-token
-```
+Open the printed URL. ventd serves a self-signed TLS certificate on first boot — your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. There is no setup token to recover from a file; ventd v0.5.8.1+ uses a first-login-creates-account flow.
 
 ## Supported platforms
 
-* **Distributions:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Alpine, Void, NixOS
+* **Distributions:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Alpine, Void
 * **Init systems:** systemd, OpenRC, runit
 * **Architectures:** amd64, arm64
 * **C library:** glibc and musl
-* **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require a one-time udev rule, see [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
+* **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require the `--enable-gpu-write` daemon flag, see [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
 * **Liquid coolers:** Corsair Commander Core / Core XT / ST (native USB HID, no liquidctl required).
 * **Server BMCs:** IPMI fan control on ASRock Rack, Supermicro, and other vendors exposing the standard IPMI fan interface.
+
+NixOS is not in the supported list — ventd's auto-fix endpoints write to `/etc/modprobe.d/` and `/etc/modules-load.d/` paths that NixOS silently ignores in favour of `configuration.nix`. Manual integration is possible; first-class support is on the post-v0.6.0 roadmap.
+
+## What ventd cannot control
+
+The hardware below **cannot** be controlled by ventd or any Linux fan tool — the firmware, embedded controller, or hypervisor blocks all software access. ventd detects these and surfaces monitor-only mode with a clear explanation rather than pretending:
+
+* HP EliteBook G10+, ZBook G9 / G10 — SMM-locked
+* Post-2020 Dell XPS 9320, 9500, 9710 — EC-locked, manual control vendor-revoked
+* Surface Pro 9, Surface Laptop Studio — Surface Aggregator EC
+* Microsoft Surface keyboard-cover devices — by design
+* Apple Silicon Macs (M1, M2, M3, M4) — Asahi project policy is read-only
+* Intel NUC — per Intel: "no software-controllable fans"
+* Acer Predator / Nitro post-2021 BIOS — EC-locked
+* HPE iLO Standard tier (Gen8 / Gen9 / Gen10 without Advanced licence)
+* iDRAC firmware ≥ 3.34 — manual control vendor-revoked
+* NVIDIA datacenter GPUs (H100, H200, A100) — firmware-locked
+* AMD Instinct MI200 / MI300X — firmware-locked
+* OEM mini-PCs without in-tree EC drivers (Beelink, GMKtec, AceMagic — model-specific)
+
+Per-board breakdown in [docs/hardware.md](https://github.com/ventd/ventd/blob/main/docs/hardware.md). If you have one of these and ventd surfaces an unhelpful error instead of a clean monitor-only fallback, that's a bug — please file a hardware report.
 
 ## How it compares
 
 |  | ventd | CoolerControl | fan2go | thinkfan | lm-sensors fancontrol |
 | --- | --- | --- | --- | --- | --- |
-| Zero-config first boot | yes | no | no | no | no |
-| Browser-only setup (no terminal after install) | yes | no | no | no | no |
+| Auto-config first boot | yes | no | no | no | no |
+| Browser-only setup (after install) | yes | no | no | no | no |
 | Automatic calibration | yes | manual | manual | manual | manual |
 | Single static binary | yes | no | yes | yes | script |
-| Runs unprivileged (non-root) | yes | no | no | no | no |
+| Self-healing recovery (classifier + auto-fix cards) | yes | no | no | no | no |
+| Automatic OOT module install + DKMS + MOK enrolment | yes | no | no | no | no |
+| Hardware/distro-aware quirk dispatch (modprobe options, GRUB cmdline) | yes | no | no | no | no |
+| Terminal-first install preflight (Y/N gated auto-fixes) | yes | no | no | no | no |
 | Runtime NVML `dlopen` (no nvidia build flag) | yes | no | no | no | no |
 | Native USB HID for Corsair AIO (no liquidctl) | yes | via liquidctl | no | no | no |
 | IPMI for server BMCs | yes | no | no | no | no |
 | Hardware change detection | yes | no | no | no | no |
+| Monitor-only fallback for vendor-locked hardware | yes | no | no | no | no |
 | Adaptive learning (smart mode) | v0.6.0 | no | no | no | no |
-| Curated per-hardware profiles | yes (v0.5.0, fast-path overlay) | yes | no | partial | no |
+| Curated per-hardware profiles | yes (130+ boards, growing) | yes | no | partial | no |
 | Native desktop GUI | no (web UI) | yes (Qt) | no | no | no |
 
-CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app today. ventd trades those for zero-config first boot, a browser-only workflow that works over the network, no runtime dependencies, an unprivileged daemon, and a roadmap pointed at learned adaptive control.
+CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app today. ventd trades those for auto-config first boot, a browser-only workflow that works over the network, structured recovery with one-click auto-fixes for the long tail of hostile-hardware quirks, no runtime dependencies, and a roadmap pointed at learned adaptive control.
+
+## What we commit to
+
+If your hardware is in [What ventd cannot control](#what-ventd-cannot-control), we commit to surfacing that honestly in monitor-only mode rather than letting you chase a vendor-locked dead end. If your hardware *should* work but ventd fails to detect or control it, we commit to:
+
+* A diagnostic-bundle path that captures the missing data in one click (`ventd diag bundle`).
+* A classifier + auto-fix card for any failure mode that hits more than one user.
+* A growing catalog populated from those bundles — `git blame` on `internal/hwdb/profiles-v1.yaml` shows every entry traceable to a real machine that hit a real wall.
+* No silent failures: if the daemon can't acquire a fan it logs a structured reason, surfaces it in `ventd doctor`, and the wizard never claims success it didn't earn.
 
 ## Documentation
 
