@@ -191,6 +191,13 @@
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 22px;
 }
+/* Done banner sits in the same grid cell as the live card so the user's
+ * eye doesn't drop below the fold to find Apply. JS hides .cal-live-card
+ * when p.done so the banner takes over the column cleanly. */
+.cal-body-grid > .cal-done-banner {
+  grid-column: 1;
+  align-self: start;
+}
 .cal-side { display: flex; flex-direction: column; gap: 16px; }
 
 /* ── card primitives ──────────────────────────────────────── */
@@ -234,7 +241,46 @@
 }
 
 /* ── live sweep card ──────────────────────────────────────── */
-.cal-live-card { gap: 18px; }
+.cal-live-card { gap: 18px; position: relative; }
+
+/* Finalising spinner overlay — fades in over the static scatter while the
+ * daemon builds the thermal curve. Without this the live card looked
+ * frozen between the last sweep ending and the done banner appearing
+ * (#821). The pulse animation lives in the dot, not the overlay, so
+ * prefers-reduced-motion gracefully degrades to a static dot via the
+ * existing global rule on @media (prefers-reduced-motion: reduce). */
+.cal-live-card.is-finalizing::after {
+  content: 'Building thermal curve…';
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg2);
+  background: color-mix(in srgb, var(--bg2) 88%, transparent);
+  border-radius: 12px;
+  padding-left: 28px;
+  pointer-events: none;
+  z-index: 2;
+}
+.cal-live-card.is-finalizing::before {
+  content: '';
+  position: absolute;
+  /* anchor the spinner inline-left of the "Building…" text */
+  top: 50%; left: 50%;
+  transform: translate(-100px, -50%);
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--teal) 30%, transparent);
+  border-top-color: var(--teal);
+  animation: cal-spin 0.9s linear infinite;
+  z-index: 3;
+}
+@keyframes cal-spin {
+  to { transform: translate(-100px, -50%) rotate(360deg); }
+}
 
 .cal-live-stats {
   display: grid;
@@ -703,6 +749,22 @@
 }
 
 /* ── responsive ───────────────────────────────────────────── */
+
+/* 1366×768 laptop displays (Phoenix's HIL fixture, #821) — the page used
+ * to overflow the viewport because of generous default padding + 56px
+ * minimum row heights on the chart + safety card. Trim vertical padding
+ * and tighten gaps so the full pipeline → live card → done banner flow
+ * fits without scrolling at the laptop's default 1× zoom. */
+@media (max-width: 1440px) and (max-height: 820px) {
+  .cal-stage { padding: 18px 22px 22px; gap: 14px; }
+  .cal-head { padding-bottom: 10px; }
+  .cal-card { padding: 14px 18px; gap: 10px; }
+  .cal-live-card { gap: 12px; }
+  .cal-live-stats { gap: 10px; }
+  .cal-live-stat { padding: 8px 12px; }
+  .cal-chart svg { max-height: 220px; }
+}
+
 @media (max-width: 1080px) {
   .cal-body-grid { grid-template-columns: 1fr; }
   .cal-pipeline-steps { grid-template-columns: repeat(4, 1fr); }

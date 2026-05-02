@@ -96,6 +96,29 @@
   <!-- BODY GRID -------------------------------------------------------- -->
   <section class="cal-body-grid">
 
+    <!-- DONE BANNER (hidden until applied) — placed inside body-grid so
+         it occupies the left column where the live sweep card was, mid-
+         viewport. Phoenix's HIL feedback (#821): the banner used to live
+         at the bottom of the page below the fold on 1366×768 laptops, so
+         the user had to scroll to find the Apply button. Now it replaces
+         the live card in the same grid cell, and JS hides the live card
+         on `p.done` so there's no double-render. -->
+    <section class="cal-done-banner" id="cal-done-banner" hidden>
+      <div class="cal-done-celebrate" aria-hidden="true">
+        <svg viewBox="0 0 64 64"><path d="M16 32l10 10 22-22"/></svg>
+      </div>
+      <div class="cal-done-text">
+        <div class="cal-done-title">Calibration complete</div>
+        <div class="cal-done-sub" id="cal-done-sub">
+          Your custom fan curve is ready. Apply to take over from firmware control.
+        </div>
+      </div>
+      <button class="btn btn--primary btn--lg" id="cal-apply-btn">
+        Apply &amp; Continue
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+    </section>
+
     <!-- LEFT: live sweep --------------------------------------------- -->
     <div class="cal-card cal-live-card" id="cal-live-card">
       <div class="cal-card-head">
@@ -254,23 +277,6 @@
       </div>
 
     </div>
-  </section>
-
-  <!-- DONE BANNER (hidden until applied) ------------------------------ -->
-  <section class="cal-done-banner" id="cal-done-banner" hidden>
-    <div class="cal-done-celebrate" aria-hidden="true">
-      <svg viewBox="0 0 64 64"><path d="M16 32l10 10 22-22"/></svg>
-    </div>
-    <div class="cal-done-text">
-      <div class="cal-done-title">Calibration complete</div>
-      <div class="cal-done-sub" id="cal-done-sub">
-        Your custom fan curve is ready. Apply to take over from firmware control.
-      </div>
-    </div>
-    <button class="btn btn--primary btn--lg" id="cal-apply-btn">
-      Apply &amp; Continue
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-    </button>
   </section>
 
   <!-- ERROR BANNER (hidden unless an error or abort fires) ------------ -->
