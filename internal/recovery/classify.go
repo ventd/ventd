@@ -298,14 +298,14 @@ func Classify(phase string, err error, journal []string) FailureClass {
 		return ClassACPIResourceConflict
 	}
 
-	// 5a. ThinkPad fan_control disabled — kernel's thinkpad_acpi
-	// driver loaded but writes to pwm*_enable return EPERM because
-	// the operator hasn't passed `fan_control=1`. The signature is
-	// either an explicit thinkpad_acpi journal stamp ("Disabling
-	// fan write commands" / "fan_control disabled") OR EPERM during
-	// pwm_enable write on a Lenovo board. Classified before the
-	// generic ClassDriverWontBind catch-all so the more-specific
-	// ThinkPad remediation card fires.
+	// 5a. ThinkPad fan_control disabled — narrow regex match against
+	// userspace-tool error strings or ventd's own EPERM-wrapped
+	// formatting. The kernel's thinkpad_acpi driver refuses fan
+	// writes silently (-EPERM with no printk; see reThinkpadACPI
+	// comment for the upstream-source citation), so the canonical
+	// pre-emptive detection is a sysfs probe — not this regex.
+	// The classifier rule still fires on after-the-fact error text
+	// from operators / ventd's pwm_enable write helper.
 	if reThinkpadACPI.MatchString(joined) || reThinkpadACPI.MatchString(msg) {
 		return ClassThinkpadACPIDisabled
 	}
@@ -438,16 +438,29 @@ var (
 	reInstallSucceeded = regexp.MustCompile(
 		`(installed /lib/modules/[^/]+/extra/.*\.ko|updating module index|driver install: depmod)`,
 	)
-	// ThinkPad fan_control gate — the in-tree thinkpad_acpi driver
-	// loads with fan writes disabled by default and emits one of
-	// these stamps to dmesg when an operator (or ventd) tries to
-	// write pwm*_enable without `options thinkpad_acpi fan_control=1`.
-	// Writing to /sys/devices/platform/thinkpad_hwmon/fan*_pwm_enable
-	// also returns EPERM with messages of the same shape on userspace
-	// tools. Pattern matches the stable English keywords from the
-	// upstream `drivers/platform/x86/thinkpad_acpi.c` (the kernel's
-	// fan-control gate enforcement), independent of distro.
+	// ThinkPad fan_control gate — narrowed after upstream-research
+	// validation: the kernel's thinkpad_acpi driver does NOT emit a
+	// per-write printk when refusing fan writes. Every guarded path
+	// (fan_set_level, fan_set_level_safe, etc. in
+	// drivers/platform/x86/thinkpad_acpi.c) returns -EPERM silently.
+	// The init-time "fan control features disabled by parameter"
+	// message is wrapped in dbg_printk(), gated behind
+	// CONFIG_THINKPAD_ACPI_DEBUG — absent on every stock distro
+	// kernel.
+	//
+	// So this regex CANNOT match dmesg / journal directly. The only
+	// reliable string-level signal is the failure message a userspace
+	// fan tool prints when it hits the EPERM, which is stable English
+	// from `vmatare/thinkfan` and similar tools. Canonical
+	// pre-emptive detection — used by the wizard preflight — is a
+	// sysfs probe of `/sys/module/thinkpad_acpi/parameters/fan_control`
+	// (a follow-up PR adds DetectThinkpadACPIDisabled in probe.go).
+	//
+	// This regex catches the post-failure case where the operator
+	// already saw thinkfan's error and pasted it into a bug report,
+	// or where ventd's pwm_enable write helper wraps EPERM with a
+	// thinkpad_acpi reference in its error-formatting path.
 	reThinkpadACPI = regexp.MustCompile(
-		`(thinkpad_acpi.*(fan_control|disabling fan write commands|cannot write to pwm)|thinkpad-acpi.*fan_control disabled)`,
+		`thinkpad_acpi.*(does(n't| not) seem to support fan_control|fan_control=0|cannot write to pwm)`,
 	)
 )
