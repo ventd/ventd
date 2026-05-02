@@ -2,6 +2,7 @@ package redactor
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"sync"
@@ -21,7 +22,12 @@ func (p *P4IP) Name() string { return "ipv4" }
 // IPv4: matches bare and CIDR forms.
 var ipv4RE = regexp.MustCompile(`\b(\d{1,3}\.){3}\d{1,3}(/\d{1,2})?\b`)
 
-// IPv6: simplified pattern covering common forms.
+// IPv6: simplified pattern covering common forms. Over-matches by
+// design — we accept any colon-separated hex shape here and rely on
+// net.ParseIP in Redact() to reject the false positives. Without
+// the ParseIP guard the regex also matches ISO-8601 time-of-day
+// shapes (`T01:08:33` looks like an IPv6 to this pattern), which
+// historically corrupted every slog timestamp in diag bundles.
 var ipv6RE = regexp.MustCompile(`\b([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b`)
 
 var ipv4Passthrough = []string{
@@ -64,6 +70,16 @@ func (p *P4IP) Redact(content []byte, store *MappingStore) ([]byte, int) {
 	// IPv6.
 	content = ipv6RE.ReplaceAllFunc(content, func(match []byte) []byte {
 		s := string(match)
+		// Reject anything net.ParseIP can't accept as a v6 address.
+		// The regex over-matches ISO-8601 time-of-day shapes
+		// (T01:08:33 looks like a 3-group IPv6) and other
+		// punctuation-delimited hex runs; ParseIP is the canonical
+		// gate. ParseIP also accepts dotted-IPv4 — reject those
+		// here so v4 doesn't double-redact.
+		ip := net.ParseIP(s)
+		if ip == nil || ip.To4() != nil {
+			return match
+		}
 		for _, prefix := range ipv6Passthrough {
 			if strings.HasPrefix(strings.ToLower(s), prefix) {
 				return match
