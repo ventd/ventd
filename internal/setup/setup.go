@@ -141,6 +141,13 @@ type Manager struct {
 	polarityProber polarity.Prober    // nil = skip polarity probe (tests); set by SetPolarityProber
 	reprobeFn      ReProber           // nil = skip post-install re-probe; set by SetReProber
 
+	// vendorDaemonProbe overrides the production vendor-daemon detection
+	// for tests. nil = use recovery.DetectVendorDaemon with the live
+	// systemctl probe (production). Tests inject a stub via
+	// SetVendorDaemonProbe to drive the wizard's monitor-only short-
+	// circuit path without spawning systemctl.
+	vendorDaemonProbe func(context.Context) recovery.VendorDaemon
+
 	// settleAfterModprobe is the wait between a successful modprobe and the
 	// reprobe call so kernel hwmon class registration completes. Production
 	// uses defaultSettleAfterModprobe; tests inject 0 via newWithSettle.
@@ -219,6 +226,17 @@ func (m *Manager) SetPolarityProber(p polarity.Prober) {
 func (m *Manager) SetReProber(rp ReProber) {
 	m.mu.Lock()
 	m.reprobeFn = rp
+	m.mu.Unlock()
+}
+
+// SetVendorDaemonProbe overrides the wizard's vendor-daemon detection
+// callback for tests. Production code leaves this unset; run() falls back
+// to recovery.DetectVendorDaemon with the live systemctl probe. Tests use
+// this hook to drive the monitor-only short-circuit path without spawning
+// systemctl or relying on a vendor unit being installed in the sandbox.
+func (m *Manager) SetVendorDaemonProbe(fn func(context.Context) recovery.VendorDaemon) {
+	m.mu.Lock()
+	m.vendorDaemonProbe = fn
 	m.mu.Unlock()
 }
 
@@ -571,6 +589,34 @@ func (m *Manager) run(ctx context.Context) {
 			c()
 		}
 	}()
+
+	// ── Phase 0: vendor-daemon deferral check ───────────────────────────────
+	//
+	// R28 Agent G's #1 architectural finding: Linux-first OEM laptops
+	// (System76, ASUS ROG, Tuxedo, Slimbook) ship working vendor fan
+	// daemons. ventd should defer rather than fight for control. Probe
+	// before any hardware enumeration so the wizard short-circuits into
+	// a friendly recovery card instead of running calibration that the
+	// vendor daemon will then override.
+	//
+	// The probe respects ctx so an Abort during the systemctl checks
+	// returns cleanly. VendorDaemonNone (the default + ctx-cancel
+	// path) means proceed with the normal install flow.
+	vendorProbe := m.vendorDaemonProbe
+	if vendorProbe == nil {
+		vendorProbe = func(ctx context.Context) recovery.VendorDaemon {
+			return recovery.DetectVendorDaemon(ctx, nil)
+		}
+	}
+	if v := vendorProbe(ctx); v != recovery.VendorDaemonNone {
+		m.mu.Lock()
+		m.errMsg = "Detected an active vendor fan daemon (" + string(v) + "). " +
+			"That daemon already controls your fans correctly on this laptop. " +
+			"Switch ventd to monitor-only mode rather than fight it for control."
+		m.failureClass = recovery.ClassVendorDaemonActive
+		m.mu.Unlock()
+		return
+	}
 
 	// ── Phase 1: hardware detection ─────────────────────────────────────────
 	m.setPhase("detecting", "Scanning your system for hardware...")
