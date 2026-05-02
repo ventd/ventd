@@ -29,9 +29,12 @@ func TestDetectVendorDaemon(t *testing.T) {
 			want:   VendorDaemonSystem76,
 		},
 		{
-			name:   "system76 scheduler alias",
+			// Negative case: system76-scheduler is a CFS / process-
+			// priority tweaker, not a fan daemon. Its presence MUST
+			// NOT trigger defer.
+			name:   "system76-scheduler alone does NOT trigger defer",
 			active: map[string]bool{"system76-scheduler.service": true},
-			want:   VendorDaemonSystem76,
+			want:   VendorDaemonNone,
 		},
 		{
 			name:   "asusd active",
@@ -39,9 +42,12 @@ func TestDetectVendorDaemon(t *testing.T) {
 			want:   VendorDaemonAsusctl,
 		},
 		{
-			name:   "asusctl alias",
+			// Negative case: asusctl.service doesn't exist upstream
+			// (asusctl is the CLI binary, not a daemon). A user-
+			// defined unit by that name must NOT trigger defer.
+			name:   "asusctl.service is not a real unit — no defer",
 			active: map[string]bool{"asusctl.service": true},
-			want:   VendorDaemonAsusctl,
+			want:   VendorDaemonNone,
 		},
 		{
 			name:   "tccd active",
@@ -49,14 +55,39 @@ func TestDetectVendorDaemon(t *testing.T) {
 			want:   VendorDaemonTuxedo,
 		},
 		{
-			name:   "tuxedofancontrol alias",
-			active: map[string]bool{"tuxedofancontrol.service": true},
+			// Tuxedo's Rust rewrite (tuxedo-rs) ships tailord — the
+			// canonical name on NixOS / Arch. Both tccd and tailord
+			// resolve to VendorDaemonTuxedo because either active
+			// means "Tuxedo's daemon owns fans here".
+			name:   "tailord (Rust rewrite) active",
+			active: map[string]bool{"tailord.service": true},
 			want:   VendorDaemonTuxedo,
 		},
 		{
-			name:   "slimbookbattery active",
+			// Negative case: tuxedofancontrol is the legacy archived
+			// daemon, removed from defer list — not shipped on any
+			// 2024-2026 system.
+			name:   "tuxedofancontrol legacy unit does NOT trigger defer",
+			active: map[string]bool{"tuxedofancontrol.service": true},
+			want:   VendorDaemonNone,
+		},
+		{
+			// Negative case: slimbookbattery is a TLP frontend, no
+			// fan control. Slimbook hardware fan control is firmware/
+			// EC-managed. ventd should run normally here.
+			name:   "slimbookbattery does NOT trigger defer (TLP frontend)",
 			active: map[string]bool{"slimbookbattery.service": true},
-			want:   VendorDaemonSlimbook,
+			want:   VendorDaemonNone,
+		},
+		{
+			name:   "legiond (Lenovo Legion) active",
+			active: map[string]bool{"legiond.service": true},
+			want:   VendorDaemonLegion,
+		},
+		{
+			name:   "fw-fanctrl (Framework community) active",
+			active: map[string]bool{"fw-fanctrl.service": true},
+			want:   VendorDaemonFramework,
 		},
 		{
 			name: "system76 wins ordering when multiple are active",
