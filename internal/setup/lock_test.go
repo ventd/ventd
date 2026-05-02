@@ -70,24 +70,34 @@ func TestRULE_WIZARD_GATE_LockStalePidIsReused(t *testing.T) {
 // TestRULE_WIZARD_GATE_LockLivePidRefuses verifies that a lock file
 // pointing at a live (non-self) PID causes AcquireWizardLock to refuse
 // with *ErrWizardAlreadyRunning. Bound to RULE-WIZARD-GATE-LOCK-03.
+//
+// Picks the test runner's parent PID rather than PID 1: PID 1 isn't
+// always reliably present on every CI sandbox (some arm64 runner
+// configurations namespace-isolate the test process so kill(1, 0)
+// fails with ESRCH). The parent PID is guaranteed alive while this
+// test runs, guaranteed non-self, and stable across runners.
 func TestRULE_WIZARD_GATE_LockLivePidRefuses(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("VENTD_WIZARD_LOCK_DIR", dir)
 
-	// PID 1 (init) is always alive on any Linux host AND non-self.
-	if err := os.WriteFile(WizardLockPath(), []byte("1\n"), 0o644); err != nil {
+	parentPID := os.Getppid()
+	if parentPID <= 1 {
+		t.Skipf("test parent PID is %d (no usable live non-self PID in this sandbox)", parentPID)
+	}
+	pidLine := strconv.Itoa(parentPID) + "\n"
+	if err := os.WriteFile(WizardLockPath(), []byte(pidLine), 0o644); err != nil {
 		t.Fatalf("seed live PID lock: %v", err)
 	}
 
 	_, err := AcquireWizardLock()
 	if err == nil {
-		t.Fatalf("AcquireWizardLock should refuse when PID 1 holds lock")
+		t.Fatalf("AcquireWizardLock should refuse when live PID %d holds lock", parentPID)
 	}
 	var clash *ErrWizardAlreadyRunning
 	if !errors.As(err, &clash) {
 		t.Fatalf("err is %T, want *ErrWizardAlreadyRunning", err)
 	}
-	if clash.PID != 1 {
-		t.Errorf("ErrWizardAlreadyRunning.PID = %d, want 1", clash.PID)
+	if clash.PID != parentPID {
+		t.Errorf("ErrWizardAlreadyRunning.PID = %d, want %d", clash.PID, parentPID)
 	}
 }
