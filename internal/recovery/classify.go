@@ -22,7 +22,6 @@
 package recovery
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 )
@@ -220,21 +219,3 @@ var (
 		`(modprobe: ?fatal: ?module .* not found|module .* not found in directory|insmod: error inserting .*: -1 unknown symbol)`,
 	)
 )
-
-// errString extracts the error chain into a single space-separated
-// string. Used by tests that build err chains via fmt.Errorf
-// wrapping; the classifier treats the unwrapped chain as one blob.
-//
-// Caller-only helper: the classifier itself just calls err.Error()
-// because Go's fmt.Errorf("%w", ...) pattern serialises the wrapped
-// chain into a single string.
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	parts := []string{err.Error()}
-	for unwrapped := errors.Unwrap(err); unwrapped != nil; unwrapped = errors.Unwrap(unwrapped) {
-		parts = append(parts, unwrapped.Error())
-	}
-	return strings.Join(parts, " ")
-}
