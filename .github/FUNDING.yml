@@ -1,0 +1,5 @@
+# GitHub Sponsors button in the repo header.
+# Set the username once Phoenix has the Sponsors account approved;
+# until then the file enables the "Sponsor" button to point at the
+# GitHub Sponsors page where the author can sign up.
+github: [phoenixdnb]

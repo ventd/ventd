@@ -631,45 +631,115 @@ func (m *Manager) run(ctx context.Context) {
 		m.setPhase("detecting", "Board detected: "+board)
 	}
 
-	// ── Phase 2: automatic driver installation ──────────────────────────────
+	// ── Phase 2: probe-then-pick driver installation ────────────────────────
+	//
+	// The legacy single-pick (DriverNeeds[0]) trusted the catalog as oracle
+	// and cost 12 hours on Phoenix's MS-7D25 / NCT6687D when the catalog had
+	// it routed to it8688e. The structural fix: try each candidate in order,
+	// trust install_steps.stepVerify's "PWM channels appeared" signal as
+	// authoritative, and continue on chip-mismatch (ErrNoPWMChannelsAppeared).
+	//
+	// Loading the wrong OOT module is safe: the chip-ID register read fails
+	// to match and the kernel returns ENODEV without binding. We then unload
+	// the module via UnloadModule and try the next candidate. The 12-hour
+	// wrong-driver incident becomes an extra ~30 s of compile time per
+	// failed candidate, with the right driver still picked at the end.
+	//
+	// Failure classes that DO NOT trigger retry:
+	//   - ErrRebootRequired (ACPI conflict — operator must reboot first)
+	//   - real install failures (build, headers, SB key) — affect every
+	//     candidate identically.
 	if diag.PWMCount == 0 && len(diag.DriverNeeds) > 0 {
-		nd := diag.DriverNeeds[0]
-		m.mu.Lock()
-		m.chipName = nd.ChipName
-		m.mu.Unlock()
-		m.setPhase("installing_driver",
-			"Installing "+nd.ChipName+" fan controller driver — this may take a minute...")
-
-		// Preflight the OOT fallback chain. Each blocker produces a distinct
-		// hwdiag entry with a one-click remediation, and aborts install so
-		// we don't waste time on a build we know will fail.
-		if pre := hwmonpkg.PreflightOOT(nd, hwmonpkg.DefaultProbes()); pre.Reason != hwmonpkg.ReasonOK {
-			m.emitPreflightDiag(nd, pre)
+		bound := false
+		var lastChipMismatch error
+		for i, nd := range diag.DriverNeeds {
 			m.mu.Lock()
-			m.errMsg = pre.Detail
-			m.failureClass = preflightReasonToFailureClass(pre.Reason)
+			m.chipName = nd.ChipName
 			m.mu.Unlock()
-			return
-		}
+			progress := ""
+			if len(diag.DriverNeeds) > 1 {
+				progress = fmt.Sprintf("[%d/%d] ", i+1, len(diag.DriverNeeds))
+			}
+			m.setPhase("installing_driver",
+				progress+"Installing "+nd.ChipName+" fan controller driver — this may take a minute...")
 
-		err := hwmonpkg.InstallDriver(nd.Key, m.appendInstallLog, m.logger)
-		if err != nil {
-			m.mu.Lock()
+			// Preflight the OOT fallback chain. Each blocker produces a distinct
+			// hwdiag entry with a one-click remediation, and aborts install so
+			// we don't waste time on a build we know will fail. Preflight blockers
+			// are system-level (sudo, headers, SB chain, container) — they affect
+			// every candidate identically, so a failure here stops the loop.
+			if pre := hwmonpkg.PreflightOOT(nd, hwmonpkg.DefaultProbes()); pre.Reason != hwmonpkg.ReasonOK {
+				m.emitPreflightDiag(nd, pre)
+				m.mu.Lock()
+				m.errMsg = pre.Detail
+				m.failureClass = preflightReasonToFailureClass(pre.Reason)
+				m.mu.Unlock()
+				return
+			}
+
+			err := hwmonpkg.InstallDriver(nd.Key, m.appendInstallLog, m.logger)
+			if err == nil {
+				m.setPhase("installing_driver", "Driver installed. Detecting fans...")
+				m.afterDriverInstall(ctx, "InstallDriver:"+nd.ChipName)
+				bound = true
+				break
+			}
+
+			// ACPI conflict — the driver itself is correct, the host needs a
+			// reboot to clear the resource. No point trying others.
 			var rebootErr *hwmonpkg.ErrRebootRequired
 			if errors.As(err, &rebootErr) {
+				m.mu.Lock()
 				m.rebootNeeded = true
 				m.rebootMessage = rebootErr.Message
-			} else {
-				m.errMsg = "Could not install the fan controller driver: " + err.Error()
 				m.mu.Unlock()
-				m.emitBuildFailedDiag(nd, err)
-				m.mu.Lock()
+				return
 			}
+
+			// Chip mismatch — this candidate built and modprobed cleanly but
+			// no PWM channels appeared, meaning the OOT module's chip-ID probe
+			// rejected the actual Super-I/O. Unload it and try the next one.
+			if errors.Is(err, hwmonpkg.ErrNoPWMChannelsAppeared) {
+				m.appendInstallLog(fmt.Sprintf(
+					"%s did not bind any PWM channels (chip mismatch) — trying next candidate.",
+					nd.ChipName))
+				if cleanupErr := hwmonpkg.UnloadModule(nd.Module); cleanupErr != nil {
+					m.logger.Warn("setup: could not unload non-binding module before retry",
+						"module", nd.Module, "err", cleanupErr)
+				}
+				lastChipMismatch = err
+				continue
+			}
+
+			// Real install failure (build, headers, missing key, etc.) —
+			// affects every candidate. Surface and stop.
+			m.mu.Lock()
+			m.errMsg = "Could not install the fan controller driver: " + err.Error()
 			m.mu.Unlock()
+			m.emitBuildFailedDiag(nd, err)
 			return
 		}
-		m.setPhase("installing_driver", "Driver installed. Detecting fans...")
-		m.afterDriverInstall(ctx, "InstallDriver:"+nd.ChipName)
+
+		if !bound {
+			// Exhausted every candidate without a chip match. Surface a
+			// catalog-gap diagnostic so the operator knows it isn't a build
+			// problem — their hardware is genuinely outside the catalog.
+			m.mu.Lock()
+			names := make([]string, 0, len(diag.DriverNeeds))
+			for _, nd := range diag.DriverNeeds {
+				names = append(names, nd.ChipName)
+			}
+			m.errMsg = fmt.Sprintf(
+				"Tried %d driver candidate(s) (%s) — none bound any PWM channels. "+
+					"Your board's fan controller chip is not in ventd's catalog. "+
+					"Please file a diagnostic bundle so we can add support.",
+				len(diag.DriverNeeds), strings.Join(names, ", "))
+			m.mu.Unlock()
+			if lastChipMismatch != nil && len(diag.DriverNeeds) > 0 {
+				m.emitBuildFailedDiag(diag.DriverNeeds[len(diag.DriverNeeds)-1], lastChipMismatch)
+			}
+			return
+		}
 	}
 
 	// ── Phase 3: NVML init ──────────────────────────────────────────────────

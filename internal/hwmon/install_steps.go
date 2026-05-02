@@ -1,6 +1,7 @@
 package hwmon
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,16 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrNoPWMChannelsAppeared is returned by stepVerify when the driver loaded
+// without error but no controllable PWM channels appeared in sysfs within
+// the poll window — the canonical signal of a chip-mismatch (loaded the
+// wrong OOT module for the actual Super-I/O on the board). The probe-then-
+// pick driver-selection loop in internal/setup uses errors.Is to distinguish
+// this retryable outcome from real install failures (build errors, missing
+// kernel headers, ACPI resource conflicts), where trying the next candidate
+// driver would not help.
+var ErrNoPWMChannelsAppeared = errors.New("driver installed but no controllable fan channels appeared")
 
 // InstallSteps drives the controlled install pipeline. Each step has an
 // explicit success criterion, an explicit cleanup contract, and is tested
@@ -116,17 +127,23 @@ func RunPipeline(c PipelineConfig) error {
 		return err
 	}
 
+	// stepVerify before stepPersist: probe-then-pick (#822 follow-up) needs
+	// stepPersist NOT to fire on a chip-mismatch failure, otherwise the
+	// wrongly-bound module would be written to /etc/modules-load.d and
+	// auto-reload at boot — undoing the loop's choice. Persisting only on
+	// successful PWM-channel appearance keeps the modules-load.d entry in
+	// sync with what actually controls fans on this hardware.
+	c.Log("Verifying fan controller channels...")
+	if err := stepVerify(c); err != nil {
+		return fmt.Errorf("step verify: %w", err)
+	}
+
 	if err := stepPersist(c); err != nil {
 		// Persist failure is logged but doesn't fail the pipeline — the
 		// module is loaded and working; persistence affects survival
 		// across reboots, not current operation.
 		c.Logger.Warn("could not persist module after install",
 			"module", c.Driver.Module, "err", err)
-	}
-
-	c.Log("Verifying fan controller channels...")
-	if err := stepVerify(c); err != nil {
-		return fmt.Errorf("step verify: %w", err)
 	}
 
 	c.Log(fmt.Sprintf("Driver %s installed successfully.", c.Driver.ChipName))
@@ -266,6 +283,12 @@ func stepPersist(c PipelineConfig) error {
 // stepVerify polls findPWMPaths up to 6 times at 250ms intervals, looking
 // for at least one controllable PWM. Extracted from install.go:131-142;
 // keeps the same timing so existing test fixtures don't need to change.
+//
+// On failure the returned error wraps ErrNoPWMChannelsAppeared so the
+// probe-then-pick caller in internal/setup can detect the chip-mismatch
+// case and retry with the next driver candidate. Real install failures
+// (build, headers, ACPI) surface separately at higher levels and don't
+// reach this point.
 func stepVerify(c PipelineConfig) error {
 	var pwmPaths []string
 	for i := 0; i < 6; i++ {
@@ -277,7 +300,7 @@ func stepVerify(c PipelineConfig) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("driver installed but no controllable fan channels appeared — your board may use a different chip variant")
+	return fmt.Errorf("%w (chip-mismatch — your board may use a different chip variant)", ErrNoPWMChannelsAppeared)
 }
 
 // copyFile is a small portable file-copy helper. The upstream Makefile's
