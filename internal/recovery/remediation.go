@@ -59,184 +59,78 @@ type Remediation struct {
 //
 // All entries close with a generic "Send diagnostic bundle" option
 // so the operator always has a way to escalate to the maintainers.
-// That bundle button reuses the existing /api/v1/diag/bundle endpoint
+// That bundle button reuses the existing /api/diag/bundle endpoint
 // shipped by PR #799, so no new backend work needed for that arm.
+//
+// v0.5.11 narrowing: install-time classes (Secure Boot, missing
+// kernel headers, missing build tools, DKMS state collisions, in-
+// tree conflicts, container/rootfs/sudo refusal, disk full,
+// concurrent install, package-manager busy) used to render auto-fix
+// cards in the calibration error banner. Now they are caught by
+// `ventd preflight` BEFORE the systemd unit is even installed —
+// the operator can't reach the calibration UI with these
+// blockers active. The classes stay in the enum for diag-bundle
+// context (a calibration-time error referencing one of these still
+// helps maintainers triage), but their UI cards collapse to just
+// the bundle option. Runtime classes that can fire after install
+// (AppArmor profile drift after a kernel update, missing module
+// after manual rmmod) keep their cards because they reach the
+// doctor surface, not the wizard.
 func RemediationFor(class FailureClass) []Remediation {
 	bundle := Remediation{
 		Label:       "Send diagnostic bundle to maintainers",
 		Description: "Generates a redacted bundle (hostnames, IPs, MACs replaced with stable tokens) you can share with the project maintainers for help.",
 		Kind:        KindActionPost,
-		ActionURL:   "/api/v1/diag/bundle",
+		ActionURL:   "/api/diag/bundle",
+	}
+
+	// Install-time classes — the operator cannot reach this surface
+	// while one of these is active because `ventd preflight` blocks
+	// install. Returned remediation is bundle-only so the doctor
+	// view stays consistent if a runtime regression resurfaces one.
+	installTime := map[FailureClass]bool{
+		ClassSecureBoot:         true,
+		ClassMissingHeaders:     true,
+		ClassDKMSBuildFailed:    true,
+		ClassMissingBuildTools:  true,
+		ClassDKMSStateCollision: true,
+		ClassInTreeConflict:     true,
+		ClassContainerised:      true,
+		ClassPackageManagerBusy: true,
+		ClassDaemonNotRoot:      true,
+		ClassReadOnlyRootfs:     true,
+		ClassDiskFull:           true,
+		ClassConcurrentInstall:  true,
+	}
+	if installTime[class] {
+		return []Remediation{bundle}
 	}
 
 	switch class {
-	case ClassSecureBoot:
-		return []Remediation{
-			{
-				Label:       "Generate MOK signing key",
-				Description: "Secure Boot blocks unsigned kernel modules. Generate a Machine Owner Key, enroll it at next boot, and ventd will sign its module. Walk-through provided.",
-				Kind:        KindModalInstr,
-				ActionURL:   "/api/v1/hwdiag/mok-enroll",
-				DocURL:      "https://github.com/ventd/ventd/wiki/secure-boot",
-			},
-			{
-				Label:       "Or disable Secure Boot in firmware",
-				Description: "Reboot to BIOS/UEFI setup, find Secure Boot under the Boot or Security menu, set it to Disabled. Faster but less secure than enrolling a MOK.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/secure-boot#disable-in-firmware",
-			},
-			bundle,
-		}
-
-	case ClassMissingHeaders:
-		return []Remediation{
-			{
-				Label:       "Install kernel headers",
-				Description: "Installs linux-headers (Debian/Ubuntu), kernel-headers (Fedora), or linux-headers (Arch) for your running kernel. The OOT driver build will succeed once these are present.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-kernel-headers",
-				DocURL:      "https://github.com/ventd/ventd/wiki/kernel-headers",
-			},
-			bundle,
-		}
-
-	case ClassDKMSBuildFailed:
-		return []Remediation{
-			{
-				Label:       "Install DKMS",
-				Description: "DKMS rebuilds out-of-tree drivers automatically when the kernel updates. If it isn't installed, the wizard's driver-install step fails before the build even starts.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-dkms",
-				DocURL:      "https://github.com/ventd/ventd/wiki/dkms",
-			},
-			bundle,
-		}
-
 	case ClassApparmorDenied:
 		return []Remediation{
 			{
 				Label:       "Reload AppArmor profile",
 				Description: "Loads ventd's shipped AppArmor profile into the running kernel. Distros that enforce AppArmor at boot may not have parsed our profile yet — this wires it up so the wizard's helpers run unblocked.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/load-apparmor",
+				ActionURL:   "/api/hwdiag/load-apparmor",
 				DocURL:      "https://github.com/ventd/ventd/wiki/apparmor",
 			},
 			bundle,
 		}
 
 	case ClassMissingModule:
+		// Runtime class: a module that disappeared after install
+		// (manual rmmod, kernel update without DKMS rebuild) reaches
+		// the doctor surface, not the wizard. Keep the load-module
+		// card for that path.
 		return []Remediation{
 			{
 				Label:       "Try loading the module",
 				Description: "Asks the daemon to modprobe the expected kernel module and persist it via /etc/modules-load.d. If the module isn't installed at all, this surfaces a more specific error.",
 				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/setup/load-module",
+				ActionURL:   "/api/setup/load-module",
 				DocURL:      "https://github.com/ventd/ventd/wiki/missing-module",
-			},
-			bundle,
-		}
-
-	// — v0.5.9 PR-D additions ———————————————————————————————————————
-
-	case ClassMissingBuildTools:
-		return []Remediation{
-			{
-				Label:       "Install build tools",
-				Description: "Installs gcc, make, and the distro's build-essentials meta-package. The OOT driver build needs these to compile against your kernel.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/install-build-tools",
-				DocURL:      "https://github.com/ventd/ventd/wiki/build-tools",
-			},
-			bundle,
-		}
-
-	case ClassDKMSStateCollision:
-		return []Remediation{
-			{
-				Label:       "Reset and reinstall driver",
-				Description: "Removes any partially-installed driver state (DKMS registration, .ko files, modules-load.d entries) and runs a fresh install. Use this when a previous install attempt left half-finished state behind.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
-				DocURL:      "https://github.com/ventd/ventd/wiki/reset-and-reinstall",
-			},
-			bundle,
-		}
-
-	case ClassInTreeConflict:
-		return []Remediation{
-			{
-				Label:       "Unbind in-tree driver and blacklist",
-				Description: "Removes the conflicting in-tree kernel driver (e.g. nct6683 when ventd needs nct6687d) and writes a blacklist drop-in so it doesn't reload at boot. Then reruns the OOT install.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/hwdiag/reset-and-reinstall",
-				DocURL:      "https://github.com/ventd/ventd/wiki/in-tree-conflict",
-			},
-			bundle,
-		}
-
-	case ClassContainerised:
-		return []Remediation{
-			{
-				Label:       "Run ventd on the host instead",
-				Description: "ventd cannot calibrate fans from inside a container — hwmon writes don't reach real hardware. Install and run ventd directly on the host system.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/containers",
-			},
-			bundle,
-		}
-
-	case ClassPackageManagerBusy:
-		return []Remediation{
-			{
-				Label:       "Wait and retry",
-				Description: "Another package manager (apt/dpkg) is currently running. Wait for it to finish (or close any open Software Updater windows), then retry the install.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/apt-lock",
-			},
-			bundle,
-		}
-
-	case ClassDaemonNotRoot:
-		return []Remediation{
-			{
-				Label:       "Configure passwordless sudo or run as root",
-				Description: "ventd is not running as root and cannot escalate non-interactively. Either run the daemon as root (via systemd unit) or configure passwordless sudo for the ventd user.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/sudo",
-			},
-			bundle,
-		}
-
-	case ClassReadOnlyRootfs:
-		return []Remediation{
-			{
-				Label:       "Use your distro's system-modification path",
-				Description: "/lib/modules is read-only on this distro (Silverblue, NixOS, Ubuntu Core, etc.). Driver install requires using the distro's system-modification procedure — see docs.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/immutable-distros",
-			},
-			bundle,
-		}
-
-	case ClassDiskFull:
-		return []Remediation{
-			{
-				Label:       "Free disk space",
-				Description: "One of /lib/modules, /usr/src, or /var/cache has less than 256 MiB free. Free up space — typically by clearing the package cache or old kernel headers — then retry.",
-				Kind:        KindDocsOnly,
-				DocURL:      "https://github.com/ventd/ventd/wiki/disk-full",
-			},
-			bundle,
-		}
-
-	case ClassConcurrentInstall:
-		return []Remediation{
-			{
-				Label:       "Wait or take over the running wizard",
-				Description: "Another ventd setup wizard is already running on this machine. Wait for it to finish, or take over the run (the existing wizard's state will be released).",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/v1/setup/take-over",
-				DocURL:      "https://github.com/ventd/ventd/wiki/concurrent-wizard",
 			},
 			bundle,
 		}
