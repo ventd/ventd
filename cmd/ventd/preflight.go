@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/ventd/ventd/internal/preflight"
@@ -147,16 +148,34 @@ func runPreflight(args []string, logger *slog.Logger) int {
 	if interactive && report.NeedsReboot && !autoYes {
 		fmt.Println()
 		fmt.Println("One or more fixes require a reboot to take effect.")
-		fmt.Println("After rebooting, you may need to confirm the MOK enrollment at the firmware screen.")
+		fmt.Println("After rebooting, confirm MOK enrollment at the blue MOK Manager screen:")
+		fmt.Println("  1. Choose 'Enroll MOK'")
+		fmt.Println("  2. Choose 'Continue'")
+		fmt.Println("  3. Choose 'Yes' to enroll")
+		fmt.Println("  4. Type the password you supplied during enrollment")
+		fmt.Println("  5. Choose 'Reboot'")
 		resp := preflight.NewStdPrompter().AskYN("Reboot now?")
 		if resp == preflight.PromptYes {
-			fmt.Println("Initiating reboot...")
-			// install.sh will see the exit code and re-invoke after reboot.
-			// We don't actually run systemctl reboot here — that's the
-			// caller's job, since cmd/ventd is also used in test/CI lanes
-			// where a reboot would wreck the host.
+			// Trigger the reboot via systemctl. We use --no-wall to
+			// avoid spamming logged-in TTYs with the wall message
+			// (the operator who answered Y is presumably aware they
+			// asked for it). exec.Command without a context: we
+			// want the reboot to outlive this process.
+			fmt.Println("Initiating reboot in 3 seconds — Ctrl-C to cancel...")
+			rebootCmd := exec.Command("systemctl", "reboot", "--no-wall")
+			rebootCmd.Stdout = os.Stdout
+			rebootCmd.Stderr = os.Stderr
+			if err := rebootCmd.Start(); err != nil {
+				// Fallback to /sbin/reboot for non-systemd hosts.
+				if err2 := exec.Command("reboot").Run(); err2 != nil {
+					fmt.Fprintf(os.Stderr, "could not reboot: systemctl: %v / reboot: %v\n", err, err2)
+					fmt.Fprintln(os.Stderr, "Please reboot manually: sudo reboot")
+					return 3
+				}
+			}
 			return 3 // signals "preflight done, reboot requested"
 		}
+		fmt.Println("Reboot deferred. Run `sudo reboot` when ready, then confirm MOK at firmware.")
 	}
 
 	if runErr != nil {
