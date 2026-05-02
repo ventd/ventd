@@ -24,11 +24,11 @@ func stubSystemctl(states map[string]string, err error) SystemctlExec {
 
 func TestRULE_DOCTOR_DETECTOR_UserspaceConflict_AllInactiveNoFacts(t *testing.T) {
 	det := NewUserspaceConflictDetector(stubSystemctl(map[string]string{
-		"fancontrol.service":      "inactive",
-		"thinkfan.service":        "inactive",
-		"nbfc_service.service":    "inactive",
-		"coolercontrold.service":  "inactive",
-		"liquidctl.service":       "inactive",
+		"fancontrol.service":     "inactive",
+		"thinkfan.service":       "inactive",
+		"nbfc_service.service":   "inactive",
+		"coolercontrold.service": "inactive",
+		"liquidctl.service":      "inactive",
 	}, nil))
 
 	facts, err := det.Probe(context.Background(), doctor.Deps{Now: fixedNow})

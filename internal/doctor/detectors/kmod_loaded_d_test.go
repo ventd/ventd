@@ -13,8 +13,8 @@ import (
 
 // stubHwmonFS lets tests stage a synthetic /sys/class/hwmon tree.
 type stubHwmonFS struct {
-	names    map[string]string // <hwmonN dir> → contents of name file
-	readErr  error
+	names   map[string]string // <hwmonN dir> → contents of name file
+	readErr error
 }
 
 func (s *stubHwmonFS) ReadDir(path string) ([]os.DirEntry, error) {

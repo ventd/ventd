@@ -64,11 +64,11 @@ func (d *ExperimentalFlagsDetector) Probe(ctx context.Context, deps doctor.Deps)
 	facts := make([]doctor.Fact, 0, len(snap.Entries))
 	for _, e := range snap.Entries {
 		facts = append(facts, doctor.Fact{
-			Detector: d.Name(),
-			Severity: doctor.SeverityOK,
-			Class:    recovery.ClassUnknown,
-			Title:    fmt.Sprintf("Experimental flag active: %s", e.ID),
-			Detail:   fmt.Sprintf("hwdiag entry %s reports active. Detail: %s", e.ID, e.Detail),
+			Detector:   d.Name(),
+			Severity:   doctor.SeverityOK,
+			Class:      recovery.ClassUnknown,
+			Title:      fmt.Sprintf("Experimental flag active: %s", e.ID),
+			Detail:     fmt.Sprintf("hwdiag entry %s reports active. Detail: %s", e.ID, e.Detail),
 			EntityHash: doctor.HashEntity("experimental_flags", e.ID),
 			Observed:   now,
 		})

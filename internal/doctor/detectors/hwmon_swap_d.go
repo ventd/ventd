@@ -74,11 +74,11 @@ func (d *HwmonSwapDetector) Probe(ctx context.Context, deps doctor.Deps) ([]doct
 		liveDir, ok := live[name]
 		if !ok {
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityBlocker,
-				Class:    recovery.ClassUnknown,
-				Title:    fmt.Sprintf("Chip %s no longer enumerated under /sys/class/hwmon", name),
-				Detail:   fmt.Sprintf("At daemon start the chip %q was at %s. It's no longer present — the kernel module unloaded, the device hot-removed, or sysfs lost the entry. The controller's cached path is stale; PWM writes will fail with ENOENT.", name, baseDir),
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityBlocker,
+				Class:      recovery.ClassUnknown,
+				Title:      fmt.Sprintf("Chip %s no longer enumerated under /sys/class/hwmon", name),
+				Detail:     fmt.Sprintf("At daemon start the chip %q was at %s. It's no longer present — the kernel module unloaded, the device hot-removed, or sysfs lost the entry. The controller's cached path is stale; PWM writes will fail with ENOENT.", name, baseDir),
 				EntityHash: doctor.HashEntity("hwmon_swap_disappeared", name, baseDir),
 				Observed:   now,
 			})
@@ -86,11 +86,11 @@ func (d *HwmonSwapDetector) Probe(ctx context.Context, deps doctor.Deps) ([]doct
 		}
 		if liveDir != baseDir {
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityBlocker,
-				Class:    recovery.ClassUnknown,
-				Title:    fmt.Sprintf("Chip %s moved from %s to %s", name, baseDir, liveDir),
-				Detail:   fmt.Sprintf("hwmon enumeration changed underneath the running daemon. The controller's cached PWM paths still reference %s; writes will hit the WRONG chip. Restart ventd so it re-resolves paths from /sys/class/hwmon/<dir>/name.", baseDir),
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityBlocker,
+				Class:      recovery.ClassUnknown,
+				Title:      fmt.Sprintf("Chip %s moved from %s to %s", name, baseDir, liveDir),
+				Detail:     fmt.Sprintf("hwmon enumeration changed underneath the running daemon. The controller's cached PWM paths still reference %s; writes will hit the WRONG chip. Restart ventd so it re-resolves paths from /sys/class/hwmon/<dir>/name.", baseDir),
 				EntityHash: doctor.HashEntity("hwmon_swap_moved", name, baseDir, liveDir),
 				Observed:   now,
 			})

@@ -18,19 +18,19 @@ func fixedNow() time.Time {
 
 func okProbes() hwmon.Probes {
 	return hwmon.Probes{
-		KernelRelease:        func() string { return "6.8.0-1-generic" },
-		BuildDirExists:       func(string) bool { return true },
-		HasBinary:            func(string) bool { return true },
-		SecureBootEnabled:    func() (bool, bool) { return false, true },
-		MOKKeyAvailable:      func() bool { return true },
-		IsContainerised:      func() bool { return false },
+		KernelRelease:              func() string { return "6.8.0-1-generic" },
+		BuildDirExists:             func(string) bool { return true },
+		HasBinary:                  func(string) bool { return true },
+		SecureBootEnabled:          func() (bool, bool) { return false, true },
+		MOKKeyAvailable:            func() bool { return true },
+		IsContainerised:            func() bool { return false },
 		HaveRootOrPasswordlessSudo: func() bool { return true },
-		AnotherWizardRunning: func() bool { return false },
-		InTreeDriverConflict: func(string) (string, bool) { return "", false },
-		LibModulesWritable:   func(string) bool { return true },
-		AptLockHeld:          func() bool { return false },
-		StaleDKMSState:       func(string) bool { return false },
-		DiskFreeBytes:        func(string) (uint64, error) { return 1 << 40, nil },
+		AnotherWizardRunning:       func() bool { return false },
+		InTreeDriverConflict:       func(string) (string, bool) { return "", false },
+		LibModulesWritable:         func(string) bool { return true },
+		AptLockHeld:                func() bool { return false },
+		StaleDKMSState:             func(string) bool { return false },
+		DiskFreeBytes:              func(string) (uint64, error) { return 1 << 40, nil },
 	}
 }
 

@@ -15,12 +15,12 @@ import (
 // stubDetector lets tests assert what facts come out and what timeouts
 // fire without writing real probe code.
 type stubDetector struct {
-	name        string
-	facts       []Fact
-	err         error
-	probeDelay  time.Duration
-	probePanic  any
-	probeCount  atomic.Int32
+	name         string
+	facts        []Fact
+	err          error
+	probeDelay   time.Duration
+	probePanic   any
+	probeCount   atomic.Int32
 	lastDeadline time.Time
 }
 

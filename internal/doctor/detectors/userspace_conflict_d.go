@@ -43,11 +43,11 @@ func execSystemctlIsActive(ctx context.Context, unit string) (string, error) {
 // match is unsupported / tier-3-fallback and we don't have a
 // specific conflict declaration to consult.
 var ConflictingUnits = []string{
-	"fancontrol.service",   // lm_sensors PWM daemon
-	"thinkfan.service",     // ThinkPad-specific fan curve daemon
-	"nbfc_service.service", // NoteBook FanControl userspace EC daemon
+	"fancontrol.service",     // lm_sensors PWM daemon
+	"thinkfan.service",       // ThinkPad-specific fan curve daemon
+	"nbfc_service.service",   // NoteBook FanControl userspace EC daemon
 	"coolercontrold.service", // CoolerControl, common on AMD systems
-	"liquidctl.service",    // Liquidctl daemonised mode
+	"liquidctl.service",      // Liquidctl daemonised mode
 }
 
 // UserspaceConflictDetector emits a Blocker Fact for every conflicting
