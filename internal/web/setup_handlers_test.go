@@ -223,6 +223,59 @@ func TestHandleSystemReboot_NonPOST_RejectedAs405(t *testing.T) {
 	}
 }
 
+// TestHandleSetupApplyMonitorOnly_NonPOST_RejectedAs405 — same method
+// enforcement contract as the rest of the setup wizard handlers.
+func TestHandleSetupApplyMonitorOnly_NonPOST_RejectedAs405(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/setup/apply-monitor-only", nil)
+	w := httptest.NewRecorder()
+	srv.handleSetupApplyMonitorOnly(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/setup/apply-monitor-only: status = %d, want %d", got, http.StatusMethodNotAllowed)
+	}
+}
+
+// TestHandleSetupApplyMonitorOnly_WritesEmptyConfig — the vendor-daemon
+// recovery card POSTs here when the operator chooses to defer to a
+// running OEM fan daemon (System76 / ASUS / Tuxedo / Slimbook). The
+// handler must produce the same monitor-only state that the empty-
+// fanset escape in handleSetupApply produces, regardless of wizard
+// state.
+//
+// Asserts: 200 OK, "mode":"monitor_only" in the body, config.yaml
+// exists on disk, and the persisted config has no fans / sensors /
+// curves / controls (monitor-only intent).
+func TestHandleSetupApplyMonitorOnly_WritesEmptyConfig(t *testing.T) {
+	srv, configPath, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/setup/apply-monitor-only", nil)
+	w := httptest.NewRecorder()
+	srv.handleSetupApplyMonitorOnly(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusOK {
+		t.Fatalf("apply-monitor-only: status = %d, want 200 (body=%q)", got, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"mode":"monitor_only"`) {
+		t.Fatalf("apply-monitor-only: body = %q, want monitor_only mode signal", body)
+	}
+	// Verify the config file was written with monitor-only shape.
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("config not written: %v", err)
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("loaded config: %v", err)
+	}
+	if len(loaded.Fans) != 0 || len(loaded.Sensors) != 0 || len(loaded.Curves) != 0 || len(loaded.Controls) != 0 {
+		t.Fatalf("monitor-only config should be empty; got fans=%d sensors=%d curves=%d controls=%d",
+			len(loaded.Fans), len(loaded.Sensors), len(loaded.Curves), len(loaded.Controls))
+	}
+}
+
 // TestHandleSystemReboot_RefusedInContainer — verifies the #177 guard.
 // When the daemon detects it's running in a container-like environment,
 // /api/system/reboot must respond with 409 Conflict and a human-readable

@@ -300,6 +300,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "setup/status", handler: s.handleSetupStatus, auth: true},
 		{name: "setup/start", handler: s.handleSetupStart, auth: true},
 		{name: "setup/apply", handler: s.handleSetupApply, auth: true},
+		{name: "setup/apply-monitor-only", handler: s.handleSetupApplyMonitorOnly, auth: true},
 		{name: "setup/reset", handler: s.handleSetupReset, auth: true},
 		{name: "setup/calibrate/abort", handler: s.handleSetupCalibrateAbort, auth: true},
 		{name: "setup/load-module", handler: s.handleSetupLoadModule, auth: true},
@@ -1368,6 +1369,48 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Connection", "close")
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
+	s.triggerReload()
+}
+
+// handleSetupApplyMonitorOnly POST /api/setup/apply-monitor-only
+//
+// Writes a monitor-only config to disk regardless of wizard state and
+// marks setup as applied. Used by the vendor-daemon recovery card
+// (RULE-WIZARD-RECOVERY-11 / ClassVendorDaemonActive): when ventd
+// detects an active vendor fan daemon (System76, ASUS ROG, Tuxedo,
+// Slimbook), the operator clicks "Switch ventd to monitor-only" and
+// this endpoint drops into the same monitor-only mode that the
+// empty-fanset escape in handleSetupApply produces — but without
+// requiring the wizard to first run + fail.
+//
+// Mirrors handleSetupApply's monitorOnly path: preserves live web
+// settings (listen, TLS, session TTL, trust_proxy) so a LAN-mid-setup
+// browser doesn't get downgraded to loopback; everything else
+// (sensors / fans / curves / controls) is empty by design — the
+// vendor daemon owns those.
+func (s *Server) handleSetupApplyMonitorOnly(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg := config.Empty()
+	if live := s.cfg.Load(); live != nil {
+		cfg.Web = live.Web
+	}
+	if err := os.MkdirAll(filepath.Dir(s.configPath), 0700); err != nil {
+		http.Error(w, "create config dir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := config.Save(cfg, s.configPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.setup.MarkApplied()
+	s.logger.Info("setup: monitor-only mode applied via vendor-daemon deferral",
+		"path", s.configPath)
+
+	w.Header().Set("Connection", "close")
+	s.writeJSON(r, w, map[string]string{"status": "ok", "mode": "monitor_only"})
 	s.triggerReload()
 }
 
