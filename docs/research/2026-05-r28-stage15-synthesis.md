@@ -22,8 +22,8 @@ This doc ranks the union into one PR sequence Phoenix can land in order. Each ro
 | R7 | IT8689E mainline kernel landing | P1-7: missing kernel gate | – | §5.8: confirmed **v7.1** (only tag containing `66b8eaf8def`) | Catalog P1-7 is correctly framed; gate on `kernel ≥ 7.1`. |
 | R8 | NVML helper recursion guard | – | – | §5.4: rule structurally correct; new datacenter-GPU work has test obligation only | No code change. Test bound check belongs to S2-5 PR. |
 | R9 | `internal/doctor/` package | – | – | – (codebase audit only) | **Keep.** Task #71 in-progress (v0.5.10 Doctor surface). Codebase audit's "delete" recommendation is wrong — package is scaffolding for active work. |
-| R10 | `internal/coupling/signguard/` | – | 3 active rule bindings (`RULE-SGD-VOTE-01/NOISE-01/CONT-01`) | – | **Keep** rules. Codebase audit says "zero Go importers" — that's a real wiring gap to investigate, but **don't delete the package without first auditing whether v0.5.9 PR-A.3 should have wired it.** |
-| R11 | `internal/ndjson/` | – | – | – | **Keep.** Task #64 pending (maintainer-side diag-ingest endpoint #809). Wire format candidate. |
+| R10 | `internal/coupling/signguard/` | – | 3 active rule bindings (`RULE-SGD-VOTE-01/NOISE-01/CONT-01`) | – | **WIRED in #844** (2026-05-03). Codebase audit's "zero importers" claim was correct but the right fix was wire-up, not deletion. The opportunistic prober now feeds `signguard.Detector.Add()` on every non-aborted probe; `marginal.NewRuntime` receives the detector as its `SignguardLookup`. New rule `RULE-OPP-PROBE-13` binds the wire-up. |
+| R11 | `internal/ndjson/` | – | – | – | **Keep — actively used.** Codebase audit's "delete" recommendation was wrong. First consumer landed in PR-1.5 (this work): `ventd diag export-observations` reads the binary msgpack observation log and emits NDJSON for `jq`/`grep` analysis. Two more near-term consumers still queued: smart-mode load-test trace writer (replaces the planned CSV) and `ventd doctor --watch` SSE stream (#813 v0.5.10 work). |
 
 ## Ranked PR sequence — Stage 1.5
 
@@ -75,10 +75,10 @@ Safe to delete (no roadmap conflict, codebase audit confirmed zero importers):
 - 9 stub `testfixtures/fake*` packages.
 - Dead exports across `calibration`, `idle`, `durabilityState`, `cmd/ventd/calibrate.go`.
 
-**Hold for Phoenix's review (do NOT include):**
-- `internal/doctor/` — #71 in-progress (R9 reconciliation).
-- `internal/coupling/signguard/` — 3 rules bound, may be legitimate wiring gap (R10).
-- `internal/ndjson/` — #64 pending (R11).
+**Resolved by Phoenix (do NOT include in PR-4):**
+- `internal/doctor/` — kept; PR #813 (v0.5.10 doctor scaffolding) parked as draft with revival comment.
+- `internal/coupling/signguard/` — wired in PR #844; opportunistic prober now feeds the detector.
+- `internal/ndjson/` — kept; first consumer (`ventd diag export-observations`) landed alongside the rest of PR-1.5.
 
 **Why fourth:** smaller blast radius once PR-3 has resolved the duplicates that contained call sites.
 
@@ -145,10 +145,12 @@ Codebase audit found `internal/calibrate/safety_test.go` does 12 real-time `time
 
 These need explicit Phoenix call before they can ship:
 
-1. **Delete `internal/doctor/`?** Codebase audit says yes (no `ventd doctor` subcommand exists); task #71 says no (in-progress). Phoenix to confirm whether v0.5.10 work is alive or shelved.
-2. **Delete `internal/coupling/signguard/`?** 3 rules bound, zero Go importers — this is a wiring gap, not a dead module. The right fix may be to wire signguard into v0.5.9 PR-A.3, not delete it. Phoenix to confirm signguard's intended consumers.
-3. **Delete `internal/ndjson/`?** Task #64 pending. Phoenix to confirm whether the diag-ingest endpoint will use it (keep) or a different format (delete).
-4. **Smart-mode load test design** (`2026-05-smartmode-loadtest-design.md`) — three new endpoints proposed; Phoenix asked to "sit on" the implementation. Stays parked.
+_All four resolved 2026-05-03:_
+
+1. ✅ **`internal/doctor/`** — KEEP. PR #813 parked as draft (revival comment posted). Package is scaffolding for v0.5.10 doctor work.
+2. ✅ **`internal/coupling/signguard/`** — WIRED in PR #844. Opportunistic prober now feeds `Detector.Add()` per probe; `marginal.NewRuntime` consumes it as `SignguardLookup`.
+3. ✅ **`internal/ndjson/`** — KEEP, ACTIVATED. First consumer `ventd diag export-observations` shipped alongside this synthesis. Two more consumers queued (smart-mode trace, doctor SSE).
+4. **Smart-mode load test** — Phoenix approved. Three new endpoints + bash runner stay queued for the v0.5.11 sprint after PR-2..8 land.
 
 ## Estimated effort
 
