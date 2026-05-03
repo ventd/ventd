@@ -20,6 +20,8 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
+	"github.com/ventd/ventd/internal/coupling"
+	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/grub"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
@@ -71,6 +73,13 @@ type Server struct {
 	// SetConfidence is called (monitor-only mode).
 	aggregator     *aggregator.Aggregator
 	layerA         *layer_a.Estimator
+	// v0.5.12 #104: deeper smart-mode telemetry surfaces — coupling
+	// (Layer B) RLS shards + marginal (Layer C) per-(channel,signature)
+	// shards. Both expose SnapshotAll() with atomic.Pointer reads so
+	// /api/v1/smart/channels never blocks the controller hot loop.
+	// nil until SetSmartRuntimes is called.
+	couplingRT *coupling.Runtime
+	marginalRT *marginal.Runtime
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
 	diag           *hwdiag.Store
@@ -331,6 +340,13 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// aggressiveness selector.
 		{name: "confidence/status", handler: s.handleConfidenceStatus, auth: true},
 		{name: "confidence/preset", handler: s.handleConfidencePreset, auth: true},
+		// v0.5.12 #104: deeper smart-mode telemetry. /smart/status is
+		// a one-line aggregate ("are we converged, what preset, how
+		// many channels"); /smart/channels is the per-channel deep dive
+		// covering Layer-B coupling RLS state + Layer-C marginal RLS
+		// state + signature label.
+		{name: "smart/status", handler: s.handleSmartStatus, auth: true},
+		{name: "smart/channels", handler: s.handleSmartChannels, auth: true},
 	})
 
 	dlHandler := s.requireAuth(s.handleDiagDownload)
@@ -1089,6 +1105,15 @@ func (s *Server) SetOpportunisticScheduler(sched *opportunistic.Scheduler) {
 	s.opp = sched
 }
 
+// SetSmartRuntimes wires the v0.5.7 coupling and v0.5.8 marginal
+// runtimes so /api/v1/smart/{status,channels} can report per-channel
+// RLS state. Either may be nil (monitor-only / disabled). Safe to
+// call once at daemon start; subsequent calls overwrite.
+func (s *Server) SetSmartRuntimes(c *coupling.Runtime, m *marginal.Runtime) {
+	s.couplingRT = c
+	s.marginalRT = m
+}
+
 // SetConfidence wires the v0.5.9 aggregator + LayerA estimator so the
 // /api/v1/confidence/status endpoint can return per-channel snapshots.
 // Both arguments are nil-safe: monitor-only mode skips construction.
@@ -1248,6 +1273,210 @@ func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) 
 	s.cfg.Store(saved)
 	s.logger.Info("web: confidence preset updated", "preset", body.Preset)
 	s.writeJSON(r, w, map[string]string{"preset": body.Preset})
+}
+
+// ─── v0.5.12 #104: deeper smart-mode telemetry endpoints ──────────────
+
+// smartStatusResponse is the aggregate dashboard payload for
+// /api/v1/smart/status. One JSON object summarising the worst-case
+// global state, the active preset, and channel counts. UI shows it as
+// a single status pill or banner.
+type smartStatusResponse struct {
+	Enabled         bool   `json:"enabled"`
+	Preset          string `json:"preset"`
+	GlobalState     string `json:"global_state"`        // worst per-channel UI state across the fleet
+	Channels        int    `json:"channels"`
+	WarmingUp       int    `json:"warming_up"`          // count of channels still warming Layer B/C
+	Converged       int    `json:"converged"`           // count fully converged
+	ConfidenceMin   float64 `json:"confidence_min"`     // min w_pred across channels (0..1)
+	ConfidenceMax   float64 `json:"confidence_max"`
+}
+
+// smartChannelEntry is the deep per-channel snapshot for
+// /api/v1/smart/channels. Fields are nullable when the corresponding
+// runtime is absent (e.g. coupling but not marginal).
+type smartChannelEntry struct {
+	ChannelID      string                  `json:"channel_id"`
+	UIState        string                  `json:"ui_state"`         // converged|warming|cold-start|drifting|refused
+	Wpred          float64                 `json:"w_pred"`           // 0..1 final blend weight
+	Coupling       *smartCouplingShard     `json:"coupling,omitempty"`
+	Marginal       []*smartMarginalShard   `json:"marginal,omitempty"`
+	SignatureLabel string                  `json:"signature_label,omitempty"`
+}
+
+type smartCouplingShard struct {
+	Theta        []float64 `json:"theta"`
+	NSamples     uint64    `json:"n_samples"`
+	TrP          float64   `json:"tr_p"`
+	Kappa        float64   `json:"kappa"`
+	Lambda       float64   `json:"lambda"`
+	WarmingUp    bool      `json:"warming_up"`
+	GroupedFans  []int     `json:"grouped_fans,omitempty"`
+	Reason       string    `json:"reason,omitempty"`
+	LastTickUnix int64     `json:"last_tick_unix"`
+}
+
+type smartMarginalShard struct {
+	SignatureLabel    string    `json:"signature_label"`
+	Kind              string    `json:"kind"`
+	Theta             []float64 `json:"theta"`
+	NSamples          uint64    `json:"n_samples"`
+	TrP               float64   `json:"tr_p"`
+	EWMAResidual      float64   `json:"ewma_residual"`
+}
+
+// handleSmartStatus GET /api/v1/smart/status — aggregate dashboard
+// payload covering the whole smart-mode fleet in one read. Read-only,
+// hot-loop safe (atomic.Pointer reads + brief mutex on aggregator's
+// SnapshotAll). Returns enabled=false when the smart-mode runtimes
+// are absent (monitor-only mode).
+func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	live := s.cfg.Load()
+	preset := "balanced"
+	if live != nil {
+		if name, _ := live.Smart.SmartPreset(); name != "" {
+			preset = name
+		}
+	}
+	if s.aggregator == nil {
+		s.writeJSON(r, w, smartStatusResponse{Enabled: false, Preset: preset})
+		return
+	}
+
+	aggSnaps := s.aggregator.SnapshotAll()
+	out := smartStatusResponse{
+		Enabled:       true,
+		Preset:        preset,
+		Channels:      len(aggSnaps),
+		ConfidenceMin: 1.0, // gets minned over the loop
+		ConfidenceMax: 0.0,
+	}
+	priority := map[string]int{
+		"refused": 0, "drifting": 1, "cold-start": 2,
+		"warming": 3, "converged": 4,
+	}
+	worst := "converged"
+	for _, a := range aggSnaps {
+		if a.UIState == "warming" || a.UIState == "cold-start" {
+			out.WarmingUp++
+		}
+		if a.UIState == "converged" {
+			out.Converged++
+		}
+		if a.Wpred < out.ConfidenceMin {
+			out.ConfidenceMin = a.Wpred
+		}
+		if a.Wpred > out.ConfidenceMax {
+			out.ConfidenceMax = a.Wpred
+		}
+		if priority[a.UIState] < priority[worst] {
+			worst = a.UIState
+		}
+	}
+	if len(aggSnaps) == 0 {
+		// No channels → no meaningful min/max; clamp to zeros.
+		out.ConfidenceMin = 0
+		out.ConfidenceMax = 0
+		out.GlobalState = "converged"
+	} else {
+		out.GlobalState = worst
+	}
+	s.writeJSON(r, w, out)
+}
+
+// handleSmartChannels GET /api/v1/smart/channels — the deep
+// per-channel telemetry view. Combines aggregator UIState, coupling
+// (Layer B) RLS shard, and marginal (Layer C) shards keyed by
+// signature label. Used by the dashboard's channel-detail panel and
+// the doctor surface for confidence-related issue triage.
+func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if s.aggregator == nil {
+		s.writeJSON(r, w, []smartChannelEntry{})
+		return
+	}
+
+	aggSnaps := s.aggregator.SnapshotAll()
+	entries := make([]smartChannelEntry, 0, len(aggSnaps))
+
+	// Pre-index coupling + marginal snapshots by channel for O(1)
+	// lookup during the per-aggregator-channel loop.
+	var couplingByChannel map[string]*coupling.Snapshot
+	if s.couplingRT != nil {
+		cs := s.couplingRT.SnapshotAll()
+		couplingByChannel = make(map[string]*coupling.Snapshot, len(cs))
+		for _, c := range cs {
+			if c == nil {
+				continue
+			}
+			couplingByChannel[c.ChannelID] = c
+		}
+	}
+
+	var marginalByChannel map[string][]*marginal.Snapshot
+	if s.marginalRT != nil {
+		ms := s.marginalRT.SnapshotAll()
+		marginalByChannel = make(map[string][]*marginal.Snapshot, len(ms))
+		for _, m := range ms {
+			if m == nil {
+				continue
+			}
+			marginalByChannel[m.ChannelID] = append(marginalByChannel[m.ChannelID], m)
+		}
+	}
+
+	for _, a := range aggSnaps {
+		entry := smartChannelEntry{
+			ChannelID: a.ChannelID,
+			UIState:   a.UIState,
+			Wpred:     a.Wpred,
+		}
+		if c, ok := couplingByChannel[a.ChannelID]; ok && c != nil {
+			entry.Coupling = &smartCouplingShard{
+				Theta:        append([]float64(nil), c.Theta...),
+				NSamples:     c.NSamples,
+				TrP:          c.TrP,
+				Kappa:        c.Kappa,
+				Lambda:       c.Lambda,
+				WarmingUp:    c.WarmingUp,
+				GroupedFans:  append([]int(nil), c.GroupedFans...),
+				Reason:       c.Reason,
+				LastTickUnix: c.LastTickUnix,
+			}
+		}
+		if msList, ok := marginalByChannel[a.ChannelID]; ok {
+			for _, m := range msList {
+				if m == nil {
+					continue
+				}
+				entry.Marginal = append(entry.Marginal, &smartMarginalShard{
+					SignatureLabel: m.SignatureLabel,
+					Kind:           string(m.Kind),
+					Theta:          append([]float64(nil), m.Theta...),
+					NSamples:       m.NSamples,
+					TrP:            m.TrP,
+					EWMAResidual:   m.EWMAResidual,
+				})
+				if entry.SignatureLabel == "" {
+					// Use the first marginal shard's signature as the
+					// channel's "active" label for surfaces that show
+					// only one.
+					entry.SignatureLabel = m.SignatureLabel
+				}
+			}
+		}
+		entries = append(entries, entry)
+	}
+	s.writeJSON(r, w, entries)
 }
 
 // handleCalibrateResults GET /api/calibrate/results
