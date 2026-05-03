@@ -3,13 +3,6 @@ name: fuzz-smoke
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - 'CHANGELOG.md'
-      - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
     paths:
       - '**.go'
       - 'go.mod'
