@@ -5,7 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
-## [v0.5.8] - 2026-05-01
+## [v0.5.9] - 2026-05-02
+
+### Added
+- Wizard recovery — diag bundle button on calibration error banner (#799)- V1.x amendment — extend pwm_control allowlist for modern hardware (#801)- Aggregator (R12 chain) — v0.5.9 PR-A.2 (#802)- IMC-PI confidence-gated blended controller — v0.5.9 PR-A.3 (#803)- Smart-mode preset enum + setpoints map — v0.5.9 PR-A.4 (#804)- Wire confidence-gated controller into hot path — v0.5.9 PR-B (#807)- Per-failure-class wizard + doctor classifier (#800) (#810)- Predictive preflight + controlled install pipeline + gated wizard (v0.5.9 PR-D) (#811)
+### CI
+- Switch Ubuntu host AppArmor step to canonical mirror + retry (#806)
+### Documentation
+- V0.5.9 — confidence-gated controller + predictive install (#814)
+### Fixed
+- IPv6 regex over-matched ISO-8601 time-of-day (#808)- Restore pwm_enable=2 on channels excluded from doneFans (#753) (#758)## [v0.5.8.1] - 2026-05-01
+
+### Added
+- Layer-A confidence estimator (conf_A) — v0.5.9 PR-A.1 (#760)- One-line curl-pipe-bash installer (#764)- SUID-root helper for unprivileged NVML writes (#771)
+### Documentation
+- V0.5.9 confidence-gated controller design (#752)
+### Hwmon/install
+- Fail-fast on missing kernel version + 5min install timeout (#775)
+### Setup
+- Re-run daemon probe + persist outcome after driver install / load-module (#776)
+### V0.5.8.1
+- Plumb SensorReadings into the observation log (#756)- Flip daemon to root, drop layered-elevation theatre (#794)- Rc4 follow-ups from HIL — apparmor syntax + dashboard sparklines + ReadWritePaths (#798)## [v0.5.8] - 2026-05-01
 
 ### Added
 - v0.5.8 PR-A — Layer-C per-(channel, signature) marginal-benefit RLS estimator: `internal/marginal/` package implementing `d_C = 2` model `ΔT_per_+1_PWM = β_0 + β_1·load` per R10 §10.1, dual-path saturation per R11 §0 (Path A predicted + Path B observed), three-condition warmup gate with parent Layer-B clearance, R12 bounded-covariance clamp, weighted-LRU shard eviction (cap 32/channel), κ-deferred activation (τ_retry=1h), OAT cross-channel gate (R28 mitigation), persistence at `smart/shard-C/<channel>-<sig>.cbor` per R15 §104. Plus `internal/coupling/signguard/` — 5-of-7 sign-vote consuming v0.5.5 opportunistic-probe ground-truth (R27 wrong-prior detection). 22 RULE-CMB-* + 3 RULE-SGD-* bindings. (#741)
