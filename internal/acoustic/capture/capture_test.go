@@ -16,25 +16,25 @@ func makeWAV(samples []float64, sampleRate uint32, channels uint16, bits uint16)
 
 	dataLen := len(samples) * int(bits) / 8
 	buf.WriteString("RIFF")
-	binary.Write(&buf, binary.LittleEndian, uint32(36+dataLen))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(36+dataLen))
 	buf.WriteString("WAVE")
 
 	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))
-	binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
-	binary.Write(&buf, binary.LittleEndian, channels)
-	binary.Write(&buf, binary.LittleEndian, sampleRate)
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1)) // PCM
+	_ = binary.Write(&buf, binary.LittleEndian, channels)
+	_ = binary.Write(&buf, binary.LittleEndian, sampleRate)
 	byteRate := sampleRate * uint32(channels) * uint32(bits) / 8
-	binary.Write(&buf, binary.LittleEndian, byteRate)
+	_ = binary.Write(&buf, binary.LittleEndian, byteRate)
 	blockAlign := uint16(channels) * bits / 8
-	binary.Write(&buf, binary.LittleEndian, blockAlign)
-	binary.Write(&buf, binary.LittleEndian, bits)
+	_ = binary.Write(&buf, binary.LittleEndian, blockAlign)
+	_ = binary.Write(&buf, binary.LittleEndian, bits)
 
 	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, uint32(dataLen))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(dataLen))
 	for _, s := range samples {
 		v := int16(s * 32767.0)
-		binary.Write(&buf, binary.LittleEndian, v)
+		_ = binary.Write(&buf, binary.LittleEndian, v)
 	}
 	return buf.Bytes()
 }
@@ -92,18 +92,18 @@ func TestParse_RejectsWrongBitDepth(t *testing.T) {
 	// arbitrary depths so we hand-roll the bytes.
 	var buf bytes.Buffer
 	buf.WriteString("RIFF")
-	binary.Write(&buf, binary.LittleEndian, uint32(36+0))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(36+0))
 	buf.WriteString("WAVE")
 	buf.WriteString("fmt ")
-	binary.Write(&buf, binary.LittleEndian, uint32(16))
-	binary.Write(&buf, binary.LittleEndian, uint16(1))
-	binary.Write(&buf, binary.LittleEndian, uint16(1))
-	binary.Write(&buf, binary.LittleEndian, uint32(SampleRate))
-	binary.Write(&buf, binary.LittleEndian, uint32(SampleRate*3))
-	binary.Write(&buf, binary.LittleEndian, uint16(3))
-	binary.Write(&buf, binary.LittleEndian, uint16(24)) // 24-bit
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(16))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(1))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(SampleRate))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(SampleRate*3))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(3))
+	_ = binary.Write(&buf, binary.LittleEndian, uint16(24)) // 24-bit
 	buf.WriteString("data")
-	binary.Write(&buf, binary.LittleEndian, uint32(0))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(0))
 
 	_, err := Parse(buf.Bytes())
 	if !errors.Is(err, ErrFormat) {
