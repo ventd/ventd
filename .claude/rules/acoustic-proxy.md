@@ -130,3 +130,33 @@ only). Runtime side: `Score` and `Compose` return finite numbers for
 all sensible inputs including the zero-RPM edge case.
 
 Bound: internal/acoustic/proxy/proxy_test.go:TestR33Lock/R33-LOCK-14_no_audio_io
+
+## RULE-ACOUSTIC-COSTRATE: CostRate returns dS/dPWM × preset multiplier; preset Silent=3.0 / Balanced=1.0 / Performance=0.2.
+
+`CostRate(class, rpm, diameterMM, bladeCount, vaneCount, rpmPerPWM, preset)`
+returns the marginal acoustic cost in au per PWM unit. The result is
+the numerical partial derivative `Score(rpm + rpmPerPWM) - Score(rpm)`
+multiplied by the preset weighting.
+
+The cost gate (in `internal/controller/blended.go`, wired in v0.5.12
+PR-E) consumes `CostRate` to evaluate whether a candidate ramp's
+acoustic cost outweighs the predicted thermal benefit. Per R29 §5.1
+the rate is per-fan (no global k_factor) and PWM-group-aware (callers
+multiply by `+10·log10(N_fans)` when grouping data is available).
+
+Default rpmPerPWM=5 (typical 4-pin consumer fan) when caller passes 0
+or negative. Default preset=Balanced when caller passes 0 or negative.
+
+Verified by:
+- Case fan @ 1500 RPM, rpmPerPWM=10 yields a non-zero, sub-0.5 au/PWM
+  rate that matches the order of magnitude of R29's measured 0.062
+  dB/PWM chassis-fan slope.
+- GPU shroud @ 2500 RPM, rpmPerPWM=250 (Phoenix's RTX 4090
+  measurement) yields a higher rate than the case fan with realistic
+  per-fan rpmPerPWM inputs — matching R29's 20× ranking.
+- Preset multipliers: Silent/Balanced = 3.0 exact; Balanced/Performance
+  = 5.0 exact (1.0/0.2).
+- Zero/negative rpmPerPWM falls back to 5; zero/negative preset falls
+  back to Balanced.
+
+Bound: internal/acoustic/proxy/proxy_test.go:TestCostRate

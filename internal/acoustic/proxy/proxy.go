@@ -265,6 +265,58 @@ func Score(f Fan) float64 {
 	return t + tone + motor + pump
 }
 
+// PresetMultiplier is the cost-gate weighting that the smart-mode preset
+// applies to per-PWM acoustic cost. v0.5.9 ships these as the canonical
+// values for Silent / Balanced / Performance per
+// .claude/rules/blended-controller.md::RULE-CTRL-COST-01.
+type PresetMultiplier float64
+
+const (
+	PresetSilent      PresetMultiplier = 3.0 // cost-averse
+	PresetBalanced    PresetMultiplier = 1.0 // baseline
+	PresetPerformance PresetMultiplier = 0.2 // cost-tolerant
+)
+
+// CostRate returns the marginal acoustic cost (au per PWM unit) of
+// stepping a fan by one PWM unit at the given operating point. The
+// result is the partial derivative dS/dPWM evaluated numerically
+// around (rpm, rpm+rpmPerPWM) and scaled by the preset multiplier.
+//
+// Callers (the cost gate in internal/controller) compare CostRate ×
+// |ΔPWM| against the predicted thermal benefit; refuse the ramp when
+// the benefit doesn't outweigh the acoustic cost.
+//
+// rpmPerPWM is the channel's measured PWM-to-RPM slope (from
+// calibration's stall_pwm/min_responsive_pwm probe). When unknown, pass
+// 5.0 as a reasonable default for a 4-pin PWM consumer fan.
+//
+// The preset multiplier follows R33's stated cost-curve: Silent fans
+// pay 3× the cost (cost-averse); Performance pays 0.2× (cost-tolerant).
+//
+// Example: a 120 mm 7-blade case fan at 1500 RPM with rpmPerPWM=5
+// returns ~0.06 au/PWM at Balanced preset; matches R29 §3.2 measured
+// chassis-fan slope of 0.062 dB/PWM on Phoenix's MSI Z690-A.
+//
+// CostRate is wired into the cost gate in v0.5.12 PR-E (quietness-
+// target preset) — until then the existing global cost factor is in
+// effect. v0.5.11 ships CostRate so callers can adopt it incrementally.
+func CostRate(class FanClass, rpm, diameterMM float64, bladeCount, vaneCount int, rpmPerPWM float64, preset PresetMultiplier) float64 {
+	if rpmPerPWM <= 0 {
+		rpmPerPWM = 5
+	}
+	f0 := Fan{Class: class, DiameterMM: diameterMM, BladeCount: bladeCount, VaneCount: vaneCount, RPM: rpm}
+	f1 := f0
+	f1.RPM = rpm + rpmPerPWM
+	delta := Score(f1) - Score(f0)
+	if delta < 0 {
+		delta = 0 // pathological case (broadband decreases) — clamp
+	}
+	if preset <= 0 {
+		preset = PresetBalanced
+	}
+	return delta * float64(preset)
+}
+
 // Compose energetically sums per-fan scores. R33-LOCK-08:
 // S_host = 10·log10(Σ 10^(S/10)). Returns 0 for an empty fan set.
 func Compose(fans []Fan) float64 {
