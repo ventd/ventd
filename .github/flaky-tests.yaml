@@ -43,3 +43,12 @@ flaky:
     reason: same /sys/class/hwmon dependency as
             TestHandleProfileSchedule_UpdatesAndPersists.
     since: 2026-05-02
+  - test: github.com/ventd/ventd/cmd/ventd:TestRegression_Issue466_ReloadFailureIsNonFatal
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: 2-second polling deadline for the controller-tick handshake
+            fires too tight on arm64 GHA runners under -race; the
+            QEMU-emulated arm64 lane occasionally takes longer than 2s
+            to reach the first PWM=64 write. Roadmap fix is clock
+            injection (Stage 1.5 PR-8), at which point this entry can
+            be removed.
+    since: 2026-05-03
