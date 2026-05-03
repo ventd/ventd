@@ -1,0 +1,62 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "gmktec-amd-phoenix-hawk-it5570-untested"
+    dmi_fingerprint:
+      sys_vendor: "GMKtec"
+      product_name: "/(K8 Plus|K9|K10|K11|K12|G10|EVO-X1)/"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT (UNVERIFIED)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "GMKtec AMD mini-PCs (K8 Plus / K11 / K12 / G10 / EVO-X1 — Phoenix
+      / Hawk Point / Strix Point class). EC chip *inferred* as IT5570 by
+      family pattern with Beelink SER and AceMagic W1. NO published
+      sensors-detect dump or community-confirmed working it5570-fan
+      install at survey time. ventd should ship this row as
+      verified: false, surface a doctor card asking the user to install
+      it5570-fan and report back."
+    citations:
+      - "https://www.gmktec.com/pages/k8-plus-and-k11-fan-settings-adjustment-guide"
+      - "https://www.gmktec.com/pages/k12-fan-speed-setting-modification-operation-guide"
+      - "https://forums.linuxmint.com/viewtopic.php?t=465850 (G10 boots Linux Mint)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "gmktec-evo-x2-strix-halo"
+    dmi_fingerprint:
+      sys_vendor: "GMKtec"
+      product_name: "EVO-X2"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT (UNVERIFIED, kernel ≥6.13 required for Strix Halo support)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "GMKtec EVO-X2 (Ryzen AI Max+ 395 / Strix Halo). Kernel ≥6.13
+      required for the CPU to operate normally. Fan EC chip likely
+      IT5570 family but unconfirmed. Triple-fan cooling system (dual CPU
+      + SSD/RAM) per BIOS guide. Treat as unverified, monitor-only until
+      HIL confirms."
+    citations:
+      - "https://www.gmktec.com/pages/evo-x2-fan-speed-adjustment-guide"
+      - "https://manuals.plus/asin/B0F5HDWNKR"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []

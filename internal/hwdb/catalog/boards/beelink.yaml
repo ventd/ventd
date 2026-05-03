@@ -1,0 +1,63 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "beelink-ser-amd-it5570"
+    dmi_fingerprint:
+      sys_vendor: "/(Beelink|AZW)/"
+      product_name: "/(SER[0-9]?|MINI S[0-9]+|EQR[0-9]+)/"
+      board_vendor: "AZW"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT DKMS"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Beelink AMD mini-PCs (SER4/SER5/SER6/SER7/SER8/SER9 Phoenix &
+      Hawk Point family). EC is ITE IT5570 — no mainline driver; install
+      passiveEndeavour/it5570-fan DKMS. Without OOT installed, ventd
+      should classify as monitor-only with doctor card recommending the
+      install."
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan"
+      - "https://forum.manjaro.org/t/beelink-ser4-4800u-critical-thermals-issue/121051"
+      - "https://bbs.bee-link.com/d/6037-ser-7-fan-control-setting-the-fan-curve-manually-through-bios"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "beelink-mini-s-intel-it8613"
+    dmi_fingerprint:
+      sys_vendor: "/(Beelink|AZW)/"
+      product_name: "/(MINI S(12| Pro)?|MINI S13|EQ1[23])/"
+      board_vendor: "AZW"
+      board_name: "MINI S"
+      board_version: "*"
+    primary_controller:
+      chip: "it8613"
+      sysfs_hint: "name=it8613 via frankcrawford/it87 OOT (force_id=0x8622)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "force_id=0x8622"
+      - "ignore_resource_conflict=1"  # kernel ≥6.2
+      - "mmio=off"  # kernel ≥6.2
+    conflicts_with_userspace: []
+    notes: "Beelink Intel mini-PCs (Mini S12 N95/N100, Mini S12 Pro,
+      Mini S13 N150, EQ12, EQ13). EC is ITE IT8613E — alias to IT8622E
+      via force_id; install frankcrawford/it87 DKMS for full PWM control.
+      Kernel ≥6.2 requires the resource-conflict workaround flags."
+    citations:
+      - "https://blog.croitor.eu/posts/proxmox_beelink_s12_sensors/"
+      - "https://github.com/frankcrawford/it87"
+      - "https://forum.proxmox.com/threads/new-kernel-6-2-16-4-pve-brought-pwmconfig-problem-with-ite-it8613e.130721/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []

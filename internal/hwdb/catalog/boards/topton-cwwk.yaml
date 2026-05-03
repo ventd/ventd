@@ -1,0 +1,68 @@
+schema_version: "1.2"
+# Topton and CWWK are produced by Shenzhen CWWK / Changwang — same OEM,
+# different brand labels. Both ship `Default string` in System DMI. We
+# match by chip detection rather than DMI vendor where possible.
+
+board_profiles:
+
+  - id: "cwwk-topton-default-string-fanless"
+    dmi_fingerprint:
+      sys_vendor: "Default string"
+      product_name: "Default string"
+      board_vendor: "Default string"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no PWM channels exposed"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Generic Topton/CWWK fanless industrial firewall mini-PC
+      (N100/N150/N200/N305/N355). Solid aluminium chassis, passive
+      cooling. CWWK F1/F2/F6/F7/F9/F11/D4/X86 P5/C1, Topton M4/N100
+      fanless, HUNSN RJ36 etc. No PWM surface in Linux. Common
+      deployment: pfSense/OPNsense/Proxmox firewall."
+    citations:
+      - "https://www.toptonpc.com/product/topton-intel-n100-fanless-mini-pc-2xi226-v-2-5g-2com-nvme-2hd-1dp-efficient-cooling-solid-firewall-router-industrial-computer/"
+      - "https://archimago.blogspot.com/2024/02/review-hunsn-cwwk-rj36-fanless-minipc.html"
+      - "https://www.servethehome.com/almost-a-decade-in-the-making-our-fanless-intel-i3-n305-2-5gbe-firewall-review/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "cwwk-topton-default-string-it8613-active"
+    dmi_fingerprint:
+      sys_vendor: "Default string"
+      product_name: "Default string"
+      board_vendor: "Default string"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it8613"
+      sysfs_hint: "name=it8613 via frankcrawford/it87 (force_id=0x8622)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "force_id=0x8622"
+      - "ignore_resource_conflict=1"  # required on kernel ≥6.2
+      - "mmio=off"
+    conflicts_with_userspace: []
+    notes: "Generic Topton/CWWK active-cooled SKU (e.g. MW-NVR-N5105,
+      Topton AMR5 with optional 8010 fan). Match: DMI Default string AND
+      LPC probe finds IT8613E at 0xa30. Kernel ≥6.2 trifecta of modprobe
+      args required to avoid pwm_enable=0 stuck-zero regression
+      (R28 priority row #2)."
+    citations:
+      - "https://forum.proxmox.com/threads/new-kernel-6-2-16-4-pve-brought-pwmconfig-problem-with-ite-it8613e.130721/"
+      - "https://www.minipcunion.com/viewtopic.php?t=4301"
+      - "https://forums.overclockers.co.uk/threads/cwwk-topton-n100-mini-pc-router-experience.18991381/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []

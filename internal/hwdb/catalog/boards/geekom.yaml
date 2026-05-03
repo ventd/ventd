@@ -1,0 +1,118 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "geekom-as6-pn53-rebadge"
+    dmi_fingerprint:
+      sys_vendor: "GEEKOM"
+      product_name: "/AS6.*/"
+      board_vendor: "/(ASUSTeK COMPUTER INC\\.|GEEKOM)/"  # ASUS PN53 OEM
+      board_name: "/PN53.*/"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"   # likely; verify with sensors-detect
+      sysfs_hint: "name=nct6798 via mainline nct6775 driver — PN53 inheritance"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"  # ASUS PN53 sometimes runs asusd; potential controller race
+    notes: "GEEKOM AS6 = ASUS PN53 rebadge (per AnandTech / guru3d
+      reviews). Inherits ASUS PN53 catalog behaviour. May benefit from
+      asus-wmi-sensors companion module for chipset-class sensors. Watch
+      for asusctl/asusd controller race if user installed ASUS-stack
+      tooling."
+    citations:
+      - "https://www.anandtech.com/show/18964/geekom-as-6-asus-pn53-review-ryzen-9-6900hx-packs-punches-in-a-petite-package/2"
+      - "https://www.guru3d.com/review/asus-geekom-as6-mini-pc-review/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "geekom-amd-rembrandt-nct"
+    dmi_fingerprint:
+      sys_vendor: "GEEKOM"
+      product_name: "/(A5( Pro)?|A6)/"
+      board_vendor: "GEEKOM"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"  # guess — Rembrandt mini-PCs commonly use NCT
+      sysfs_hint: "name=nct6798 via mainline nct6775 driver (UNVERIFIED)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "GEEKOM A5 Pro / A6 (Ryzen 6800H Rembrandt). Likely Nuvoton
+      family by ASUS-PN50/53 lineage. Mainline nct6775 should work for
+      read; PWM not confirmed in 2026 reviews (cnx-software, starryhope)."
+    citations:
+      - "https://www.cnx-software.com/2025/02/16/geekom-a6-review-ubuntu-24-04-tested-on-an-amd-ryzen-7-6800h-mini-pc/"
+      - "https://www.starryhope.com/minipcs/geekom-a5-pro-2026-linux/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "geekom-amd-phoenix-hawk-it5570"
+    dmi_fingerprint:
+      sys_vendor: "GEEKOM"
+      product_name: "/(A7|A8( Max)?|AE7)/"
+      board_vendor: "GEEKOM"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT (extrapolated)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "GEEKOM A7/A8/AE7 (Ryzen 9 7940HS / 8945HS Phoenix/Hawk Point).
+      EC family pattern matches Beelink SER + AceMagic W1 — IT5570
+      inferred. CNX Software A8 review shows fan ramping under stress
+      but no Linux PWM control. Install passiveEndeavour/it5570-fan and
+      report back to confirm."
+    citations:
+      - "https://www.cnx-software.com/2024/06/11/geekom-a8-review-ubuntu-24-04-linux-amd-ryzen-8945hs-mini-pc/"
+      - "https://www.cnx-software.com/2024/02/24/geekom-a7-mini-pc-review-ubuntu-22-04-ubuntu-24-04-linux/"
+      - "https://www.cnx-software.com/2024/07/13/geekom-ae7-review-amd-ryzen-9-7940hs-mini-pc-windows-11-ubuntu-24-04/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "geekom-intel-it13-it8613"
+    dmi_fingerprint:
+      sys_vendor: "GEEKOM"
+      product_name: "/(IT1[2358]|Mini IT[0-9].*|GT1.*)/"
+      board_vendor: "GEEKOM"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it8613"
+      sysfs_hint: "name=it8613 via frankcrawford/it87 (force_id=0x8622, UNVERIFIED)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "force_id=0x8622"
+      - "ignore_resource_conflict=1"
+      - "mmio=off"
+    conflicts_with_userspace: []
+    notes: "GEEKOM Intel mini-PCs (IT12, IT13, IT13 Max, IT15, GT1 Mega).
+      EC chip likely IT8613E by Intel mini-PC family pattern (Beelink
+      Mini S, Topton, CWWK). Unconfirmed. Forums.linuxmint.com #413377
+      confirms IT13 boots Linux Mint."
+    citations:
+      - "https://forums.linuxmint.com/viewtopic.php?t=413377"
+      - "https://hostbor.com/beelink-ser9-or-geekom-gt1-mega/"
+      - "https://droix.net/blogs/geekom-it13-2025-review/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []

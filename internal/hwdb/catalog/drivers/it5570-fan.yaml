@@ -1,0 +1,31 @@
+schema_version: "1.2"
+
+driver_profiles:
+  - module: "it5570-fan"
+    family: "ite-ec"
+    description: "ITE IT5570 EC — out-of-tree DKMS driver by passiveEndeavour
+      targeting AMD Phoenix/Hawk Point mini-PCs (Beelink SER, MINISFORUM UM/HX,
+      AceMagic W1, GMKtec K, GEEKOM A7/A8, AOOSTAR GEM12). Mainline it87
+      explicitly does NOT target IT5570 (chip ID 0x5570, separate EC, NOT a
+      Super I/O variant). Detection: SIO probe at port 0x4E returns 0x5570."
+    capability: "rw_quirk"
+    pwm_unit: "percentage_0_100"
+    pwm_unit_max: 100
+    pwm_enable_modes:
+      "0": "auto_ec_curve"
+      "1": "manual"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "probe_required"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan"
+      - "https://github.com/lm-sensors/lm-sensors/issues/411"
+      - "https://github.com/frankcrawford/it87/issues/49"

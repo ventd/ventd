@@ -90,3 +90,37 @@ chip_profiles:
     channel_overrides: {}
     citations:
       - "https://docs.kernel.org/hwmon/it87.html"
+
+  - name: "it5570"
+    inherits_driver: "it5570-fan"  # OOT driver, not mainline
+    description: "ITE IT5570 EC — programmable embedded controller (8051
+      core) found in many AMD Phoenix/Hawk Point mini-PCs from Beelink,
+      MINISFORUM, AceMagic, GMKtec, GEEKOM, AOOSTAR. NOT recognised by
+      mainline it87. Requires OOT passiveEndeavour/it5570-fan DKMS module.
+      Detection: SIO probe at 0x4E returns chip ID 0x5570."
+    overrides:
+      pwm_enable_modes:
+        "0": "auto_ec_curve"   # write 0 to register 0x0F = return to EC firmware curve
+        "1": "manual"          # write 1-100 to register 0x0F = manual duty %
+    channel_overrides: {}
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan (OOT driver, AceMagic W1 reference)"
+      - "https://github.com/lm-sensors/lm-sensors/issues/411 (chip ID 0x5570 unrecognised by mainline)"
+      - "https://github.com/frankcrawford/it87/issues/49 (frankcrawford/it87 explicitly does not target IT5570)"
+
+  - name: "it8613"
+    inherits_driver: "it87"
+    description: "ITE IT8613E Super I/O — Intel Alder Lake-N / Twin Lake
+      mini-PCs (Beelink Mini S, Topton, CWWK, AOOSTAR R7). Mainline it87
+      does NOT recognise by chip ID — requires modprobe arg
+      `force_id=0x8622` (alias to IT8622E). Kernel ≥6.2 additionally
+      requires `ignore_resource_conflict=1` and `mmio=off` to avoid the
+      pwm_enable=0 stuck-zero regression."
+    overrides:
+      requires_modprobe_args:
+        - "force_id=0x8622"
+    channel_overrides: {}
+    citations:
+      - "https://forum.proxmox.com/threads/new-kernel-6-2-16-4-pve-brought-pwmconfig-problem-with-ite-it8613e.130721/ (kernel 6.2+ regression)"
+      - "https://wiki.niziak.spox.org/hw:server:aoostar_r7 (AOOSTAR R7 5825U IT8613E verified working with frankcrawford/it87)"
+      - "https://blog.croitor.eu/posts/proxmox_beelink_s12_sensors/ (Beelink Mini S12 N100 IT8613E sensors-detect output)"

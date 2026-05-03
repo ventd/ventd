@@ -1,0 +1,148 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "minisforum-ms-01-nct6798"
+    dmi_fingerprint:
+      sys_vendor: "MINISFORUM"
+      product_name: "MS-01"
+      board_vendor: "MINISFORUM"
+      board_name: "MS-01"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via mainline nct6775 driver"
+    additional_controllers:
+      - chip: "nct6686"  # secondary, kernel ≥6.7 for full coverage
+        sysfs_hint: "name=nct6683 via mainline nct6683 (kernel 6.7+)"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MINISFORUM MS-01 (i9-13900H workstation mini-PC). NCT6798D
+      Super I/O — mainline nct6775 driver. Custom /etc/sensors.d/ config
+      needed to label bogus voltage/fan channels. Kernel ≥6.7 picks up
+      secondary NCT6686D for additional temperatures."
+    citations:
+      - "http://blog.pcfe.net/hugo/posts/2025-02-22-minisforum-ms-01-sensors/"
+      - "https://docs.kernel.org/hwmon/nct6775.html"
+      - "https://www.phoronix.com/news/Linux-6.7-HWMON"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "minisforum-um-hx-amd-it5570"
+    dmi_fingerprint:
+      sys_vendor: "MINISFORUM"
+      product_name: "/(UM[0-9]+( Pro)?|HX[0-9]+G?|Neptune HX[0-9]+G.*)/"
+      board_vendor: "MINISFORUM"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT DKMS"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MINISFORUM AMD mini-PCs (UM790/UM780/UM870/UM890, HX99G,
+      HX100G, Neptune HX99G-AMZ — Phoenix & Hawk Point family). Same
+      IT5570 EC as Beelink SER. Per Minisforum support FAQ: 'fan speed
+      cannot be manually adjusted' — implicit confirmation of EC
+      firmware-driven control surface only. Install OOT driver for OS
+      access."
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan"
+      - "https://www.justanswer.com/computer-hardware/oebgg-minisforum-um790-pro-cpu-gpu-fan.html"
+      - "https://sagar.se/blog/um790-cooling-wifi/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "minisforum-bd795-it8613"
+    dmi_fingerprint:
+      sys_vendor: "MINISFORUM"
+      product_name: "/(BD795(i SE|M|i)?|BD895i SE)/"
+      board_vendor: "MINISFORUM"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it8613"
+      sysfs_hint: "name=it8613 via frankcrawford/it87 (incomplete PWM)"
+    additional_controllers: []
+    overrides:
+      unsupported: true  # PWM control 'still to be written' per Level1Techs
+    required_modprobe_args:
+      - "force_id=0x8622"
+    conflicts_with_userspace: []
+    notes: "MINISFORUM BD795i SE / BD795M / BD895i SE mini-ITX boards.
+      IT8613E identified via HWiNFO (Level1Techs thread). Linux fan
+      control 'driver still to be written' — sensors read works, PWM
+      writes silently no-op. Configure fan curve in BIOS Hardware
+      Monitor."
+    citations:
+      - "https://forum.level1techs.com/t/minisforum-bd795i-se-fan-control/228646"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "minisforum-ms-a1-locked"
+    dmi_fingerprint:
+      sys_vendor: "MINISFORUM"
+      product_name: "MS-A1"
+      board_vendor: "MINISFORUM"
+      board_name: "MS-A1"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no OS-side fan control path; EC firmware-locked"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MINISFORUM MS-A1 (AMD AM5 socketed). AIDA64 reports zero fans
+      detected despite three present in BIOS. Community workaround uses
+      external Adafruit Trinket M0 microcontroller to drive PWM externally
+      (kizzard/minisforum-ms-a1-fan-controller). Treat as monitor-only
+      with doctor card explaining EC lock."
+    citations:
+      - "https://forums.aida64.com/topic/16404-aida64-doesnt-detect-any-fans-of-minisforum-ms-a1-barebone/"
+      - "https://github.com/kizzard/minisforum-ms-a1-fan-controller"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "minisforum-ms-a2-locked"
+    dmi_fingerprint:
+      sys_vendor: "MINISFORUM"
+      product_name: "MS-A2"
+      board_vendor: "MINISFORUM"
+      board_name: "MS-A2"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no OS-side fan control path"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MINISFORUM MS-A2 (Ryzen 9 9955HX, BGA-soldered). williamlam.com
+      improvements rely on BIOS TjMAX adjustment + setting fans to 'auto'
+      — no Linux PWM path documented. Treat as monitor-only."
+    citations:
+      - "https://williamlam.com/2025/09/quick-tip-improving-thermals-on-minisforum-ms-a2.html"
+      - "https://www.servethehome.com/minisforum-ms-a2-review-an-almost-perfect-amd-ryzen-intel-10gbe-homelab-system/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
