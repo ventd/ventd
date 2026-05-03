@@ -136,14 +136,14 @@ func runCalibrateAcoustic(args []string, logger *slog.Logger) error {
 	micID := guessMicID(acousticFlag)
 
 	result := acousticCalibrationResult{
-		MicDevice:    acousticFlag,
-		MicID:        micID,
-		RefSPL:       refSPL,
-		Seconds:      seconds,
-		RawDBFS:      rawDBFS,
+		MicDevice:     acousticFlag,
+		MicID:         micID,
+		RefSPL:        refSPL,
+		Seconds:       seconds,
+		RawDBFS:       rawDBFS,
 		AWeightedDBFS: weightedDBFS,
-		KCalOffset:   kCal,
-		CapturedAt:   time.Now().UTC(),
+		KCalOffset:    kCal,
+		CapturedAt:    time.Now().UTC(),
 	}
 
 	if outPath != "" {

@@ -20,13 +20,13 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
-	"github.com/ventd/ventd/internal/coupling"
-	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/grub"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
@@ -71,15 +71,15 @@ type Server struct {
 	// v0.5.9 confidence-controller surfaces: aggregator + LayerA
 	// estimator are read-only on the web side. nil until
 	// SetConfidence is called (monitor-only mode).
-	aggregator     *aggregator.Aggregator
-	layerA         *layer_a.Estimator
+	aggregator *aggregator.Aggregator
+	layerA     *layer_a.Estimator
 	// v0.5.12 #104: deeper smart-mode telemetry surfaces — coupling
 	// (Layer B) RLS shards + marginal (Layer C) per-(channel,signature)
 	// shards. Both expose SnapshotAll() with atomic.Pointer reads so
 	// /api/v1/smart/channels never blocks the controller hot loop.
 	// nil until SetSmartRuntimes is called.
-	couplingRT *coupling.Runtime
-	marginalRT *marginal.Runtime
+	couplingRT     *coupling.Runtime
+	marginalRT     *marginal.Runtime
 	restartCh      chan<- struct{}
 	sessions       *sessionStore
 	diag           *hwdiag.Store
@@ -1286,26 +1286,26 @@ func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) 
 // global state, the active preset, and channel counts. UI shows it as
 // a single status pill or banner.
 type smartStatusResponse struct {
-	Enabled         bool   `json:"enabled"`
-	Preset          string `json:"preset"`
-	GlobalState     string `json:"global_state"`        // worst per-channel UI state across the fleet
-	Channels        int    `json:"channels"`
-	WarmingUp       int    `json:"warming_up"`          // count of channels still warming Layer B/C
-	Converged       int    `json:"converged"`           // count fully converged
-	ConfidenceMin   float64 `json:"confidence_min"`     // min w_pred across channels (0..1)
-	ConfidenceMax   float64 `json:"confidence_max"`
+	Enabled       bool    `json:"enabled"`
+	Preset        string  `json:"preset"`
+	GlobalState   string  `json:"global_state"` // worst per-channel UI state across the fleet
+	Channels      int     `json:"channels"`
+	WarmingUp     int     `json:"warming_up"`     // count of channels still warming Layer B/C
+	Converged     int     `json:"converged"`      // count fully converged
+	ConfidenceMin float64 `json:"confidence_min"` // min w_pred across channels (0..1)
+	ConfidenceMax float64 `json:"confidence_max"`
 }
 
 // smartChannelEntry is the deep per-channel snapshot for
 // /api/v1/smart/channels. Fields are nullable when the corresponding
 // runtime is absent (e.g. coupling but not marginal).
 type smartChannelEntry struct {
-	ChannelID      string                  `json:"channel_id"`
-	UIState        string                  `json:"ui_state"`         // converged|warming|cold-start|drifting|refused
-	Wpred          float64                 `json:"w_pred"`           // 0..1 final blend weight
-	Coupling       *smartCouplingShard     `json:"coupling,omitempty"`
-	Marginal       []*smartMarginalShard   `json:"marginal,omitempty"`
-	SignatureLabel string                  `json:"signature_label,omitempty"`
+	ChannelID      string                `json:"channel_id"`
+	UIState        string                `json:"ui_state"` // converged|warming|cold-start|drifting|refused
+	Wpred          float64               `json:"w_pred"`   // 0..1 final blend weight
+	Coupling       *smartCouplingShard   `json:"coupling,omitempty"`
+	Marginal       []*smartMarginalShard `json:"marginal,omitempty"`
+	SignatureLabel string                `json:"signature_label,omitempty"`
 }
 
 type smartCouplingShard struct {
@@ -1321,12 +1321,12 @@ type smartCouplingShard struct {
 }
 
 type smartMarginalShard struct {
-	SignatureLabel    string    `json:"signature_label"`
-	Kind              string    `json:"kind"`
-	Theta             []float64 `json:"theta"`
-	NSamples          uint64    `json:"n_samples"`
-	TrP               float64   `json:"tr_p"`
-	EWMAResidual      float64   `json:"ewma_residual"`
+	SignatureLabel string    `json:"signature_label"`
+	Kind           string    `json:"kind"`
+	Theta          []float64 `json:"theta"`
+	NSamples       uint64    `json:"n_samples"`
+	TrP            float64   `json:"tr_p"`
+	EWMAResidual   float64   `json:"ewma_residual"`
 }
 
 // handleSmartStatus GET /api/v1/smart/status — aggregate dashboard
@@ -1701,13 +1701,13 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 // handleSetupReset's redirect: "/setup".
 //
 // DOES NOT wipe:
-//  - Installed OOT driver under /lib/modules/<rel>/extra/ (use the
-//    reset-and-reinstall endpoint).
-//  - /etc/modprobe.d/ventd-*.conf (driver-cleanup endpoint owns those).
-//  - /var/lib/ventd/blob/, /var/lib/ventd/log/ (durable telemetry
-//    persists across factory reset by design — operators can clear
-//    manually if desired).
-//  - The signature salt (regenerates on next start anyway).
+//   - Installed OOT driver under /lib/modules/<rel>/extra/ (use the
+//     reset-and-reinstall endpoint).
+//   - /etc/modprobe.d/ventd-*.conf (driver-cleanup endpoint owns those).
+//   - /var/lib/ventd/blob/, /var/lib/ventd/log/ (durable telemetry
+//     persists across factory reset by design — operators can clear
+//     manually if desired).
+//   - The signature salt (regenerates on next start anyway).
 func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
