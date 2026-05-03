@@ -231,6 +231,7 @@ Regenerate with: `go run ./tools/rule-index`
 | hwmon-sentinel.md | hwmon Sentinel Acceptance Invariants |
 | install-contract.md | Install Contract Rules |
 | install-pipeline.md | Controlled install pipeline rules — v0.5.9 PR-D |
+| iox.md | iox atomic-write helper rules — v0.5.11 R28 Stage 1.5 PR-3 |
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
 | marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
