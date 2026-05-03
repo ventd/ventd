@@ -22,8 +22,16 @@ var virtVendors = map[string]string{
 // containerisation (§4.1 RULE-PROBE-03). Returns the populated RuntimeEnvironment
 // and any diagnostic events.
 //
-// Virtualised: requires ≥3 of {DMI, systemd-detect-virt --vm, /sys/hypervisor}.
-// Containerised: requires ≥2 of {/.dockerenv, /proc/1/cgroup, systemd-detect-virt --container}.
+// Virtualised: requires ≥3 of {DMI, systemd-detect-virt --vm, /sys/hypervisor,
+//
+//	cpuinfo "hypervisor" flag}. The cpuinfo source was added 2026-05-03 to close
+//	the MicroVM/Firecracker recall gap (those hosts can fire the cpuid
+//	hypervisor bit alone with no DMI / sysfs / systemd evidence).
+//
+// Containerised: requires ≥2 of {/.dockerenv, /proc/1/cgroup, systemd-detect-virt
+//
+//	--container, /proc/mounts overlay-root, /run/.containerenv, /proc/1/environ
+//	container=}.
 func (p *prober) detectEnvironment(ctx context.Context) (RuntimeEnvironment, []Diagnostic) {
 	var env RuntimeEnvironment
 	var diags []Diagnostic
@@ -192,6 +200,27 @@ func (p *prober) detectEnvironment(ctx context.Context) (RuntimeEnvironment, []D
 		if _, err := fs.Stat(p.cfg.SysFS, "hypervisor"); err == nil {
 			virtScore++
 			virtSignals = append(virtSignals, "/sys/hypervisor")
+		}
+	}
+
+	// Source 4: /proc/cpuinfo "hypervisor" flag. MicroVMs (Firecracker,
+	// Cloud Hypervisor) and pre-systemd VMs may set the cpuid hypervisor
+	// bit but lack DMI strings, /sys/hypervisor, and systemd-detect-virt
+	// — without this 4th source ventd misses the virt detection threshold
+	// (≥3) on those hosts and runs the install path on a virtualised
+	// machine. Per RULE-PROBE-02 the threshold stays at 3 to keep recall
+	// conservative; this signal closes the recall gap without lowering
+	// the bar.
+	if p.cfg.ProcFS != nil {
+		if data, err := fs.ReadFile(p.cfg.ProcFS, "cpuinfo"); err == nil {
+			s := string(data)
+			// `flags` line lists CPU feature flags space-separated; the
+			// kernel guarantees `hypervisor` is space-delimited so a
+			// substring match is enough.
+			if strings.Contains(s, " hypervisor ") || strings.HasSuffix(s, " hypervisor") {
+				virtScore++
+				virtSignals = append(virtSignals, "cpuinfo:hypervisor")
+			}
 		}
 	}
 
