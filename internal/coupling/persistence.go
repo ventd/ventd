@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ventd/ventd/internal/iox"
 	msgpack "github.com/vmihailenco/msgpack/v5"
 )
 
@@ -76,28 +77,8 @@ func (s *Shard) Save(stateDir, hwmonFingerprint string) error {
 	}
 
 	path := filepath.Join(dir, sanitiseChannelID(s.channelID)+".cbor")
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("coupling: open tmp: %w", err)
-	}
-	if _, err := f.Write(payload); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("coupling: write: %w", err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("coupling: fsync: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("coupling: close: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("coupling: rename: %w", err)
+	if err := iox.WriteFile(path, payload, 0o600); err != nil {
+		return fmt.Errorf("coupling: persist: %w", err)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ventd/ventd/internal/iox"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,18 +70,11 @@ func Capture(run *CalibrationRun, dmi DMI, cat *Catalog, dir string) (string, er
 	return outPath, nil
 }
 
-// writeAtomic writes data to finalPath via a temp-file + rename.
-// Prevents partial writes from producing a corrupt pending profile.
+// writeAtomic delegates to iox.WriteFile so the dir-fsync invariant
+// from RULE-IOX-01 is enforced uniformly with every other persistent
+// write in ventd.
 func writeAtomic(finalPath string, data []byte, mode os.FileMode) error {
-	tmp := finalPath + ".tmp"
-	if err := os.WriteFile(tmp, data, mode); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, finalPath); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return iox.WriteFile(finalPath, data, mode)
 }
 
 // marshalPendingProfile marshals a single profile as a YAML list (one entry)

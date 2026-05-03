@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ventd/ventd/internal/iox"
 	"github.com/vmihailenco/msgpack/v5"
 	"gonum.org/v1/gonum/mat"
 )
@@ -104,34 +105,9 @@ func (s *Shard) Save(stateDir, hwmonFingerprint string) error {
 		return fmt.Errorf("marginal: marshal: %w", err)
 	}
 
-	dir := filepath.Join(stateDir, shardSubdir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("marginal: mkdir %q: %w", dir, err)
-	}
-
 	final := shardPath(stateDir, s.cfg.ChannelID, s.cfg.SignatureLabel)
-	tmp := final + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
-	if err != nil {
-		return fmt.Errorf("marginal: tmp open %q: %w", tmp, err)
-	}
-	if _, err := f.Write(payload); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("marginal: write %q: %w", tmp, err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("marginal: fsync %q: %w", tmp, err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("marginal: close %q: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, final); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("marginal: rename %q→%q: %w", tmp, final, err)
+	if err := iox.WriteFile(final, payload, 0o640); err != nil {
+		return fmt.Errorf("marginal: persist: %w", err)
 	}
 	return nil
 }
