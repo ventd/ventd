@@ -54,6 +54,11 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		detectors.NewUserspaceConflictDetector(nil),
 		detectors.NewBatteryTransitionDetector(nil),
 		detectors.NewContainerPostbootDetector(nil),
+		// EC-locked-laptop card uses a local writable-PWM glob as a
+		// proxy for the probe's ControllableChannels count; the daemon
+		// wiring layer (PR-D follow-up #67) will swap in the live
+		// probe count.
+		detectors.NewECLockedLaptopDetector(countWritablePWMFiles("/sys/class/hwmon"), nil),
 	}
 	if len(modules) > 0 {
 		dets = append(dets,
@@ -197,6 +202,42 @@ func writeReportJSON(w io.Writer, r doctor.Report) error {
 }
 
 // wrapText is a minimal word-wrap to keep CLI output legible. Hand-
+// countWritablePWMFiles globs hwmonRoot/hwmon*/pwm[0-9] and returns
+// the count of duty-cycle write surfaces present on this host. Used
+// by the CLI doctor to seed the EC-locked-laptop detector's
+// "controllable channel count" input — when the daemon isn't running
+// to provide the authoritative probe.ProbeResult.ControllableChannels
+// count.
+//
+// pwmN_enable / pwmN_freq / pwmN_mode are excluded — they're not
+// duty-cycle writes. The pattern matches numeric suffixes only (pwm1,
+// pwm2, ... up to pwm9 — beyond that no real chip ships).
+//
+// Returns 0 on any filesystem error so the EC-locked card surfaces
+// even when /sys is unreadable; the worst that produces is an
+// informational card on a host that has writable PWMs (operator gets
+// a slightly noisy doctor output but no incorrect remediation).
+func countWritablePWMFiles(hwmonRoot string) int {
+	entries, err := os.ReadDir(hwmonRoot)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "hwmon") {
+			continue
+		}
+		// One digit suffix matches pwm1..pwm9 — the realistic range.
+		for digit := byte('1'); digit <= '9'; digit++ {
+			p := filepath.Join(hwmonRoot, e.Name(), "pwm"+string(digit))
+			if _, err := os.Stat(p); err == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // rolled instead of pulling in a wrap library — the detail strings
 // average 200-300 chars; performance isn't a concern.
 func wrapText(s string, width int, indent string) string {
