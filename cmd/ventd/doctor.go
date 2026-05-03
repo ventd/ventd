@@ -179,11 +179,11 @@ func writeReportText(w io.Writer, r doctor.Report, quiet bool, modules []string)
 			continue
 		}
 		tag := strings.ToUpper(f.Severity.String())
-		fmt.Fprintf(w, "[%s] %s: %s\n", tag, f.Detector, f.Title)
+		_, _ = fmt.Fprintf(w, "[%s] %s: %s\n", tag, f.Detector, f.Title)
 		if f.Detail != "" {
-			fmt.Fprintf(w, "         %s\n", wrapText(f.Detail, 76, "         "))
+			_, _ = fmt.Fprintf(w, "         %s\n", wrapText(f.Detail, 76, "         "))
 		}
-		fmt.Fprintf(w, "         Entity: %s\n\n", f.EntityHash)
+		_, _ = fmt.Fprintf(w, "         Entity: %s\n\n", f.EntityHash)
 	}
 }
 

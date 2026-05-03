@@ -18,12 +18,18 @@ How Phoenix and Claude sessions work together on this repo. These rules distil w
 
 Never take these without an explicit in-session OK from Phoenix:
 
-- `git tag` of any version.
-- `goreleaser release` (needs a tag anyway).
 - `git push --force` to `main`.
 - Rotating / regenerating the GitHub PAT.
 - Enabling UFW / changing firewall rules on a live host without a dry-run.
 - Destructive rig-level actions beyond `reboot` (disk wipe, partition change, BIOS flash).
+
+## Standing delegations (Phoenix has pre-authorised these)
+
+- `git tag` of versions following the established naming scheme (vX.Y.Z[-suffix]).
+  Required preconditions: CI green on the merge commit being tagged, ci-local
+  sweep passes, CHANGELOG.md updated. Tag messages should summarise the headline
+  changes since the previous tag.
+- `goreleaser release` triggered by a pushed tag (downstream of `git tag`).
 
 ## Merge discipline
 
