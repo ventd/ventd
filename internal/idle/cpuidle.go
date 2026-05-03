@@ -90,17 +90,6 @@ func loadAvgPath(procRoot string) string {
 	return procRoot + "/loadavg"
 }
 
-// CPUIdleRatio computes the idle ratio from two CPUStat snapshots.
-// Returns a value in [0.0, 1.0]; 1.0 means fully idle.
-func CPUIdleRatio(before, after CPUStat) float64 {
-	deltaTotal := after.Total - before.Total
-	if deltaTotal == 0 {
-		return 1.0
-	}
-	deltaIdle := after.Idle - before.Idle
-	return float64(deltaIdle) / float64(deltaTotal)
-}
-
 // LoadAvgPerCPU returns the 1-minute load average normalised by ncpus.
 func LoadAvgPerCPU(la [3]float64) float64 {
 	ncpus := runtime.NumCPU()
