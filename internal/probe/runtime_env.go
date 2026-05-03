@@ -23,12 +23,15 @@ var virtVendors = map[string]string{
 // and any diagnostic events.
 //
 // Virtualised: requires ≥3 of {DMI, systemd-detect-virt --vm, /sys/hypervisor,
-//   cpuinfo "hypervisor" flag}. The cpuinfo source was added 2026-05-03 to close
-//   the MicroVM/Firecracker recall gap (those hosts can fire the cpuid
-//   hypervisor bit alone with no DMI / sysfs / systemd evidence).
+//
+//	cpuinfo "hypervisor" flag}. The cpuinfo source was added 2026-05-03 to close
+//	the MicroVM/Firecracker recall gap (those hosts can fire the cpuid
+//	hypervisor bit alone with no DMI / sysfs / systemd evidence).
+//
 // Containerised: requires ≥2 of {/.dockerenv, /proc/1/cgroup, systemd-detect-virt
-//   --container, /proc/mounts overlay-root, /run/.containerenv, /proc/1/environ
-//   container=}.
+//
+//	--container, /proc/mounts overlay-root, /run/.containerenv, /proc/1/environ
+//	container=}.
 func (p *prober) detectEnvironment(ctx context.Context) (RuntimeEnvironment, []Diagnostic) {
 	var env RuntimeEnvironment
 	var diags []Diagnostic
