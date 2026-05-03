@@ -299,3 +299,70 @@ func argsort(xs []float64) []int {
 	sort.SliceStable(idx, func(i, j int) bool { return xs[idx[i]] < xs[idx[j]] })
 	return idx
 }
+
+// TestCostRate verifies the cost-rate helper. R33's per-fan k_factor
+// (au/PWM) is the partial derivative dS/dPWM around the operating
+// point, scaled by the smart-mode preset multiplier.
+//
+// Bound: see .claude/rules/acoustic-proxy.md::RULE-ACOUSTIC-COSTRATE
+func TestCostRate(t *testing.T) {
+	t.Run("CaseFanSlope_MatchesR29Measurement", func(t *testing.T) {
+		// R29 §3.2 measured Phoenix's MSI Z690-A chassis fans at
+		// ~0.062 dB/PWM. The proxy should be in the same order of
+		// magnitude (au/PWM ≈ dB/PWM in within-host scaling).
+		// rpmPerPWM=5 is a typical 4-pin consumer fan slope.
+		got := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetBalanced)
+		if got <= 0 || got > 0.5 {
+			t.Errorf("case fan @ 1500 RPM cost rate %.4f au/PWM out of expected 0..0.5 range (R29 measured 0.062 dB/PWM)", got)
+		}
+	})
+
+	t.Run("GPUFanSlope_HigherThanCase", func(t *testing.T) {
+		// R29 §3.1 measured the RTX 4090 fan at 1.28 dB/PWM, ~20×
+		// chassis fan slope. The driver of that ratio is rpmPerPWM —
+		// Phoenix's RTX 4090 covers ~3000 RPM across 12 PWM units
+		// (~250 RPM/PWM) while chassis fans cover ~10 RPM/PWM. Pass
+		// realistic rpmPerPWM per fan; the proxy then ranks correctly.
+		caseRate := CostRate(ClassCase120140, 1500, 120, 7, 0, 10, PresetBalanced)
+		gpuRate := CostRate(ClassGPUShroud, 2500, 80, 11, 0, 250, PresetBalanced)
+		if gpuRate <= caseRate {
+			t.Errorf("GPU shroud cost rate (%.4f) should exceed case fan (%.4f) with realistic rpmPerPWM", gpuRate, caseRate)
+		}
+	})
+
+	t.Run("PresetMultiplierOrdering", func(t *testing.T) {
+		// Silent (3.0) > Balanced (1.0) > Performance (0.2) at the
+		// same operating point.
+		s := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetSilent)
+		b := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetBalanced)
+		p := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetPerformance)
+		if s <= b || b <= p {
+			t.Errorf("preset ordering broken: silent=%.4f balanced=%.4f performance=%.4f", s, b, p)
+		}
+		// Ratios should match the multipliers exactly.
+		if math.Abs(s/b-3.0) > 1e-9 {
+			t.Errorf("silent/balanced = %.4f, want 3.0", s/b)
+		}
+		if math.Abs(b/p-5.0) > 1e-9 {
+			t.Errorf("balanced/performance = %.4f, want 5.0 (1.0/0.2)", b/p)
+		}
+	})
+
+	t.Run("DefaultRpmPerPWM_Applied", func(t *testing.T) {
+		// rpmPerPWM <= 0 falls back to 5.
+		zero := CostRate(ClassCase120140, 1500, 120, 7, 0, 0, PresetBalanced)
+		five := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetBalanced)
+		if math.Abs(zero-five) > 1e-9 {
+			t.Errorf("rpmPerPWM=0 should default to 5: zero=%.4f five=%.4f", zero, five)
+		}
+	})
+
+	t.Run("DefaultPreset_AppliedWhenZero", func(t *testing.T) {
+		// preset <= 0 falls back to Balanced.
+		zero := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, 0)
+		balanced := CostRate(ClassCase120140, 1500, 120, 7, 0, 5, PresetBalanced)
+		if math.Abs(zero-balanced) > 1e-9 {
+			t.Errorf("preset=0 should default to Balanced: zero=%.4f balanced=%.4f", zero, balanced)
+		}
+	})
+}
