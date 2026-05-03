@@ -1353,6 +1353,10 @@ func runDaemonInternal(
 	// skips construction and the endpoint reports enabled=false.
 	if smartMode != nil {
 		webSrv.SetConfidence(smartMode.Aggregator, smartMode.LayerA)
+		// v0.5.12 #104: wire the deeper coupling + marginal runtimes
+		// so /api/v1/smart/{status,channels} can return per-channel
+		// RLS state for the dashboard + doctor surfaces.
+		webSrv.SetSmartRuntimes(smartMode.Coupling, smartMode.Marginal)
 	}
 
 	// v0.5.5: build and launch the opportunistic-probe scheduler when
