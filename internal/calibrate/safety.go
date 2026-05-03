@@ -24,6 +24,25 @@ const SafePWMFloor uint8 = 30
 // goroutine mid-sweep cannot leave a fan stopped under load.
 const ZeroPWMMaxDuration = 2 * time.Second
 
+// Clock is the minimum interface ZeroPWMSentinel needs from time.
+// Production uses realClock (forwards to time.AfterFunc); tests inject
+// a fake clock to advance simulated time synchronously instead of
+// sleeping for real seconds inside the test runner.
+type Clock interface {
+	AfterFunc(d time.Duration, f func()) Timer
+}
+
+// Timer is the subset of *time.Timer the sentinel uses.
+type Timer interface {
+	Stop() bool
+}
+
+type realClock struct{}
+
+func (realClock) AfterFunc(d time.Duration, f func()) Timer {
+	return time.AfterFunc(d, f)
+}
+
 // ZeroPWMSentinel watches a fan's most recent commanded PWM value.
 // While the value is 0 it arms a 2-second timer; if the timer fires
 // before another non-zero write resets it, sentinel calls the
@@ -42,18 +61,27 @@ type ZeroPWMSentinel struct {
 	mu       sync.Mutex
 	logger   *slog.Logger
 	escalate func() // called when the 2s timer fires while value is 0
-	timer    *time.Timer
+	clock    Clock
+	timer    Timer
 	current  uint8
 	stopped  bool
 }
 
 // NewZeroPWMSentinel returns a sentinel that calls escalate after
 // the value stays at 0 for more than ZeroPWMMaxDuration. logger may
-// be nil for tests.
+// be nil for tests. Uses the real wall clock.
 func NewZeroPWMSentinel(logger *slog.Logger, escalate func()) *ZeroPWMSentinel {
+	return newZeroPWMSentinelWithClock(logger, escalate, realClock{})
+}
+
+// newZeroPWMSentinelWithClock is the internal constructor that lets
+// tests inject a fake clock to drive deterministic timer events.
+// Not exported — tests in this package call it directly.
+func newZeroPWMSentinelWithClock(logger *slog.Logger, escalate func(), clock Clock) *ZeroPWMSentinel {
 	return &ZeroPWMSentinel{
 		logger:   logger,
 		escalate: escalate,
+		clock:    clock,
 	}
 }
 
@@ -73,7 +101,7 @@ func (s *ZeroPWMSentinel) Set(value uint8) {
 		if s.timer != nil {
 			s.timer.Stop()
 		}
-		s.timer = time.AfterFunc(ZeroPWMMaxDuration, s.escalateLocked)
+		s.timer = s.clock.AfterFunc(ZeroPWMMaxDuration, s.escalateLocked)
 		return
 	}
 	// Non-zero value: cancel any pending escalation.
