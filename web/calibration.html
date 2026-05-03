@@ -276,6 +276,25 @@
         </ul>
       </div>
 
+      <!-- LIVE ACTIVITY FEED ------------------------------------------ -->
+      <!-- Real-time narration of what the daemon is doing right now.
+           Synthesised client-side from /api/setup/status polls + per-fan
+           PWM/RPM transitions. Every visible state change appends one
+           timestamped line so operators see the daemon's actual
+           methodology unfolding instead of just static phase labels.    -->
+      <div class="cal-card cal-activity-card">
+        <div class="cal-card-head cal-card-head--inline">
+          <div class="cal-card-eyebrow">
+            <span class="cal-pulse-dot cal-pulse-dot--info"></span>
+            LIVE ACTIVITY
+          </div>
+          <div class="cal-activity-counter mono" id="cal-activity-counter">0 events</div>
+        </div>
+        <ol class="cal-activity-feed" id="cal-activity-feed" aria-live="polite" aria-atomic="false">
+          <li class="cal-activity-empty">Waiting for first action…</li>
+        </ol>
+      </div>
+
     </div>
   </section>
 

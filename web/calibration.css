@@ -530,6 +530,69 @@
   flex-shrink: 0;
 }
 
+/* ── live activity feed ───────────────────────────────────── */
+/* Real-time narration of the daemon's actions during calibration. Each
+   line is appended as a state transition is observed via /api/setup/status
+   polling. Latest at top. Auto-truncates to MAX_ACTIVITY_LINES (100) so
+   the DOM stays bounded on long runs. */
+.cal-activity-card {
+  /* Fill remaining vertical space when other cards are short. */
+  display: flex; flex-direction: column; min-height: 280px;
+}
+.cal-activity-counter {
+  font-size: 0.7rem; color: var(--fg3); letter-spacing: 0.08em;
+}
+.cal-activity-feed {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 380px; overflow-y: auto;
+  font-size: 0.78rem; line-height: 1.4;
+  /* Subtle scroll fade at the bottom so the latest line always feels
+     like the leading edge of a stream. */
+  mask-image: linear-gradient(180deg, black 0, black 90%, transparent 100%);
+}
+.cal-activity-empty {
+  color: var(--fg3); font-style: italic; padding: 6px 0;
+}
+.cal-activity-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border-left: 2px solid var(--teal);
+  background: linear-gradient(90deg, var(--teal-bg) 0%, transparent 60%);
+  animation: cal-activity-flash 0.6s ease-out;
+}
+.cal-activity-line--quiet {
+  border-left-color: var(--fg3);
+  background: transparent;
+  color: var(--fg2);
+}
+.cal-activity-line--success { border-left-color: var(--teal); }
+.cal-activity-line--warn    { border-left-color: var(--orange); }
+.cal-activity-line--error   { border-left-color: var(--red); }
+.cal-activity-time {
+  font-family: var(--mono); color: var(--fg3); font-size: 0.7rem;
+  white-space: nowrap; align-self: center;
+}
+.cal-activity-msg {
+  color: var(--fg1);
+}
+.cal-activity-fan {
+  color: var(--teal); font-weight: 600;
+}
+.cal-activity-detail {
+  color: var(--fg2); font-family: var(--mono); font-size: 0.74rem;
+}
+@keyframes cal-activity-flash {
+  0%   { background-color: var(--teal); color: white; }
+  100% { background: linear-gradient(90deg, var(--teal-bg) 0%, transparent 60%); color: inherit; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cal-activity-line { animation: none; }
+}
+
 /* ── ensure [hidden] always wins over flex/grid display ──── */
 [hidden] { display: none !important; }
 
