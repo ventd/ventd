@@ -111,6 +111,15 @@ func run() error {
 		os.Exit(runPreflight(os.Args[2:], logger))
 	}
 
+	// `ventd calibrate --acoustic <mic_device>` runs R30's mic-
+	// calibration capture (v0.5.12 PR-D). Subcommand owns its flag
+	// parsing for the same reason as preflight — the daemon flags
+	// would error on --acoustic etc.
+	if len(os.Args) >= 2 && os.Args[1] == "calibrate" {
+		logger := buildLogger("info")
+		return runCalibrateAcoustic(os.Args[2:], logger)
+	}
+
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")

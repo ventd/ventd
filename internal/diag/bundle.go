@@ -44,6 +44,14 @@ var denylist = []string{
 	"id_rsa",     // SSH private keys
 	"id_ed25519", // SSH private keys
 	"id_ecdsa",   // SSH private keys
+	// v0.5.12 PR-D: raw audio captures from `ventd calibrate --acoustic`
+	// (RULE-DIAG-PR2C-11). The CLI deletes these immediately after parse,
+	// but a crashed subprocess could leave one behind. Architectural
+	// denylist ensures it can never enter a diag bundle even if so.
+	"/tmp/ventd-acoustic-",
+	"/tmp/ventd-mic-",
+	".wav",
+	".raw",
 }
 
 // isDenied reports whether path matches any denylist entry.
