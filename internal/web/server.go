@@ -334,6 +334,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// separately (trailing-slash route) because registerAPIRoutes only
 		// expresses exact paths.
 		{name: "diag/bundle", handler: s.handleDiagBundle, auth: true},
+		// v0.5.12 #64: outbound bundle ingest. Refused with HTTP 412
+		// when diag.upstream_ingest.enabled=false in config (default).
+		// Operator opt-in surface for the maintainer-side support flow.
+		{name: "diag/send", handler: s.handleDiagSend, auth: true},
 		// v0.5.9 confidence-controller surfaces (PR-B). status returns
 		// per-channel aggregator + LayerA snapshots for the 5-state
 		// dashboard pill; preset GET/PUT exposes the smart-mode

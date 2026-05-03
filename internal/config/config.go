@@ -141,6 +141,43 @@ type Config struct {
 	// PR-A.4. The legacy flat *Disabled fields above stay where they
 	// are for backward compatibility with deployed config.yaml files.
 	Smart SmartConfig `yaml:"smart,omitempty" json:"smart,omitempty"`
+
+	// Diag groups v0.5.12 #64's diagnostic-bundle outbound config.
+	// Specifically: optional Tailscale-style upstream ingest the
+	// daemon can post bundles to with explicit per-bundle operator
+	// consent. Empty (default) → no ingest, behaves as v0.5.11.
+	Diag DiagConfig `yaml:"diag,omitempty" json:"diag,omitempty"`
+}
+
+// DiagConfig groups diagnostic-bundle outbound transport options.
+// v0.5.12 #64 / spec issue #809.
+type DiagConfig struct {
+	// UpstreamIngest configures an optional maintainer-controlled
+	// HTTP endpoint the daemon posts bundles to when the operator
+	// clicks "Send to maintainers" + accepts the per-bundle consent
+	// dialog. Empty Enabled / URL means the feature is off and the
+	// /api/v1/diag/send endpoint refuses (no surprise outbound
+	// traffic).
+	UpstreamIngest UpstreamIngestConfig `yaml:"upstream_ingest,omitempty" json:"upstream_ingest,omitempty"`
+}
+
+// UpstreamIngestConfig holds the URL + bearer token for the optional
+// outbound ingest. Token is per-installation, generated on first
+// daemon start when the operator enables the feature; the maintainer
+// endpoint uses it to dedupe + rate-limit per installation. Never
+// logged or surfaced in diag bundles (the redactor's denylist covers
+// the config path, but the value itself never enters a bundle either).
+type UpstreamIngestConfig struct {
+	// Enabled is the operator opt-in toggle. Default false.
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// URL is the canonical maintainer ingest endpoint. Empty disables
+	// regardless of Enabled. Schemes other than https:// are rejected
+	// at validate time so the bundle never travels in cleartext.
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// Token is the per-installation bearer secret. Auto-generated on
+	// first POST to /api/v1/diag/send when empty; persisted via the
+	// existing config save path.
+	Token string `yaml:"token,omitempty" json:"token,omitempty"`
 }
 
 // SmartConfig holds the v0.5.9 smart-mode operator surface. The
