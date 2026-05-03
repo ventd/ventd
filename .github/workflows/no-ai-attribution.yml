@@ -1,0 +1,77 @@
+name: no-ai-attribution
+
+# Hard CI gate: every commit message and the PR body must be free of
+# AI-attribution markers. This repo ships under a single human author
+# per .claude/rules/attribution.md.
+#
+# Runs in <3 seconds. Fires early in the matrix so failures surface fast.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  scan:
+    name: scan
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR head with full history to base
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Scan commit messages between base and head
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          echo "Scanning commits in ${base}..${head}"
+          # %B = full commit body (subject + body). %an / %ae = author identity.
+          if git log "${base}..${head}" --format='%n=== COMMIT %h ===%n%B%nAuthor: %an <%ae>' | \
+             grep -niE '^[[:space:]]*co-authored-by:[[:space:]]+claude|^[[:space:]]*🤖[[:space:]]+generated[[:space:]]+with[[:space:]]+\[claude|claude\.com/claude-code'; then
+            echo "::error::AI attribution detected in commit messages"
+            exit 1
+          fi
+          echo "Commit messages clean."
+
+      - name: Scan PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # printf-and-grep so heredoc safely handles arbitrary content
+          if printf '%s' "$PR_BODY" | \
+             grep -niE '^[[:space:]]*co-authored-by:[[:space:]]+claude|^[[:space:]]*🤖[[:space:]]+generated[[:space:]]+with[[:space:]]+\[claude|claude\.com/claude-code'; then
+            echo "::error::AI attribution detected in PR body"
+            exit 1
+          fi
+          echo "PR body clean."
+
+      - name: Scan staged files for inline AI attribution
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          # Only scan added/modified files (M, A) — not deletions.
+          # Exclude .claude/rules/ where the *rule itself* may legitimately
+          # mention attribution (the no-ai-attribution rule must be allowed
+          # to say the words "Claude" and "AI" while forbidding them
+          # elsewhere).
+          changed=$(git diff --name-only --diff-filter=AM "${base}" "${head}" | grep -vE '^(\.claude/rules/|\.github/workflows/no-ai-attribution\.yml$)' || true)
+          if [ -z "$changed" ]; then
+            echo "No tracked-file content changes outside .claude/rules/."
+            exit 0
+          fi
+          if echo "$changed" | xargs -r grep -niE \
+              '^[[:space:]]*co-authored-by:[[:space:]]+claude|^[[:space:]]*🤖[[:space:]]+generated[[:space:]]+with[[:space:]]+\[claude|claude\.com/claude-code' \
+              2>/dev/null; then
+            echo "::error::AI attribution detected in changed file content"
+            exit 1
+          fi
+          echo "File content clean."

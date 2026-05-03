@@ -3,6 +3,13 @@ name: fuzz-smoke
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - '.claude/rules/**'
+      - '.claude/RULE-INDEX.md'
     paths:
       - '**.go'
       - 'go.mod'
@@ -10,6 +17,13 @@ on:
 
 permissions:
   contents: read
+
+
+# Cancel in-progress runs on the same branch when a new push lands.
+# main is exempted so back-to-back merges don't cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   fuzz-smoke:

@@ -1,13 +1,16 @@
 # ventd — developer convenience targets.
 # Shells to existing tools and scripts. No new deps.
 
-.PHONY: help build test cover lint e2e safety-run verify-repro clean
+.PHONY: help build test cover lint e2e safety-run verify-repro clean pre-push
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build a snapshot binary via goreleaser.
 	goreleaser build --snapshot --clean --single-target
+
+pre-push: ## Run every CI gate locally (mirrors scripts/ci-local.sh). Catches gofmt/lint/build issues before they cost a 25-40 min CI cycle.
+	bash scripts/ci-local.sh
 
 test: ## Run the full test suite with race detector.
 	go test -race ./...

@@ -42,8 +42,14 @@ If a class of action has been explicitly approved earlier in the session ("yes d
 ## Standing delegations (Phoenix has pre-authorised these)
 
 - `git tag` of versions following the established naming scheme (vX.Y.Z[-suffix]).
-  Required preconditions: CI green on the merge commit being tagged, ci-local
-  sweep passes, CHANGELOG.md updated. Tag messages should summarise the headline
+  **Tagging requires a manual CHANGELOG entry first** (the auto-generated
+  release-changelog.yml workflow was retired in chore/workflow-hygiene; we
+  write release notes by hand now). Add a `## [vX.Y.Z] - YYYY-MM-DD`
+  section to `CHANGELOG.md` above the previous version, group changes by
+  Headline / Added / Changed / Fixed / CI / chore, then merge that PR
+  before tagging. The pre-release-check.yml gate2 enforces this.
+  Other preconditions: CI green on the merge commit being tagged,
+  ci-local sweep passes. Tag messages should summarise the headline
   changes since the previous tag.
 - `goreleaser release` triggered by a pushed tag (downstream of `git tag`).
 
@@ -52,9 +58,11 @@ If a class of action has been explicitly approved earlier in the session ("yes d
 - Branch from `origin/main` for every task. Never commit to `main` directly.
 - Every commit authored as `phoenixdnb`. Verify with `git config user.name` / `user.email` before the first commit of a session. Fix with repo-scoped config, never global.
 - No `--no-verify`, no `--no-gpg-sign`, no `--amend` of someone else's commits.
-- When running autonomously (e.g. overnight): open PR → wait for green CI → squash-merge `--delete-branch`. If CI fails, fix forward or open a tracking issue and move on — do not block the queue.
-- If a PR has been on CI more than 45 minutes with no completion, file a CI-flake issue and keep moving. (The 5-distro × race matrix legitimately takes 25-40 min; old 20-min cap fired on every clean run.)
-- Use the GraphQL mutation path for `gh pr edit --body` — `gh` CLI silently fails on the projects-classic deprecation. Resolve the PR ID via GraphQL, then call `updatePullRequest` directly with `body`.
+- When running autonomously (e.g. overnight): open PR → wait for green CI → squash-merge `--delete-branch`. Prefer `gh pr merge <N> --auto --squash --delete-branch` to fire the merge automatically the moment CI greens. If CI fails, fix forward or open a tracking issue and move on — do not block the queue.
+- If a PR has been on CI more than 45 minutes with no completion, file a CI-flake issue and keep moving. (The 5-distro × race matrix routinely takes 25-40 min on green runs.)
+- Run `make pre-push` (wraps `scripts/ci-local.sh`) before pushing — catches gofmt/lint/build/rule-index issues in <2 min that would otherwise eat a full CI cycle.
+- `scripts/dev/prs.sh` lists your open PRs with mergeStateStatus + failure / pending counts in one row each. `scripts/dev/wait-and-merge.sh <N>` polls a PR and squash-merges the moment it goes CLEAN.
+- Use the GraphQL mutation path for `gh pr edit --body` — `gh` CLI silently fails on the projects-classic deprecation. Resolve PR ID via GraphQL, then call `updatePullRequest` directly with `body`.
 
 ## Attribution
 

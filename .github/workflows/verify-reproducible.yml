@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+
+# Cancel in-progress runs on the same branch when a new push lands.
+# main is exempted so back-to-back merges don't cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   verify:
     runs-on: [self-hosted, linux, x64, hil, phoenix-desktop]
