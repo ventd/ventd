@@ -318,13 +318,61 @@
   });
 
   $('set-reset').addEventListener('click', function () {
-    if (!window.confirm('Reset to initial setup?\n\nThis wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again. Existing fan curves and profiles are lost.')) return;
+    if (!window.confirm('Reset to initial setup?\n\nThis wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again. Existing fan curves and profiles are lost.\n\nLogin credentials are KEPT.')) return;
     if (!window.confirm('Final confirmation: this is destructive and cannot be undone. Proceed?')) return;
     fetch('/api/v1/setup/reset', { method: 'POST', credentials: 'same-origin' })
       .then(function (r) {
         if (r.ok) { window.location.assign('/setup'); }
         else      { alert('Reset failed (HTTP ' + r.status + ').'); }
       });
+  });
+
+  // Reset and reinstall driver — calls the existing hwdiag endpoint
+  // that's also surfaced as a recovery card on the calibration banner
+  // for ClassDKMSStateCollision / ClassInTreeConflict failures
+  // (RULE-WIZARD-RECOVERY-*). Exposing it here in Settings makes it
+  // discoverable WITHOUT first hitting one of those specific failure
+  // classes — useful when switching catalog rows or recovering from
+  // a botched first install.
+  var btnResetDriver = $('set-reset-driver');
+  if (btnResetDriver) btnResetDriver.addEventListener('click', function () {
+    if (!window.confirm('Reset and reinstall driver?\n\nThis removes any partially-installed OOT driver state — DKMS registration, .ko files in /lib/modules/<release>/extra/, modules-load.d entries, build dirs under /tmp/ventd-driver-*. The next wizard run will re-attempt the install from a clean slate.\n\nCalibration data and login credentials are KEPT.')) return;
+    if (!window.confirm('Final confirmation: this is destructive and cannot be undone. Proceed?')) return;
+    fetch('/api/v1/hwdiag/reset-and-reinstall', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          alert('Driver reset complete.\n\n' + (res.body.lines ? res.body.lines.join('\n') : 'See journalctl for details.') + '\n\nReturn to /setup to re-run the wizard.');
+          window.location.assign('/setup');
+        } else {
+          alert('Driver reset failed: ' + (res.body && res.body.error ? res.body.error : 'see journalctl for details') + '.');
+        }
+      })
+      .catch(function (err) { alert('Driver reset failed: ' + err.message); });
+  });
+
+  // Factory reset — full state wipe including auth.json. Redirects to
+  // /login (where the daemon will render the password-set form per
+  // the v0.5.8.1 first-boot flow #765/#794).
+  var btnFactory = $('set-factory-reset');
+  if (btnFactory) btnFactory.addEventListener('click', function () {
+    if (!window.confirm('FACTORY RESET?\n\nThis wipes EVERYTHING:\n  • Calibration KV namespace\n  • Active config\n  • Applied marker\n  • Login credentials (auth.json)\n\nThe daemon will land on /login\'s password-set screen as if this were a fresh install. Existing fan curves, profiles, and the operator account are LOST.\n\nThe OOT driver under /lib/modules/<release>/extra/ is preserved — use "Reset driver" first if you want that gone too.')) return;
+    if (!window.confirm('Final confirmation: factory reset is destructive and cannot be undone. The next person to load this URL will be prompted to set a new password. Proceed?')) return;
+    fetch('/api/v1/admin/factory-reset', { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          window.location.assign(res.body.redirect || '/login');
+        } else {
+          alert('Factory reset failed (HTTP ' + (res.body && res.body.error ? res.body.error : 'unknown') + ').');
+        }
+      })
+      .catch(function (err) { alert('Factory reset failed: ' + err.message); });
   });
 
   // ── live status ──────────────────────────────────────────────────
