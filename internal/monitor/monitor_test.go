@@ -676,9 +676,11 @@ func TestSentinelMonitorVal_AllBranches(t *testing.T) {
 		{"temp", 149.9, false, "temp below cap"},
 		{"temp", 150.0, true, "temp at cap (PlausibleTempMaxCelsius=150)"},
 		{"temp", 255.5, true, "temp 0xFFFF sentinel"},
-		// fan
-		{"fan", 10000, false, "fan at PlausibleRPMMax"},
-		{"fan", 10001, true, "fan just above PlausibleRPMMax"},
+		// fan (cap raised 10 000 → 25 000 on 2026-05-03 to admit
+		// server-class Sanyo Denki / Delta fans up to 22k)
+		{"fan", 18000, false, "fan at server-class 18 000 RPM"},
+		{"fan", 25000, false, "fan at PlausibleRPMMax"},
+		{"fan", 25001, true, "fan just above PlausibleRPMMax"},
 		{"fan", 65535, true, "fan 0xFFFF sentinel"},
 		// in (voltage)
 		{"in", 20.0, false, "voltage at cap"},
