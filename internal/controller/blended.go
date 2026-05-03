@@ -43,6 +43,7 @@
 package controller
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -299,6 +300,14 @@ type BlendedInputs struct {
 	// or load-avg fraction), in [0, 1]. Feeds Path-A re-derive.
 	LoadFraction float64
 
+	// Acoustic carries the per-tick dBA-budget inputs from the
+	// wiring layer (target from DBATargetFor + per-host current dBA
+	// + per-channel marginal dBA-per-PWM from the R33 proxy /
+	// CostRate). Zero value disables the dBA-budget gate; in that
+	// case Compute behaves identically to the v0.5.11 controller.
+	// RULE-CTRL-PRESET-04.
+	Acoustic AcousticBudget
+
 	DT  time.Duration
 	Now time.Time
 
@@ -318,11 +327,17 @@ type BlendedResult struct {
 	// Refusal flags — multiple may be true on the same tick.
 	PathARefused      bool
 	CostRefused       bool
+	DBABudgetRefused  bool
 	FirstContactClamp bool
 	PIRefused         bool
 	IntegratorFrozen  bool
 
-	UIState          string // "reactive" | "blended" | "refused-pi" | "refused-pathA" | "refused-cost"
+	// PredictedDBA is the dBA the dBA-budget gate computed for the
+	// candidate ramp. Surfaces in the doctor card and /api/v1/smart
+	// telemetry; zero when the gate was disabled (Acoustic.Target ≤ 0).
+	PredictedDBA float64
+
+	UIState          string // "reactive" | "blended" | "refused-pi" | "refused-pathA" | "refused-cost" | "refused-dba"
 	DiagnosticReason string // single-line explanation for telemetry/doctor
 }
 
@@ -495,8 +510,23 @@ func (b *BlendedController) Compute(in BlendedInputs) BlendedResult {
 	}
 	res.CostRefused = costRefused
 
+	// Step 5b: dBA-budget gate (RULE-CTRL-PRESET-04). Only relevant
+	// when neither Path-A nor cost gate has already refused. The gate
+	// extrapolates current_dBA + DBAPerPWM·|ΔPWM| against Target;
+	// refuses when the candidate ramp would push host loudness
+	// strictly above the configured cap. Acoustic.Target ≤ 0 disables
+	// the gate, so untouched-by-config installs behave identically
+	// to the v0.5.11 controller.
+	dbaRefused := false
+	predictedDBA := in.Acoustic.CurrentDBA
+	if !pathARefused && !costRefused {
+		dbaRefused, predictedDBA = EvalDBABudget(in.Acoustic, candidateDeltaPWM)
+	}
+	res.DBABudgetRefused = dbaRefused
+	res.PredictedDBA = predictedDBA
+
 	// Step 6: Apply blend (or refuse).
-	if pathARefused || costRefused {
+	if pathARefused || costRefused || dbaRefused {
 		// Refusal: stay on reactive; effective w_pred = 0 in the
 		// snapshot but the per-channel piState integrator is
 		// preserved (frozen by anti-windup if pathARefused).
@@ -509,6 +539,10 @@ func (b *BlendedController) Compute(in BlendedInputs) BlendedResult {
 		case costRefused:
 			res.UIState = "refused-cost"
 			res.DiagnosticReason = "cost-gate: cost > benefit"
+		case dbaRefused:
+			res.UIState = "refused-dba"
+			res.DiagnosticReason = fmt.Sprintf("dba-budget: predicted %.1f > target %.1f dBA",
+				predictedDBA, in.Acoustic.Target)
 		}
 		return res
 	}
