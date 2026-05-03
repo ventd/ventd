@@ -291,6 +291,104 @@ func TestProber_RoutesViaPolarityWrite(t *testing.T) {
 	}
 }
 
+// TestProber_FeedsSignguardOnSuccess asserts that a non-aborted probe
+// with measurable temp delta calls SignguardSampleFn exactly once with
+// the correct (channelID, signed ΔPWM, mean ΔT) shape (RULE-OPP-PROBE-13).
+//
+// Probe scenario: baseline=145, gap=32 (lower than baseline → ΔPWM=-1
+// signed). Temps go 50°C → 56°C across the hold window; meanΔT ≈ +6°C.
+// signguard receives (-1, +6) which would vote "agree" inside the
+// detector (the cooling fan ran SLOWER which let temps RISE — correct
+// polarity).
+func TestProber_FeedsSignguardOnSuccess(t *testing.T) {
+	const baseline uint8 = 145
+	const gap uint8 = 32
+	pwmPath := makePWMFile(t, baseline)
+	ch := &probe.ControllableChannel{PWMPath: pwmPath, Polarity: "normal"}
+
+	tickCount := 0
+	var sguCalls []struct {
+		ChannelID string
+		DeltaPWM  int
+		DeltaT    float64
+	}
+	deps := ProbeDeps{
+		Class: sysclass.ClassMidDesktop,
+		Tjmax: 100,
+		SensorFn: func(ctx context.Context) (map[string]float64, error) {
+			tickCount++
+			// Climb 50 → 56°C across early ticks; signguard sees mean +6.
+			temp := 50.0 + float64(tickCount)*0.5
+			if temp > 56 {
+				temp = 56
+			}
+			return map[string]float64{"cpu": temp}, nil
+		},
+		RPMFn:     func(ctx context.Context) (int32, error) { return 1100, nil },
+		WriteFn:   func(v uint8) error { return nil },
+		ObsAppend: func(rec *observation.Record) error { return nil },
+		Now:       func() time.Time { return time.Now() },
+		Thresholds: &envelope.Thresholds{
+			DTDtAbortCPerSec:     5000.0, // suppress slope abort — we want measurable ΔT here
+			TAbsOffsetBelowTjmax: 5,
+			SampleHz:             1000,
+		},
+		SignguardSampleFn: func(channelID string, deltaPWMSigned int, deltaT float64) {
+			sguCalls = append(sguCalls, struct {
+				ChannelID string
+				DeltaPWM  int
+				DeltaT    float64
+			}{channelID, deltaPWMSigned, deltaT})
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = FireOne(ctx, ch, gap, deps)
+
+	if len(sguCalls) != 1 {
+		t.Fatalf("signguard calls = %d, want 1", len(sguCalls))
+	}
+	got := sguCalls[0]
+	if got.ChannelID != pwmPath {
+		t.Errorf("channelID = %q, want %q", got.ChannelID, pwmPath)
+	}
+	if got.DeltaPWM != -1 {
+		t.Errorf("DeltaPWM = %d, want -1 (gap < baseline)", got.DeltaPWM)
+	}
+	if got.DeltaT <= 0 {
+		t.Errorf("DeltaT = %.2f, want > 0 (temps climbed)", got.DeltaT)
+	}
+}
+
+// TestProber_NilSignguardIsNoOp asserts that the prober runs cleanly
+// when SignguardSampleFn is nil — same behaviour as before the wire-up.
+func TestProber_NilSignguardIsNoOp(t *testing.T) {
+	pwmPath := makePWMFile(t, 145)
+	ch := &probe.ControllableChannel{PWMPath: pwmPath, Polarity: "normal"}
+
+	deps := ProbeDeps{
+		Class:     sysclass.ClassMidDesktop,
+		Tjmax:     100,
+		SensorFn:  func(ctx context.Context) (map[string]float64, error) { return map[string]float64{"cpu": 50}, nil },
+		RPMFn:     func(ctx context.Context) (int32, error) { return 1100, nil },
+		WriteFn:   func(v uint8) error { return nil },
+		ObsAppend: func(rec *observation.Record) error { return nil },
+		Now:       func() time.Time { return time.Now() },
+		Thresholds: &envelope.Thresholds{
+			DTDtAbortCPerSec: 50.0,
+			SampleHz:         1000,
+		},
+		// SignguardSampleFn intentionally nil.
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := FireOne(ctx, ch, 32, deps); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("FireOne with nil SignguardSampleFn: unexpected err %v", err)
+	}
+}
+
 // TestScheduler_FiresOnlyAfterGatePasses asserts that a refusing
 // idle gate prevents FireOne from being called (RULE-OPP-PROBE-01).
 func TestScheduler_FiresOnlyAfterGatePasses(t *testing.T) {

@@ -18,10 +18,10 @@ func TestBuildMarginalRuntime_NilWhenAbsent(t *testing.T) {
 		t.Fatalf("state.Open: %v", err)
 	}
 
-	if rt := buildMarginalRuntime(nil, st, "fp1", silentLogger()); rt != nil {
+	if rt := buildMarginalRuntime(nil, st, "fp1", nil, silentLogger()); rt != nil {
 		t.Errorf("buildMarginalRuntime: expected nil for nil channels")
 	}
-	if rt := buildMarginalRuntime([]*probe.ControllableChannel{}, st, "fp1", silentLogger()); rt != nil {
+	if rt := buildMarginalRuntime([]*probe.ControllableChannel{}, st, "fp1", nil, silentLogger()); rt != nil {
 		t.Errorf("buildMarginalRuntime: expected nil for zero-length channels")
 	}
 }
@@ -39,7 +39,7 @@ func TestBuildMarginalRuntime_RunOnce(t *testing.T) {
 	channels := []*probe.ControllableChannel{
 		{PWMPath: "/sys/class/hwmon/hwmon0/pwm1"},
 	}
-	rt := buildMarginalRuntime(channels, st, "fp1", silentLogger())
+	rt := buildMarginalRuntime(channels, st, "fp1", nil, silentLogger())
 	if rt == nil {
 		t.Fatalf("buildMarginalRuntime: expected non-nil for 1 channel")
 	}
