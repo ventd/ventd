@@ -224,6 +224,7 @@ Regenerate with: `go run ./tools/rule-index`
 | confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
 | coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | diag-export-observations.md | Diag export-observations subcommand rules — v0.5.11 |
+| doctor.md | Doctor rules — v0.5.10 |
 | go-conventions.md | Go Conventions — ventd |
 | hal-contract.md | HAL Backend Contract |
 | hidraw-safety.md | hidraw-safety — invariant bindings for pure-Go Linux hidraw substrate |

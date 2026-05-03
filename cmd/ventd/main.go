@@ -93,6 +93,14 @@ func run() error {
 		}
 		return fmt.Errorf("unknown diag subcommand %q", sub)
 	}
+	if len(os.Args) >= 2 && os.Args[1] == "doctor" {
+		logger := buildLogger("info")
+		exitCode, err := runDoctor(os.Args[2:], logger)
+		if err != nil {
+			return err
+		}
+		os.Exit(exitCode)
+	}
 
 	// `ventd preflight` runs the install-time orchestrator. Args
 	// after `preflight` are passed through; the subcommand owns its
