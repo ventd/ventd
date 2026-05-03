@@ -170,6 +170,115 @@ func TestRULE_WIZARD_GATE_CALIBRATE_ACOUSTIC_01(t *testing.T) {
 	})
 }
 
+// TestManager_runAcousticGate_NoOpWhenMicEmpty verifies that the
+// wizard's hook into the calibrate_acoustic gate is a clean no-op when
+// SetAcousticGateOptions hasn't been called (zero MicDevice). The
+// Runner is never invoked, no setPhase happens, no error is returned.
+func TestManager_runAcousticGate_NoOpWhenMicEmpty(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	m := &Manager{logger: logger}
+
+	var ranRunner bool
+	m.acousticGateOpts = AcousticGateOptions{
+		MicDevice: "",
+		Runner: func(ctx context.Context, _ AcousticGateOptions) error {
+			ranRunner = true
+			return nil
+		},
+	}
+
+	m.runAcousticGate(context.Background())
+
+	if ranRunner {
+		t.Error("Runner invoked despite empty MicDevice; runAcousticGate should no-op")
+	}
+	if m.phase == "calibrate_acoustic" {
+		t.Errorf("phase advanced to calibrate_acoustic on no-op path: phase=%q", m.phase)
+	}
+}
+
+// TestManager_runAcousticGate_RunsRunnerWhenMicSet verifies the
+// happy-path: SetAcousticGateOptions with a non-empty MicDevice + stub
+// Runner causes runAcousticGate to invoke the runner and advance the
+// phase to "calibrate_acoustic".
+func TestManager_runAcousticGate_RunsRunnerWhenMicSet(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	m := &Manager{logger: logger}
+	tmp := t.TempDir()
+
+	var ranRunner bool
+	m.SetAcousticGateOptions(AcousticGateOptions{
+		MicDevice: "hw:CARD=USB,DEV=0",
+		Runner: func(ctx context.Context, _ AcousticGateOptions) error {
+			ranRunner = true
+			return nil
+		},
+		TempDir: tmp,
+		Logger:  logger,
+	})
+
+	m.runAcousticGate(context.Background())
+
+	if !ranRunner {
+		t.Error("Runner not invoked despite non-empty MicDevice")
+	}
+	if m.phase != "calibrate_acoustic" {
+		t.Errorf("phase = %q, want \"calibrate_acoustic\"", m.phase)
+	}
+}
+
+// TestManager_runAcousticGate_NonFatalOnRunnerError verifies that a
+// runner-returned error is logged and discarded — the wizard MUST NOT
+// abort just because optional mic calibration failed. Soft
+// fall-through-to-proxy-only contract.
+func TestManager_runAcousticGate_NonFatalOnRunnerError(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	m := &Manager{logger: logger}
+	tmp := t.TempDir()
+
+	m.SetAcousticGateOptions(AcousticGateOptions{
+		MicDevice: "hw:CARD=USB,DEV=0",
+		Runner: func(ctx context.Context, _ AcousticGateOptions) error {
+			return errors.New("simulated ffmpeg failure")
+		},
+		TempDir: tmp,
+		Logger:  logger,
+	})
+
+	// Must NOT panic, must NOT propagate the error.
+	m.runAcousticGate(context.Background())
+
+	if m.phase != "calibrate_acoustic" {
+		t.Errorf("phase = %q, want \"calibrate_acoustic\" (set even on failure)", m.phase)
+	}
+}
+
+// TestManager_SetAcousticGateOptions_RoundTrip pins the setter's
+// thread-safety + value preservation. The setter takes the lock,
+// stores the opts, and runAcousticGate reads them under the same lock.
+func TestManager_SetAcousticGateOptions_RoundTrip(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	m := &Manager{logger: logger}
+	opts := AcousticGateOptions{
+		MicDevice: "hw:CARD=Test",
+		RefSPL:    94.0,
+		Seconds:   30,
+		OutPath:   "/tmp/test.json",
+	}
+	m.SetAcousticGateOptions(opts)
+
+	m.mu.Lock()
+	got := m.acousticGateOpts
+	m.mu.Unlock()
+
+	if got.MicDevice != opts.MicDevice ||
+		got.RefSPL != opts.RefSPL ||
+		got.Seconds != opts.Seconds ||
+		got.OutPath != opts.OutPath {
+		t.Errorf("round-trip mismatch: got %+v, want %+v", got, opts)
+	}
+}
+
 // TestCalibrateAcousticGate_NilRunnerReturnsError binds the misconfiguration
 // path: when MicDevice is set but Runner is nil, Body returns an error so
 // the wizard wiring layer surfaces the bug instead of silently no-op'ing.

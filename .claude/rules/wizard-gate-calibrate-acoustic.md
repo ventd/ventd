@@ -49,4 +49,30 @@ of these and either returns nil (logging a warning) or returns an error that
 becomes a generic `*GateError`. The wizard never gets stuck on a missing
 optional dependency.
 
+## Wizard integration (Manager.runAcousticGate)
+
+`Manager.runAcousticGate(ctx)` is the wizard's hook into the gate.
+Called from `Manager.run` after thermal calibration's `wg.Wait()` and
+before the finalising phase. Reads `acousticGateOpts` (set via
+`SetAcousticGateOptions`) and invokes the gate when `MicDevice` is
+non-empty:
+
+- **No-op**: empty `MicDevice` → returns immediately, no `setPhase`,
+  no runner invocation. The wizard proceeds to finalise without
+  surfacing a "calibrating microphone" phase to operators who never
+  asked for it. Pinned by `TestManager_runAcousticGate_NoOpWhenMicEmpty`.
+- **Happy path**: non-empty `MicDevice` → `setPhase("calibrate_acoustic", ...)`
+  + `RunGate(...)` invocation. Pinned by
+  `TestManager_runAcousticGate_RunsRunnerWhenMicSet`.
+- **Non-fatal**: a runner-returned error is logged at WARN and
+  discarded — the wizard continues to finalise. Pinned by
+  `TestManager_runAcousticGate_NonFatalOnRunnerError`.
+- **Round-trip**: `SetAcousticGateOptions` is mutex-protected and
+  preserves all fields. Pinned by
+  `TestManager_SetAcousticGateOptions_RoundTrip`.
+
 Bound: internal/setup/gates_acoustic_test.go:TestRULE_WIZARD_GATE_CALIBRATE_ACOUSTIC_01
+Bound: internal/setup/gates_acoustic_test.go:TestManager_runAcousticGate_NoOpWhenMicEmpty
+Bound: internal/setup/gates_acoustic_test.go:TestManager_runAcousticGate_RunsRunnerWhenMicSet
+Bound: internal/setup/gates_acoustic_test.go:TestManager_runAcousticGate_NonFatalOnRunnerError
+Bound: internal/setup/gates_acoustic_test.go:TestManager_SetAcousticGateOptions_RoundTrip

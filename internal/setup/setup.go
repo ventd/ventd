@@ -179,6 +179,13 @@ type Manager struct {
 	// it unset so unit tests don't write to /var/lib/ventd/. Production
 	// code uses New, which sets it to defaultAppliedMarkerPath.
 	appliedMarkerPath string
+
+	// acousticGateOpts configures the v0.5.12 calibrate_acoustic
+	// PhaseGate (RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01). Empty
+	// MicDevice (the default) → the gate is a no-op during run();
+	// the wizard proceeds straight to the finalising phase.
+	// SetAcousticGateOptions is the production wiring hook.
+	acousticGateOpts AcousticGateOptions
 }
 
 // Default path roots used when the Manager is constructed via New. Exported
@@ -248,6 +255,22 @@ func (m *Manager) SetReProber(rp ReProber) {
 func (m *Manager) SetVendorDaemonProbe(fn func(context.Context) recovery.VendorDaemon) {
 	m.mu.Lock()
 	m.vendorDaemonProbe = fn
+	m.mu.Unlock()
+}
+
+// SetAcousticGateOptions wires the v0.5.12 R30 mic-calibration gate
+// (RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01). Production code in
+// cmd/ventd/main.go sets this when the operator passes a --mic flag (or
+// equivalent web-UI selection); tests leave it unset (zero MicDevice)
+// so the wizard's calibrate_acoustic phase is a clean no-op.
+//
+// The gate runs after thermal calibration completes and before the
+// finalising phase. A failed runner is non-fatal — the daemon falls
+// back to R33 proxy-only acoustic estimation when no K_cal record
+// lands.
+func (m *Manager) SetAcousticGateOptions(opts AcousticGateOptions) {
+	m.mu.Lock()
+	m.acousticGateOpts = opts
 	m.mu.Unlock()
 }
 
@@ -1100,6 +1123,14 @@ func (m *Manager) run(ctx context.Context) {
 		}(i)
 	}
 	wg.Wait()
+
+	// v0.5.12: optional R30 mic-calibration gate runs after thermal
+	// calibration completes and before finalising. No-op when the
+	// operator hasn't supplied a mic device (acousticGateOpts.MicDevice
+	// is empty). Failures are non-fatal — the daemon falls back to R33
+	// proxy-only acoustic estimation when no K_cal record lands.
+	// RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01.
+	m.runAcousticGate(ctx)
 
 	// Signal the UI that calibration is done and we're generating the config.
 	// Without this the UI appears frozen while gatherProfile/buildConfig run.
