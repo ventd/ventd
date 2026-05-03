@@ -13,21 +13,28 @@ in `tools/rulelint` blocks the merge.
 
 ## RULE-SENTINEL-FAN-IMPLAUSIBLE: fan RPM above the plausible cap is rejected even when not the exact 0xFFFF sentinel
 
-`IsSentinelRPM` must reject any RPM value above `PlausibleRPMMax` (10000),
-not only the exact 65535 (0xFFFF) nct6687 sentinel. Different chip families
-use different sentinel values in the same numeric neighbourhood; a plausibility
-cap prevents all of them from reaching calibration or the controller tick. A
-12000 RPM reading from a consumer fan is not physically plausible and must be
-treated as a sentinel regardless of its exact value.
+`IsSentinelRPM` must reject any RPM value above `PlausibleRPMMax`
+(25 000 since 2026-05-03; previously 10 000), not only the exact 65 535
+(0xFFFF) nct6687 sentinel. The cap is set above any real-world fan
+shipped today (consumer 120/140 mm ≤ 4 000 RPM, AIO pumps ≤ 6 500,
+Delta/Sanyo Denki industrial server fans 12 000–22 000) and below the
+0x7FFF / 0xFFFF mid-latch glitches some chips emit. A reading strictly
+above the cap is treated as sentinel regardless of its exact value.
+
+The 2026-05-03 raise (10 000 → 25 000) was an R28 audit P0 fix:
+servers with Sanyo Denki fans had legitimate 18 000 RPM readings
+silently rejected, surfacing as "stopped" in the dashboard.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_rejects_implausible_rpm
 
 ## RULE-SENTINEL-FAN-VALID: a normal fan RPM reading passes through the sentinel filter unchanged
 
 `IsSentinelRPM` must return false for RPM values within the plausible range
-(≤ 10000 RPM), and `Backend.Read` must return OK=true with the correct RPM
-value. A filter that rejects legitimate readings would cause calibration to
-report "no valid RPM data" and leave the fan under open-loop control.
+(≤ 25 000 RPM since 2026-05-03), and `Backend.Read` must return OK=true with
+the correct RPM value. A filter that rejects legitimate readings would cause
+calibration to report "no valid RPM data" and leave the fan under open-loop
+control. The bound subtest covers both consumer-class (1 200 RPM) and
+server-class (18 000 RPM) values to pin the new cap.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_accepts_normal_rpm
 

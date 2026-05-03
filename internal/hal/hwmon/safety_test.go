@@ -83,11 +83,14 @@ func TestSafety_SentinelInvariants(t *testing.T) {
 	})
 
 	t.Run("sentinel/fan_rejects_implausible_rpm", func(t *testing.T) {
-		// Any RPM reading > PlausibleRPMMax (10000) is also rejected even if
-		// it is not the exact 0xFFFF sentinel. This guards against other
-		// driver-specific sentinels in the same numeric neighbourhood.
+		// Any RPM reading > PlausibleRPMMax (25 000 since 2026-05-03;
+		// previously 10 000) is rejected even if not the exact 0xFFFF
+		// sentinel. The new cap admits server-class Delta/Sanyo Denki
+		// fans up to 22 k while still rejecting the 0x7FFF / 0xFFFF
+		// mid-latch glitches some chips emit. Test value 32 000 sits
+		// above any legit fan and below the 65 535 raw sentinel.
 		pwmPath, rpmPath := makeFanDir(t)
-		if err := os.WriteFile(rpmPath, []byte("12000\n"), 0o600); err != nil {
+		if err := os.WriteFile(rpmPath, []byte("32000\n"), 0o600); err != nil {
 			t.Fatalf("seed rpm: %v", err)
 		}
 		b := silentBackend()
@@ -97,7 +100,29 @@ func TestSafety_SentinelInvariants(t *testing.T) {
 			t.Fatalf("Read returned unexpected error: %v", err)
 		}
 		if r.OK {
-			t.Errorf("Read returned OK=true for implausible 12000 RPM; want OK=false")
+			t.Errorf("Read returned OK=true for implausible 32000 RPM; want OK=false")
+		}
+	})
+
+	t.Run("sentinel/fan_accepts_server_class_rpm", func(t *testing.T) {
+		// 18 000 RPM is normal for Sanyo Denki industrial fans on
+		// Supermicro / Dell rack hardware. Must pass through after
+		// the 2026-05-03 cap raise from 10 000 → 25 000.
+		pwmPath, rpmPath := makeFanDir(t)
+		if err := os.WriteFile(rpmPath, []byte("18000\n"), 0o600); err != nil {
+			t.Fatalf("seed rpm: %v", err)
+		}
+		b := silentBackend()
+		ch := channelForPWM(pwmPath)
+		r, err := b.Read(ch)
+		if err != nil {
+			t.Fatalf("Read returned unexpected error: %v", err)
+		}
+		if !r.OK {
+			t.Errorf("Read returned OK=false for legit 18000 RPM (server fan); want OK=true")
+		}
+		if r.RPM != 18000 {
+			t.Errorf("RPM = %d, want 18000", r.RPM)
 		}
 	})
 
@@ -200,8 +225,10 @@ func TestIsSentinelRPM_BoundaryValues(t *testing.T) {
 		want bool
 	}{
 		{"exact_sentinel_65535", 65535, true},
-		{"above_plausible_cap_10001", 10001, true},
-		{"at_plausible_cap_10000", 10000, false},
+		{"above_plausible_cap_25001", 25001, true},
+		{"at_plausible_cap_25000", 25000, false},
+		{"server_fan_18000_accepted", 18000, false},
+		{"consumer_fan_4500_accepted", 4500, false},
 		{"normal_1200", 1200, false},
 		{"zero", 0, false},
 		{"one", 1, false},
