@@ -533,18 +533,21 @@ and a recommended action for Phoenix.
 
 ### 5.5 ThinkPad fan2_input=65535 sentinel filter
 
-- **Issue:** Agent E2 row 35 says the fix landed in v6.2 (commit
-  `a10d50983f7b`); on kernel ≥6.2 the userspace 65535 sentinel filter is
-  redundant but harmless. ventd's RULE-HWMON-SENTINEL-FAN-IMPLAUSIBLE
-  unconditionally rejects RPM > 10000 already.
+- **Issue:** Agent E2 row 35 originally claimed the fix landed in v6.2
+  (commit `a10d50983f7b`). Decision-log resolution (2026-05-03) verified
+  via `git tag --contains` against torvalds/linux at v7.1-rc1: the commit
+  actually landed in **v6.1** (Jelle van der Waa, 2022-10-19). On kernel
+  ≥6.1 the userspace 65535 sentinel filter is redundant but harmless.
+  ventd's RULE-HWMON-SENTINEL-FAN-IMPLAUSIBLE unconditionally rejects
+  RPM > 10000 already.
 - **Conflict:** No active conflict; the existing rule is correct on every
   kernel. Logged because the kernel-version-gated catalog cleanup
   (Finding 2 in the executive summary) might be tempted to remove the
-  filter on ≥6.2 — don't, because the filter is generic across all
+  filter on ≥6.1 — don't, because the filter is generic across all
   drivers and the cost is zero.
 - **Action:** Keep RULE-HWMON-SENTINEL-FAN-IMPLAUSIBLE unconditional.
   Document in the catalog that the per-driver workaround for ThinkPad
-  pre-6.2 is no longer needed since the universal sentinel filter
+  pre-6.1 is no longer needed since the universal sentinel filter
   covers it.
 
 ### 5.6 Steam Deck DMI dispatch (`Jupiter` vs `Galileo`)

@@ -51,8 +51,10 @@ board_profiles:
       loads, fan1_input + temp1-2_input populated. NOT on
       i8k_whitelist_fan_control → pwm1_enable does NOT exist → ventd
       cannot write fan speed. Register as ro_sensor_only. CPU temp via
-      coretemp.ko separately. Kernel module restricted=0 may be needed
-      for non-root reads on some distros."
+      coretemp.ko separately. ventd runs as root so the driver's default
+      restricted=1 is correct; do NOT recommend restricted=0 — it
+      exposes the SMI port to non-root and is a privilege-escalation
+      surface (per kernel hwmon docs)."
     citations:
       - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table — 'Dell Latitude' prefix entry)"
       - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html (driver doc, two-tier match model)"
