@@ -3,8 +3,31 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - '.claude/rules/**'
+      - '.claude/RULE-INDEX.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - '.claude/rules/**'
+      - '.claude/RULE-INDEX.md'
+
+# Cancel any in-progress run on the same branch when a new push lands.
+# Saves CI minutes when iterating on lint fixes, and avoids the
+# "three runs in flight at once" pile-up that happens when rebasing
+# rapidly. main is exempted so concurrent merges to main don't cancel
+# each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read

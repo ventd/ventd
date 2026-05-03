@@ -66,3 +66,4 @@ release-notes/*-dryrun.txt
 
 # Git worktrees (local dev isolation)
 /.worktrees/
+.claude/RULE-INDEX.md

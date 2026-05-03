@@ -17,6 +17,13 @@ permissions:
   issues: read
   pull-requests: read
 
+
+# Cancel in-progress runs on the same branch when a new push lands.
+# main is exempted so back-to-back merges don't cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   pre-release-check:
     runs-on: ubuntu-latest
@@ -78,62 +85,50 @@ jobs:
               print('::warning::govulncheck: HIGH vulnerability found')
           PY
 
-      - name: gate2 — CHANGELOG will be non-empty
+      - name: gate2 — CHANGELOG manually updated for the new tag
         id: gate2
         run: |
-          # Two-part check:
-          # (1) cliff.toml must exist (git-cliff automation configured — #450 IMPROV-B)
-          # (2) at least one conventional-commit-formatted commit since last tag,
-          #     otherwise release-changelog.yml would produce an empty CHANGELOG block.
-          if [ ! -f cliff.toml ]; then
+          # CHANGELOG is maintained manually as of the v0.5.10 release
+          # (release-changelog.yml + cliff.toml deleted in chore/workflow-hygiene).
+          # This gate verifies that CHANGELOG.md has an entry whose section
+          # heading matches the tag we're about to push, e.g.
+          #   ## [v0.5.11] - YYYY-MM-DD
+          # If the gate is invoked from the workflow_dispatch input.sha
+          # (a pre-tag check), we look up the latest tag candidate from the
+          # log; otherwise we use the resolved tag.
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if grep -qE "^## \[(v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+|-[a-z0-9.]+)?)\] - " CHANGELOG.md; then
+            HEAD_ENTRY=$(grep -m1 -E "^## \[v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+|-[a-z0-9.]+)?\] - " CHANGELOG.md | sed -E 's/^## \[(v[^]]+)\].*$/\1/')
+          else
+            HEAD_ENTRY=""
+          fi
+
+          if [ -z "$HEAD_ENTRY" ]; then
             echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
-            printf '## Gate 2 — CHANGELOG\n\n**FAIL** — cliff.toml missing; git-cliff automation not configured.\n\n' >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::cliff.toml missing — release-changelog automation not set up'
+            printf '## Gate 2 — CHANGELOG\n\n**FAIL** — no version section found in CHANGELOG.md.\n\n' >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::CHANGELOG.md missing a versioned section — add `## [vX.Y.Z] - YYYY-MM-DD` at the top before tagging'
             exit 1
           fi
 
-          # Prefixes tracked by cliff.toml (see commit_parsers in cliff.toml on main):
-          # feat, fix, perf, refactor, docs, rules, test, chore, ci.
-          # chore(release) is explicitly skipped by cliff.toml, so subtract it.
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LAST_TAG" ]; then
-            RANGE="${LAST_TAG}..HEAD"
-          else
-            RANGE="HEAD"
-          fi
-
-          ALL=$(git log "$RANGE" --format='%s' 2>/dev/null | \
-            grep -cE '^(feat|fix|perf|refactor|docs|rules|test|chore|ci)(\([^)]+\))?!?: ' || true)
-          SKIPPED=$(git log "$RANGE" --format='%s' 2>/dev/null | \
-            grep -cE '^chore\(release\)' || true)
-          COUNT=$((ALL - SKIPPED))
-
-          if [ "$COUNT" -lt 1 ]; then
+          if [ -n "$LATEST_TAG" ] && [ "$HEAD_ENTRY" = "$LATEST_TAG" ]; then
             echo 'verdict=FAIL' >> "$GITHUB_OUTPUT"
             {
               printf '## Gate 2 — CHANGELOG\n\n'
-              printf '**FAIL** — zero conventional-commit entries '
-              if [ -n "$LAST_TAG" ]; then
-                printf 'since tag \`%s\`.\n\n' "$LAST_TAG"
-              else
-                printf 'in history.\n\n'
-              fi
-              printf 'git-cliff would emit an empty CHANGELOG block on next tag.\n'
-              printf 'Commits must use conventional-commit format (\`feat:\`, \`fix:\`, \`docs:\`, etc.) to appear in CHANGELOG.\n\n'
+              printf '**FAIL** — top CHANGELOG entry (\`%s\`) matches the latest existing tag (\`%s\`).\n\n' "$HEAD_ENTRY" "$LATEST_TAG"
+              printf 'Add a new \`## [vX.Y.Z] - YYYY-MM-DD\` section above it before tagging.\n\n'
             } >> "$GITHUB_STEP_SUMMARY"
-            echo '::error::zero conventional-commit entries since last tag — CHANGELOG would be empty'
+            echo '::error::CHANGELOG top entry matches latest tag — new release section missing'
             exit 1
           fi
 
           echo 'verdict=PASS' >> "$GITHUB_OUTPUT"
           {
             printf '## Gate 2 — CHANGELOG\n\n'
-            printf '**PASS** — %d conventional-commit entries will appear in next CHANGELOG' "$COUNT"
-            if [ -n "$LAST_TAG" ]; then
-              printf ' (range \`%s..HEAD\`).\n\n' "$LAST_TAG"
-            else
-              printf ' (no prior tag; counting full history).\n\n'
+            printf '**PASS** — CHANGELOG.md has a versioned section for \`%s\`' "$HEAD_ENTRY"
+            if [ -n "$LATEST_TAG" ]; then
+              printf ' ahead of latest tag \`%s\`' "$LATEST_TAG"
             fi
+            printf '.\n\n'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: gate3 — no open release-blocker issues

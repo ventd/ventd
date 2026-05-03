@@ -1,0 +1,71 @@
+name: branch-cleanup
+
+# Weekly sweep: delete remote branches whose PR was merged or closed
+# more than 7 days ago. Runs Sundays at 02:00 UTC. Manual trigger
+# available via workflow_dispatch.
+#
+# Skips: main, any release/* tag-prep branch, any branch starting with
+# 'gh-pages' or 'dependabot/'. Dry-run mode (default for manual fire)
+# logs without deleting; scheduled fire performs the cleanup.
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log only, do not delete)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    name: prune-merged-branches
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Identify and delete eligible branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cutoff_unix=$(date -d '7 days ago' +%s)
+          deleted=0
+          kept=0
+          # List remote branches with their upstream commit hash.
+          git fetch --prune origin
+          git branch -r --format='%(refname:short)' | while read br; do
+            name="${br#origin/}"
+            case "$name" in
+              main|HEAD|release/*|gh-pages*|dependabot/*) echo "skip $name (protected)"; continue ;;
+            esac
+            pr=$(gh pr list --state all --search "head:$name" --json number,state,closedAt --jq '.[0]' 2>/dev/null || echo '')
+            if [ -z "$pr" ] || [ "$pr" = "null" ]; then
+              echo "keep $name (no PR found)"
+              continue
+            fi
+            state=$(echo "$pr" | jq -r '.state')
+            closedAt=$(echo "$pr" | jq -r '.closedAt')
+            if [ "$state" != "MERGED" ] && [ "$state" != "CLOSED" ]; then
+              echo "keep $name (PR open: $state)"
+              continue
+            fi
+            closed_unix=$(date -d "$closedAt" +%s 2>/dev/null || echo 0)
+            if [ "$closed_unix" -gt "$cutoff_unix" ]; then
+              echo "keep $name (closed less than 7 days ago)"
+              continue
+            fi
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "DRY-RUN: would delete $name (PR $state, closed $closedAt)"
+            else
+              echo "DELETE $name (PR $state, closed $closedAt)"
+              git push origin --delete "$name" || echo "  delete failed (race with another cleanup?)"
+              deleted=$((deleted + 1))
+            fi
+          done
+          echo "summary: deleted=$deleted kept=$kept dry_run=$DRY_RUN"

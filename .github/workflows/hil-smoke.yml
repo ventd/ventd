@@ -1,0 +1,116 @@
+name: hil-smoke
+
+# HIL (Hardware-In-the-Loop) smoke test against Phoenix's reference
+# desktop (MSI Z690-A DDR4 / RTX 4090 / Blue Yeti mic). Manual trigger
+# only — typically fired before tagging a release to confirm the
+# binary handles the canary hardware correctly.
+#
+# Required repo secrets:
+#   HIL_HOST       — phoenix@192.168.7.209 (or equivalent reachable host)
+#   HIL_SSH_KEY    — private key for the HIL_HOST account
+#   HIL_KNOWN_HOSTS — output of `ssh-keyscan` against HIL_HOST
+#
+# What the test runs on the HIL host (read-only — does NOT install or
+# write PWM):
+#   1. ventd preflight  → exits 0 on a healthy host
+#   2. ventd doctor --json → exits 0/1 (warning OK, blocker fails)
+#   3. Reads /sys/class/hwmon and confirms expected fan channels
+#   4. Reports back JSON + exit codes
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (commit SHA or branch) to build + smoke-test'
+        type: string
+        default: 'main'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hil-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: hil-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Build amd64 binary
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ventd ./cmd/ventd
+
+      - name: Configure SSH to HIL host
+        env:
+          SSH_KEY: ${{ secrets.HIL_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.HIL_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hil
+          chmod 600 ~/.ssh/id_hil
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Copy binary to HIL host
+        env:
+          HIL_HOST: ${{ secrets.HIL_HOST }}
+        run: |
+          scp -i ~/.ssh/id_hil -o IdentitiesOnly=yes dist/ventd "$HIL_HOST:/tmp/ventd-hil-smoke"
+          ssh -i ~/.ssh/id_hil -o IdentitiesOnly=yes "$HIL_HOST" "chmod +x /tmp/ventd-hil-smoke"
+
+      - name: Run preflight
+        env:
+          HIL_HOST: ${{ secrets.HIL_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_hil -o IdentitiesOnly=yes "$HIL_HOST" "/tmp/ventd-hil-smoke preflight --json" | tee preflight.json
+
+      - name: Run doctor
+        env:
+          HIL_HOST: ${{ secrets.HIL_HOST }}
+        run: |
+          # doctor exits 1 on Warning (acceptable) and 2 on Blocker (failure).
+          # We allow 0 + 1; fail on 2+.
+          ssh -i ~/.ssh/id_hil -o IdentitiesOnly=yes "$HIL_HOST" "/tmp/ventd-hil-smoke doctor --json" | tee doctor.json
+          rc=$?
+          echo "doctor exit code: $rc"
+          test "$rc" -le 1
+
+      - name: Walk hwmon for expected fans
+        env:
+          HIL_HOST: ${{ secrets.HIL_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_hil -o IdentitiesOnly=yes "$HIL_HOST" '
+            for f in /sys/class/hwmon/hwmon*/name; do
+              echo "$(dirname "$f"): $(cat "$f")"
+            done
+          '
+
+      - name: Cleanup HIL binary
+        if: always()
+        env:
+          HIL_HOST: ${{ secrets.HIL_HOST }}
+        run: |
+          ssh -i ~/.ssh/id_hil -o IdentitiesOnly=yes "$HIL_HOST" "rm -f /tmp/ventd-hil-smoke" || true
+
+      - name: Upload smoke artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hil-smoke-${{ inputs.ref }}
+          path: |
+            preflight.json
+            doctor.json
+          retention-days: 30

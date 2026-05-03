@@ -76,9 +76,9 @@ else
 fi
 
 # 5. rule-index
-step "rule-index --check"
-if ! go run ./tools/rule-index --check; then
-  red "FAIL: .claude/RULE-INDEX.md is stale; run: go run ./tools/rule-index"
+step "rule-index regen"
+if ! go run ./tools/rule-index; then
+  red "FAIL: rule-index regen failed (see above)"
   exit 1
 fi
 green "ok"
