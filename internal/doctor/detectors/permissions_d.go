@@ -113,22 +113,22 @@ func (d *PermissionsDetector) Probe(ctx context.Context, deps doctor.Deps) ([]do
 	//    units' User=/Group= directives (RULE-INSTALL-01).
 	if !d.FS.LookupUser("ventd") {
 		facts = append(facts, doctor.Fact{
-			Detector: d.Name(),
-			Severity: doctor.SeverityWarning,
-			Class:    recovery.ClassUnknown,
-			Title:    "ventd user account is missing",
-			Detail: "The shipped systemd unit's User=ventd directive will fail with exit status 217/USER on next start. The wizard's sysusers.d drop-in (deploy/sysusers.d-ventd.conf) creates this account on next install — re-run the install script.",
+			Detector:   d.Name(),
+			Severity:   doctor.SeverityWarning,
+			Class:      recovery.ClassUnknown,
+			Title:      "ventd user account is missing",
+			Detail:     "The shipped systemd unit's User=ventd directive will fail with exit status 217/USER on next start. The wizard's sysusers.d drop-in (deploy/sysusers.d-ventd.conf) creates this account on next install — re-run the install script.",
 			EntityHash: doctor.HashEntity("permissions_user_missing", "ventd"),
 			Observed:   now,
 		})
 	}
 	if !d.FS.LookupGroup("ventd") {
 		facts = append(facts, doctor.Fact{
-			Detector: d.Name(),
-			Severity: doctor.SeverityWarning,
-			Class:    recovery.ClassUnknown,
-			Title:    "ventd group is missing",
-			Detail: "The shipped unit's Group=ventd will fail at startup. Same remediation as the user account: re-run the install script to re-create via sysusers.d.",
+			Detector:   d.Name(),
+			Severity:   doctor.SeverityWarning,
+			Class:      recovery.ClassUnknown,
+			Title:      "ventd group is missing",
+			Detail:     "The shipped unit's Group=ventd will fail at startup. Same remediation as the user account: re-run the install script to re-create via sysusers.d.",
 			EntityHash: doctor.HashEntity("permissions_group_missing", "ventd"),
 			Observed:   now,
 		})
@@ -157,11 +157,11 @@ func (d *PermissionsDetector) Probe(ctx context.Context, deps doctor.Deps) ([]do
 		const expected fs.FileMode = 0o755
 		if mode != expected {
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityWarning,
-				Class:    recovery.ClassUnknown,
-				Title:    fmt.Sprintf("/var/lib/ventd has mode 0%o, expected 0%o", mode, expected),
-				Detail: "RULE-STATE-09 expects state directories at 0755. The daemon's openKV() repairs file modes on read but doesn't touch directory modes. Run `sudo chmod 0755 /var/lib/ventd` to fix.",
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityWarning,
+				Class:      recovery.ClassUnknown,
+				Title:      fmt.Sprintf("/var/lib/ventd has mode 0%o, expected 0%o", mode, expected),
+				Detail:     "RULE-STATE-09 expects state directories at 0755. The daemon's openKV() repairs file modes on read but doesn't touch directory modes. Run `sudo chmod 0755 /var/lib/ventd` to fix.",
 				EntityHash: doctor.HashEntity("permissions_dir_mode", "/var/lib/ventd"),
 				Observed:   now,
 			})
@@ -176,11 +176,11 @@ func (d *PermissionsDetector) Probe(ctx context.Context, deps doctor.Deps) ([]do
 		const expected fs.FileMode = 0o640
 		if mode != expected {
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityWarning,
-				Class:    recovery.ClassUnknown,
-				Title:    fmt.Sprintf("state.yaml has mode 0%o, expected 0%o", mode, expected),
-				Detail: "RULE-STATE-09 expects 0640 ventd:ventd. The daemon repairs this on next read (Chmod-after-write recovery), but persistent drift means a non-ventd process wrote the file. Investigate or `sudo chmod 0640 /var/lib/ventd/state.yaml`.",
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityWarning,
+				Class:      recovery.ClassUnknown,
+				Title:      fmt.Sprintf("state.yaml has mode 0%o, expected 0%o", mode, expected),
+				Detail:     "RULE-STATE-09 expects 0640 ventd:ventd. The daemon repairs this on next read (Chmod-after-write recovery), but persistent drift means a non-ventd process wrote the file. Investigate or `sudo chmod 0640 /var/lib/ventd/state.yaml`.",
 				EntityHash: doctor.HashEntity("permissions_file_mode", "/var/lib/ventd/state.yaml"),
 				Observed:   now,
 			})

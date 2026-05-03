@@ -30,7 +30,7 @@ type GPUReadinessFS interface {
 // liveGPUFS reads the real filesystem.
 type liveGPUFS struct{}
 
-func (liveGPUFS) FileExists(path string) bool   { _, err := os.Stat(path); return err == nil }
+func (liveGPUFS) FileExists(path string) bool       { _, err := os.Stat(path); return err == nil }
 func (liveGPUFS) ReadFile(p string) ([]byte, error) { return os.ReadFile(p) }
 func (liveGPUFS) Glob(p string) ([]string, error)   { return filepath.Glob(p) }
 
@@ -98,11 +98,11 @@ func (d *GPUReadinessDetector) Probe(ctx context.Context, deps doctor.Deps) ([]d
 			!d.FS.FileExists("/usr/lib64/libnvidia-ml.so.1") &&
 			!d.FS.FileExists("/usr/lib/libnvidia-ml.so.1") {
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityWarning,
-				Class:    recovery.ClassUnknown,
-				Title:    "NVIDIA driver loaded but libnvidia-ml.so.1 not found",
-				Detail:   "ventd's NVML access is dlopen-based and needs the .so.1 symlink. Install nvidia-utils-* (or equivalent) so the userspace library lands alongside the kernel module.",
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityWarning,
+				Class:      recovery.ClassUnknown,
+				Title:      "NVIDIA driver loaded but libnvidia-ml.so.1 not found",
+				Detail:     "ventd's NVML access is dlopen-based and needs the .so.1 symlink. Install nvidia-utils-* (or equivalent) so the userspace library lands alongside the kernel module.",
 				EntityHash: doctor.HashEntity("gpu_nvml_lib_missing"),
 				Observed:   now,
 			})
@@ -131,11 +131,11 @@ func (d *GPUReadinessDetector) Probe(ctx context.Context, deps doctor.Deps) ([]d
 		if !hasPWM && !hasFanCurve {
 			card := filepath.Base(filepath.Dir(filepath.Dir(hw)))
 			facts = append(facts, doctor.Fact{
-				Detector: d.Name(),
-				Severity: doctor.SeverityWarning,
-				Class:    recovery.ClassUnknown,
-				Title:    fmt.Sprintf("amdgpu %s exposes no controllable fan interface", card),
-				Detail:   "Neither legacy pwm1 nor RDNA3+ gpu_od/fan_ctrl/fan_curve was found. The card may be in firmware-only mode or require kernel cmdline `amdgpu.ppfeaturemask=0xfff7ffff` for fan control. See RULE-EXPERIMENTAL-AMD-OVERDRIVE-* for the gating criteria.",
+				Detector:   d.Name(),
+				Severity:   doctor.SeverityWarning,
+				Class:      recovery.ClassUnknown,
+				Title:      fmt.Sprintf("amdgpu %s exposes no controllable fan interface", card),
+				Detail:     "Neither legacy pwm1 nor RDNA3+ gpu_od/fan_ctrl/fan_curve was found. The card may be in firmware-only mode or require kernel cmdline `amdgpu.ppfeaturemask=0xfff7ffff` for fan control. See RULE-EXPERIMENTAL-AMD-OVERDRIVE-* for the gating criteria.",
 				EntityHash: doctor.HashEntity("gpu_amd_no_fan_iface", card),
 				Observed:   now,
 			})
