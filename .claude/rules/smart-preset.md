@@ -93,10 +93,35 @@ calibration record (R30 K_cal):
 - `DBAPerPWM`: the candidate channel's marginal loudness rate per PWM
   unit, from the proxy's `CostRate`.
 
-This PR ships the gate as a pure function with no `BlendedController.Compute`
-integration — that integration lives in the wiring PR (#67's Manager.run
-PhaseGate-slice refactor) which has access to the per-fan proxy state. Until
-then the gate is callable in isolation by tests and any future caller that
-wants to consult the budget without going through the controller hot path.
+`BlendedController.Compute` calls `EvalDBABudget` after the existing
+cost gate (and after Path-A). When the gate refuses, the controller
+returns `OutputPWM = ReactivePWM`, sets `DBABudgetRefused: true`,
+populates `PredictedDBA` for telemetry, and surfaces the refusal as
+`UIState = "refused-dba"`. The integrator continues to accumulate
+(matching cost-gate semantics — no freeze on dBA refusal); recovery
+happens naturally when conditions change.
+
+The refusal cascade order in `Compute` is:
+
+  1. PI instability guards → `refused-pi`
+  2. PI saturation (anti-windup) → integrator frozen, blend continues
+  3. Path-A predicted-ΔT gate → `refused-pathA`, integrator frozen
+  4. Cost gate (benefit < cost) → `refused-cost`
+  5. dBA-budget gate (predicted dBA > target) → `refused-dba`
+
+Path-A and cost gate short-circuit the dBA check — the gate only runs
+when both upstream gates admit. That priority chain means the dBA
+gate's blast radius is limited to ramps the upstream gates already
+deemed "thermally beneficial enough"; the dBA gate is the acoustic
+veto layered on top.
+
+The wiring layer (eventual #67/#112 Manager.run refactor) populates
+`BlendedInputs.Acoustic` from per-fan R33 proxy outputs + per-host R30
+K_cal calibration. Until that wiring lands the controller behaves
+identically to v0.5.11 for any caller that leaves Acoustic at its
+zero value (Target ≤ 0 disables the gate).
 
 Bound: internal/controller/blended_test.go:TestEvalDBABudget_RefusesAboveTarget
+Bound: internal/controller/blended_test.go:TestBlend_DBABudget_RefusesPredictiveAboveTarget
+Bound: internal/controller/blended_test.go:TestBlend_DBABudget_NoOpWhenZeroTarget
+Bound: internal/controller/blended_test.go:TestBlend_DBABudget_PathARefusalShortCircuitsDBA

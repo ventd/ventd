@@ -420,6 +420,112 @@ func TestPresetDBATargets_LockedAndOverrideHonoured(t *testing.T) {
 	}
 }
 
+// RULE-CTRL-PRESET-04 (Compute integration): when the dBA-budget gate
+// refuses, Compute returns OutputPWM = ReactivePWM, sets
+// DBABudgetRefused=true, populates PredictedDBA, and surfaces the
+// refusal as UIState="refused-dba". Matches cost-gate semantics — no
+// integrator freeze on dBA refusal (the integrator continues to
+// accumulate and recovers naturally when conditions change).
+func TestBlend_DBABudget_RefusesPredictiveAboveTarget(t *testing.T) {
+	t.Parallel()
+
+	bc := NewBlended(BlendedConfig{Preset: PresetBalanced, PWMUnitMax: 255})
+	in := defaultInputs(healthyCoupling("ch", 0.98, -0.5))
+	in.SensorTemp = 80.0 // high error so predictive ramps up over time
+	in.Setpoint = 60.0
+	// CurrentDBA pinned just under Target so any positive predictive
+	// ramp (any non-zero ΔPWM with positive DBAPerPWM) trips the gate.
+	in.Acoustic = AcousticBudget{
+		Target:     25.0,
+		CurrentDBA: 24.99,
+		DBAPerPWM:  1.0,
+	}
+
+	// Warm up enough ticks for the integrator to accumulate above
+	// reactive. Mirrors TestBlend_LinearMix's pattern (150 ticks at
+	// a=0.98, b=-0.5 produces a measurable predictive>reactive delta).
+	for i := 0; i < 150; i++ {
+		_ = bc.Compute(in)
+		in.Now = in.Now.Add(2 * time.Second)
+	}
+	r := bc.Compute(in)
+
+	if !r.DBABudgetRefused {
+		t.Fatalf("expected DBABudgetRefused=true; got %+v", r)
+	}
+	if r.OutputPWM != in.ReactivePWM {
+		t.Errorf("OutputPWM = %d, want reactive %d on dBA refusal",
+			r.OutputPWM, in.ReactivePWM)
+	}
+	if r.UIState != "refused-dba" {
+		t.Errorf("UIState = %q, want \"refused-dba\"", r.UIState)
+	}
+	if r.PredictedDBA <= in.Acoustic.Target {
+		t.Errorf("PredictedDBA = %v, expected > Target=%v",
+			r.PredictedDBA, in.Acoustic.Target)
+	}
+	if r.WPred != 0 {
+		t.Errorf("WPred = %v, want 0 on refusal", r.WPred)
+	}
+}
+
+// RULE-CTRL-PRESET-04 (Compute integration, gate disabled): zero
+// Target disables the gate; Compute behaves identically to the
+// v0.5.11 controller (no DBABudgetRefused, output reflects the blend).
+func TestBlend_DBABudget_NoOpWhenZeroTarget(t *testing.T) {
+	t.Parallel()
+	bc := NewBlended(BlendedConfig{Preset: PresetBalanced, PWMUnitMax: 255})
+	in := defaultInputs(healthyCoupling("ch", 0.98, -0.5))
+	in.Acoustic = AcousticBudget{Target: 0, CurrentDBA: 999, DBAPerPWM: 999}
+
+	r := bc.Compute(in)
+	if r.DBABudgetRefused {
+		t.Errorf("zero Target should disable the gate; got DBABudgetRefused=true")
+	}
+	if r.UIState == "refused-dba" {
+		t.Errorf("UIState = %q, want non-refused-dba (gate disabled)", r.UIState)
+	}
+	if r.OutputPWM != in.ReactivePWM {
+		// Tick 1: bumpless ⇒ predictive == reactive ⇒ output == reactive.
+		t.Errorf("tick 1 OutputPWM = %d, want %d (bumpless)", r.OutputPWM, in.ReactivePWM)
+	}
+}
+
+// RULE-CTRL-PRESET-04 (Compute integration, ordering): when Path-A
+// refuses, the dBA-budget check is short-circuited and DBABudgetRefused
+// stays false. Pins the priority chain (path-A > cost > dBA in the
+// refusal cascade) so a future re-order doesn't silently widen the
+// dBA gate's blast radius.
+func TestBlend_DBABudget_PathARefusalShortCircuitsDBA(t *testing.T) {
+	t.Parallel()
+	bc := NewBlended(BlendedConfig{Preset: PresetBalanced, PWMUnitMax: 255})
+
+	// Path-A: tiny Theta produces predictedDeltaT < 2°C → refuses.
+	saturatedM := &marginal.Snapshot{
+		Theta:     []float64{0.001, 0},
+		WarmingUp: false,
+		NSamples:  500,
+	}
+	in := defaultInputs(healthyCoupling("ch", 0.98, -0.5))
+	in.SensorTemp = 80.0
+	in.Marginal = saturatedM
+	// dBA budget would also refuse under any ΔPWM (CurrentDBA already
+	// at Target). But Path-A's earlier check should short-circuit it.
+	in.Acoustic = AcousticBudget{Target: 25, CurrentDBA: 25, DBAPerPWM: 1.0}
+
+	r := bc.Compute(in)
+
+	if !r.PathARefused {
+		t.Fatalf("expected PathARefused=true (tiny Theta); got %+v", r)
+	}
+	if r.UIState != "refused-pathA" {
+		t.Errorf("UIState = %q, want \"refused-pathA\" (path-A wins)", r.UIState)
+	}
+	if r.DBABudgetRefused {
+		t.Errorf("DBABudgetRefused=true; want false (path-A short-circuits dBA check)")
+	}
+}
+
 // RULE-CTRL-PRESET-04: EvalDBABudget refuses ramps that push the
 // candidate dBA above the configured target; admits ramps that fit
 // inside the budget; a zero Target or zero DBAPerPWM disables the gate.
