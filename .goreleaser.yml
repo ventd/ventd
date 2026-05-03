@@ -132,6 +132,7 @@ archives:
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/ventd
+      - deploy/apparmor.d/ventd.compat
       - deploy/apparmor.d/ventd-ipmi
       - deploy/selinux/ventd.te
       - deploy/selinux/ventd.fc
@@ -163,6 +164,7 @@ archives:
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/ventd
+      - deploy/apparmor.d/ventd.compat
       - deploy/apparmor.d/ventd-ipmi
       - deploy/selinux/ventd.te
       - deploy/selinux/ventd.fc
@@ -238,6 +240,8 @@ nfpms:
         dst: /lib/udev/rules.d/90-ventd-hwmon.rules
       - src: deploy/apparmor.d/ventd
         dst: /etc/apparmor.d/ventd
+      - src: deploy/apparmor.d/ventd.compat
+        dst: /etc/apparmor.d/ventd.compat
       - src: deploy/apparmor.d/ventd-ipmi
         dst: /etc/apparmor.d/ventd-ipmi
       - src: deploy/selinux/ventd.te
