@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/cmplx"
 )
 
 // SampleRate is the canonical capture rate (Hz). The CLI subcommand
@@ -178,55 +179,156 @@ func RMSdBFS(samples []float64) float64 {
 	return dbfs
 }
 
-// AWeightSamples applies the IEC 61672-1:2013 Class 1 A-weighting
-// filter to the sample slice in place via a 6th-order canonical IIR.
-// Returns the same slice for convenient chaining.
+// aWeightCoeffs holds one biquad section's transfer-function constants.
+// The denominator is normalised so a0 = 1 (implicit); only a1, a2, and
+// the three numerator coefficients are stored.
+type aWeightCoeffs struct {
+	b0, b1, b2 float64
+	a1, a2     float64
+}
+
+// aWeightingStages is the digital cascade for the IEC 61672-1:2013 Class 1
+// A-weighting filter at the canonical SampleRate (48 kHz). Computed once at
+// package init from the analogue prototype via the standard bilinear
+// transform — see deriveAWeightingStages.
 //
-// The A-weighting filter is the perceptual model that makes "30 dB
-// at 100 Hz" and "30 dB at 1 kHz" map to comparable loudness — human
-// ears are dramatically less sensitive to low frequencies, and the
-// curve is the international standard for that compensation. R30
-// §4.1 specifies this filter as the dBFS → dBA bridge alongside K_cal.
+// The analogue prototype is:
 //
-// Coefficients computed for 48 kHz via the canonical bilinear
-// transform from the analogue Class-1 prototype (Andrew Forsberg
-// MATLAB reference, cross-checked against pyfilterbank). The
-// 6-tap design (3 biquad stages cascaded) matches IEC tolerance
-// at 48 kHz across 20 Hz – 20 kHz.
+//	R_A(s) = (2π·f4)² · s⁴ /
+//	          [(s + 2π·f1)² · (s + 2π·f2) · (s + 2π·f3) · (s + 2π·f4)²]
+//
+// where f1=20.598997 Hz, f2=107.65265 Hz, f3=737.86223 Hz,
+// f4=12194.217 Hz, and the leading constant is chosen so the magnitude
+// response is exactly 0 dB at 1 kHz (the standard normalisation).
+//
+// The 6th-order filter splits naturally into three biquad sections:
+//
+//	Stage 1: 1 / (s + 2π·f1)²              — low-frequency double-pole
+//	Stage 2: s² / [(s + 2π·f2)(s + 2π·f3)] — mid-band shaping
+//	Stage 3: s² / (s + 2π·f4)²              — high-frequency double-pole
+//
+// The 1 kHz normalisation gain is folded into stage 3's b coefficients
+// after the bilinear transform so each stage is independently scaled.
+//
+// Replaces the v0.5.11 hand-rolled coefficients (issue #884), where the
+// first stage's a1=-1.42857 placed an IIR pole at z=+1.42857 — outside
+// the unit circle — and the filter diverged on every input.
+var aWeightingStages = deriveAWeightingStages(SampleRate)
+
+// AWeightSamples applies the IEC 61672-1:2013 Class 1 A-weighting filter
+// to the sample slice in place via a 6th-order canonical IIR. Returns the
+// same slice for convenient chaining.
+//
+// The A-weighting filter is the perceptual model that makes "30 dB at
+// 100 Hz" and "30 dB at 1 kHz" map to comparable loudness — human ears
+// are dramatically less sensitive to low frequencies, and the curve is
+// the international standard for that compensation. R30 §4.1 specifies
+// this filter as the dBFS → dBA bridge alongside K_cal.
+//
+// Implementation is direct-form-II transposed per stage. Stage state
+// (z1, z2) is local to each call so AWeightSamples is safe under
+// concurrent invocation across distinct slices.
 func AWeightSamples(samples []float64) []float64 {
-	// 3-stage biquad cascade. Each stage is direct-form-II with
-	// numerator b0/b1/b2 and denominator a0=1/a1/a2.
-	type biquad struct {
-		b0, b1, b2 float64
-		a1, a2     float64
-		z1, z2     float64
-	}
-	// Coefficients for fs = 48000 Hz, IEC 61672-1:2013 Class 1 A-weighting.
-	stages := []*biquad{
-		{
-			b0: 0.16999495711769, b1: 0.74103450162056, b2: 0.0,
-			a1: -1.42857143, a2: 0.0,
-		},
-		{
-			b0: 1.0, b1: -2.0, b2: 1.0,
-			a1: -1.96977855, a2: 0.97022417,
-		},
-		{
-			b0: 1.0, b1: -2.0, b2: 1.0,
-			a1: -1.34730723, a2: 0.47153585,
-		},
-	}
+	type state struct{ z1, z2 float64 }
+	states := make([]state, len(aWeightingStages))
 	for i, x := range samples {
 		v := x
-		for _, s := range stages {
-			y := s.b0*v + s.z1
-			s.z1 = s.b1*v + s.z2 - s.a1*y
-			s.z2 = s.b2*v - s.a2*y
+		for j := range aWeightingStages {
+			c := &aWeightingStages[j]
+			st := &states[j]
+			y := c.b0*v + st.z1
+			st.z1 = c.b1*v + st.z2 - c.a1*y
+			st.z2 = c.b2*v - c.a2*y
 			v = y
 		}
 		samples[i] = v
 	}
 	return samples
+}
+
+// deriveAWeightingStages constructs the three-biquad digital cascade
+// from the IEC 61672-1:2013 Class 1 A-weighting analogue prototype via
+// the standard bilinear transform at sample rate fs.
+//
+// fs is the sample rate in Hz; for ventd this is always 48000 (the
+// canonical SampleRate constant). The function is not parameterised at
+// runtime — the var-init pattern is purely cosmetic, keeping the
+// canonical constants and bilinear math visible in source rather than
+// shipping opaque hard-coded coefficients.
+func deriveAWeightingStages(fs int) []aWeightCoeffs {
+	// IEC 61672-1:2013 Class 1 pole frequencies (Hz). These are exact
+	// per the standard's Annex E (also given in the body for Type 0
+	// reference).
+	const (
+		f1 = 20.598997
+		f2 = 107.65265
+		f3 = 737.86223
+		f4 = 12194.217
+	)
+	fsf := float64(fs)
+	w1 := 2 * math.Pi * f1
+	w2 := 2 * math.Pi * f2
+	w3 := 2 * math.Pi * f3
+	w4 := 2 * math.Pi * f4
+
+	stages := []aWeightCoeffs{
+		// Stage 1: H_a(s) = 1/(s+w1)². Analogue numerator is constant 1
+		// (no zeros), denominator is s² + 2·w1·s + w1².
+		bilinearBiquad(0, 0, 1, 2*w1, w1*w1, fsf),
+		// Stage 2: H_b(s) = s²/((s+w2)(s+w3)). Two zeros at the origin,
+		// distinct real poles at -w2 and -w3.
+		bilinearBiquad(1, 0, 0, w2+w3, w2*w3, fsf),
+		// Stage 3: H_c(s) = s²/(s+w4)². Two zeros at the origin, double
+		// pole at -w4. The 1 kHz normalisation gain is folded into the
+		// numerator below.
+		bilinearBiquad(1, 0, 0, 2*w4, w4*w4, fsf),
+	}
+
+	// Compute the cascade's magnitude response at 1 kHz and fold the
+	// inverse into stage 3's numerator so the cascade has exactly 0 dB
+	// gain at 1 kHz (the standard normalisation point).
+	z := cmplx.Exp(complex(0, 2*math.Pi*1000/fsf))
+	gain := complex(1, 0)
+	for _, c := range stages {
+		gain *= evalBiquad(c, z)
+	}
+	norm := 1.0 / cmplx.Abs(gain)
+	stages[2].b0 *= norm
+	stages[2].b1 *= norm
+	stages[2].b2 *= norm
+	return stages
+}
+
+// bilinearBiquad converts an analogue biquad
+//
+//	H(s) = (b0a·s² + b1a·s + b2a) / (s² + a1a·s + a2a)
+//
+// to its digital equivalent at sample rate fs via the bilinear transform
+// s = c·(z-1)/(z+1) with c = 2·fs (no prewarping — the 0 dB
+// normalisation at 1 kHz absorbs the small mid-band warping at 48 kHz;
+// the worst-case error stays within IEC Class 1 tolerance up through
+// 10 kHz, which is the documented bound of ventd's mic-calibration
+// scope).
+func bilinearBiquad(b0a, b1a, b2a, a1a, a2a, fs float64) aWeightCoeffs {
+	c := 2 * fs
+	c2 := c * c
+	d := c2 + a1a*c + a2a
+	return aWeightCoeffs{
+		b0: (b0a*c2 + b1a*c + b2a) / d,
+		b1: (-2*b0a*c2 + 2*b2a) / d,
+		b2: (b0a*c2 - b1a*c + b2a) / d,
+		a1: (-2*c2 + 2*a2a) / d,
+		a2: (c2 - a1a*c + a2a) / d,
+	}
+}
+
+// evalBiquad evaluates the digital biquad transfer function
+// H(z) = (b0 + b1·z⁻¹ + b2·z⁻²) / (1 + a1·z⁻¹ + a2·z⁻²) at the given z.
+func evalBiquad(c aWeightCoeffs, z complex128) complex128 {
+	z2 := z * z
+	num := complex(c.b0, 0)*z2 + complex(c.b1, 0)*z + complex(c.b2, 0)
+	den := z2 + complex(c.a1, 0)*z + complex(c.a2, 0)
+	return num / den
 }
 
 // AWeightedDBFS returns the A-weighted RMS level in dB(A)FS — the
