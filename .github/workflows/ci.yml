@@ -109,6 +109,46 @@ jobs:
             prereqs: "apk add --no-cache bash ca-certificates curl git tar"
             use-setup-go: false
             race: false
+          # Universal-Linux #69 expansion (2026-05-03):
+          # Three additional distros so the matrix exercises the
+          # full sweep of package-manager + sources.list + AppArmor
+          # patterns ventd ships against. Each adds ~3 minutes to
+          # the matrix wall-time but the marginal cost is dwarfed
+          # by the bug class they prevent (e.g. Debian 12's apt
+          # sources.list shape, Ubuntu 22.04's older AppArmor
+          # parser 3.x grammar, openSUSE's zypper + suse-specific
+          # AppArmor abstraction tree).
+          - name: build-and-test-ubuntu-22-04
+            distro: ubuntu-22.04
+            runs-on: ubuntu-24.04
+            # ubuntu:22.04 — older LTS, AppArmor parser 3.0.4 (vs
+            # 4.x on 24.04). Catches grammar regressions like #202
+            # before they land in the LTS support window.
+            container: "ubuntu@sha256:962f6cadeae0ea6284001009daa4cc9a8c37e75d1f5191cf0eb83fe565b63dd7" # ubuntu:22.04
+            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar"
+            use-setup-go: true
+            race: true
+          - name: build-and-test-debian-12
+            distro: debian-12
+            runs-on: ubuntu-24.04
+            # debian:12 (bookworm) — Debian's apt sources.list and
+            # default kmod paths differ from Ubuntu. Catches package-
+            # manager-shape regressions in install.sh + preflight's
+            # DistroInfo dispatch before users hit them.
+            container: "debian@sha256:8a8cd02c5912770b4980228a54d4aff9e4f986f1eb2525d2d371dec5232cefcc" # debian:12
+            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar"
+            use-setup-go: true
+            race: true
+          - name: build-and-test-opensuse-tumbleweed
+            distro: opensuse-tumbleweed
+            runs-on: ubuntu-24.04
+            # opensuse/tumbleweed — rolling release, zypper, suse-
+            # specific AppArmor abstraction tree. The third major
+            # package-manager family (apt/dnf/zypper/pacman/apk).
+            container: "opensuse/tumbleweed@sha256:cd4b7c29b5d9fe77e1f44c89ec3fbf029e998da3ad8f44350fa088762c3f9489" # opensuse/tumbleweed:latest
+            prereqs: "zypper -n install -y ca-certificates curl git tar"
+            use-setup-go: true
+            race: true
     steps:
       - name: Install prerequisites
         if: matrix.prereqs != ''
