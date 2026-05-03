@@ -385,6 +385,118 @@ func TestCost_BenefitVsCost_RefusesWhenCostExceedsBenefit(t *testing.T) {
 	}
 }
 
+// RULE-CTRL-PRESET-03: PresetDBATargets locks the canonical R32 mapping
+// — Silent: 25 dBA, Balanced: 32 dBA, Performance: 45 dBA — and
+// DBATargetFor honours operator overrides over preset defaults.
+func TestPresetDBATargets_LockedAndOverrideHonoured(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		preset   Preset
+		expected float64
+	}{
+		{PresetSilent, 25.0},
+		{PresetBalanced, 32.0},
+		{PresetPerformance, 45.0},
+	}
+	for _, tc := range cases {
+		got, ok := PresetDBATargets[tc.preset]
+		if !ok || got != tc.expected {
+			t.Errorf("PresetDBATargets[%v] = (%v, %v), want (%v, true)",
+				tc.preset, got, ok, tc.expected)
+		}
+		// DBATargetFor with nil override returns the preset default.
+		if got := DBATargetFor(tc.preset, nil); got != tc.expected {
+			t.Errorf("DBATargetFor(%v, nil) = %v, want %v", tc.preset, got, tc.expected)
+		}
+	}
+	// Operator override beats preset default.
+	override := 28.0
+	if got := DBATargetFor(PresetBalanced, &override); got != 28.0 {
+		t.Errorf("DBATargetFor(Balanced, &28) = %v, want 28.0", got)
+	}
+	// Unknown preset enum falls back to Balanced default.
+	if got := DBATargetFor(Preset(99), nil); got != 32.0 {
+		t.Errorf("DBATargetFor(unknown, nil) = %v, want 32.0 (Balanced fallback)", got)
+	}
+}
+
+// RULE-CTRL-PRESET-04: EvalDBABudget refuses ramps that push the
+// candidate dBA above the configured target; admits ramps that fit
+// inside the budget; a zero Target or zero DBAPerPWM disables the gate.
+func TestEvalDBABudget_RefusesAboveTarget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("admit_when_inside_budget", func(t *testing.T) {
+		b := AcousticBudget{Target: 32.0, CurrentDBA: 28.0, DBAPerPWM: 0.1}
+		// 28 + 0.1*30 = 31 < 32 → admit.
+		refuse, predicted := EvalDBABudget(b, 30)
+		if refuse {
+			t.Errorf("inside budget: got refuse=true, want false")
+		}
+		if math.Abs(predicted-31.0) > 1e-9 {
+			t.Errorf("predicted = %v, want 31.0", predicted)
+		}
+	})
+
+	t.Run("refuse_when_above_target", func(t *testing.T) {
+		b := AcousticBudget{Target: 32.0, CurrentDBA: 30.0, DBAPerPWM: 0.1}
+		// 30 + 0.1*30 = 33 > 32 → refuse.
+		refuse, predicted := EvalDBABudget(b, 30)
+		if !refuse {
+			t.Errorf("above budget: got refuse=false, want true")
+		}
+		if math.Abs(predicted-33.0) > 1e-9 {
+			t.Errorf("predicted = %v, want 33.0", predicted)
+		}
+	})
+
+	t.Run("at_target_admits", func(t *testing.T) {
+		// candidate exactly equal to target — admits (refuse only on strict >)
+		b := AcousticBudget{Target: 32.0, CurrentDBA: 30.0, DBAPerPWM: 0.1}
+		refuse, _ := EvalDBABudget(b, 20) // 30 + 0.1*20 = 32 == target
+		if refuse {
+			t.Errorf("at target: got refuse=true, want false (strict >)")
+		}
+	})
+
+	t.Run("zero_target_disables_gate", func(t *testing.T) {
+		b := AcousticBudget{Target: 0, CurrentDBA: 50, DBAPerPWM: 1.0}
+		refuse, _ := EvalDBABudget(b, 100)
+		if refuse {
+			t.Errorf("zero target: got refuse=true, want false (gate disabled)")
+		}
+	})
+
+	t.Run("negative_target_disables_gate", func(t *testing.T) {
+		b := AcousticBudget{Target: -5, CurrentDBA: 50, DBAPerPWM: 1.0}
+		refuse, _ := EvalDBABudget(b, 100)
+		if refuse {
+			t.Errorf("negative target: got refuse=true, want false (gate disabled)")
+		}
+	})
+
+	t.Run("zero_dba_per_pwm_disables_gate", func(t *testing.T) {
+		b := AcousticBudget{Target: 32, CurrentDBA: 50, DBAPerPWM: 0}
+		// CurrentDBA already over Target, but no per-PWM impact ⇒ no
+		// refuse possible from a ramp.
+		refuse, _ := EvalDBABudget(b, 100)
+		if refuse {
+			t.Errorf("zero DBAPerPWM: got refuse=true, want false (gate has no effect)")
+		}
+	})
+
+	t.Run("delta_pwm_is_absolute_value", func(t *testing.T) {
+		// Negative ΔPWM (cooling-down ramp) shouldn't bypass the gate.
+		b := AcousticBudget{Target: 32, CurrentDBA: 30, DBAPerPWM: 0.1}
+		refusePos, _ := EvalDBABudget(b, 30)
+		refuseNeg, _ := EvalDBABudget(b, -30)
+		if refusePos != refuseNeg {
+			t.Errorf("|ΔPWM| asymmetry: +30 refused=%v, -30 refused=%v",
+				refusePos, refuseNeg)
+		}
+	})
+}
+
 // RULE-CTRL-PI-04 (anti-windup): when the candidate predictive PWM
 // would saturate at MaxPWM and the integrator wants to push further
 // up (error > 0), the integrator must be frozen on the saturating

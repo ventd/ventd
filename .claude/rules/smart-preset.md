@@ -40,3 +40,63 @@ Asymmetric strictness by intent:
   unknown-key warn-once (RULE-EXPERIMENTAL-SCHEMA-04).
 
 Bound: internal/config/smart_test.go:TestSmartConfig_ValidationBoundaries
+
+## RULE-CTRL-PRESET-03: PresetDBATargets is the canonical R32 mapping {Silent: 25, Balanced: 32, Performance: 45} dBA; DBATargetFor honours operator override over preset default.
+
+The v0.5.12 quietness-target preset surface adds an operator-typed dBA cap
+that the cost gate uses to refuse PWM ramps that would push host loudness
+above the budget. The mapping comes from R32 user-perception thresholds:
+
+- **Silent → 25 dBA** ("Whisper" — barely audible at desk distance)
+- **Balanced → 32 dBA** ("Office" — comparable to a quiet office)
+- **Performance → 45 dBA** (workstation under load, audible but not loud)
+
+`PresetDBATargets` (in `internal/controller/blended.go`) is a `map[Preset]float64`
+holding these three entries. `DBATargetFor(p Preset, override *float64) float64`
+is the resolver — when `override` is non-nil, the operator's value wins;
+otherwise the preset's default is returned. An unrecognised `Preset` enum
+falls back to the Balanced default (32 dBA), matching `costFactorForPreset`'s
+fall-through behaviour.
+
+`SmartConfig.DBATarget *float64` is the operator surface. Nil leaves the
+budget to be resolved from the preset default at runtime; an explicit
+value overrides. Validation rejects values outside `[10, 80]` dBA — 10 dBA
+is below typical room-ambient floor (impossible to honour); 80 dBA is
+louder than any consumer fan setup can plausibly produce, so a value
+above 80 indicates a typo or wrong unit.
+
+Bound: internal/controller/blended_test.go:TestPresetDBATargets_LockedAndOverrideHonoured
+Bound: internal/config/smart_test.go:TestSmartConfig_DBATargetValidation
+
+## RULE-CTRL-PRESET-04: EvalDBABudget refuses ramps that push the candidate dBA strictly above the configured target; zero/negative target disables the gate.
+
+`EvalDBABudget(b AcousticBudget, deltaPWM float64) (refuse bool, predictedDBA float64)`
+is the pure-data dBA-budget gate. The gate uses linear extrapolation:
+
+```
+candidate_dBA = CurrentDBA + DBAPerPWM · |ΔPWM|
+refuse iff candidate_dBA > Target
+```
+
+Refusal is on strict inequality — `candidate_dBA == Target` admits the ramp.
+A zero or negative `Target`, or a zero `DBAPerPWM`, disables the gate
+(returns false). Negative ΔPWM (cooling-down ramp) is treated as |ΔPWM| —
+a ramp's loudness impact is direction-agnostic.
+
+The `AcousticBudget` struct carries the three values the wiring layer
+computes from the per-fan acoustic proxy (R33) plus the per-host
+calibration record (R30 K_cal):
+
+- `Target`: the operator-resolved dBA cap from `DBATargetFor`.
+- `CurrentDBA`: the host's current total loudness in dBA, from the
+  proxy's energetic sum across grouped fans + K_cal offset.
+- `DBAPerPWM`: the candidate channel's marginal loudness rate per PWM
+  unit, from the proxy's `CostRate`.
+
+This PR ships the gate as a pure function with no `BlendedController.Compute`
+integration — that integration lives in the wiring PR (#67's Manager.run
+PhaseGate-slice refactor) which has access to the per-fan proxy state. Until
+then the gate is callable in isolation by tests and any future caller that
+wants to consult the budget without going through the controller hot path.
+
+Bound: internal/controller/blended_test.go:TestEvalDBABudget_RefusesAboveTarget

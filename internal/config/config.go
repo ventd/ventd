@@ -208,6 +208,21 @@ type SmartConfig struct {
 	// computed by the wiring layer (PR-B). Values outside
 	// [10, 100] °C are rejected at config load.
 	Setpoints map[string]float64 `yaml:"setpoints,omitempty" json:"setpoints,omitempty"`
+
+	// DBATarget is the operator-typed quietness budget in dBA. When
+	// nil (the canonical case) the controller resolves the budget
+	// from the active preset via PresetDBATargets — Silent: 25 dBA
+	// (Whisper), Balanced: 32 dBA (Office), Performance: 45 dBA. An
+	// explicit value overrides the preset default, so an operator
+	// can pick "Balanced predictive aggressiveness" + "but cap noise
+	// at 28 dBA" independently. R32 user-perception thresholds.
+	//
+	// Values outside [10, 80] dBA are rejected at config load —
+	// 10 dBA is below typical room-ambient floor (impossible to
+	// honour); 80 dBA is louder than any consumer fan setup
+	// can plausibly produce, so a value above 80 indicates a typo
+	// or a wrong unit.
+	DBATarget *float64 `yaml:"dba_target,omitempty" json:"dba_target,omitempty"`
 }
 
 // Closed set of preset names. Empty string is allowed (treated as
@@ -1256,6 +1271,11 @@ func validate(cfg *Config) error {
 			if w < 0 || w > 1 {
 				return fmt.Errorf("config: smart.preset_weight_vector[%d]: %v out of [0, 1]", i, w)
 			}
+		}
+	}
+	if t := cfg.Smart.DBATarget; t != nil {
+		if *t < 10 || *t > 80 {
+			return fmt.Errorf("config: smart.dba_target: %v dBA out of plausible range [10, 80]", *t)
 		}
 	}
 
