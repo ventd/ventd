@@ -105,7 +105,7 @@ func TestDiagExportObservations_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open out: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var got []*observation.Record
 	scanner := bufio.NewScanner(f)
