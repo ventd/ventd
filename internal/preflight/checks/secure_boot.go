@@ -50,31 +50,55 @@ type SecureBootProbes struct {
 	// the Default()-constructed probes to surface in the boxed
 	// walkthrough.
 	MOKPassword string
+	// MOKPasswordPath is the on-disk session-cache path. When set
+	// (default `/var/lib/ventd/.mok-session-password`), the
+	// password is persisted across multiple `ventd preflight`
+	// invocations within the same install session — operators who
+	// run preflight, type the wrong password at firmware MOK
+	// Manager, and re-run preflight see the SAME password rather
+	// than a freshly-generated one. The cache is removed when
+	// MOKEnrolled detects the import landed.
+	//
+	// Empty string disables session caching (useful in tests +
+	// the cmd/ventd/preflight legacy invocation).
+	MOKPasswordPath string
 }
+
+// DefaultMOKPasswordPath is the canonical on-disk session-cache for
+// the generated MOK enrollment password. Persisted across multiple
+// `ventd preflight` invocations within the same install session so
+// the operator sees the same password each time the chain re-runs.
+// Removed by liveMOKEnrolledWithCleanup when enrollment is observed.
+const DefaultMOKPasswordPath = "/var/lib/ventd/.mok-session-password"
 
 // DefaultSecureBootProbes wires the live system. Each field is
 // non-nil; tests can copy this and override individual fields.
 //
-// The MOKPassword field is generated once at construction time so
-// the operator-displayed password matches what's piped to
-// `mokutil --import`. A generation failure produces a fixed
-// fallback ("ventd-changeme") — getting random bytes shouldn't
-// fail outside a broken sandbox, but the install path mustn't
-// abort over crypto/rand.
+// The MOKPassword field is loaded from DefaultMOKPasswordPath on
+// first call (when the file exists), or freshly generated and saved
+// otherwise. Subsequent invocations within the same install session
+// see the same password — important for the rerun-after-firmware-
+// rejection case where the operator typed wrong at MOK Manager and
+// needs to retry with the same password they wrote down.
+//
+// A generation failure produces a fixed fallback ("ventd-changeme")
+// — getting random bytes shouldn't fail outside a broken sandbox,
+// but the install path mustn't abort over crypto/rand.
 func DefaultSecureBootProbes() SecureBootProbes {
-	pw, err := generateMOKPassword()
+	pw, err := loadOrGenerateMOKPassword(DefaultMOKPasswordPath)
 	if err != nil {
 		pw = "ventd-changeme"
 	}
 	return SecureBootProbes{
-		Enabled:      liveSecureBootEnabled,
-		HasBinary:    liveHasBinary,
-		MOKKeyExists: liveMOKKeyExists,
-		MOKEnrolled:  liveMOKEnrolled,
-		Distro:       hwmon.DetectDistro(),
-		Run:          liveRunShell,
-		MOKKeyDir:    "/var/lib/shim-signed/mok",
-		MOKPassword:  pw,
+		Enabled:         liveSecureBootEnabled,
+		HasBinary:       liveHasBinary,
+		MOKKeyExists:    liveMOKKeyExists,
+		MOKEnrolled:     liveMOKEnrolledWithCleanup(DefaultMOKPasswordPath),
+		Distro:          hwmon.DetectDistro(),
+		Run:             liveRunShell,
+		MOKKeyDir:       "/var/lib/shim-signed/mok",
+		MOKPassword:     pw,
+		MOKPasswordPath: DefaultMOKPasswordPath,
 	}
 }
 
@@ -266,6 +290,93 @@ func generateMOKPassword() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("ventd-%04x", binary.BigEndian.Uint16(buf[:])), nil
+}
+
+// loadOrGenerateMOKPassword reads an existing session password from
+// `path` (mode-checked: must be ≤ 0600), or generates a fresh one
+// and writes it atomically. Empty path disables the cache entirely
+// and behaves like a bare generateMOKPassword call.
+//
+// The cache file is mode 0600 so only root can read it. A more-
+// permissive existing file is rejected with an error rather than
+// silently chmod'd — operator-edited password files are out of
+// scope and should fail noisy.
+//
+// Cache file format: a single line containing the password,
+// optionally trailed by a newline. Whitespace is trimmed. Empty
+// content triggers regeneration as if the file did not exist.
+func loadOrGenerateMOKPassword(path string) (string, error) {
+	if path == "" {
+		return generateMOKPassword()
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		st, statErr := os.Stat(path)
+		if statErr == nil {
+			mode := st.Mode().Perm()
+			if mode&0o077 != 0 {
+				return "", fmt.Errorf("mok session-password cache %s is mode %o, refusing (must be ≤ 0600)", path, mode)
+			}
+		}
+		pw := strings.TrimSpace(string(data))
+		if pw != "" {
+			return pw, nil
+		}
+		// Empty / whitespace-only file → fall through to regenerate.
+	}
+	pw, err := generateMOKPassword()
+	if err != nil {
+		return "", err
+	}
+	// Best-effort save. Don't fail the whole preflight if /var/lib
+	// is read-only or the parent dir doesn't exist — the operator
+	// just doesn't get session-stable passwords on that host.
+	if dir := strings.TrimSuffix(path, "/"+filepathBase(path)); dir != "" {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(pw+"\n"), 0o600); err == nil {
+		_ = os.Rename(tmp, path)
+	}
+	return pw, nil
+}
+
+// filepathBase returns the trailing path component without dragging
+// in path/filepath at the package level (the rest of secure_boot.go
+// stays string-based so we keep the import set minimal).
+func filepathBase(p string) string {
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
+// liveMOKEnrolledWithCleanup wraps liveMOKEnrolled with a side-
+// effect: when enrollment is observed, the on-disk session-password
+// cache at `path` is removed. The password is no longer needed
+// post-enrollment; leaving it on disk extends the leak window for a
+// secret that's already served its purpose.
+//
+// Empty path → behaves as bare liveMOKEnrolled (no cleanup).
+// Removal failures are swallowed — the function's contract is
+// "did the firmware enroll", not "did we tidy up".
+func liveMOKEnrolledWithCleanup(path string) func(ctx context.Context) (bool, error) {
+	return makeMOKEnrolledWithCleanup(path, liveMOKEnrolled)
+}
+
+// makeMOKEnrolledWithCleanup is the test-injection seam: production
+// passes liveMOKEnrolled, tests pass a stub returning the desired
+// outcome without monkey-patching package state.
+func makeMOKEnrolledWithCleanup(path string, underlying func(ctx context.Context) (bool, error)) func(ctx context.Context) (bool, error) {
+	if path == "" {
+		return underlying
+	}
+	return func(ctx context.Context) (bool, error) {
+		enrolled, err := underlying(ctx)
+		if enrolled {
+			_ = os.Remove(path)
+		}
+		return enrolled, err
+	}
 }
 
 // cryptoRandRead is a var so tests can stub it; production points

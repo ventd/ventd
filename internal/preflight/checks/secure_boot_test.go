@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -238,6 +239,131 @@ func TestSecureBootChecks(t *testing.T) {
 			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 				t.Fatalf("non-hex char in suffix: %s", got)
 			}
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_mok_password_is_session_cached", func(t *testing.T) {
+		// First loadOrGenerateMOKPassword call writes a fresh password
+		// to disk; the second call reads the same value back. Lets
+		// the operator re-run preflight (e.g. after firmware MOK
+		// Manager rejected the password) without seeing a NEW one.
+		dir := t.TempDir()
+		path := dir + "/mok-session"
+		first, err := loadOrGenerateMOKPassword(path)
+		if err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if first == "" {
+			t.Fatal("first call returned empty password")
+		}
+		second, err := loadOrGenerateMOKPassword(path)
+		if err != nil {
+			t.Fatalf("second call: %v", err)
+		}
+		if first != second {
+			t.Errorf("session cache didn't stick: %q vs %q", first, second)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_empty_path_disables_caching", func(t *testing.T) {
+		// Empty path → no session cache → every call generates fresh.
+		// Test environment for legacy invocations and unit tests that
+		// don't want filesystem state.
+		first, err := loadOrGenerateMOKPassword("")
+		if err != nil {
+			t.Fatalf("first: %v", err)
+		}
+		// Two consecutive generations should differ (4 random hex
+		// chars per call → collision rate 1/65536, vanishingly
+		// unlikely).
+		second, err := loadOrGenerateMOKPassword("")
+		if err != nil {
+			t.Fatalf("second: %v", err)
+		}
+		if first == second {
+			t.Errorf("empty path returned identical passwords twice — caching leaked: %q", first)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_overpermissive_cache_is_rejected", func(t *testing.T) {
+		// A pre-existing cache file with mode > 0600 indicates either
+		// operator misuse or a write through a permissive umask. The
+		// loader rejects rather than silently chmod'ing — fail noisy.
+		dir := t.TempDir()
+		path := dir + "/mok-session"
+		if err := os.WriteFile(path, []byte("ventd-1234\n"), 0o644); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		_, err := loadOrGenerateMOKPassword(path)
+		if err == nil {
+			t.Fatal("expected error for over-permissive cache file, got nil")
+		}
+		if !strings.Contains(err.Error(), "0600") {
+			t.Errorf("error doesn't mention required mode: %v", err)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_empty_cache_file_regenerates", func(t *testing.T) {
+		// Whitespace-only cache file is treated as missing — fall
+		// through to fresh generation. Recovers from a partial write
+		// or operator-cleared file rather than panicking.
+		dir := t.TempDir()
+		path := dir + "/mok-session"
+		if err := os.WriteFile(path, []byte("   \n"), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		pw, err := loadOrGenerateMOKPassword(path)
+		if err != nil {
+			t.Fatalf("regen: %v", err)
+		}
+		if !strings.HasPrefix(pw, "ventd-") {
+			t.Errorf("regen returned unexpected shape: %q", pw)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_cleanup_removes_cache_on_enrollment", func(t *testing.T) {
+		// liveMOKEnrolledWithCleanup observes enrollment and removes
+		// the session-cache file. The password is no longer needed
+		// post-enrollment; leaving it on disk extends the leak
+		// window for a secret that's served its purpose.
+		dir := t.TempDir()
+		path := dir + "/mok-session"
+		if err := os.WriteFile(path, []byte("ventd-1234\n"), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		stub := func(context.Context) (bool, error) { return true, nil }
+		fn := makeMOKEnrolledWithCleanup(path, stub)
+		enrolled, err := fn(context.Background())
+		if err != nil {
+			t.Fatalf("call: %v", err)
+		}
+		if !enrolled {
+			t.Fatal("expected enrolled=true")
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("cache file still present after enrollment: %v", err)
+		}
+	})
+
+	t.Run("RULE-PREFLIGHT-SB-12_cleanup_keeps_cache_when_not_enrolled", func(t *testing.T) {
+		// When MOK is NOT enrolled, the cache file MUST stay on disk.
+		// The operator may still need to type the password at the
+		// next firmware MOK Manager attempt.
+		dir := t.TempDir()
+		path := dir + "/mok-session"
+		if err := os.WriteFile(path, []byte("ventd-1234\n"), 0o600); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		stub := func(context.Context) (bool, error) { return false, nil }
+		fn := makeMOKEnrolledWithCleanup(path, stub)
+		enrolled, _ := fn(context.Background())
+		if enrolled {
+			t.Fatal("expected enrolled=false")
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("cache file removed despite not-enrolled: %v", err)
 		}
 	})
 
