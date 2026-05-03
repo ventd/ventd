@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.11] - 2026-05-03
+
+### Headline
+- **R33 no-mic acoustic proxy** (#867) — new `internal/acoustic/proxy/` package estimates per-fan and per-host loudness from PWM/RPM/blade-pass heuristics alone (no microphone, no audio library linked). Four-term sum (S_tip + S_tone + S_motor + S_pump) over 9 fan classes, 13 R33-LOCK-* invariants bound 1:1 to subtests. Score is dimensionless (`au`), within-host comparable; absolute dBA conversion still requires R30 mic calibration. Foundation for v0.5.12's per-fan cost-gate refactor.
+- **Schema v1.3** (#866) — board profiles gain optional `pwm_groups: [{channel, fans}]` for the energetic-sum penalty when one PWM channel drives N fans (R29's Z690-A finding); driver profiles gain `blacklist_before_install: [module]` (generalises the MS-7D25 nct6683 blacklist) and `kernel_version: {min, max}` (R36's per-row kernel gates). Three new RULE-HWDB-PR2-15/16/17 validators. Existing v1.2 catalog rows pass through unchanged.
+- **CostRate helper** (#868) — exposes `acoustic.proxy.CostRate(class, rpm, ..., rpmPerPWM, preset)` returning marginal acoustic cost in au per PWM unit, with preset multipliers Silent=3.0 / Balanced=1.0 / Performance=0.2. Wired in v0.5.12 PR-E to replace the synthetic 0.01°C/PWM `CostFactorBalanced` constant in the blended controller's cost gate.
+
+### Changed — workflow hygiene + collaboration discipline
+- **Full friction audit** (#864) — concurrency cancel-in-progress on every workflow, `paths-ignore` for docs/.claude/CHANGELOG to skip CI on doc-only PRs, `make pre-push` target wrapping `scripts/ci-local.sh`, branch-cleanup workflow sweeping merged branches >7 days, attribution-lint CI gate (`.github/workflows/no-ai-attribution.yml`) blocking AI footers at the line-anchored regex level, HIL smoke workflow scaffolded, RULE-INDEX.md un-tracked (now generated locally; was a serial rebase-conflict source), `release-changelog.yml` auto-CHANGELOG workflow + `cliff.toml` retired in favour of manual CHANGELOG entries per release.
+- **Collaboration audit** (#862) — `.claude/rules/collaboration.md` rewritten end-to-end: standing-delegations section pre-authorises `git tag` / `goreleaser release` / branch deletion / rebase / flake-rerun, CI-flake threshold raised 20→45 min (5-distro × race matrix takes 25-40 min on green), design-conflict-based rebase-escalation replaces count-based, `gh pr merge --auto` + `scripts/dev/{prs,wait-and-merge}.sh` documented, GraphQL `updatePullRequest` workaround for the `gh pr edit --body` projects-classic deprecation captured.
+- **Rule staleness pass** (#865) — removed setup-token from web-ui.md + usability.md (eliminated in v0.5.8.1 #765/#794, first-boot is password-set-on-empty-auth.json now), removed NixOS from supported-distros pending modprobe.d-fragment work, attribution.md adds the CI gate as the enforcement reference.
+
+### Honest framing
+- v0.5.11 ships PR-A/B/C-1/C-2 from `tingly-twirling-duckling.md` — the catalog/schema/proxy half of the R28-R36 implementation arc. The v0.5.12 acoustic trio (PR-D `ventd calibrate --acoustic`, PR-E quietness-target preset, PR-F acoustic stall verification) is the larger commitment and ships under its own tag because the privacy-sensitive surfaces (mic capture, ALSA device opening) deserve a release-notes pass + documentation focus separate from this catalog/cost-gate work.
+
 ## [v0.5.10] - 2026-05-03
 
 ### Headline
