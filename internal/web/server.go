@@ -312,6 +312,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
 		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
 		{name: "hwdiag/grub-cmdline-add", handler: s.handleGrubCmdlineAdd, auth: true},
+		{name: "hwdiag/modprobe-options-write", handler: s.handleModprobeOptionsWrite, auth: true},
 		{name: "hwdiag/reset-and-reinstall", handler: s.handleResetAndReinstall, auth: true},
 		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
@@ -1805,6 +1806,65 @@ func (s *Server) handleGrubCmdlineAdd(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		logFn("Reboot to apply the new kernel parameter.")
+		return nil
+	})
+}
+
+// handleModprobeOptionsWrite POST /api/hwdiag/modprobe-options-write
+//
+// Writes a per-module modprobe drop-in to /etc/modprobe.d/ventd-<module>.conf
+// in the form `options <module> <options>`, then reloads the module so the
+// new option takes effect immediately. Wired into the wizard-recovery
+// classifier as the action_url for ClassThinkpadACPIDisabled
+// (RULE-WIZARD-RECOVERY-10): the classifier card asks the operator to
+// flip thinkpad_acpi's fan_control parameter on, this endpoint applies it.
+//
+// Body: required JSON {"module": "...", "options": "..."}.
+//
+// The (module, options) pair is matched against
+// `hwmon.IsAllowedModprobeOption` — a closed allowlist that today
+// covers exactly thinkpad_acpi fan_control=1. Anything else returns
+// 400. Future Stage-1 entries (it87 ignore_resource_conflict=1,
+// it87 force_id=0xNNNN) extend the allowlist alongside their catalog
+// rows in their own PRs.
+//
+// A reboot prompt is recommended in the log because some EC firmware
+// re-arbitrates only on a full power cycle even when the kernel
+// module reloads cleanly.
+func (s *Server) handleModprobeOptionsWrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Module  string `json:"module"`
+		Options string `json:"options"`
+	}
+	if r.Body == nil || r.ContentLength <= 0 {
+		http.Error(w, "request body required", http.StatusBadRequest)
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !hwmon.IsAllowedModprobeOption(body.Module, body.Options) {
+		http.Error(w, "module/options pair not in ventd's allowlist", http.StatusBadRequest)
+		return
+	}
+	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
+		path := hwmon.ModprobeOptionsDropInPath(body.Module)
+		logFn("Writing modprobe drop-in to " + path)
+		logFn("  options: " + body.Options)
+		if err := hwmon.WriteModprobeOptionsDropIn(path, body.Module, body.Options); err != nil {
+			return err
+		}
+		logFn("Reloading kernel module " + body.Module + "...")
+		if err := hwmon.ReloadModule(body.Module, logFn); err != nil {
+			logFn("Reboot recommended; the option will be picked up on next boot.")
+			return err
+		}
+		logFn("Drop-in applied. A reboot is still recommended so the EC re-arbitrates with the new option.")
 		return nil
 	})
 }

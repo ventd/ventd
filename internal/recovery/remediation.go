@@ -46,6 +46,14 @@ type Remediation struct {
 	// operator clicks the card's primary button. Empty for
 	// KindDocsOnly entries.
 	ActionURL string `json:"action_url,omitempty"`
+	// ActionBody is an optional JSON-encoded request body the UI
+	// sends with the POST. Used by endpoints that take a closed-set
+	// parameter (canonical case: ClassThinkpadACPIDisabled tells the
+	// modprobe-options-write endpoint exactly which `(module,
+	// options)` pair to write — so the endpoint's allowlist gate
+	// has something to check). Absent or empty means the UI sends
+	// `null` as the body.
+	ActionBody string `json:"action_body,omitempty"`
 	// DocURL is an optional secondary link rendered as
 	// "Learn more" beside the action button.
 	DocURL string `json:"doc_url,omitempty"`
@@ -327,13 +335,13 @@ func RemediationFor(class FailureClass) []Remediation {
 	case ClassThinkpadACPIDisabled:
 		return []Remediation{
 			{
-				Label:       "Enable thinkpad_acpi fan_control",
-				Description: "ThinkPads ship with the kernel's `thinkpad_acpi` driver but its fan_control parameter is off by default — Lenovo's docs warn that the EC may override software writes. ventd will write /etc/modprobe.d/ventd-thinkpad.conf with `options thinkpad_acpi fan_control=1` and reload the module. Reboot recommended so the EC re-arbitrates with the option flipped.",
-				Kind:        KindActionPost,
-				ActionURL:   "/api/hwdiag/modprobe-options-write",
-				DocURL:      "https://github.com/ventd/ventd/wiki/thinkpad-fan-control",
-				// Reboot prompt picks up via #828 once that lands; for
-				// now the wiki page covers the manual reboot step.
+				Label:          "Enable thinkpad_acpi fan_control",
+				Description:    "ThinkPads ship with the kernel's `thinkpad_acpi` driver but its fan_control parameter is off by default — Lenovo's docs warn that the EC may override software writes. ventd will write /etc/modprobe.d/ventd-thinkpad_acpi.conf with `options thinkpad_acpi fan_control=1` and reload the module. A reboot is recommended so the EC re-arbitrates with the option flipped.",
+				Kind:           KindActionPost,
+				ActionURL:      "/api/hwdiag/modprobe-options-write",
+				ActionBody:     `{"module":"thinkpad_acpi","options":"fan_control=1"}`,
+				DocURL:         "https://github.com/ventd/ventd/wiki/thinkpad-fan-control",
+				RequiresReboot: true,
 			},
 			bundle,
 		}
