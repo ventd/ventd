@@ -46,18 +46,36 @@ type RPMFn func(ctx context.Context) (int32, error)
 // every write in polarity.WritePWM, never calls fn directly.
 type WriteFn func(uint8) error
 
+// SignguardSampleFn is the optional callback used by FireOne to feed
+// completed-probe observations into the v0.5.8 wrong-direction Layer-B
+// prior detector (`internal/coupling/signguard`). The detector only
+// folds samples whose |ΔT| ≥ R11 noise floor (2 °C) into its rolling
+// vote per RULE-SGD-NOISE-01; a probe with sub-noise ΔT is still
+// reported but discarded inside the detector.
+//
+// nil-safe: when the daemon is built without signguard wired, FireOne
+// skips the call. ΔPWM is signed: +1 when gapPWM > baseline (drove
+// the fan harder), -1 when gapPWM < baseline, 0 when equal.
+// ΔT is the mean delta across sensors over the probe-hold window.
+//
+// RULE-SGD-CONT-01 ("signguard runs continuously, not warmup-only") is
+// satisfied by feeding every successful probe — aborted probes are
+// excluded so a thermal-runaway abort doesn't pollute the vote.
+type SignguardSampleFn func(channelID string, deltaPWMSigned int, deltaT float64)
+
 // ProbeDeps is the injectable bundle for FireOne. Everything except
-// Logger is required.
+// Logger and SignguardSampleFn is required.
 type ProbeDeps struct {
-	Class      sysclass.SystemClass
-	Tjmax      float64
-	SensorFn   SensorFn
-	RPMFn      RPMFn
-	WriteFn    WriteFn
-	Now        func() time.Time
-	ObsAppend  func(rec *observation.Record) error
-	Logger     *slog.Logger
-	Thresholds *envelope.Thresholds // optional override; nil uses LookupThresholds(Class)
+	Class             sysclass.SystemClass
+	Tjmax             float64
+	SensorFn          SensorFn
+	RPMFn             RPMFn
+	WriteFn           WriteFn
+	Now               func() time.Time
+	ObsAppend         func(rec *observation.Record) error
+	Logger            *slog.Logger
+	Thresholds        *envelope.Thresholds // optional override; nil uses LookupThresholds(Class)
+	SignguardSampleFn SignguardSampleFn    // optional; nil = skip signguard feed
 }
 
 // FireOne runs a single opportunistic probe on ch at gapPWM:
@@ -89,7 +107,7 @@ func FireOne(ctx context.Context, ch *probe.ControllableChannel, gapPWM uint8, d
 
 	startTs := now()
 	flags := observation.EventFlag_OPPORTUNISTIC_PROBE
-	var lastTemps map[string]float64
+	var firstTemps, lastTemps map[string]float64
 	var lastRPM int32 = -1
 
 	defer func() {
@@ -131,6 +149,27 @@ func FireOne(ctx context.Context, ch *probe.ControllableChannel, gapPWM uint8, d
 				"channel", ch.PWMPath,
 				"err", appendErr)
 		}
+
+		// Feed v0.5.8 signguard with the (sign(ΔPWM), meanΔT) sample
+		// from this probe. Aborted probes are excluded so thermal
+		// runaways don't pollute the vote (RULE-SGD-CONT-01 + R11
+		// noise-floor gate enforced inside the detector). A
+		// ctx.DeadlineExceeded return is NOT an abort — the test
+		// fixture cuts hold short via context, the production path
+		// hits the holdEnd check; both are observation-valid.
+		if deps.SignguardSampleFn != nil &&
+			(flags&observation.EventFlag_ENVELOPE_C_ABORT) == 0 &&
+			firstTemps != nil && lastTemps != nil {
+			meanΔT := meanTempDelta(firstTemps, lastTemps)
+			deltaPWMSigned := 0
+			switch {
+			case gapPWM > baseline:
+				deltaPWMSigned = 1
+			case gapPWM < baseline:
+				deltaPWMSigned = -1
+			}
+			deps.SignguardSampleFn(ch.PWMPath, deltaPWMSigned, meanΔT)
+		}
 	}()
 
 	// Step 1: write the gap PWM (polarity-aware).
@@ -164,6 +203,9 @@ func FireOne(ctx context.Context, ch *probe.ControllableChannel, gapPWM uint8, d
 		case sample := <-ticker.C:
 			curTemps, _ := deps.SensorFn(ctx)
 			curRPM, _ := deps.RPMFn(ctx)
+			if firstTemps == nil && curTemps != nil {
+				firstTemps = copyTemps(curTemps)
+			}
 			lastTemps = curTemps
 			lastRPM = curRPM
 
@@ -262,6 +304,30 @@ func copyTemps(src map[string]float64) map[string]float64 {
 		out[k] = v
 	}
 	return out
+}
+
+// meanTempDelta returns the unweighted mean of (last[id] − first[id])
+// over sensor IDs present in both maps. Used by the signguard feed:
+// positive ΔT after a positive ΔPWM is the wrong-direction signal.
+// Returns 0 when fewer than one sensor is comparable.
+func meanTempDelta(first, last map[string]float64) float64 {
+	if first == nil || last == nil {
+		return 0
+	}
+	sum := 0.0
+	n := 0
+	for id, l := range last {
+		f, ok := first[id]
+		if !ok {
+			continue
+		}
+		sum += l - f
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 // polarityByte encodes the polarity string as the byte the observation

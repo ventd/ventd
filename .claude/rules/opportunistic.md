@@ -137,6 +137,29 @@ positions still appear in the grid.
 Bound: internal/probe/opportunistic/detector_test.go:TestDetector_LowHighGridSpacing
 Bound: internal/probe/opportunistic/detector_test.go:TestDetector_AnchorsStallAndMinSpin
 
+## RULE-OPP-PROBE-13: Successful probes feed the signguard sample callback when wired; nil-callback is a clean no-op.
+
+The opportunistic prober's `ProbeDeps.SignguardSampleFn` is the wire-up
+hook that feeds v0.5.8's wrong-direction Layer-B prior detector
+(`internal/coupling/signguard`). On every probe exit path that did NOT
+set `EventFlag_ENVELOPE_C_ABORT`, FireOne MUST call the callback with
+`(channelID = ch.PWMPath, deltaPWMSigned = sign(gapPWM − baseline),
+deltaT = mean(lastTemps − firstTemps))` exactly once, immediately
+after the observation record append. A nil callback MUST be skipped
+without error — the daemon may be built without signguard wired
+(e.g. before the wire-up PR) and the prober must not break.
+A ctx.DeadlineExceeded return is NOT an abort and MUST still feed
+signguard so production-length probes (which exit through the
+holdEnd branch, not abort) accumulate votes.
+
+The callback's `deltaT` is the mean over sensors present in BOTH the
+first-tick and last-tick temp maps; signguard's noise-floor gate
+(R11 §0, |ΔT| ≥ 2 °C) is enforced inside `Detector.Add`, so this
+prober is intentionally permissive about ΔT magnitude.
+
+Bound: internal/probe/opportunistic/prober_test.go:TestProber_FeedsSignguardOnSuccess
+Bound: internal/probe/opportunistic/prober_test.go:TestProber_NilSignguardIsNoOp
+
 ## RULE-OPP-IDLE-01: OpportunisticGate durability MUST be 600 seconds.
 
 The `opportunisticDurability` constant is locked at 10 minutes (2× the

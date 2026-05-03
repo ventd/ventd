@@ -24,6 +24,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
+	"github.com/ventd/ventd/internal/coupling/signguard"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/fallback"
@@ -463,13 +464,25 @@ func run() error {
 
 	kvWiper := func() error { return probe.WipeNamespaces(st.KV) }
 
+	// v0.5.8 sign-guard: shared per-channel sign-vote detector. Fed by
+	// every successful opportunistic probe (from the prober's
+	// SignguardSampleFn callback) and queried by marginal.Runtime
+	// before seeding a Layer-C shard from a Layer-B b_ii prior. Live
+	// for the lifetime of the daemon — the rolling 7-vote window
+	// supports continuous re-confirmation per RULE-SGD-CONT-01.
+	var sguDet *signguard.Detector
+	if len(channels) > 0 {
+		sguDet = signguard.NewDetector()
+		logger.Info("signguard detector initialised", "channels", len(channels))
+	}
+
 	// v0.5.5: build the opportunistic-probe scheduler factory.
 	// runDaemonInternal calls this once liveCfg is in scope so the
 	// Disabled callback can read NeverActivelyProbeAfterInstall on
 	// every tick — a flip in /api/config takes effect on the next
 	// scheduler tick without a daemon restart.
 	oppFactory := func(liveCfg *atomic.Pointer[config.Config]) *opportunistic.Scheduler {
-		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, logger)
+		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, sguDet, logger)
 	}
 
 	// v0.5.6: bundle the runtime dependencies for signature learning
@@ -481,7 +494,7 @@ func run() error {
 		},
 		State:      st,
 		Coupling:   buildCouplingRuntime(channels, st, dmiFingerprint, logger),
-		Marginal:   buildMarginalRuntime(channels, st, dmiFingerprint, logger),
+		Marginal:   buildMarginalRuntime(channels, st, dmiFingerprint, sguDet, logger),
 		LayerA:     buildLayerAEstimator(channels, logger),
 		Aggregator: buildAggregator(channels, logger),
 		Blended:    buildBlendedController(channels, cfg, logger),
@@ -503,6 +516,7 @@ func buildOpportunisticScheduler(
 	st *state.State,
 	obsWriter *observation.Writer,
 	liveCfg *atomic.Pointer[config.Config],
+	sguDet *signguard.Detector,
 	logger *slog.Logger,
 ) *opportunistic.Scheduler {
 	if len(channels) == 0 {
@@ -523,16 +537,27 @@ func buildOpportunisticScheduler(
 	}
 	rd := observation.NewReader(st.Log)
 	det := opportunistic.NewDetector(rd, channels, nil)
+	var sguFn opportunistic.SignguardSampleFn
+	if sguDet != nil {
+		sguFn = func(channelID string, deltaPWMSigned int, deltaT float64) {
+			sguDet.Add(signguard.Sample{
+				ChannelID: channelID,
+				DeltaPWM:  int8(deltaPWMSigned),
+				DeltaT:    deltaT,
+			})
+		}
+	}
 	depsFor := func(ch *probe.ControllableChannel) opportunistic.ProbeDeps {
 		return opportunistic.ProbeDeps{
-			Class:     cls,
-			Tjmax:     tjmax,
-			SensorFn:  opportunistic.SysfsSensorFn(),
-			RPMFn:     opportunistic.SysfsRPMFn(ch),
-			WriteFn:   opportunistic.SysfsWriteFn(ch),
-			ObsAppend: obsWriter.Append,
-			Now:       time.Now,
-			Logger:    logger,
+			Class:             cls,
+			Tjmax:             tjmax,
+			SensorFn:          opportunistic.SysfsSensorFn(),
+			RPMFn:             opportunistic.SysfsRPMFn(ch),
+			WriteFn:           opportunistic.SysfsWriteFn(ch),
+			ObsAppend:         obsWriter.Append,
+			Now:               time.Now,
+			Logger:            logger,
+			SignguardSampleFn: sguFn,
 		}
 	}
 	disabledFn := func() bool {
@@ -662,16 +687,25 @@ func buildMarginalRuntime(
 	channels []*probe.ControllableChannel,
 	st *state.State,
 	hwmonFingerprint string,
+	sguDet *signguard.Detector,
 	logger *slog.Logger,
 ) *marginal.Runtime {
 	if len(channels) == 0 {
 		logger.Info("marginal: no controllable channels; runtime not started")
 		return nil
 	}
-	rt := marginal.NewRuntime(st.Dir, hwmonFingerprint, nil, nil, logger)
+	// sguDet is passed as the SignguardLookup; nil falls back to
+	// noSignguard{} (always-false). Layer-B parents stay nil for now
+	// — that wiring gap is tracked separately.
+	var sgu marginal.SignguardLookup
+	if sguDet != nil {
+		sgu = sguDet
+	}
+	rt := marginal.NewRuntime(st.Dir, hwmonFingerprint, nil, sgu, logger)
 	logger.Info("marginal: runtime initialised",
 		"channels", len(channels),
-		"hwmon_fp", hwmonFingerprint)
+		"hwmon_fp", hwmonFingerprint,
+		"signguard_wired", sgu != nil)
 	return rt
 }
 
