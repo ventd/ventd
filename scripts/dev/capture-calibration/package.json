@@ -1,0 +1,12 @@
+{
+  "name": "ventd-capture-calibration",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Maintainer-only Playwright capture of the calibration page demo flow. Outputs MP4 + stills + DOM snapshots + token dump for design handoff. Never shipped to operators.",
+  "scripts": {
+    "capture": "node capture.js"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
