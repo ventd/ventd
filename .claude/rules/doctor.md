@@ -309,3 +309,43 @@ Bound: internal/doctor/detectors/kernel_update_d_test.go:TestRULE_DOCTOR_DETECTO
 Bound: internal/doctor/detectors/kernel_update_d_test.go:TestRULE_DOCTOR_DETECTOR_KernelUpdate_UnreadableProcNoFact
 Bound: internal/doctor/detectors/kernel_update_d_test.go:TestRULE_DOCTOR_DETECTOR_KernelUpdate_RespectsContextCancel
 Bound: internal/doctor/detectors/kernel_update_d_test.go:TestKernelUpdate_EntityHashChangesAcrossTransitions
+
+## RULE-DOCTOR-DETECTOR-ECLOCKEDLAPTOP: EC-locked laptops with platform_profile but no controllable channels surface as OK-severity (informational), naming current value + choices and pointing at issue #872 (v0.6 platform_profile selector mode).
+
+Common on consumer HP / Dell / Lenovo / ASUS laptops where the embedded
+controller owns fan actuation entirely — userspace gets the ACPI
+`platform_profile` enum (low-power / balanced / performance) but no
+`pwm*` duty-cycle write file and no `fan*_input` tach. The probe
+correctly classifies these as `monitor_only` per RULE-PROBE-04, but
+without a doctor card the operator gets no diagnostic — empty
+dashboard with no path forward.
+
+Fires when ALL of:
+- `/sys/firmware/acpi/platform_profile` exists with non-empty value;
+- `/sys/firmware/acpi/platform_profile_choices` lists ≥ 2 enum values;
+- The probe's controllable-channel count is zero.
+
+Quiet when any condition fails:
+- Desktops have controllable channels → smart_mode owns the surface.
+- Servers / embedded hosts without platform_profile → other detectors handle the monitor-only case.
+- Single-value `platform_profile_choices` is degenerate; surfacing a
+  card would promise control the hardware can't deliver.
+
+Severity: OK. The hardware works as designed; this is informational,
+not a warning (mirrors `experimental_flags`'s "surface for visibility,
+not for dismissal" pattern). Detail names the active profile +
+available choices and points at issue #872 (v0.6 platform_profile
+selector mode) so operators on EC-locked hardware know follow-up work
+is scoped.
+
+EntityHash includes the joined choices string so HP-style 3-choice and
+Dell-style 4-choice enums hash to distinct keys — operators on each
+platform can suppress independently.
+
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_HPPavilionPatternEmitsInfo
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_DesktopWithChannelsNoFact
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_NoPlatformProfileNoFact
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_SingleChoiceEnumNoFact
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_RespectsContextCancel
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestECLockedLaptop_EntityHashStableAcrossProbes
+Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestECLockedLaptop_EntityHashDistinguishesChoicesShape
