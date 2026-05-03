@@ -301,6 +301,191 @@
     remainingEl.textContent = '~' + fmtClock(remain);
   }
 
+  // ── live activity narrator ──────────────────────────────────────────
+  // Synthesises a streaming event log from /api/setup/status polls. Every
+  // observed state transition (phase change, per-fan phase change, PWM
+  // step, RPM milestone) appends one timestamped line to the activity
+  // feed in the right column. Bounded at MAX_ACTIVITY_LINES so the DOM
+  // doesn't grow unboundedly on long runs.
+  //
+  // The narrator is purely client-side — it doesn't need any backend
+  // protocol additions. When the daemon eventually exposes per-substep
+  // narration as a first-class field (PR-D follow-up), we can replace
+  // these synthesised lines with the daemon's authoritative ones.
+  var MAX_ACTIVITY_LINES = 100;
+  var feedEl = document.getElementById('cal-activity-feed');
+  var feedCounterEl = document.getElementById('cal-activity-counter');
+  var feedCount = 0;
+  var lastDaemonPhase = '';
+  var lastFanState = {}; // pwm_path -> { detect_phase, polarity_phase, cal_phase, cal_progress, last_pwm, last_rpm }
+  var lastInstallLogIdx = 0;
+
+  function activityPush(kind, fan, msg, detail) {
+    if (!feedEl) return;
+    // Drop the empty placeholder on first real append.
+    if (feedCount === 0) feedEl.innerHTML = '';
+
+    var li = document.createElement('li');
+    li.className = 'cal-activity-line cal-activity-line--' + (kind || 'quiet');
+
+    var t = document.createElement('span');
+    t.className = 'cal-activity-time mono';
+    var now = new Date();
+    var hh = ('0' + now.getHours()).slice(-2);
+    var mm = ('0' + now.getMinutes()).slice(-2);
+    var ss = ('0' + now.getSeconds()).slice(-2);
+    var ms = ('00' + now.getMilliseconds()).slice(-3);
+    t.textContent = hh + ':' + mm + ':' + ss + '.' + ms;
+    li.appendChild(t);
+
+    var msgWrap = document.createElement('span');
+    msgWrap.className = 'cal-activity-msg';
+    if (fan) {
+      var fanSpan = document.createElement('span');
+      fanSpan.className = 'cal-activity-fan';
+      fanSpan.textContent = fan + ' ';
+      msgWrap.appendChild(fanSpan);
+    }
+    msgWrap.appendChild(document.createTextNode(msg));
+    if (detail) {
+      var det = document.createElement('span');
+      det.className = 'cal-activity-detail';
+      det.textContent = ' ' + detail;
+      msgWrap.appendChild(det);
+    }
+    li.appendChild(msgWrap);
+
+    // Newest at top so users see the latest action without scrolling.
+    feedEl.insertBefore(li, feedEl.firstChild);
+    feedCount++;
+
+    // Trim from the bottom (oldest) when over cap.
+    while (feedEl.children.length > MAX_ACTIVITY_LINES) {
+      feedEl.removeChild(feedEl.lastChild);
+    }
+    if (feedCounterEl) {
+      feedCounterEl.textContent = feedCount + (feedCount === 1 ? ' event' : ' events');
+    }
+  }
+
+  function fanLabel(f) {
+    return f.label || f.name || f.id || f.pwm_path || '?';
+  }
+
+  function narrateProgress(p, liveStatus) {
+    if (!p) return;
+
+    // Daemon-level phase transitions.
+    if (p.phase && p.phase !== lastDaemonPhase) {
+      var phaseMsg = (PHASE_DESCRIPTIONS && PHASE_DESCRIPTIONS[p.phase]) || p.phase;
+      var detail = p.phase_msg && p.phase_msg !== phaseMsg ? p.phase_msg : '';
+      activityPush('success', null, '▸ ' + phaseMsg, detail ? '— ' + detail : '');
+      lastDaemonPhase = p.phase;
+    }
+
+    // Driver install log lines stream during installing_driver.
+    if (p.install_log && p.install_log.length > lastInstallLogIdx) {
+      for (var k = lastInstallLogIdx; k < p.install_log.length; k++) {
+        var line = p.install_log[k];
+        if (line && line.length > 0) {
+          activityPush('quiet', null, line);
+        }
+      }
+      lastInstallLogIdx = p.install_log.length;
+    }
+
+    // Per-fan transitions.
+    if (p.fans && p.fans.length) {
+      for (var i = 0; i < p.fans.length; i++) {
+        var f = p.fans[i];
+        var key = f.pwm_path || f.id || ('fan_' + i);
+        var prev = lastFanState[key] || {};
+        var label = fanLabel(f);
+
+        // Detect phase: pending → detecting → found / none / n/a
+        if (f.detect_phase && f.detect_phase !== prev.detect_phase) {
+          if (f.detect_phase === 'detecting') {
+            activityPush('quiet', label, 'Searching for tachometer…');
+          } else if (f.detect_phase === 'found') {
+            var rpmHint = f.rpm_path ? ('via ' + f.rpm_path.split('/').pop()) : '';
+            activityPush('success', label, '✓ Tach paired', rpmHint);
+          } else if (f.detect_phase === 'none') {
+            activityPush('warn', label, 'No tach found — phantom channel');
+          } else if (f.detect_phase === 'n/a') {
+            activityPush('quiet', label, 'NVML/IPMI fan — tach not applicable');
+          }
+        }
+
+        // Polarity phase: pending → testing → normal/inverted/phantom
+        if (f.polarity_phase && f.polarity_phase !== prev.polarity_phase) {
+          if (f.polarity_phase === 'testing') {
+            activityPush('quiet', label, 'Polarity probe — writing PWM=128, holding 3s…');
+          } else if (f.polarity_phase === 'normal') {
+            activityPush('success', label, '✓ Polarity normal — duty up = speed up');
+          } else if (f.polarity_phase === 'inverted') {
+            activityPush('warn', label, '⚠ Polarity inverted — header is wired backwards (handled)');
+          } else if (f.polarity_phase === 'phantom') {
+            activityPush('warn', label, 'Phantom channel — no physical fan reacts');
+          }
+        }
+
+        // Calibration phase: pending → calibrating → done/skipped/error
+        if (f.cal_phase && f.cal_phase !== prev.cal_phase) {
+          if (f.cal_phase === 'calibrating') {
+            activityPush('quiet', label, 'Calibration sweep started');
+          } else if (f.cal_phase === 'done') {
+            var startStr = f.start_pwm ? ('start=' + f.start_pwm) : '';
+            var stopStr  = f.stop_pwm  ? ('stop=' + f.stop_pwm)   : '';
+            var maxStr   = f.max_rpm   ? ('max=' + f.max_rpm + ' RPM') : '';
+            var det = [startStr, stopStr, maxStr].filter(function (x) { return x; }).join(' · ');
+            activityPush('success', label, '✓ Calibrated', det);
+          } else if (f.cal_phase === 'skipped') {
+            activityPush('warn', label, 'Skipped — no usable PWM range');
+          } else if (f.cal_phase === 'error') {
+            activityPush('error', label, '✗ Calibration error', f.error || '');
+          }
+        }
+
+        // Calibration progress milestones — every 25%.
+        if (f.cal_phase === 'calibrating' && typeof f.cal_progress === 'number') {
+          var bucket = Math.floor(f.cal_progress / 25) * 25;
+          var prevBucket = Math.floor((prev.cal_progress || 0) / 25) * 25;
+          if (bucket > prevBucket && bucket > 0) {
+            activityPush('quiet', label, 'Sweep ' + bucket + '% complete');
+          }
+        }
+
+        lastFanState[key] = {
+          detect_phase: f.detect_phase,
+          polarity_phase: f.polarity_phase,
+          cal_phase: f.cal_phase,
+          cal_progress: f.cal_progress
+        };
+      }
+    }
+
+    // Done / error edge transitions.
+    if (p.done && !lastDaemonPhase.match(/^_done_/)) {
+      activityPush('success', null, '✓ Calibration complete');
+      lastDaemonPhase = '_done_' + (p.error ? 'err' : 'ok');
+    }
+    if (p.error && lastDaemonPhase !== '_error_' + p.error) {
+      activityPush('error', null, '✗ ' + p.error);
+      lastDaemonPhase = '_error_' + p.error;
+    }
+  }
+
+  // Map for narrateProgress to humanise daemon phase names.
+  var PHASE_DESCRIPTIONS = {
+    detecting:         'Detecting hardware',
+    installing_driver: 'Loading kernel module',
+    scanning_fans:     'Scanning PWM controllers',
+    detecting_rpm:     'Pairing fans with tachometers',
+    probing_polarity:  'Probing duty-cycle polarity',
+    calibrating:       'Sweeping fan response curves',
+    finalizing:        'Building thermal profile'
+  };
+
   // ── flavour rotator ─────────────────────────────────────────────────
   var flavourIdx = 0;
   function rotateFlavour() {
@@ -600,6 +785,7 @@
     updateLiveCard(p, liveStatus);
     renderRoster(p.fans || []);
     renderProfile(p);
+    narrateProgress(p, liveStatus);
 
     // brand-mark spinning while work in flight
     var bm = document.querySelector('.cal-head .brand-mark');
