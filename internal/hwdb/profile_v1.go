@@ -250,6 +250,45 @@ type ChannelCalibration struct {
 	ProbeMethod       string `json:"probe_method" yaml:"probe_method"`
 	ProbeDurationMS   int    `json:"probe_duration_ms" yaml:"probe_duration_ms"`
 	ProbeObservations int    `json:"probe_observations" yaml:"probe_observations"`
+
+	// Acoustic calibration fields (R30 / v0.5.12 PR-D). All optional —
+	// channels probed without `ventd calibrate --acoustic` leave these
+	// nil/zero and the cost gate falls back to R33's no-mic proxy.
+	//
+	// DBAPerPWM is the measured slope of dBA vs PWM at this channel
+	// in dB(A) per raw PWM unit. Pointer so a freshly-probed channel
+	// (no acoustic calibration) is distinguishable from a channel
+	// whose measured slope happens to be zero (acoustically inert
+	// fan, e.g. a pump on a closed-loop AIO at idle).
+	DBAPerPWM *float64 `json:"dba_per_pwm,omitempty" yaml:"dba_per_pwm,omitempty"`
+
+	// DBABaseline is the dBA reading at MinResponsivePWM — the
+	// "channel just spinning" anchor. Combined with DBAPerPWM, lets
+	// the controller predict total host dBA at any candidate PWM.
+	DBABaseline *float64 `json:"dba_baseline,omitempty" yaml:"dba_baseline,omitempty"`
+
+	// DBAPWMCurve is the per-step measured (PWM, dBA) sweep that
+	// generated DBAPerPWM. Persisted so we can re-fit the slope
+	// after a partial re-calibration without re-running every step.
+	DBAPWMCurve []DBASweepPoint `json:"dba_pwm_curve,omitempty" yaml:"dba_pwm_curve,omitempty"`
+
+	// KCalOffset is R30's per-mic K_cal = SPL_ref - dBFS_ref offset
+	// from the reference-tone calibration that preceded the per-fan
+	// sweep. Adding K_cal to AWeightedDBFS yields dBA SPL.
+	KCalOffset *float64 `json:"k_cal_offset,omitempty" yaml:"k_cal_offset,omitempty"`
+
+	// KCalMicID is the mic identity (USB vendor:product + serial-hash)
+	// captured at calibration time. The daemon warns if the mic
+	// changed since this calibration was written — a different mic
+	// has a different K_cal and the persisted slope is stale.
+	KCalMicID string `json:"k_cal_mic_id,omitempty" yaml:"k_cal_mic_id,omitempty"`
+}
+
+// DBASweepPoint is one step of the dBA-vs-PWM measurement that
+// produced ChannelCalibration.DBAPerPWM.
+type DBASweepPoint struct {
+	PWM int     `json:"pwm" yaml:"pwm"`
+	DBA float64 `json:"dba" yaml:"dba"`
 }
 
 // ChannelKey is the lookup key for EffectiveControllerProfile.CalibrationByChannel.
