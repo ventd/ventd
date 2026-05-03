@@ -21,11 +21,39 @@ var boardSupportedVersions = map[string]struct{}{
 	"1.0": {},
 	"1.1": {},
 	"1.2": {},
+	"1.3": {}, // adds pwm_groups on board profile + kernel_version + blacklist_before_install on driver profile (R29 §4 finding + R36 mini-PC kernel gates)
 }
 
 // BoardCatalogCurrentVersion is the schema_version this binary writes for
 // new board catalog entries.
-const BoardCatalogCurrentVersion = "1.2"
+const BoardCatalogCurrentVersion = "1.3"
+
+// PWMGroup describes a single PWM channel that drives multiple physical fans.
+// R29 §4 found Phoenix's MSI Z690-A drives Cpu_Fan + Pump_Fan + Sys_Fan_1 +
+// Sys_Fan_2 with identical PWM values across all 2479 status samples — one
+// PWM channel, four fans. R36 §B notes the same pattern for the IT8613E
+// mini-PC pool. The cost gate must compute energetic sums across grouped
+// fans (10·log10(N) higher per step than per-fan); without grouping data
+// the predicted-loudness number is wrong by 6 dB on a 4-fan group.
+//
+// Channel is the PWM sysfs leaf name (e.g. "pwm1", "pwm5"); Fans is a list
+// of fan IDs that share that channel. Fan IDs are opaque to the catalog —
+// the calibration probe matches them up to the live channels via the
+// PrimaryController's sysfs hint.
+type PWMGroup struct {
+	Channel string   `yaml:"channel"`
+	Fans    []string `yaml:"fans"`
+}
+
+// KernelVersionRange gates a driver profile to a specific kernel-version
+// window. Both Min and Max are inclusive; either can be empty to leave that
+// end open. R36's per-row analysis identified eight catalog rows that need
+// this — e.g. it87 quirks (kernel ≥6.2), MS-01 mainline support
+// (kernel ≥5.14), Strix Halo (kernel ≥6.13).
+type KernelVersionRange struct {
+	Min string `yaml:"min,omitempty"` // e.g. "6.2" — minimum supported kernel (inclusive)
+	Max string `yaml:"max,omitempty"` // e.g. "7.1" — maximum supported kernel (inclusive); rare, mostly for old-OOT-driver gates
+}
 
 // BoardCatalogDocument is the top-level shape of a catalog/boards/*.yaml file.
 type BoardCatalogDocument struct {
@@ -52,6 +80,7 @@ type BoardCatalogEntry struct {
 	Defaults               *BoardDefaults        `yaml:"defaults,omitempty"`
 	ExperimentalRaw        map[string]any        `yaml:"experimental,omitempty"`
 	Experimental           ExperimentalBlock     `yaml:"-"`
+	PWMGroups              []PWMGroup            `yaml:"pwm_groups,omitempty"` // v1.3
 }
 
 // BoardDMIFingerprint is the DMI match pattern for a board catalog entry.
@@ -209,6 +238,26 @@ func validateBoardCatalogEntry(bp *BoardCatalogEntry) error {
 			return fmt.Errorf("profile %q: %w", bp.ID, err)
 		}
 		bp.Experimental = eb
+	}
+	// v1.3: validate pwm_groups
+	for i, g := range bp.PWMGroups {
+		if strings.TrimSpace(g.Channel) == "" {
+			return fmt.Errorf("profile %q: pwm_groups[%d]: channel must be non-empty (RULE-HWDB-PR2-15)", bp.ID, i)
+		}
+		if len(g.Fans) == 0 {
+			return fmt.Errorf("profile %q: pwm_groups[%d] (channel=%q): fans must list at least one fan id (RULE-HWDB-PR2-15)", bp.ID, i, g.Channel)
+		}
+		seen := make(map[string]struct{}, len(g.Fans))
+		for j, f := range g.Fans {
+			f = strings.TrimSpace(f)
+			if f == "" {
+				return fmt.Errorf("profile %q: pwm_groups[%d].fans[%d]: empty fan id (RULE-HWDB-PR2-15)", bp.ID, i, j)
+			}
+			if _, dup := seen[f]; dup {
+				return fmt.Errorf("profile %q: pwm_groups[%d].fans: duplicate fan id %q (RULE-HWDB-PR2-15)", bp.ID, i, f)
+			}
+			seen[f] = struct{}{}
+		}
 	}
 	return nil
 }

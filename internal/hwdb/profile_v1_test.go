@@ -746,3 +746,165 @@ func (h *warnCapHandler) Handle(_ context.Context, r slog.Record) error {
 }
 func (h *warnCapHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 func (h *warnCapHandler) WithGroup(_ string) slog.Handler      { return h }
+
+// driverWithKernelVersionYAML returns a complete driver YAML with a
+// kernel_version block — used by RULE-HWDB-PR2-17.
+func driverWithKernelVersionYAML(module, min, max string) string {
+	kv := "kernel_version:\n"
+	if min != "" {
+		kv += "      min: \"" + min + "\"\n"
+	}
+	if max != "" {
+		kv += "      max: \"" + max + "\"\n"
+	}
+	return `schema_version: "1.3"
+driver_profiles:
+  - module: "` + module + `"
+    family: "test-kver"
+    description: "driver with kernel_version range"
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations: []
+    ` + kv
+}
+
+// driverWithBlacklistYAML returns a driver YAML with a blacklist_before_install.
+func driverWithBlacklistYAML(module string, modules []string) string {
+	bl := "blacklist_before_install:\n"
+	for _, m := range modules {
+		bl += "      - \"" + m + "\"\n"
+	}
+	return `schema_version: "1.3"
+driver_profiles:
+  - module: "` + module + `"
+    family: "test-blacklist"
+    description: "driver with blacklist_before_install"
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations: []
+    ` + bl
+}
+
+// TestRuleHwdbPR2_15 verifies RULE-HWDB-PR2-15: pwm_groups validates
+// that channel is non-empty, fans is non-empty, and fan ids are unique.
+// Bound: see .claude/rules/hwdb-pr2-15.md
+func TestRuleHwdbPR2_15(t *testing.T) {
+	t.Run("TestRuleHwdbPR2_15", func(t *testing.T) {
+		// Happy path: a board with two pwm_groups loads cleanly.
+		bd := minBoardYAML("brd-pwmgrp-ok", "test-chip",
+			`dmi_fingerprint: {sys_vendor: "X", product_name: "Y", board_vendor: "X", board_name: "Y", board_version: ""}`,
+			"pwm_groups:\n      - {channel: pwm1, fans: [cpu_fan, sys_fan_1]}\n      - {channel: pwm5, fans: [gpu0]}")
+		fsys := buildCatalogWithBoards(t, validDriverYAML("nct6798"), validChipYAML("test-chip", "nct6798"), bd)
+		if _, err := LoadCatalogFromFS(fsys); err != nil {
+			t.Fatalf("happy: %v", err)
+		}
+		// Empty channel rejected.
+		bd = minBoardYAML("brd-pwmgrp-empty-channel", "test-chip",
+			`dmi_fingerprint: {sys_vendor: "X", product_name: "Y", board_vendor: "X", board_name: "Y", board_version: ""}`,
+			"pwm_groups:\n      - {channel: \"\", fans: [cpu_fan]}")
+		fsys = buildCatalogWithBoards(t, validDriverYAML("nct6798"), validChipYAML("test-chip", "nct6798"), bd)
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "channel must be non-empty") {
+			t.Errorf("empty channel: want validation error, got %v", err)
+		}
+		// Empty fans rejected.
+		bd = minBoardYAML("brd-pwmgrp-empty-fans", "test-chip",
+			`dmi_fingerprint: {sys_vendor: "X", product_name: "Y", board_vendor: "X", board_name: "Y", board_version: ""}`,
+			"pwm_groups:\n      - {channel: pwm1, fans: []}")
+		fsys = buildCatalogWithBoards(t, validDriverYAML("nct6798"), validChipYAML("test-chip", "nct6798"), bd)
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "must list at least one fan") {
+			t.Errorf("empty fans: want validation error, got %v", err)
+		}
+		// Duplicate fan ids rejected.
+		bd = minBoardYAML("brd-pwmgrp-dup", "test-chip",
+			`dmi_fingerprint: {sys_vendor: "X", product_name: "Y", board_vendor: "X", board_name: "Y", board_version: ""}`,
+			"pwm_groups:\n      - {channel: pwm1, fans: [cpu_fan, cpu_fan]}")
+		fsys = buildCatalogWithBoards(t, validDriverYAML("nct6798"), validChipYAML("test-chip", "nct6798"), bd)
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "duplicate fan id") {
+			t.Errorf("duplicate fan: want validation error, got %v", err)
+		}
+	})
+}
+
+// TestRuleHwdbPR2_16 verifies RULE-HWDB-PR2-16: blacklist_before_install
+// rejects empty entries and duplicates; happy path loads cleanly.
+// Bound: see .claude/rules/hwdb-pr2-16.md
+func TestRuleHwdbPR2_16(t *testing.T) {
+	t.Run("TestRuleHwdbPR2_16", func(t *testing.T) {
+		// Happy: two distinct modules loads cleanly.
+		fsys := buildValidCatalogFS(t, driverWithBlacklistYAML("drv16-ok", []string{"nct6683", "nct6675"}), "")
+		if _, err := LoadCatalogFromFS(fsys); err != nil {
+			t.Fatalf("happy: %v", err)
+		}
+		// Empty entry rejected.
+		fsys = buildValidCatalogFS(t, driverWithBlacklistYAML("drv16-empty", []string{"nct6683", ""}), "")
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "empty module name") {
+			t.Errorf("empty module: want validation error, got %v", err)
+		}
+		// Duplicate entries rejected.
+		fsys = buildValidCatalogFS(t, driverWithBlacklistYAML("drv16-dup", []string{"nct6683", "nct6683"}), "")
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "duplicate module") {
+			t.Errorf("duplicate: want validation error, got %v", err)
+		}
+	})
+}
+
+// TestRuleHwdbPR2_17 verifies RULE-HWDB-PR2-17: kernel_version range
+// requires dotted-numeric strings and Min <= Max when both set.
+// Bound: see .claude/rules/hwdb-pr2-17.md
+func TestRuleHwdbPR2_17(t *testing.T) {
+	t.Run("TestRuleHwdbPR2_17", func(t *testing.T) {
+		// Happy: a valid range loads cleanly.
+		fsys := buildValidCatalogFS(t, driverWithKernelVersionYAML("drv17-range", "6.2", "7.1"), "")
+		if _, err := LoadCatalogFromFS(fsys); err != nil {
+			t.Fatalf("happy range: %v", err)
+		}
+		// Min-only loads cleanly (Max omitted = open upper bound).
+		fsys = buildValidCatalogFS(t, driverWithKernelVersionYAML("drv17-min-only", "6.13", ""), "")
+		if _, err := LoadCatalogFromFS(fsys); err != nil {
+			t.Fatalf("min-only: %v", err)
+		}
+		// Non-numeric min rejected.
+		fsys = buildValidCatalogFS(t, driverWithKernelVersionYAML("drv17-bad-min", "abc", ""), "")
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "kernel_version.min") {
+			t.Errorf("bad min: want validation error, got %v", err)
+		}
+		// Min > Max rejected.
+		fsys = buildValidCatalogFS(t, driverWithKernelVersionYAML("drv17-inverted", "7.1", "6.2"), "")
+		if _, err := LoadCatalogFromFS(fsys); err == nil || !strings.Contains(err.Error(), "exceeds kernel_version.max") {
+			t.Errorf("inverted: want validation error, got %v", err)
+		}
+		// 6.10 > 6.9 (numeric, not lex) — validate compareDottedVersions.
+		fsys = buildValidCatalogFS(t, driverWithKernelVersionYAML("drv17-numsort", "6.9", "6.10"), "")
+		if _, err := LoadCatalogFromFS(fsys); err != nil {
+			t.Errorf("6.9 should be < 6.10 (numeric): %v", err)
+		}
+	})
+}
