@@ -244,7 +244,7 @@ func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(r, w, map[string]string{"error": "upload failed: " + err.Error()})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -289,7 +289,7 @@ func readBundleBounded(path string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	body, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, err

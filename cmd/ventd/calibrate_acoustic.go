@@ -181,7 +181,7 @@ func captureWAVViaFFmpeg(ctx context.Context, device string, seconds int, logger
 		return "", fmt.Errorf("temp wav: %w", err)
 	}
 	tmpPath := tmp.Name()
-	tmp.Close()
+	_ = tmp.Close()
 
 	args := []string{
 		"-y", // overwrite
