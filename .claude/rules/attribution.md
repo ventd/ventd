@@ -30,3 +30,4 @@ This project ships under a single human author. No AI attribution anywhere in th
 
 - If a commit is about to be created with the wrong author or a forbidden trailer, stop and fix the identity or message before running `git commit`. Creating the commit and then amending is acceptable but not preferred — get it right the first time.
 - If a prior commit in the current branch contains forbidden attribution, flag it to the human before pushing. Do not rewrite history without explicit instruction.
+- `.github/workflows/no-ai-attribution.yml` is the hard CI gate. It scans commit messages, the PR body, and changed file content (excluding `.claude/rules/` and the workflow itself) for the line-anchored `Co-Authored-By:` trailer, the canonical `🤖 Generated with [Claude` footer, and `claude.com/claude-code`. The gate fires on every PR; a hit blocks merge. This catches anything that slips past local discipline.
