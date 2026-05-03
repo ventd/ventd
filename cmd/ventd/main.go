@@ -135,6 +135,10 @@ func run() error {
 	enableNVIDIACoolbits := flag.Bool("enable-nvidia-coolbits", false, "enable NVIDIA Coolbits fan control (experimental; requires nvidia_coolbits precondition)")
 	enableILO4Unlocked := flag.Bool("enable-ilo4-unlocked", false, "enable HPE iLO4 unlocked fan control (experimental; requires ilo4_unlocked precondition)")
 	enableIDRAC9LegacyRaw := flag.Bool("enable-idrac9-legacy-raw", false, "enable Dell iDRAC9 legacy raw IPMI fan commands (experimental; requires idrac9_legacy_raw precondition)")
+	micDevice := flag.String("mic", "", "with --setup: ALSA mic device for opt-in R30 acoustic calibration (e.g. hw:CARD=USB,DEV=0). Empty = skip the calibrate_acoustic phase.")
+	micRefSPL := flag.Float64("mic-ref-spl", 94.0, "with --setup --mic: reference-tone SPL at the mic in dB (default 94, the standard pistonphone)")
+	micSeconds := flag.Int("mic-seconds", 30, "with --setup --mic: mic capture duration in seconds (5..60)")
+	micOut := flag.String("mic-out", "", "with --setup --mic: write the calibration JSON to this path; empty = print summary only")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	versionJSON := flag.Bool("json", false, "with --version: emit JSON instead of plain text")
 	flag.Parse()
@@ -204,7 +208,7 @@ func run() error {
 	}
 
 	if *doSetup {
-		return runSetup(*configPath, logger)
+		return runSetup(*configPath, logger, acousticOptionsFromFlags(*micDevice, *micRefSPL, *micSeconds, *micOut))
 	}
 
 	logger.Info("ventd starting")
