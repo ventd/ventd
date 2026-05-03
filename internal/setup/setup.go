@@ -47,7 +47,18 @@ type FanState struct {
 	MaxRPM        int    `json:"max_rpm,omitempty"`
 	IsPump        bool   `json:"is_pump,omitempty"`
 	CalProgress   int    `json:"cal_progress"` // 0–100, live during calibrate phase
-	Error         string `json:"error,omitempty"`
+
+	// CurrentPWM + CurrentRPM are live readings during the
+	// `calibrating` phase only. They're populated by the
+	// progressInternal merge from calibrate.Status.CurrentPWM and a
+	// just-in-time sysfs read of RPMPath. Zero on every other phase.
+	// JS uses these to show real numbers in the per-fan strips
+	// instead of placeholder em-dashes (Phoenix's HIL feedback:
+	// "their pwm and rpm dont actually have numbers its just -").
+	CurrentPWM int `json:"current_pwm,omitempty"`
+	CurrentRPM int `json:"current_rpm,omitempty"`
+
+	Error string `json:"error,omitempty"`
 }
 
 // Progress is the JSON payload returned by GET /api/setup/status.
@@ -335,6 +346,23 @@ func (m *Manager) setPhase(phase, msg string) {
 	m.logger.Info("setup: " + msg)
 }
 
+// readSysfsInt reads a single integer from a sysfs path. Used to
+// surface live RPM during calibration into FanState.CurrentRPM.
+// Returns -1 + error on read failure (caller treats negative as
+// unknown so the JS shows em-dash, not a misleading 0).
+func readSysfsInt(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return -1, err
+	}
+	var v int
+	_, err = fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &v)
+	if err != nil {
+		return -1, err
+	}
+	return v, nil
+}
+
 // appendInstallLog adds a line to the driver installation log.
 func (m *Manager) appendInstallLog(line string) {
 	m.mu.Lock()
@@ -473,6 +501,12 @@ func (m *Manager) Progress() Progress {
 		if f.CalPhase == "calibrating" {
 			if cs, ok := calByPath[f.PWMPath]; ok && cs.Running {
 				p.Fans[i].CalProgress = cs.Progress
+				p.Fans[i].CurrentPWM = int(cs.CurrentPWM)
+				if f.RPMPath != "" {
+					if rpm, err := readSysfsInt(f.RPMPath); err == nil && rpm >= 0 {
+						p.Fans[i].CurrentRPM = rpm
+					}
+				}
 			}
 		}
 	}
@@ -788,6 +822,36 @@ func (m *Manager) run(ctx context.Context) {
 			}
 		}
 	}
+
+	// v0.5.12 redesign: populate chip_name from the FIRST hwmon
+	// channel's `name` attribute so the system card shows the chip
+	// even when the driver was already loaded (no install path
+	// firing). Phoenix's HIL feedback: "the chip name should be
+	// displayed [before calibration starts]".
+	m.mu.Lock()
+	if m.chipName == "" {
+		for _, c := range hwmonCtrls {
+			parent := filepath.Dir(c.path)
+			if data, err := os.ReadFile(filepath.Join(parent, "name")); err == nil {
+				if cn := strings.TrimSpace(string(data)); cn != "" {
+					m.chipName = cn
+					break
+				}
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	// v0.5.12 redesign part 2: build a PARTIAL HWProfile early so
+	// the system card shows CPU/GPU model + power before calibration
+	// starts. CPU thermal limit (Tjmax from coretemp) requires sensor
+	// binding which happens late in run(); we'll re-call gatherProfile
+	// at the end to fill that field. Phoenix's HIL feedback:
+	// "cpu and gpu name didnt appear until after the fans calibrated".
+	earlyProfile := m.gatherProfile("", nvmlOK, "")
+	m.mu.Lock()
+	m.profile = earlyProfile
+	m.mu.Unlock()
 
 	m.syncFans(initial)
 
