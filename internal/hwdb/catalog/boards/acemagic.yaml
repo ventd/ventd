@@ -1,0 +1,84 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "acemagic-w1-it5570-verified"
+    dmi_fingerprint:
+      sys_vendor: "/(ACEMAGIC|AceMagic)/"
+      product_name: "W1"
+      board_vendor: "*"  # 'Default string' on this SKU
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT DKMS (REFERENCE PLATFORM)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "AceMagic W1 (Ryzen 7 8745HS, BIOS PHXPM7B0). REFERENCE
+      PLATFORM for the IT5570 OOT driver — the chip ID 0x5570 revision
+      0x02 was reverse-engineered against this device. Verified working:
+      6 temperature sensors, fan RPM, PWM control via register 0x0F."
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan (W1 explicitly named in README)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: true  # the only verified row in this bundle
+    defaults:
+      curves: []
+
+  - id: "acemagic-amd-family-it5570-likely"
+    dmi_fingerprint:
+      sys_vendor: "/(ACEMAGIC|AceMagic)/"
+      product_name: "/(S1|AM18|AD08|AD15)/"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT (extrapolated from W1)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "AceMagic AMD family (S1 i9-12900H — actually Intel; AM18,
+      AD08 i9-11900H, AD15 likely Phoenix). IT5570 inferred from W1
+      reference. AM18 has separate userspace tooling
+      (tjaworski/AceMagic-S1-LED-TFT-Linux) for LED+TFT — orthogonal to
+      fan control."
+    citations:
+      - "https://github.com/passiveEndeavour/it5570-fan"
+      - "https://github.com/tjaworski/AceMagic-S1-LED-TFT-Linux"
+      - "https://taoofmac.com/space/blog/2024/03/17/1900 (AM18 Linux gaming)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "acemagic-t8-fanless"
+    dmi_fingerprint:
+      sys_vendor: "/(ACEMAGIC|AceMagic)/"
+      product_name: "/T8.*/"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no fan headers; passive cooling"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "AceMagic T8 / T8 Pro lower-spec variants are passively cooled.
+      No PWM headers, no fan to control. ventd OutcomeMonitorOnly with
+      evidence 'no_controllable_channels'."
+    citations:
+      - "https://acemagic.com/blogs/about-ace-mini-pc/the-acemagic-mini-pc-guide-everything-you-need-to-know"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []

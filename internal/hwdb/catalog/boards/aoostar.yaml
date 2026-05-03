@@ -1,0 +1,65 @@
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "aoostar-r-wtr-it8613"
+    dmi_fingerprint:
+      sys_vendor: "AOOSTAR"
+      product_name: "/(R[17]( PRO)?|WTR PRO|WTR MAX)/"
+      board_vendor: "AOOSTAR"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it8613"
+      sysfs_hint: "name=it8613 via frankcrawford/it87 (force_id=0x8622)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "force_id=0x8622"
+      - "ignore_resource_conflict=1"
+      - "mmio=off"
+    conflicts_with_userspace: []
+    notes: "AOOSTAR R1 / R7 / R7 PRO / WTR PRO / WTR MAX (Ryzen 7 5700U /
+      5825U / 5800U). IT8613E at port 0xa30 revision 8 — VERIFIED working
+      with frankcrawford/it87 v1.0-169 on Proxmox kernel 6.8 (per
+      wiki.niziak.spox.org). fan2 reports RPM correctly; PWM control
+      verification pending HIL. WTR Max LCD panel is orthogonal —
+      reverse-engineered by zehnm/aoostar-rs."
+    citations:
+      - "https://wiki.niziak.spox.org/hw:server:aoostar_r7"
+      - "https://github.com/zehnm/aoostar-rs"
+      - "https://3dprintbeginner.com/aoostar-r7-review-best-budget-nas-in-2024/"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false  # can flip to true after PWM-write HIL confirmation
+    defaults:
+      curves: []
+
+  - id: "aoostar-gem-amd-phoenix-it5570"
+    dmi_fingerprint:
+      sys_vendor: "AOOSTAR"
+      product_name: "/(GEM10|GEM12( PRO)?|GEM12\\+( PRO)?|GT68)/"
+      board_vendor: "AOOSTAR"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "it5570"
+      sysfs_hint: "name=it5570 via passiveEndeavour/it5570-fan OOT (UNVERIFIED)"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "AOOSTAR GEM10 / GEM12 / GEM12+ / GEM12+ PRO / GT68 (Ryzen 7
+      8845HS / 7840HS / Pro 6850H / 6900HX). Phoenix/Hawk Point family —
+      IT5570 inferred. Liliputing GEM12 review notes dual cooling fan +
+      vapor chamber. zehnm/aoostar-rs covers WTR Max LCD; not GEM. Treat
+      as unverified, monitor-only with doctor card recommending
+      it5570-fan install."
+    citations:
+      - "https://liliputing.com/aoostar-gem12-review-mini-pc-with-oculink-2-5-gbe-lan-and-up-to-ryzen-7-8845hs/"
+      - "https://www.notebookcheck.net/Aoostar-GEM12-Mini-PC-review-AMD-Ryzen-7-8845HS-with-32-GB-RAM-1-TB-SSD-and-OCuLink-interface.848437.0.html"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: false
+    defaults:
+      curves: []
