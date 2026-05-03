@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.10] - 2026-05-03
+
+### Headline
+- **Doctor surface** (#813) — runtime issue-detection CLI + 14 detectors covering preflight regression, polarity flip, DKMS status, userspace-daemon conflict, modules-load drift, battery transition, AppArmor profile drift, kmod-loaded check, experimental flags, container post-boot, calibration freshness, hwmon-index swap, DMI fingerprint match parity, permissions audit, GPU readiness, kernel-update transition. Severity rolls up to exit code (0 OK / 1 Warning / 2 Blocker / 3 Error). KV-backed suppression with TTL + acknowledge-forever.
+- **Probe-then-pick driver selection** (#824) — replaces the static catalog→chip→driver pick with a candidate loop that tries each driver and trusts the kernel's chip-ID rejection as the authoritative signal. A stale catalog entry now costs ~30s of compile time, not 12 hours of debugging. Was the load-bearing fix from the MS-7D25 IT8688E→NCT6687D incident.
+- **R36 OEM mini-PC catalog** — 20 board entries × 7 vendors (Beelink, MINISFORUM, GMKtec, AceMagic, Topton/CWWK, GEEKOM, AOOSTAR) (#861) closing R28 §3 long-tail gap. Three motherboard supply pools collapse the 8-vendor list: AMD Phoenix/Hawk Point + ITE IT5570; Intel Alder Lake-N + ITE IT8613E; AMD Rembrandt + ASUS PN53.
+- **Preflight orchestrator** (#816) — terminal-first interactive auto-fixes for DKMS / Secure Boot / kernel-headers / build-tools / module conflicts. Replaces the legacy implicit-precondition install path with explicit predict-then-fix-or-abort.
+
+### Added — research bundle (~5500 lines, foundation for v0.5.12 acoustic features)
+- R28 master synthesis + 9-agent failure-mode survey (#842, #843, #846)
+- R29 — acoustic capture analysis (Phoenix's MSI Z690-A under Tdarr) (#860)
+- R30 — microphone calibration procedure (#856)
+- R31 — fan-stall acoustic signatures (bearing wear / blade flutter / pump cavitation) (#855)
+- R32 — user-perception thresholds (Whisper/Office/Performance preset rationale) (#854)
+- R33 — no-mic acoustic proxy (four-term sum + 15 LOCK invariants) (#857)
+- R36 — OEM mini-PC EC firmware survey (#859)
+
+### Added — recovery + classifier (R28 Stage 1)
+- ThinkPad fan_control classifier rule (RULE-WIZARD-RECOVERY-10) (#831)
+- Vendor-daemon + NixOS probes (RULE-WIZARD-RECOVERY-11/12) (#832)
+- Laptop-class FailureClass extensions (#830)
+- AMD OverDrive bit detection probe (RULE-WIZARD-RECOVERY-13) (#835)
+- DetectVendorDaemon wiring into wizard preflight (#840)
+- /api/setup/apply-monitor-only endpoint for vendor-daemon deferral (#838)
+- /api/hwdiag/modprobe-options-write endpoint for ThinkPad fan_control (#841)
+- Reboot-prompt UX for cards whose effect needs next boot (#818) (#828)
+
+### Added — observation / diag / iox
+- iox canonical atomic-write helper + 6 call-site migrations (#848)
+- diag export-observations subcommand activates internal/ndjson (#845)
+- Cpuinfo hypervisor flag as 4th virt-detect source (#851)
+
+### Changed
+- README honesty pass per github-page-audit + Sponsors button (#829)
+- Sign-guard wired into opportunistic prober + marginal runtime (#844)
+- Sub-absolute-zero temperature now rejected as sentinel/underflow (#837)
+- PlausibleRPMMax raised 10000→25000 to admit server-class fans (Delta/Sanyo Denki 12k-22k) (#850)
+- Container detection adds /run/.containerenv + /proc/1/environ sources (#836)
+
+### Calibration / smart-mode
+- Calibration UX rework: min phase duration, in-grid done banner, finalising spinner (#826)
+- Clock injection on ZeroPWMSentinel — sub-millisecond tests (was 14s of real-time sleep) (#853)
+
+### Fixed
+- MS-7D25 (PRO Z690-A DDR4) selects nct6687d, not it8688e (#822) — the 12-hour-debug catalog defect
+- Dashboard demo-mode false positive + recovery + visible signal + logout (#820) (#827)
+- Dashboard shows duty % when fan has no tach (NVIDIA, etc.) (#825)
+- Topbar popover stacking renders above dash-hero cards (#823)
+- thinkpad_acpi catalog: experimental=1 → fan_control=1 (canonical name) (#847)
+
+### CI / chore
+- R28 catalog audit P0/P1 fixes (#847)
+- Dead packages + 3 unused exports removed (R28 codebase audit) (#849)
+- Issue466_ReloadFailureIsNonFatal registered as arm64 timing flake (#852)
+- CHANGELOG backfill for missing v0.5.8.1 + v0.5.9 sections (#858)
+
 ## [v0.5.9] - 2026-05-02
 
 ### Added
