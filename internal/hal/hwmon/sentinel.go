@@ -24,9 +24,21 @@ const (
 	SentinelRPMRaw = 65535
 
 	// PlausibleRPMMax is the highest RPM value that the backend accepts
-	// as legitimate. High-speed server fans can reach ~10 000 RPM; consumer
-	// fans are typically below 4 000. Values above this cap are rejected.
-	PlausibleRPMMax = 10000
+	// as legitimate. Consumer 120/140 mm fans run ≤ 4 000 RPM; AIO pumps
+	// reach ~6 500; AIO/server tach signals from Delta and Sanyo Denki
+	// industrial fans run 12 000–22 000 routinely (Supermicro / Dell /
+	// HPE chassis). The cap is set at 25 000 — above any real-world fan
+	// shipped today, below the 0xFFFF (65 535) raw sentinel and the
+	// 0x7FFF / 0x3FFF mid-latch values some chips emit. A reading
+	// strictly above this threshold is rejected as sentinel/glitch.
+	//
+	// History: pre-2026-05 the cap was 10 000, which silently rejected
+	// every reading from a server-grade fan and made ventd report
+	// "stopped" on healthy hardware. R28 audit P0 (2026-05-03) raised
+	// the cap to 25 000 to admit the full real-world range without
+	// introducing a class-aware API. See
+	// docs/research/2026-05-r28-rule-audit.md for the rationale.
+	PlausibleRPMMax = 25000
 
 	// PlausibleTempMaxCelsius is the highest temperature (in °C, post-scale)
 	// that the controller treats as a valid reading. The sentinel 255.5°C

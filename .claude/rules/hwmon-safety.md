@@ -112,10 +112,13 @@ Bound: internal/controller/safety_test.go:temp_sentinel_skipped_in_readAllSensor
 ## RULE-HWMON-SENTINEL-FAN: fan RPM sentinel rejected at the backend read boundary
 
 Raw sysfs fan*_input reads of exactly 65535 RPM (the 0xFFFF nct6687 sentinel)
-or any value above 10000 RPM MUST be rejected by `IsSentinelRPM` in the hwmon
-backend's Read() method and marked as an invalid reading (OK=false). A
-calibration sweep that records 65535 RPM as a curve point would produce a
-wildly incorrect fan-speed model that misbehaves in closed-loop control.
+or any value above 25 000 RPM MUST be rejected by `IsSentinelRPM` in the hwmon
+backend's Read() method and marked as an invalid reading (OK=false). The cap
+is set above any real-world fan (consumer ≤ 4k, AIO pump ≤ 6.5k, server-class
+Delta/Sanyo Denki 12–22k) and below the chip-glitch sentinels. A calibration
+sweep that records 65535 RPM as a curve point would produce a wildly incorrect
+fan-speed model that misbehaves in closed-loop control. Pre-2026-05-03 the
+cap was 10 000, which silently rejected legitimate server-fan readings.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_rejects_65535_rpm
 
