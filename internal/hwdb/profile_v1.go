@@ -168,6 +168,8 @@ type DriverProfile struct {
 	Citations                         []string            `yaml:"citations"`
 	ExperimentalRaw                   map[string]any      `yaml:"experimental,omitempty"`
 	Experimental                      ExperimentalBlock   `yaml:"-"`
+	BlacklistBeforeInstall            []string            `yaml:"blacklist_before_install,omitempty"` // v1.3
+	KernelVersion                     *KernelVersionRange `yaml:"kernel_version,omitempty"`           // v1.3
 }
 
 // ChannelOverride captures per-channel restrictions on a chip.
@@ -424,7 +426,81 @@ func validateDriverProfile(dp *DriverProfile) error {
 		}
 		dp.Experimental = eb
 	}
+	// v1.3: validate kernel_version range. Both Min and Max are optional but
+	// must be dotted-numeric strings when set, and Min <= Max when both present.
+	if dp.KernelVersion != nil {
+		if dp.KernelVersion.Min != "" && !isDottedNumeric(dp.KernelVersion.Min) {
+			return catalogErrorf("driver %q: kernel_version.min %q is not a valid dotted version (RULE-HWDB-PR2-17)", mod, dp.KernelVersion.Min)
+		}
+		if dp.KernelVersion.Max != "" && !isDottedNumeric(dp.KernelVersion.Max) {
+			return catalogErrorf("driver %q: kernel_version.max %q is not a valid dotted version (RULE-HWDB-PR2-17)", mod, dp.KernelVersion.Max)
+		}
+		if dp.KernelVersion.Min != "" && dp.KernelVersion.Max != "" {
+			if compareDottedVersions(dp.KernelVersion.Min, dp.KernelVersion.Max) > 0 {
+				return catalogErrorf("driver %q: kernel_version.min %q exceeds kernel_version.max %q (RULE-HWDB-PR2-17)", mod, dp.KernelVersion.Min, dp.KernelVersion.Max)
+			}
+		}
+	}
+	// v1.3: validate blacklist_before_install — entries must be non-empty + unique.
+	seenBL := make(map[string]struct{}, len(dp.BlacklistBeforeInstall))
+	for i, m := range dp.BlacklistBeforeInstall {
+		m = strings.TrimSpace(m)
+		if m == "" {
+			return catalogErrorf("driver %q: blacklist_before_install[%d]: empty module name (RULE-HWDB-PR2-16)", mod, i)
+		}
+		if _, dup := seenBL[m]; dup {
+			return catalogErrorf("driver %q: blacklist_before_install: duplicate module %q (RULE-HWDB-PR2-16)", mod, m)
+		}
+		seenBL[m] = struct{}{}
+	}
 	return nil
+}
+
+// isDottedNumeric returns true if s is a non-empty dotted-numeric version
+// string like "6.2", "6.13.4", "1". Used by kernel_version validation.
+func isDottedNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, part := range strings.Split(s, ".") {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// compareDottedVersions returns -1/0/1 like strings.Compare but parses each
+// dot-segment as an integer so "6.10" > "6.9" instead of lexicographic order.
+// Both inputs must already be valid dotted-numeric (caller guarantees).
+func compareDottedVersions(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var ax, bx int
+		if i < len(pa) {
+			for _, r := range pa[i] {
+				ax = ax*10 + int(r-'0')
+			}
+		}
+		if i < len(pb) {
+			for _, r := range pb[i] {
+				bx = bx*10 + int(r-'0')
+			}
+		}
+		if ax < bx {
+			return -1
+		}
+		if ax > bx {
+			return 1
+		}
+	}
+	return 0
 }
 
 // validateChipProfile enforces RULE-HWDB-PR2-02.
