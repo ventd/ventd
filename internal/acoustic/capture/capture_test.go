@@ -163,7 +163,6 @@ func TestRMSdBFS_EmptyInputReturnsFloor(t *testing.T) {
 }
 
 func TestAWeight_NearOneKHzApproxZeroDBChange(t *testing.T) {
-	t.Skip("FIXME #884: AWeight first biquad stage is unstable (a1=-1.42857 places pole outside unit circle); output diverges to silence floor")
 	// A-weighting curve is normalised so 1 kHz → 0 dB (no change).
 	// The full-scale 1 kHz sine should A-weight to approximately the
 	// same dBFS as the unweighted measurement.
@@ -184,7 +183,6 @@ func TestAWeight_NearOneKHzApproxZeroDBChange(t *testing.T) {
 }
 
 func TestAWeight_LowFrequencyHeavilyAttenuated(t *testing.T) {
-	t.Skip("FIXME #884: AWeight first biquad stage is unstable; see issue for IIR coefficient re-derivation")
 	// A-weighting at 100 Hz should attenuate by ~19 dB. A 0.5-amplitude
 	// 100 Hz sine reads ~-9 dBFS raw; A-weighted should be ~-28 dBFS.
 	samples := sineWave(SampleRate*2, 100, 0.5) // 2 s for filter to settle
@@ -206,7 +204,6 @@ func TestAWeight_LowFrequencyHeavilyAttenuated(t *testing.T) {
 }
 
 func TestAWeight_HighFrequencyAttenuated(t *testing.T) {
-	t.Skip("FIXME #884: AWeight first biquad stage is unstable; see issue for IIR coefficient re-derivation")
 	// A-weighting at 10 kHz should attenuate by ~2.5 dB.
 	samples := sineWave(SampleRate*2, 10000, 0.5)
 	raw := RMSdBFS(samples)
