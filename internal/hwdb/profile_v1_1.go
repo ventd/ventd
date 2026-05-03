@@ -55,6 +55,18 @@ type KernelVersionRange struct {
 	Max string `yaml:"max,omitempty"` // e.g. "7.1" — maximum supported kernel (inclusive); rare, mostly for old-OOT-driver gates
 }
 
+// ChipProbe is the hwmon-name-based fallback fingerprint used when DMI is
+// absent / "Default string" — typical of Beelink / Minisforum / GMKtec mini-PCs
+// whose BIOS author never populated DMI fields. The matcher walks
+// /sys/class/hwmon/hwmonN/name and matches HwmonName against the live chip.
+//
+// Mutually exclusive with dmi_fingerprint and dt_fingerprint at the schema
+// level — a board profile must declare exactly one fingerprint type
+// (RULE-HWDB-PR2-18).
+type ChipProbe struct {
+	HwmonName string `yaml:"hwmon_name"` // e.g. "it5570" — hwmon name string the OOT it5570-fan driver exports
+}
+
 // BoardCatalogDocument is the top-level shape of a catalog/boards/*.yaml file.
 type BoardCatalogDocument struct {
 	SchemaVersion string              `yaml:"schema_version,omitempty"`
@@ -81,6 +93,7 @@ type BoardCatalogEntry struct {
 	ExperimentalRaw        map[string]any        `yaml:"experimental,omitempty"`
 	Experimental           ExperimentalBlock     `yaml:"-"`
 	PWMGroups              []PWMGroup            `yaml:"pwm_groups,omitempty"` // v1.3
+	ChipProbe              *ChipProbe            `yaml:"chip_probe,omitempty"` // v1.3 — RULE-HWDB-PR2-18
 }
 
 // BoardDMIFingerprint is the DMI match pattern for a board catalog entry.
@@ -218,18 +231,41 @@ func loadBoardCatalogFromFS(fsys fs.FS, dir string) ([]*BoardCatalogEntry, error
 	return all, nil
 }
 
-// validateBoardCatalogEntry enforces RULE-FINGERPRINT-08 / RULE-SCHEMA-08:
-// exactly one of dmi_fingerprint or dt_fingerprint must be set on each board
-// entry, and a dt_fingerprint must have at least one non-empty field.
+// validateBoardCatalogEntry enforces RULE-FINGERPRINT-08 / RULE-SCHEMA-08
+// (DMI/DT exclusivity) and RULE-HWDB-PR2-18 (chip_probe exclusivity + non-empty
+// hwmon_name): exactly one of dmi_fingerprint, dt_fingerprint, or chip_probe
+// must be set on each board entry, and a dt_fingerprint must have at least
+// one non-empty field.
 func validateBoardCatalogEntry(bp *BoardCatalogEntry) error {
-	if bp.DMIFingerprint != nil && bp.DTFingerprint != nil {
-		return fmt.Errorf("profile %q: both dmi_fingerprint and dt_fingerprint are set; exactly one is required", bp.ID)
+	hasDMI := bp.DMIFingerprint != nil
+	hasDT := bp.DTFingerprint != nil
+	hasCP := bp.ChipProbe != nil
+	count := 0
+	if hasDMI {
+		count++
 	}
-	if bp.DMIFingerprint == nil && bp.DTFingerprint == nil {
-		return fmt.Errorf("profile %q: neither dmi_fingerprint nor dt_fingerprint is set; exactly one is required", bp.ID)
+	if hasDT {
+		count++
+	}
+	if hasCP {
+		count++
+	}
+	if count > 1 {
+		// Preserve the existing DMI+DT message wording for RULE-SCHEMA-08
+		// callers; otherwise emit the three-way variant.
+		if hasDMI && hasDT && !hasCP {
+			return fmt.Errorf("profile %q: both dmi_fingerprint and dt_fingerprint are set; exactly one is required", bp.ID)
+		}
+		return fmt.Errorf("profile %q: more than one of dmi_fingerprint, dt_fingerprint, or chip_probe is set; exactly one is required (RULE-HWDB-PR2-18)", bp.ID)
+	}
+	if count == 0 {
+		return fmt.Errorf("profile %q: neither dmi_fingerprint, dt_fingerprint, nor chip_probe is set; exactly one is required", bp.ID)
 	}
 	if bp.DTFingerprint != nil && bp.DTFingerprint.Compatible == "" && bp.DTFingerprint.Model == "" {
 		return fmt.Errorf("profile %q: dt_fingerprint has no fields set; at least compatible or model is required", bp.ID)
+	}
+	if bp.ChipProbe != nil && strings.TrimSpace(bp.ChipProbe.HwmonName) == "" {
+		return fmt.Errorf("profile %q: chip_probe.hwmon_name must be non-empty (RULE-HWDB-PR2-18)", bp.ID)
 	}
 	// v1.2: validate experimental block if present
 	if bp.ExperimentalRaw != nil {

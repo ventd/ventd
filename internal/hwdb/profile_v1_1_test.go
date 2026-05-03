@@ -282,6 +282,132 @@ func TestCalibration_UnsupportedSkipsAutocurve(t *testing.T) {
 	})
 }
 
+// TestRuleHwdbPR2_18 verifies RULE-HWDB-PR2-18: chip_probe.hwmon_name is the
+// hwmon-name-based fallback fingerprint used when DMI is absent / "Default
+// string" — typical of mini-PCs whose BIOS author never populated DMI fields.
+//
+//   - Happy path: a board with chip_probe.hwmon_name="it5570" and an empty live
+//     DMI matches the live chipName via Tier-1 board (Confidence 0.85).
+//   - chip_probe is mutually exclusive with dmi_fingerprint and dt_fingerprint.
+//   - chip_probe.hwmon_name must be non-empty.
+//   - DMI-fingerprinted entries are unaffected — chip_probe matching is a
+//     fallback, not an override.
+func TestRuleHwdbPR2_18(t *testing.T) {
+	t.Run("matcher_chip_probe_hwmon_name", func(t *testing.T) {
+		boardYAML := minBoardYAML("beelink-ser5-default-string", "test-chip", `chip_probe:
+      hwmon_name: "test-chip"`, "")
+
+		cat := mustLoadCatalogWithBoards(t, validDriverYAML("test-drv"), validChipYAML("test-chip", "test-drv"), boardYAML)
+
+		// Live DMI is empty (mini-PC with "Default string" / no DMI). The
+		// matcher walks chip_probe entries via the chipName arg.
+		ecp, err := MatchV1WithDT(cat, "test-chip", DMIFingerprint{}, LiveDTData{}, false, nil, slog.Default())
+		if err != nil {
+			t.Fatalf("MatchV1WithDT: %v", err)
+		}
+		if ecp.Diagnostics.Tier != MatchTierBoard {
+			t.Errorf("Tier = %v, want MatchTierBoard", ecp.Diagnostics.Tier)
+		}
+		if ecp.Diagnostics.MatchedBoardID != "beelink-ser5-default-string" {
+			t.Errorf("MatchedBoardID = %q, want \"beelink-ser5-default-string\"", ecp.Diagnostics.MatchedBoardID)
+		}
+		if ecp.Diagnostics.Confidence != 0.85 {
+			t.Errorf("Confidence = %v, want 0.85 (chip-probe tier-1)", ecp.Diagnostics.Confidence)
+		}
+	})
+
+	t.Run("matcher_chip_probe_case_insensitive", func(t *testing.T) {
+		// Live chipName "IT5570" should match catalog "it5570" via case-fold.
+		boardYAML := minBoardYAML("minisforum-um790", "test-chip", `chip_probe:
+      hwmon_name: "test-chip"`, "")
+		cat := mustLoadCatalogWithBoards(t, validDriverYAML("test-drv"), validChipYAML("test-chip", "test-drv"), boardYAML)
+		ecp, err := MatchV1WithDT(cat, "TEST-CHIP", DMIFingerprint{}, LiveDTData{}, false, nil, slog.Default())
+		if err != nil {
+			t.Fatalf("MatchV1WithDT: %v", err)
+		}
+		if ecp.Diagnostics.MatchedBoardID != "minisforum-um790" {
+			t.Errorf("MatchedBoardID = %q, want \"minisforum-um790\"", ecp.Diagnostics.MatchedBoardID)
+		}
+	})
+
+	t.Run("matcher_chip_probe_no_match_falls_through", func(t *testing.T) {
+		// chipName mismatch falls through to tier-3 chip-family fallback.
+		boardYAML := minBoardYAML("not-this-board", "test-chip", `chip_probe:
+      hwmon_name: "different-chip"`, "")
+		cat := mustLoadCatalogWithBoards(t, validDriverYAML("test-drv"), validChipYAML("test-chip", "test-drv"), boardYAML)
+		ecp, err := MatchV1WithDT(cat, "test-chip", DMIFingerprint{}, LiveDTData{}, false, nil, slog.Default())
+		if err != nil {
+			t.Fatalf("MatchV1WithDT: %v", err)
+		}
+		if ecp.Diagnostics.Tier != MatchTierChip {
+			t.Errorf("Tier = %v, want MatchTierChip (fall-through)", ecp.Diagnostics.Tier)
+		}
+		if ecp.Diagnostics.MatchedBoardID != "" {
+			t.Errorf("MatchedBoardID = %q, want empty (no board match)", ecp.Diagnostics.MatchedBoardID)
+		}
+	})
+
+	t.Run("validator_rejects_chip_probe_with_dmi", func(t *testing.T) {
+		bothYAML := `schema_version: "1.3"
+board_profiles:
+  - id: "dual-cp-dmi"
+    dmi_fingerprint:
+      sys_vendor: "BEELINK"
+      product_name: "SER5"
+      board_vendor: "BEELINK"
+      board_name: "*"
+      board_version: "*"
+    chip_probe:
+      hwmon_name: "it5570"
+    primary_controller:
+      chip: "test-chip"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    citations: []
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+`
+		fsys := fstest.MapFS{"test.yaml": &fstest.MapFile{Data: []byte(bothYAML)}}
+		_, err := LoadBoardCatalogFromFS(fsys)
+		if err == nil {
+			t.Fatal("expected error for chip_probe+dmi_fingerprint, got nil")
+		}
+		if !strings.Contains(err.Error(), "exactly one is required") {
+			t.Errorf("error %q should contain \"exactly one is required\"", err.Error())
+		}
+	})
+
+	t.Run("validator_rejects_empty_hwmon_name", func(t *testing.T) {
+		emptyYAML := `schema_version: "1.3"
+board_profiles:
+  - id: "empty-cp"
+    chip_probe:
+      hwmon_name: ""
+    primary_controller:
+      chip: "test-chip"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    citations: []
+    contributed_by: "anonymous"
+    captured_at: "2026-04-26"
+    verified: false
+`
+		fsys := fstest.MapFS{"test.yaml": &fstest.MapFile{Data: []byte(emptyYAML)}}
+		_, err := LoadBoardCatalogFromFS(fsys)
+		if err == nil {
+			t.Fatal("expected error for empty chip_probe.hwmon_name, got nil")
+		}
+		if !strings.Contains(err.Error(), "hwmon_name") {
+			t.Errorf("error %q should mention \"hwmon_name\"", err.Error())
+		}
+	})
+}
+
 // mustLoadCatalogWithBoards loads a synthetic catalog from in-process YAML strings.
 func mustLoadCatalogWithBoards(t *testing.T, driverYAML, chipYAML, boardYAML string) *Catalog {
 	t.Helper()
