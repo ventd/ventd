@@ -302,6 +302,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "setup/apply", handler: s.handleSetupApply, auth: true},
 		{name: "setup/apply-monitor-only", handler: s.handleSetupApplyMonitorOnly, auth: true},
 		{name: "setup/reset", handler: s.handleSetupReset, auth: true},
+		{name: "admin/factory-reset", handler: s.handleFactoryReset, auth: true},
 		{name: "setup/calibrate/abort", handler: s.handleSetupCalibrateAbort, auth: true},
 		{name: "setup/load-module", handler: s.handleSetupLoadModule, auth: true},
 		{name: "system/reboot", handler: s.handleSystemReboot, auth: true},
@@ -1444,6 +1445,69 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Connection", "close")
 	s.writeJSON(r, w, map[string]string{"status": "ok"})
+	s.triggerReload()
+}
+
+// handleFactoryReset POST /api/admin/factory-reset
+//
+// Like handleSetupReset, but ALSO removes auth.json so the next
+// daemon start lands on /login's password-set form instead of
+// the password-prompt form. Use this when transferring a host to
+// a new operator or when restoring to true factory state.
+//
+// Wipes (in order):
+//  1. The config file (s.configPath) — same as setup/reset.
+//  2. The wizard / probe / calibration KV namespaces (via kvWiper).
+//  3. The applied-marker so the wizard runs again on next start.
+//  4. auth.json (s.authPath) — the password hash. Daemon's next
+//     start sees no credentials and renders the password-set form
+//     at /login per the v0.5.8.1 first-boot flow (#765, #794).
+//
+// The response includes redirect: "/login" so the UI can navigate
+// the operator after the daemon reload — distinct from
+// handleSetupReset's redirect: "/setup".
+//
+// DOES NOT wipe:
+//  - Installed OOT driver under /lib/modules/<rel>/extra/ (use the
+//    reset-and-reinstall endpoint).
+//  - /etc/modprobe.d/ventd-*.conf (driver-cleanup endpoint owns those).
+//  - /var/lib/ventd/blob/, /var/lib/ventd/log/ (durable telemetry
+//    persists across factory reset by design — operators can clear
+//    manually if desired).
+//  - The signature salt (regenerates on next start anyway).
+func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// 1. Config file.
+	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
+		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// 2. KV namespaces.
+	if s.kvWiper != nil {
+		if err := s.kvWiper(); err != nil {
+			s.logger.Warn("factory reset: kv wipe failed", "err", err)
+		}
+	}
+	// 3. Applied marker.
+	if err := s.setup.ClearApplied(); err != nil {
+		s.logger.Warn("factory reset: clear applied marker failed", "err", err)
+	}
+	// 4. auth.json — the differentiator from setup/reset.
+	if s.authPath != "" {
+		if err := os.Remove(s.authPath); err != nil && !os.IsNotExist(err) {
+			s.logger.Warn("factory reset: remove auth.json failed (continuing)", "err", err, "path", s.authPath)
+		}
+	}
+	s.logger.Info("factory reset: full state wipe complete; triggering reload", "config", s.configPath, "auth", s.authPath)
+
+	w.Header().Set("Connection", "close")
+	s.writeJSON(r, w, map[string]string{
+		"status":   "ok",
+		"redirect": "/login",
+	})
 	s.triggerReload()
 }
 

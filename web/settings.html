@@ -242,9 +242,23 @@
           <div class="set-row set-row--danger">
             <div>
               <div class="set-row-title">Reset to initial setup</div>
-              <div class="set-row-sub">Wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again.</div>
+              <div class="set-row-sub">Wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again. Login credentials are kept.</div>
             </div>
             <button class="btn btn--danger" id="set-reset" type="button">Reset…</button>
+          </div>
+          <div class="set-row set-row--danger">
+            <div>
+              <div class="set-row-title">Reset and reinstall driver</div>
+              <div class="set-row-sub">Removes any partially-installed OOT driver state — DKMS registration, .ko files in /lib/modules/&lt;release&gt;/extra/, modules-load.d entries, build dirs under /tmp/ventd-driver-* — so the next wizard run starts from a clean slate. Use after a botched first install or when switching catalog row.</div>
+            </div>
+            <button class="btn btn--danger" id="set-reset-driver" type="button">Reset driver…</button>
+          </div>
+          <div class="set-row set-row--danger">
+            <div>
+              <div class="set-row-title">Factory reset</div>
+              <div class="set-row-sub">Full state wipe — calibration, config, applied marker, AND login credentials. Lands on the password-set screen at /login as if this were a fresh install. The OOT driver under /lib/modules/&lt;release&gt;/extra/ is preserved (use "Reset driver" first if you want it gone too).</div>
+            </div>
+            <button class="btn btn--danger" id="set-factory-reset" type="button">Factory reset…</button>
           </div>
         </article>
 

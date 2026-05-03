@@ -207,6 +207,110 @@ func TestHandleSetupReset_MissingFile_Idempotent(t *testing.T) {
 	}
 }
 
+// TestHandleFactoryReset_NonPOST_RejectedAs405 — factory-reset is
+// MORE destructive than setup-reset (also wipes auth.json). Method
+// enforcement applies identically.
+func TestHandleFactoryReset_NonPOST_RejectedAs405(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/factory-reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleFactoryReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/admin/factory-reset: status = %d, want %d", got, http.StatusMethodNotAllowed)
+	}
+}
+
+// TestHandleFactoryReset_RemovesConfigAndAuth — happy path. With both
+// config.yaml and auth.json on disk, factory-reset removes both. The
+// response body's "redirect" field is "/login" (vs setup-reset's
+// implicit "/setup") so the UI knows to push the operator to the
+// password-set screen.
+func TestHandleFactoryReset_RemovesConfigAndAuth(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	authPath := filepath.Join(tempDir, "auth.json")
+	calPath := filepath.Join(tempDir, "cal.json")
+
+	if err := os.WriteFile(configPath, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"hash":"x"}`), 0600); err != nil {
+		t.Fatalf("seed auth: %v", err)
+	}
+
+	live := config.Empty()
+	var cfgPtr atomic.Pointer[config.Config]
+	cfgPtr.Store(live)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cal := calibrate.New(calPath, logger, nil)
+	sm := setupmgr.New(cal, logger)
+	restart := make(chan struct{}, 1)
+	srv := New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/factory-reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleFactoryReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusOK {
+		t.Fatalf("factory-reset: status = %d, want %d (body=%q)", got, http.StatusOK, w.Body.String())
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Errorf("factory-reset: config not removed: stat err = %v", err)
+	}
+	if _, err := os.Stat(authPath); !os.IsNotExist(err) {
+		t.Errorf("factory-reset: auth.json not removed: stat err = %v", err)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"redirect":"/login"`) {
+		t.Errorf("factory-reset: response body missing redirect to /login: %q", body)
+	}
+}
+
+// TestHandleFactoryReset_NoAuthPath_StillSucceeds — When the daemon
+// is wired without an authPath (test harness, monitor-only deployments,
+// dev mode), factory-reset must still succeed and remove the config.
+// The auth.json wipe step skips silently when authPath=="".
+func TestHandleFactoryReset_NoAuthPath_StillSucceeds(t *testing.T) {
+	srv, configPath, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	if err := os.WriteFile(configPath, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/factory-reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleFactoryReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusOK {
+		t.Fatalf("factory-reset (no authPath): status = %d, want %d", got, http.StatusOK)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Errorf("factory-reset: config not removed: stat err = %v", err)
+	}
+}
+
+// TestHandleFactoryReset_MissingFiles_Idempotent — running factory-
+// reset on an already-clean system must return 200, not 500.
+func TestHandleFactoryReset_MissingFiles_Idempotent(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/factory-reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleFactoryReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusOK {
+		t.Fatalf("factory-reset-no-files: status = %d, want %d", got, http.StatusOK)
+	}
+}
+
 // TestHandleSystemReboot_NonPOST_RejectedAs405 — /api/system/reboot is
 // the single most destructive URL in the repo. Method enforcement is
 // non-negotiable.
