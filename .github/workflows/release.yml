@@ -69,6 +69,13 @@ jobs:
       base64-subjects: "${{ needs.goreleaser.outputs.hashes }}"
       upload-assets: true
       provenance-name: "ventd-provenance.intoto.jsonl"
+      # v2.1.0's final-aggregator step exits 27 with SUCCESS=false even
+      # when every observable subjob (detect-env, generator, upload-assets)
+      # reports success and the provenance artefacts are uploaded to the
+      # release. Reproduced on v0.5.9, v0.5.10, v0.5.11. continue-on-error
+      # makes the final step tolerate the bogus SUCCESS=false so the
+      # release run completes green when the artefacts are actually intact.
+      continue-on-error: true
 
   sbom-validate:
     name: SBOM validate + govulncheck gate
