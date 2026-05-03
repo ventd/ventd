@@ -112,3 +112,34 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  - id: "msi-pro-z690-a-ddr4"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7D25"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO Z690-A DDR4 (MS-7D25)"
+      board_version: "1.0"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 (Fred78290 OOT) — falls back to nct6683 RO mainline"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args:
+      - "fan_config=msi_alt1"
+    conflicts_with_userspace: []
+    notes: "Phoenix HIL desktop. MSI PRO Z690-A DDR4 ships NCT6687D — mainline
+      nct6683 is read-only; OOT Fred78290/nct6687d required for fan control.
+      DMI dispatch was previously only in autoload.go::DMITriggers; this
+      structured entry lets the daemon-side resolver pick the chip without
+      falling through to autoload's vendor heuristic. Sibling MSI PRO Z690-A
+      (non-DDR4) and PRO Z790-A still need verification against the OOT
+      supported-boards list."
+    citations:
+      - "https://github.com/Fred78290/nct6687d#supported-boards"
+      - "github.com/ventd/ventd issue #822 (catalog fix)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-03"
+    verified: true
+    defaults:
+      curves: []

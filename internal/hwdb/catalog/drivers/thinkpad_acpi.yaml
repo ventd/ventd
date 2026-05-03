@@ -17,8 +17,8 @@ driver_profiles:
     fan_control_capable: true
     fan_control_via: null
     required_modprobe_args:
-      - arg: "experimental=1"
-        reason: "Required for fan write access on T440+ generation ThinkPads."
+      - arg: "fan_control=1"
+        reason: "Required to enable pwm1_enable / pwm1 write surface — kernel default disables thinkpad_acpi fan writes; the experimental= alias has no effect on the fan-write gate per drivers/platform/x86/thinkpad_acpi.c."
         risk: "low"
     pwm_polarity_reservation: "not_applicable"
     exit_behaviour: "restore_auto"
