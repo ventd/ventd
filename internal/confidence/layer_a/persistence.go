@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ventd/ventd/internal/iox"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -99,30 +100,7 @@ func (e *Estimator) Save(stateDir, hwmonFingerprint string) error {
 }
 
 func writeAtomic(final string, payload []byte) error {
-	tmp := final + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
-	if err != nil {
-		return fmt.Errorf("tmp open %q: %w", tmp, err)
-	}
-	if _, err := f.Write(payload); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write %q: %w", tmp, err)
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("fsync %q: %w", tmp, err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close %q: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, final); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename %q→%q: %w", tmp, final, err)
-	}
-	return nil
+	return iox.WriteFile(final, payload, 0o640)
 }
 
 // LoadChannel attempts to restore a single channel's state. Returns

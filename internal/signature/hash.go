@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 
 	"github.com/dchest/siphash"
+	"github.com/ventd/ventd/internal/iox"
 )
 
 // DefaultSaltPath is the production location of the per-install
@@ -126,28 +127,8 @@ func generateAndWriteSalt(path string) ([]byte, error) {
 		return nil, fmt.Errorf("signature: rand.Read: %w", err)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, SaltFileMode)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := f.Write(salt); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return nil, err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return nil, err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return nil, err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return nil, err
+	if err := iox.WriteFile(path, salt, SaltFileMode); err != nil {
+		return nil, fmt.Errorf("signature: persist salt: %w", err)
 	}
 	return salt, nil
 }

@@ -17,6 +17,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ventd/ventd/internal/iox"
 )
 
 // DropInPath is the canonical location for ventd's kernel cmdline
@@ -115,13 +117,8 @@ func writeDropIn(params []string) error {
 		"# to revert ventd's additions.\n" +
 		"GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_CMDLINE_LINUX_DEFAULT " +
 		strings.Join(params, " ") + "\"\n"
-	tmp := dropInPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {
-		return fmt.Errorf("grub: write tmp: %w", err)
-	}
-	if err := os.Rename(tmp, dropInPath); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("grub: rename: %w", err)
+	if err := iox.WriteFile(dropInPath, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("grub: persist drop-in: %w", err)
 	}
 	return nil
 }
