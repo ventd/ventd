@@ -36,6 +36,3 @@ func (s *durabilityState) Reset() {
 	s.everTrue = false
 	s.idleSince = time.Time{}
 }
-
-// IdleSince returns the time the current idle run started, or zero if not idle.
-func (s *durabilityState) IdleSince() time.Time { return s.idleSince }
