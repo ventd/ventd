@@ -153,3 +153,43 @@ func tempDirOrDefault(dir string) string {
 	}
 	return "/tmp"
 }
+
+// runAcousticGate is the wizard's hook into the calibrate_acoustic
+// PhaseGate. Called from Manager.run after thermal calibration's
+// wg.Wait() and before the finalising phase. Reads acousticGateOpts
+// (set via SetAcousticGateOptions) and invokes the gate when MicDevice
+// is non-empty.
+//
+// Failures are non-fatal per the gate's contract
+// (RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01) — the daemon falls back to
+// R33 proxy-only acoustic estimation when no K_cal record lands. The
+// gate's GateError is logged at WARN level and discarded; the wizard
+// proceeds to finalise.
+//
+// Method receiver is *Manager so test fixtures can drive it directly
+// with a stub Runner without exercising the full Manager.run pipeline.
+func (m *Manager) runAcousticGate(ctx context.Context) {
+	m.mu.Lock()
+	opts := m.acousticGateOpts
+	m.mu.Unlock()
+
+	if opts.MicDevice == "" {
+		return
+	}
+
+	if opts.Logger == nil {
+		opts.Logger = m.logger
+	}
+
+	m.setPhase("calibrate_acoustic",
+		"Calibrating microphone for acoustic measurement...")
+
+	gate := CalibrateAcousticGate(opts)
+	if err := RunGate(ctx, gate, m.logger); err != nil {
+		// Non-fatal: log and continue. RULE-WIZARD-GATE-CALIBRATE-
+		// ACOUSTIC-01 explicitly designs the gate as opt-in /
+		// soft-fall-through-to-proxy-only.
+		m.logger.Warn("acoustic calibration gate failed; daemon will use R33 proxy-only fallback",
+			"err", err)
+	}
+}
