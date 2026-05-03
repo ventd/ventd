@@ -118,6 +118,51 @@ reload_or_skip_apparmor() {
     fi
 }
 
+# #70 AppArmor parser-version dispatch:
+#
+# The canonical ventd profile uses the parser-4.x `unix (perm) ...,`
+# syntax + `abi <abi/4.0>,` pragma. Distros shipping parser 3.x
+# (Ubuntu 22.04, Debian 12, Alpine 3.x, older RHEL/CentOS) fail to
+# parse those constructs. We ship a `ventd.compat` variant alongside
+# `ventd`; this dispatch picks the compat profile when parser_major < 4.
+#
+# Parser version is extracted from `apparmor_parser --version` whose
+# first line on every shipping AppArmor build is "AppArmor parser
+# version X.Y.Z". The robust parse: grep digit, head -1, awk first
+# dotted token.
+#
+# When parser is absent or unreadable, we leave `ventd` in place and
+# rely on reload_or_skip_apparmor's later parser-not-installed branch
+# to log "skipped" cleanly.
+pick_apparmor_variant() {
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        log_security_outcome apparmor variant-pick-skipped "reason=parser-not-installed default=parser-4x"
+        return 0
+    fi
+    parser_ver=$(apparmor_parser --version 2>/dev/null | head -n1 | awk '{print $NF}' | head -n1)
+    parser_major=$(echo "$parser_ver" | awk -F. '{print $1+0}')
+    case "$parser_major" in
+        ''|0)
+            log_security_outcome apparmor variant-pick-skipped "reason=parser-version-unparseable raw=${parser_ver} default=parser-4x"
+            return 0
+            ;;
+    esac
+    if [ "$parser_major" -lt 4 ] && [ -f /etc/apparmor.d/ventd.compat ]; then
+        # Swap the compat variant into place at /etc/apparmor.d/ventd
+        # so reload_or_skip_apparmor's existing path-based logic loads
+        # the right one. Original `ventd` (parser-4.x form) is preserved
+        # alongside as `ventd.modern` for reference.
+        if [ -f /etc/apparmor.d/ventd ]; then
+            mv /etc/apparmor.d/ventd /etc/apparmor.d/ventd.modern
+        fi
+        mv /etc/apparmor.d/ventd.compat /etc/apparmor.d/ventd
+        log_security_outcome apparmor variant-pick-compat "parser_version=${parser_ver} parser_major=${parser_major} note=swapped-compat-into-place"
+    else
+        log_security_outcome apparmor variant-pick-modern "parser_version=${parser_ver} parser_major=${parser_major}"
+    fi
+}
+
+pick_apparmor_variant
 reload_or_skip_apparmor ventd
 reload_or_skip_apparmor ventd-ipmi
 
