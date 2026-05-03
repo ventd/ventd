@@ -123,11 +123,16 @@ for any future smart-mode HIL work, not just this test.
 
 ### Optional but valuable
 
-- **Per-tick CSV capture** (writer in the controller): one row per tick
-  with `(ts, channel, reactive_pwm, predictive_pwm, output_pwm, w_pred,
-  conf_a, conf_b, conf_c, sensor_temp, rpm, ui_state)`. Gated behind an
-  env var (`VENTD_SMART_CSV=/var/log/ventd/smart-trace.csv`) so it ships
-  to no one by default.
+- **Per-tick NDJSON trace** (writer in the controller): one event per
+  tick wrapped in the standard `internal/ndjson` envelope, payload =
+  `{ts, channel, reactive_pwm, predictive_pwm, output_pwm, w_pred,
+  conf_a, conf_b, conf_c, sensor_temp, rpm, ui_state}`. Gated behind
+  an env var (`VENTD_SMART_NDJSON=/var/log/ventd/smart-trace.ndjson`)
+  so it ships to no one by default. NDJSON over CSV because the trace
+  carries typed fields (floats, bools, enums) that CSV would coerce
+  to strings; `internal/ndjson.SchemaThermalTraceV1` is the schema
+  constant. The `report.py` script consumes the file via the same
+  msgpack→NDJSON path used by `ventd diag export-observations`.
 
 ## Pass / fail criteria
 
@@ -277,7 +282,8 @@ AppArmor HIL log).
 **Ship in v0.5.11:**
 - The three new endpoints (`/api/v1/smart/snapshot`, `/api/v1/smart/signatures`,
   `X-Smart-Tick` header).
-- The optional CSV trace writer behind `VENTD_SMART_CSV`.
+- The optional NDJSON trace writer behind `VENTD_SMART_NDJSON` (uses
+  `internal/ndjson.SchemaThermalTraceV1`).
 - `tools/smartmode-loadtest/` directory with the bash runner + report.py.
 
 **Run today (one-off, not v0.5.11 blocker):**

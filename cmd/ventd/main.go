@@ -81,8 +81,12 @@ func run() error {
 		logger := buildLogger("info")
 		return runDiagBundle(os.Args[3:], logger)
 	}
+	if len(os.Args) >= 3 && os.Args[1] == "diag" && os.Args[2] == "export-observations" {
+		logger := buildLogger("info")
+		return runDiagExportObservations(os.Args[3:], logger)
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "diag" {
-		fmt.Fprintln(os.Stderr, "Usage: ventd diag bundle [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: ventd diag {bundle|export-observations} [flags]")
 		sub := ""
 		if len(os.Args) >= 3 {
 			sub = os.Args[2]
