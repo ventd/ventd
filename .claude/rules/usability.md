@@ -4,8 +4,9 @@ This program targets every Linux user from complete beginners to sysadmins. Ever
 
 ## Distribution Support
 
-- Must work on: Ubuntu/Debian, Fedora/RHEL/CentOS, Arch/Manjaro, openSUSE, NixOS, Void, Alpine
-- Package manager detection: apt, dnf, yum, pacman, zypper, apk, nix-env, xbps-install
+- Must work on: Ubuntu/Debian, Fedora/RHEL/CentOS, Arch/Manjaro, openSUSE, Void, Alpine.
+- **NixOS is currently not in the supported list** — `/etc/modprobe.d/*.conf` drop-ins are ignored on NixOS (system module config has to live in `configuration.nix`). Until ventd emits a NixOS fragment in the install path, installs will appear to succeed but module options won't apply. Surface a doctor card directing the operator to copy the modprobe options into their `configuration.nix` (R28 §F).
+- Package manager detection: apt, dnf, yum, pacman, zypper, apk, xbps-install. (nix-env intentionally omitted — see NixOS note above.)
 - Systemd is primary service manager but support OpenRC and runit as fallback
 - Never assume a specific distro. Test for capabilities, not distro names.
 - Binary should be statically linked or have minimal dynamic deps (libc only, NVML optional runtime load)
@@ -36,7 +37,7 @@ The terminal install command should print ONE thing: the URL to open. e.g.:
 
 ## First Run Experience
 
-- If no config exists, daemon starts web UI on port 9999 and prints the URL + one-time setup token to stdout/journald
+- If no config exists, daemon starts web UI on port 9999 and prints the URL to stdout/journald. The setup-token bootstrap was eliminated in v0.5.8.1 (#765, #794) — first-boot now just shows the password-set form when no `auth.json` exists.
 - Web UI setup wizard walks the user through everything with plain English — no jargon
 - Step-by-step flow: Welcome → Hardware Scan (automatic) → Fan Detection → Calibration (with live progress) → Review & Apply
 - Each step has a clear explanation of what's happening and why
