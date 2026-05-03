@@ -122,6 +122,49 @@ func matchV1Full(
 		return ecp, nil
 	}
 
+	// Tier 1.5: chip-probe board match (RULE-HWDB-PR2-18).
+	// Mini-PCs from Beelink / Minisforum / GMKtec ship DMI as "Default string";
+	// chip_probe.hwmon_name is the hwmon-name-based fallback that anchors a
+	// board profile to the live IT5570 / IT8613 / etc. chip when DMI strings
+	// are useless. Confidence sits below DMI-tier-1 (0.9) because hwmon-name
+	// is a less specific signal — many boards share the same EC chip.
+	if chipName != "" {
+		for _, entry := range cat.Boards {
+			if entry.ChipProbe == nil {
+				continue
+			}
+			if !strings.EqualFold(entry.ChipProbe.HwmonName, chipName) {
+				continue
+			}
+			chip, ok := cat.Chips[entry.PrimaryController.Chip]
+			if !ok {
+				continue
+			}
+			driver, ok := cat.Drivers[chip.InheritsDriver]
+			if !ok {
+				continue
+			}
+			diag.Tier = MatchTierBoard
+			diag.Confidence = 0.85
+			diag.MatchedBoardID = entry.ID
+			diag.MatchedChipName = chip.Name
+			diag.MatchedDriverModule = driver.Module
+
+			log.Debug("hwdb: tier-1 chip-probe board match",
+				slog.String("board", entry.ID),
+				slog.String("hwmon_name", chipName),
+				slog.String("chip", chip.Name),
+				slog.String("driver", driver.Module))
+
+			boardV2 := boardEntryToProfileV2(entry)
+			ecp := ResolveEffectiveProfile(driver, chip, boardV2, cal, diag)
+			if ecp.Unsupported {
+				LogUnsupportedOnce(entry.ID, log)
+			}
+			return ecp, nil
+		}
+	}
+
 	// Tier 3: chip-family fallback by detected hwmon chip name.
 	chip, ok := cat.Chips[chipName]
 	if !ok {
