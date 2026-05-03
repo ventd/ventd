@@ -50,6 +50,13 @@ type ChannelResult struct {
 	Delta         float64  // Observed - Baseline
 	Unit          string   // "rpm" | "pct" | "vendor"
 	ProbedAt      time.Time
+	// AcousticStallSuspected is set by the v0.5.12 acoustic stall
+	// detector (R31) when the post-calibration soak phase observed
+	// a 2-of-3 stall signature on this channel. Purely informational —
+	// surfaces in `ventd doctor` output and the dashboard. Does NOT
+	// affect WritePWM or any control path. False on every channel
+	// when no microphone calibration was performed.
+	AcousticStallSuspected bool `json:"acoustic_stall_suspected,omitempty"`
 }
 
 // Identity encodes the backend-specific information needed to match a
