@@ -175,7 +175,7 @@ func preflightReasonTitle(r hwmon.Reason) string {
 	case hwmon.ReasonAptLockHeld:
 		return "apt/dpkg lock is held — package operations will block"
 	case hwmon.ReasonKernelHeadersMissing:
-		return fmt.Sprintf("Kernel headers are missing for the running kernel")
+		return "Kernel headers are missing for the running kernel"
 	case hwmon.ReasonDKMSMissing:
 		return "DKMS is not installed — automatic module rebuild on kernel updates is unavailable"
 	case hwmon.ReasonKernelTooNew:

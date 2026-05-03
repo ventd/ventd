@@ -153,23 +153,23 @@ func splitCSV(s string) []string {
 //	(Detectors with no facts are listed as "OK: <name>" in non-quiet
 //	mode so the operator can see the full set of checks ran.)
 func writeReportText(w io.Writer, r doctor.Report, quiet bool, modules []string) {
-	fmt.Fprintf(w, "ventd doctor — %d fact(s), %s\n\n", len(r.Facts), r.Severity)
+	_, _ = fmt.Fprintf(w, "ventd doctor — %d fact(s), %s\n\n", len(r.Facts), r.Severity)
 
 	if len(modules) > 0 {
-		fmt.Fprintf(w, "Auto-discovered ventd modules: %s\n\n", strings.Join(modules, ", "))
+		_, _ = fmt.Fprintf(w, "Auto-discovered ventd modules: %s\n\n", strings.Join(modules, ", "))
 	}
 
 	if len(r.DetectorErrors) > 0 {
-		fmt.Fprintln(w, "Detector errors:")
+		_, _ = fmt.Fprintln(w, "Detector errors:")
 		for _, de := range r.DetectorErrors {
-			fmt.Fprintf(w, "  - %s: %s\n", de.Detector, de.Err)
+			_, _ = fmt.Fprintf(w, "  - %s: %s\n", de.Detector, de.Err)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 
 	if len(r.Facts) == 0 {
 		if !quiet {
-			fmt.Fprintln(w, "No facts emitted — every detector either passed or had no signal.")
+			_, _ = fmt.Fprintln(w, "No facts emitted — every detector either passed or had no signal.")
 		}
 		return
 	}
