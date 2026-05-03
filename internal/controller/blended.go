@@ -166,6 +166,82 @@ func costFactorForPreset(p Preset) float64 {
 	}
 }
 
+// PresetDBATargets is the canonical mapping from preset enum to dBA cap.
+// R32 user-perception thresholds:
+//
+//   - Silent      → 25 dBA  ("Whisper" — barely audible at desk distance)
+//   - Balanced    → 32 dBA  ("Office" — comparable to a quiet office)
+//   - Performance → 45 dBA  (workstation under load, audible but not loud)
+//
+// The values are R32-derived and bound by RULE-CTRL-PRESET-03. Operators
+// who want a different cap supply SmartConfig.DBATarget — DBATargetFor
+// returns the override when set and the preset default otherwise.
+var PresetDBATargets = map[Preset]float64{
+	PresetSilent:      25.0,
+	PresetBalanced:    32.0,
+	PresetPerformance: 45.0,
+}
+
+// DBATargetFor resolves the active dBA budget for the given preset and
+// optional operator override. When override is non-nil the operator's
+// value wins; otherwise the preset's PresetDBATargets entry is returned.
+// An unrecognised preset falls back to the Balanced default (32 dBA),
+// matching costFactorForPreset's fallthrough behaviour.
+//
+// The returned value is the absolute dBA cap the cost gate must not
+// exceed when computing predicted total loudness (R30 K_cal applied
+// when calibrated, R33 proxy-only otherwise).
+func DBATargetFor(p Preset, override *float64) float64 {
+	if override != nil {
+		return *override
+	}
+	if t, ok := PresetDBATargets[p]; ok {
+		return t
+	}
+	return PresetDBATargets[PresetBalanced]
+}
+
+// AcousticBudget is the per-tick acoustic-state input to the dBA-budget
+// cost gate. The wiring layer (eventual integration in #67's Manager.run
+// PhaseGate-slice refactor) computes the three values from the per-fan
+// acoustic proxy (R33) plus the per-host calibration record (R30 K_cal):
+//
+//   - Target:     the dBA cap from DBATargetFor.
+//   - CurrentDBA: the host's current total loudness in dBA, from the
+//     proxy's energetic sum across grouped fans + K_cal offset.
+//   - DBAPerPWM:  the marginal loudness rate per PWM unit on the channel
+//     under consideration, from the proxy's CostRate.
+//
+// A zero AcousticBudget (Target ≤ 0) disables the gate — the wiring
+// layer passes a zero value when the operator hasn't set a budget AND
+// the preset default isn't yet plumbed through, OR when no per-host
+// calibration data is available and the proxy is in fallback mode.
+type AcousticBudget struct {
+	Target     float64 // operator-resolved dBA cap (DBATargetFor)
+	CurrentDBA float64 // host total dBA at this tick
+	DBAPerPWM  float64 // candidate channel's marginal dBA per PWM unit
+}
+
+// EvalDBABudget reports whether the candidate ramp would push host
+// loudness above the configured dBA cap. The check is a linear
+// extrapolation: candidate_dBA = current_dBA + DBAPerPWM·|ΔPWM|. Refuses
+// when candidate_dBA strictly exceeds Target.
+//
+// A zero or negative Target disables the gate (returns false). A zero
+// DBAPerPWM is also a no-op — the ramp can't change loudness so the
+// gate has nothing to refuse.
+//
+// RULE-CTRL-PRESET-04. This function is the stable pure-data API; the
+// integration point in BlendedController.Compute lands alongside the
+// wiring PR that has access to per-fan proxy state.
+func EvalDBABudget(b AcousticBudget, deltaPWM float64) (refuse bool, predictedDBA float64) {
+	if b.Target <= 0 || b.DBAPerPWM == 0 {
+		return false, b.CurrentDBA
+	}
+	predictedDBA = b.CurrentDBA + b.DBAPerPWM*math.Abs(deltaPWM)
+	return predictedDBA > b.Target, predictedDBA
+}
+
 // BlendedConfig drives controller construction.
 type BlendedConfig struct {
 	Preset Preset

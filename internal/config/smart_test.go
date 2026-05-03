@@ -43,6 +43,88 @@ func TestSmartPreset_NormalisationAndOK(t *testing.T) {
 	}
 }
 
+// RULE-CTRL-PRESET-03: SmartConfig.DBATarget validates inside [10, 80]
+// dBA. Nil leaves the budget to be resolved from preset defaults at
+// runtime; an explicit value overrides the preset.
+func TestSmartConfig_DBATargetValidation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil_dba_target_accepted", func(t *testing.T) {
+		c := minimalSmartConfig()
+		// Default field is nil → no error.
+		if err := validate(c); err != nil {
+			t.Fatalf("nil DBATarget: %v", err)
+		}
+	})
+
+	t.Run("dba_target_below_10_rejected", func(t *testing.T) {
+		c := minimalSmartConfig()
+		v := 5.0
+		c.Smart.DBATarget = &v
+		err := validate(c)
+		if err == nil || !strings.Contains(err.Error(), "dba_target") {
+			t.Fatalf("expected dba_target range error, got %v", err)
+		}
+	})
+
+	t.Run("dba_target_above_80_rejected", func(t *testing.T) {
+		c := minimalSmartConfig()
+		v := 90.0
+		c.Smart.DBATarget = &v
+		err := validate(c)
+		if err == nil || !strings.Contains(err.Error(), "dba_target") {
+			t.Fatalf("expected dba_target range error, got %v", err)
+		}
+	})
+
+	t.Run("dba_target_at_boundaries_accepted", func(t *testing.T) {
+		for _, v := range []float64{10.0, 80.0, 25.0, 32.0, 45.0} {
+			c := minimalSmartConfig()
+			vv := v
+			c.Smart.DBATarget = &vv
+			if err := validate(c); err != nil {
+				t.Errorf("DBATarget=%v: %v", v, err)
+			}
+		}
+	})
+
+	t.Run("dba_target_yaml_round_trip", func(t *testing.T) {
+		// Operator-set value survives the YAML round-trip and lands
+		// at the same numeric value (no truncation, no nil-vs-zero
+		// confusion).
+		v := 27.5
+		in := SmartConfig{Preset: "balanced", DBATarget: &v}
+		data, err := yaml.Marshal(in)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		var out SmartConfig
+		if err := yaml.Unmarshal(data, &out); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if out.DBATarget == nil {
+			t.Fatal("DBATarget lost on round-trip (nil after unmarshal)")
+		}
+		if *out.DBATarget != v {
+			t.Errorf("DBATarget round-trip: got %v, want %v", *out.DBATarget, v)
+		}
+	})
+
+	t.Run("dba_target_omitted_when_nil", func(t *testing.T) {
+		// nil DBATarget must not surface in marshalled YAML — the
+		// "use preset default" semantic depends on the absence
+		// of the field, not on a sentinel zero value.
+		in := SmartConfig{Preset: "silent"}
+		data, err := yaml.Marshal(in)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if strings.Contains(string(data), "dba_target") {
+			t.Errorf("nil DBATarget leaked into YAML: %s", data)
+		}
+	})
+}
+
 // RULE-CTRL-PRESET-02: validate() rejects out-of-range Setpoints
 // (physical bounds [10, 100] °C) but ACCEPTS unknown preset strings
 // — the daemon emits a runtime WARN and falls back to balanced.
