@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -75,6 +76,7 @@ func TestInstallEndpointsRejectGET(t *testing.T) {
 		"/api/hwdiag/install-kernel-headers",
 		"/api/hwdiag/install-dkms",
 		"/api/hwdiag/mok-enroll",
+		"/api/hwdiag/modprobe-options-write",
 	} {
 		req := httptest.NewRequest("GET", path, nil)
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
@@ -83,5 +85,39 @@ func TestInstallEndpointsRejectGET(t *testing.T) {
 		if rr.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s: status=%d want 405", path, rr.Code)
 		}
+	}
+}
+
+func TestModprobeOptionsWrite_AllowlistEnforced(t *testing.T) {
+	srv, tok := newTestServer(t)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"unknown module", `{"module":"rogue","options":"fan_control=1"}`},
+		{"empty body", ``},
+		{"empty fields", `{"module":"","options":""}`},
+		{"thinkpad with shell injection in options", `{"module":"thinkpad_acpi","options":"fan_control=1;rm -rf /"}`},
+		{"thinkpad with disallowed value", `{"module":"thinkpad_acpi","options":"fan_control=0"}`},
+		{"it87 not yet allowed", `{"module":"it87","options":"ignore_resource_conflict=1"}`},
+		{"malformed JSON", `{"module":"thinkpad_acpi"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *http.Request
+			if tc.body == "" {
+				req = httptest.NewRequest("POST", "/api/hwdiag/modprobe-options-write", nil)
+			} else {
+				req = httptest.NewRequest("POST", "/api/hwdiag/modprobe-options-write", strings.NewReader(tc.body))
+				req.Header.Set("Content-Type", "application/json")
+			}
+			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+			rr := httptest.NewRecorder()
+			srv.mux.ServeHTTP(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status=%d body=%s; want 400", rr.Code, rr.Body.String())
+			}
+		})
 	}
 }

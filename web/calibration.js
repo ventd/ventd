@@ -990,7 +990,9 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: rem.action_url.indexOf('/diag/bundle') >= 0 ? '' : null,
+      body: rem.action_body
+        ? rem.action_body
+        : (rem.action_url.indexOf('/diag/bundle') >= 0 ? '' : null),
     })
       .then(function (r) {
         if (!r.ok) {
