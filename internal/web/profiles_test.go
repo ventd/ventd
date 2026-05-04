@@ -144,12 +144,31 @@ func TestProfileActive_BadJSONRejected(t *testing.T) {
 	}
 }
 
+// TestProfileActive_MethodNotAllowed pins that PUT (and other non-
+// GET / non-POST methods) return 405. GET became a read-only branch
+// in v0.5.15 (#929) — it returns the active profile name. POST is
+// the long-standing write path.
 func TestProfileActive_MethodNotAllowed(t *testing.T) {
 	srv := newVersionTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/profile/active", nil)
+	req := httptest.NewRequest(http.MethodPut, "/api/profile/active", nil)
 	w := httptest.NewRecorder()
 	srv.handleProfileActive(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status %d want 405", w.Code)
+	}
+}
+
+// TestProfileActive_GET_ReturnsActiveProfileName pins the v0.5.15
+// read-only branch — dashboard.js polls this on every tick.
+func TestProfileActive_GET_ReturnsActiveProfileName(t *testing.T) {
+	srv := newVersionTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/profile/active", nil)
+	w := httptest.NewRecorder()
+	srv.handleProfileActive(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d want 200; body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"name"`)) {
+		t.Errorf("body = %q, want JSON with name field", w.Body.String())
 	}
 }
