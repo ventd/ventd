@@ -308,3 +308,86 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
   .sidebar { position: static; height: auto; }
   .nav { display: none; }
 }
+
+/* ─── release-notes modal (#48) ─────────────────────────── */
+.rn-modal {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.rn-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 720px; width: 100%;
+  max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+}
+.rn-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rn-title {
+  margin: 0; font-size: 1.1rem; font-weight: 600;
+  color: var(--fg1); letter-spacing: 0.01em;
+}
+.rn-close {
+  background: transparent; border: none;
+  font-size: 1.6rem; line-height: 1; cursor: pointer;
+  color: var(--fg3); padding: 0 6px;
+}
+.rn-close:hover { color: var(--fg1); }
+.rn-body {
+  padding: 16px 20px;
+  overflow-y: auto; flex: 1;
+  font-size: 0.85rem; line-height: 1.5;
+  color: var(--fg2);
+}
+.rn-version-line {
+  display: flex; align-items: baseline; gap: 6px;
+  margin: 6px 0 4px;
+}
+.rn-version {
+  color: var(--teal); font-weight: 600; font-size: 0.95rem;
+}
+.rn-date { color: var(--fg3); font-size: 0.8rem; }
+.rn-body hr {
+  border: none; border-top: 1px solid var(--border);
+  margin: 18px 0 10px;
+}
+.rn-body .rn-md h3 {
+  margin: 14px 0 6px; font-size: 0.85rem;
+  color: var(--fg1); letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rn-body .rn-md h4 {
+  margin: 10px 0 4px; font-size: 0.78rem;
+  color: var(--fg2);
+}
+.rn-body .rn-md p { margin: 6px 0; }
+.rn-body .rn-md ul {
+  margin: 4px 0 8px 18px; padding: 0;
+}
+.rn-body .rn-md li { margin: 3px 0; }
+.rn-body .rn-md code {
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  padding: 1px 5px; border-radius: 3px;
+  font-size: 0.78rem;
+  color: var(--blue);
+}
+.rn-body .rn-md a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-decoration-color: rgba(79, 195, 161, 0.4);
+}
+.rn-body .rn-md a:hover { text-decoration-color: var(--teal); }
+.rn-body .rn-md strong { color: var(--fg1); }
+.rn-foot {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end;
+}
