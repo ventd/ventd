@@ -70,6 +70,7 @@
         <a class="set-nav-item" href="#security">Security</a>
         <a class="set-nav-item" href="#system">System</a>
         <a class="set-nav-item" href="#about">About</a>
+        <a class="set-nav-item" href="#update">Update</a>
         <a class="set-nav-item set-nav-item--danger" href="#advanced">Advanced</a>
       </aside>
 
@@ -231,6 +232,45 @@
           </dl>
           <div class="set-about-links">
             <span class="mono set-row-readout">repo &amp; changelog: <span id="about-repo">github.com/ventd/ventd</span></span>
+          </div>
+        </article>
+
+        <article class="set-section card" id="update">
+          <header class="set-section-head">
+            <div class="card-title"><span class="card-title-accent"></span>Update</div>
+            <p class="set-section-sub">In-place upgrade of the ventd binary. The daemon restarts under the new version; calibration data, smart-mode shards, signature library, and login credentials all persist via /var/lib/ventd. In-flight calibration sweeps are resumable from the last completed step (RULE-ENVELOPE-09).</p>
+          </header>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Installed</div>
+              <div class="set-row-sub mono" id="upd-installed">—</div>
+            </div>
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Latest available</div>
+              <div class="set-row-sub mono" id="upd-latest">click "Check for updates" to query GitHub</div>
+            </div>
+            <button class="btn btn--ghost" id="upd-check" type="button">Check for updates</button>
+          </div>
+          <div class="set-row" id="upd-apply-row" hidden>
+            <div>
+              <div class="set-row-title" id="upd-apply-title">Update available</div>
+              <div class="set-row-sub" id="upd-apply-sub">A newer release is on GitHub. The install script will download, verify SHA-256, and restart the daemon.</div>
+            </div>
+            <button class="btn btn--primary" id="upd-apply" type="button">Apply update</button>
+          </div>
+          <div class="set-row" id="upd-progress-row" hidden>
+            <div>
+              <div class="set-row-title" id="upd-progress-title">Update in progress…</div>
+              <div class="set-row-sub" id="upd-progress-sub">Daemon restarting under the new binary. Page will reload when /healthz responds.</div>
+            </div>
+          </div>
+          <div class="set-row" id="upd-error-row" hidden>
+            <div>
+              <div class="set-row-title">Update check failed</div>
+              <div class="set-row-sub mono" id="upd-error-sub">—</div>
+            </div>
           </div>
         </article>
 
