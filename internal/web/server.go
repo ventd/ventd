@@ -1055,16 +1055,26 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	// HTML page that meta-refreshes there. Returning 200 + HTML rather
 	// than a 302 keeps the security/cache invariants identical to the
 	// pre-redesign /, while still routing the user to the correct page.
-	//   no admin password set → /setup       (first-boot wizard)
-	//   setup wizard pending  → /calibration (probe + apply)
-	//   otherwise             → /dashboard
+	//   no admin password set         → /setup       (first-boot wizard)
+	//   setup wizard pending          → /calibration (probe + apply)
+	//   wizard applied + no controls  → /health      (monitor-only outcome — #784)
+	//   otherwise                     → /dashboard
 	dest := "/dashboard"
 	if s.authHashValue() == "" {
 		dest = "/setup"
 	} else if s.setup != nil {
 		p := s.setup.ProgressNeeded(s.cfg.Load())
-		if p.Needed && !p.Applied {
+		switch {
+		case p.Needed && !p.Applied:
 			dest = "/calibration"
+		case p.Applied && len(s.cfg.Load().Controls) == 0:
+			// Monitor-only outcome: wizard ran, persisted the
+			// applied marker, but the probe found zero controllable
+			// fan channels (BIOS-locked PWMs / EC-locked laptop /
+			// BMC-managed server / mini-PC class). The dashboard's
+			// control affordances are mostly empty for these hosts;
+			// /health is the right default landing page (#793, #784).
+			dest = "/health"
 		}
 	}
 	h := w.Header()
