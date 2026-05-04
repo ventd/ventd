@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.18] - 2026-05-04
+
+### Headline
+- **Self-bootstrapping in-UI updater + patch-notes modal** (#950, #951) — closes the chicken-and-egg dead-end Phoenix hit on a v0.5.15 daemon: the in-UI Update button's apply handler returned **HTTP 503** with `install.sh not found` because the .deb / .rpm packagers' `nfpms.contents` shipping `install.sh` + `CHANGELOG.md` to `/usr/share/` landed in #942 — *after* v0.5.15 was tagged. Worse, the curl-pipe-bash `install.sh` path (the documented operator entry point) only extracts the binary from the .tar.gz; it doesn't unpack auxiliary files into `/usr/share/`. Fix: bake both `scripts/install.sh` and `CHANGELOG.md` into the daemon binary via `go:embed`, with on-disk candidates checked first (preserves dev workflow + .deb / .rpm package paths) and a temp-file write fallback for `install.sh` (mode 0755). Every binary now carries its own bootstrap; no dependency on the package shipping anything beyond `ventd` itself.
+
+### CI / chore
+- New `make sync-install-sh`, `make sync-changelog`, `make sync-embeds` targets refresh the embedded copies after editing the canonical sources.
+- `TestInstallShEmbedded_SyncedWithScriptsCopy` + `TestChangelogEmbedded_SyncedWithRepoCopy` fail CI if either embed drifts.
+- `TestFindInstallScript_EmbedFallback` + `TestLoadChangelog_EmbedFallback` verify the fallback paths work end-to-end.
+
+### Honest framing
+v0.5.18 is the last release that requires a manual install for operators on pre-v0.5.18 builds — once they're on this binary, every future tag rolls forward through the in-UI Update button regardless of how the daemon was originally installed. The embed bootstrap means a fresh install via curl-pipe-bash, a docker-style binary copy, or a partial package install all behave identically: the daemon always knows how to update itself.
+
 ## [v0.5.17] - 2026-05-04
 
 ### Headline
