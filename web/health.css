@@ -1,0 +1,157 @@
+/* Health page (#793) — consolidated read view of every sensor /
+   fan / voltage / power reading the daemon enumerated. Token-only
+   colours (RULE-UI-02). Sidebar from /shared/sidebar.html (RULE-UI-03). */
+
+.hl-page {
+  padding: 16px 24px 28px;
+  display: flex; flex-direction: column;
+  gap: 18px;
+  max-width: 1180px;
+}
+
+.hl-header {
+  margin-bottom: 4px;
+}
+.hl-title {
+  font-size: 1.2rem; font-weight: 600;
+  color: var(--fg1);
+  margin: 0 0 4px;
+  letter-spacing: 0.01em;
+}
+.hl-sub {
+  font-size: 0.85rem; line-height: 1.5;
+  color: var(--fg);
+  margin: 0;
+  max-width: 70ch;
+}
+
+/* Summary card row — quick at-a-glance counts up top. */
+.hl-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.hl-summary-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--surface-1, #161b22);
+}
+.hl-summary-label {
+  font-size: 0.72rem;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.hl-summary-value {
+  font-size: 1.4rem; font-weight: 600;
+  color: var(--fg1);
+  margin: 4px 0 2px;
+}
+.hl-summary-sub {
+  font-size: 0.74rem;
+  color: var(--fg2);
+}
+
+/* Per-kind grouped sections (Temperatures / Fans / Voltages / Power). */
+.hl-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1, #161b22);
+  overflow: hidden;
+}
+.hl-group-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border2);
+  background: var(--bg);
+}
+.hl-group-tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.hl-group-tag.is-temp  { background: var(--red-bg);   color: var(--red);   }
+.hl-group-tag.is-fan   { background: var(--teal-bg);  color: var(--teal);  }
+.hl-group-tag.is-volt  { background: var(--blue-bg);  color: var(--blue);  }
+.hl-group-tag.is-power { background: var(--amber-bg); color: var(--amber); }
+.hl-group-count {
+  color: var(--fg1);
+  font-size: 0.85rem;
+}
+
+.hl-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1px;
+  background: var(--border2);
+}
+
+/* Single sensor card. Renders friendly label + current value +
+   trend spark + chip-name footer. */
+.hl-card {
+  padding: 10px 14px;
+  background: var(--surface-1, #161b22);
+  display: flex; flex-direction: column;
+  gap: 4px;
+}
+.hl-card-row {
+  display: flex; align-items: baseline; gap: 8px;
+}
+.hl-card-name {
+  font-size: 0.86rem; font-weight: 500;
+  color: var(--fg1);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hl-card-value {
+  font-size: 1.05rem; font-weight: 600;
+  color: var(--fg1);
+}
+.hl-card-unit {
+  font-size: 0.74rem; color: var(--fg3);
+}
+.hl-card-spark {
+  width: 100%;
+  height: 26px;
+  display: block;
+}
+.hl-card-foot {
+  display: flex; justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--fg3);
+}
+.hl-card-chip {
+  font-family: var(--font-mono);
+}
+.hl-card-trend {
+  font-family: var(--font-mono);
+}
+.hl-card-trend.is-up   { color: var(--red); }
+.hl-card-trend.is-down { color: var(--teal); }
+.hl-card-trend.is-flat { color: var(--fg3); }
+
+/* Empty state when no chips were enumerated. */
+.hl-empty {
+  color: var(--fg2);
+  font-size: 0.9rem;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+}
+.hl-empty a { color: var(--teal); }
+
+.hl-footer {
+  font-size: 0.72rem;
+  color: var(--fg3);
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border2);
+}

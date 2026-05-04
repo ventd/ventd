@@ -3,16 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Doctor — ventd</title>
+  <title>Health — ventd</title>
   <link rel="stylesheet" href="/shared/tokens.css">
   <link rel="stylesheet" href="/shared/shell.css">
   <link rel="stylesheet" href="/shared/brand.css">
   <link rel="stylesheet" href="/shared/ambient.css">
-  <link rel="stylesheet" href="/doctor.css">
+  <link rel="stylesheet" href="/health.css">
 </head>
 <body>
 <div class="shell">
-  <!-- canonical sidebar (matches shared/sidebar.html byte-for-byte) -->
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark"></div>
@@ -44,77 +43,85 @@
       <div class="crumbs">
         <span class="crumb">Diagnostics</span>
         <span class="crumb-sep">/</span>
-        <span class="crumb current">Doctor</span>
+        <span class="crumb current">Health</span>
       </div>
       <div class="topbar-actions">
-        <span class="status-pill ok" id="doc-rollup-pill">—</span>
-        <span class="topbar-meta mono" id="doc-generated">—</span>
+        <span class="status-pill ok" id="hl-mode-pill">live</span>
+        <span class="topbar-meta mono" id="hl-version">—</span>
       </div>
     </div>
 
-    <section class="doc-page">
-      <header class="doc-header">
-        <h1 class="doc-title">Doctor</h1>
-        <p class="doc-sub">Runtime diagnostics — every check is a pure-read probe of system state. Findings are grouped by severity. Suppression coming in a follow-up; for now the page is a live read of what the daemon sees right now.</p>
+    <section class="hl-page">
+      <header class="hl-header">
+        <h1 class="hl-title">System Health</h1>
+        <p class="hl-sub">Read-only view of every sensor, fan, voltage, and power reading the daemon enumerated. Useful when ventd is running in monitor-only mode (BIOS-locked PWMs, server BMC, EC-locked laptops) and the dashboard's control affordances aren't applicable. Every value updates every 2 seconds.</p>
       </header>
 
-      <div class="doc-loading" id="doc-loading">Running detectors…</div>
-
-      <section class="doc-group" id="doc-group-blocker" hidden>
-        <header class="doc-group-head">
-          <span class="doc-group-tag is-blocker">Blocker</span>
-          <span class="doc-group-count mono" id="doc-count-blocker">0</span>
-          <span class="doc-group-sub">Refused to operate until resolved.</span>
-        </header>
-        <div class="doc-group-list" id="doc-list-blocker"></div>
-      </section>
-
-      <section class="doc-group" id="doc-group-warning" hidden>
-        <header class="doc-group-head">
-          <span class="doc-group-tag is-warning">Warning</span>
-          <span class="doc-group-count mono" id="doc-count-warning">0</span>
-          <span class="doc-group-sub">Working with reduced capability or at risk.</span>
-        </header>
-        <div class="doc-group-list" id="doc-list-warning"></div>
-      </section>
-
-      <section class="doc-group" id="doc-group-error" hidden>
-        <header class="doc-group-head">
-          <span class="doc-group-tag is-error">Error</span>
-          <span class="doc-group-count mono" id="doc-count-error">0</span>
-          <span class="doc-group-sub">A detector itself failed — pure-read probe could not complete.</span>
-        </header>
-        <div class="doc-group-list" id="doc-list-error"></div>
-      </section>
-
-      <section class="doc-group" id="doc-group-ok" hidden>
-        <header class="doc-group-head">
-          <span class="doc-group-tag is-ok">OK</span>
-          <span class="doc-group-count mono" id="doc-count-ok">0</span>
-          <span class="doc-group-sub">Informational signal — the check ran and surfaced no issue.</span>
-        </header>
-        <div class="doc-group-list" id="doc-list-ok"></div>
-      </section>
-
-      <div class="doc-empty" id="doc-empty" hidden>
-        <p>No findings. Every check ran clean.</p>
+      <div class="hl-summary" id="hl-summary">
+        <div class="hl-summary-card">
+          <div class="hl-summary-label">Hottest sensor</div>
+          <div class="hl-summary-value mono" id="hl-hot-temp">—</div>
+          <div class="hl-summary-sub" id="hl-hot-name">—</div>
+        </div>
+        <div class="hl-summary-card">
+          <div class="hl-summary-label">Spinning fans</div>
+          <div class="hl-summary-value mono" id="hl-fan-count">—</div>
+          <div class="hl-summary-sub" id="hl-fan-sub">—</div>
+        </div>
+        <div class="hl-summary-card">
+          <div class="hl-summary-label">Doctor findings</div>
+          <div class="hl-summary-value mono" id="hl-doc-count">—</div>
+          <div class="hl-summary-sub" id="hl-doc-sub">—</div>
+        </div>
+        <div class="hl-summary-card">
+          <div class="hl-summary-label">Sensors enumerated</div>
+          <div class="hl-summary-value mono" id="hl-sensor-count">—</div>
+          <div class="hl-summary-sub" id="hl-sensor-sub">—</div>
+        </div>
       </div>
 
-      <section class="doc-group" id="doc-group-detectors" hidden>
-        <header class="doc-group-head">
-          <span class="doc-group-tag is-detector-error">Detector errors</span>
-          <span class="doc-group-count mono" id="doc-count-detectors">0</span>
-          <span class="doc-group-sub">Detectors whose Probe itself broke (distinct from a Blocker fact).</span>
+      <section class="hl-group" id="hl-group-temps" hidden>
+        <header class="hl-group-head">
+          <span class="hl-group-tag is-temp">Temperatures</span>
+          <span class="hl-group-count mono" id="hl-count-temps">0</span>
         </header>
-        <div class="doc-group-list" id="doc-list-detectors"></div>
+        <div class="hl-group-list" id="hl-list-temps"></div>
       </section>
 
-      <footer class="doc-footer mono" id="doc-meta">—</footer>
+      <section class="hl-group" id="hl-group-fans" hidden>
+        <header class="hl-group-head">
+          <span class="hl-group-tag is-fan">Fans</span>
+          <span class="hl-group-count mono" id="hl-count-fans">0</span>
+        </header>
+        <div class="hl-group-list" id="hl-list-fans"></div>
+      </section>
+
+      <section class="hl-group" id="hl-group-volts" hidden>
+        <header class="hl-group-head">
+          <span class="hl-group-tag is-volt">Voltages</span>
+          <span class="hl-group-count mono" id="hl-count-volts">0</span>
+        </header>
+        <div class="hl-group-list" id="hl-list-volts"></div>
+      </section>
+
+      <section class="hl-group" id="hl-group-powers" hidden>
+        <header class="hl-group-head">
+          <span class="hl-group-tag is-power">Power</span>
+          <span class="hl-group-count mono" id="hl-count-powers">0</span>
+        </header>
+        <div class="hl-group-list" id="hl-list-powers"></div>
+      </section>
+
+      <div class="hl-empty" id="hl-empty" hidden>
+        <p>The daemon hasn't enumerated any chips yet. If this persists, check <a href="/doctor">Doctor</a> for fault findings.</p>
+      </div>
+
+      <footer class="hl-footer mono" id="hl-meta">—</footer>
     </section>
   </main>
 </div>
 <script src="/shared/brand.js"></script>
-<script src="/doctor.js"></script>
+<script src="/health.js"></script>
 <script src="/shared/release-notes.js" defer></script>
 <script src="/shared/walkthrough.js" defer></script>
 </body>
