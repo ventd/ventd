@@ -59,32 +59,26 @@ fi
 # events arrive as Test:"TestFoo/subname" — we strip after the first '/'
 # because the registry tracks top-level tests, and a subtest fail also
 # yields a top-level fail event in the same stream.
+#
+# Pure POSIX awk parser — keeps CI dep-free across distros whose minimal
+# containers don't ship python3 (Fedora, Debian, Ubuntu-22.04, Arch).
+# Go test -json emits one well-formed event per line; we extract the
+# Action / Package / Test fields by anchored regex match.
 mapfile -t failed_keys < <(
-	python3 - "$json_log" <<'PY'
-import json, sys
-seen = set()
-with open(sys.argv[1]) as f:
-    for line in f:
-        line = line.strip()
-        if not line or not line.startswith('{'):
-            continue
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if ev.get("Action") != "fail":
-            continue
-        test = ev.get("Test", "")
-        pkg = ev.get("Package", "")
-        if not test or not pkg:
-            continue
-        # strip subtest suffix
-        if "/" in test:
-            test = test.split("/", 1)[0]
-        seen.add(f"{pkg}:{test}")
-for k in sorted(seen):
-    print(k)
-PY
+	awk '
+		/^\{/ {
+			if (!match($0, /"Action":"[^"]+"/)) next
+			action = substr($0, RSTART+10, RLENGTH-11)
+			if (action != "fail") next
+			if (!match($0, /"Test":"[^"]+"/)) next
+			test = substr($0, RSTART+8, RLENGTH-9)
+			if (!match($0, /"Package":"[^"]+"/)) next
+			pkg = substr($0, RSTART+11, RLENGTH-12)
+			slash = index(test, "/")
+			if (slash > 0) test = substr(test, 1, slash-1)
+			print pkg ":" test
+		}
+	' "$json_log" | sort -u
 )
 
 if [[ ${#failed_keys[@]} -eq 0 ]]; then

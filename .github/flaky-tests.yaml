@@ -52,3 +52,15 @@ flaky:
             injection (Stage 1.5 PR-8), at which point this entry can
             be removed.
     since: 2026-05-03
+  - test: github.com/ventd/ventd/internal/web:TestHandleDiagSend_IngestRejects_Returns502
+    issue: https://github.com/ventd/ventd/issues/883
+    reason: integration test calls real diag.Generate (walks live hwmon /
+            proc / NVML), then expects 502 from the stubbed ingest.
+            On GHA runners the test occasionally returns 500 in 0.00s
+            instead of reaching the stub — the bundle generation step
+            short-circuits before the upload path can map ingest 403
+            to BadGateway. Passes consistently locally (~90s per run).
+            Roadmap fix is to inject diag.Generate via a Server field
+            so the test mocks bundle generation instead of running it,
+            at which point this entry can be removed.
+    since: 2026-05-04
