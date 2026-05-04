@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ventd/ventd/internal/probe"
@@ -84,8 +85,22 @@ var writerPolicy = state.RotationPolicy{
 }
 
 // Writer appends per-tick controller records to the observation log.
-// It is NOT safe for concurrent use.
+// Append is goroutine-safe via the per-Writer mu; concurrent Append
+// calls from the controller tick goroutine AND the opportunistic
+// prober goroutine (cmd/ventd/main.go::buildObsAppend +
+// internal/probe/opportunistic/prober.go) serialise through it.
+//
+// Bug-hunt iteration 2 (Agent 3 #2) caught this: the prior
+// "NOT safe for concurrent use" contract was being violated in
+// production. Concurrent Append against unsynchronised
+// bytesWritten / headerWritten / activeDay would race the
+// rotation-trigger check at line 169 — two goroutines could both
+// observe `bytesWritten >= maxActiveSize`, both call Rotate(),
+// and the second rotate would write a Header against the FIRST
+// one's brand-new file (the underlying log.Append is goroutine-
+// safe but the per-Writer counters aren't).
 type Writer struct {
+	mu            sync.Mutex
 	log           logStore
 	kv            kvStore
 	classMap      map[uint16]uint8
@@ -160,14 +175,21 @@ func newWithClock(
 // On the first call (or after midnight UTC, or after reaching 50 MB), the
 // active file is rotated and a new header written first.
 // EventFlags bits 13–31 are cleared before writing (RULE-OBS-SCHEMA-05).
+//
+// Goroutine-safe: serialises through w.mu. Both the controller tick
+// path AND the opportunistic prober path call Append concurrently
+// under production load.
 func (w *Writer) Append(r *Record) error {
 	r.EventFlags &^= eventFlagReservedMask
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	now := w.clock()
 	today := truncateToDay(now)
 
 	if !w.headerWritten || !today.Equal(w.activeDay) || w.bytesWritten >= maxActiveSize {
-		if err := w.Rotate(); err != nil {
+		if err := w.rotateLocked(); err != nil {
 			return err
 		}
 	}
@@ -185,8 +207,16 @@ func (w *Writer) Append(r *Record) error {
 
 // Rotate rotates the active log file and writes a header to the new file.
 // Append calls this automatically on midnight and 50 MB triggers; callers may
-// also invoke it explicitly.
+// also invoke it explicitly. Goroutine-safe via w.mu.
 func (w *Writer) Rotate() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.rotateLocked()
+}
+
+// rotateLocked is the lock-held inner of Rotate so Append's auto-
+// rotate path can call it without the recursive-lock dance.
+func (w *Writer) rotateLocked() error {
 	now := w.clock()
 	today := truncateToDay(now)
 
