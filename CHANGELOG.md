@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.16] - 2026-05-04
+
+### Headline
+- **NCT6687 desktop super-I/O dedup fix** (#939, closes #40) — the v0.5.14+ `dedupMirrorFans` pass collapsed real distinct fans on Phoenix's MSI Z690-A NCT6687 chip whose idle RPMs coincidentally fell within ±10 RPM of each other. Outcome: 1 fan visible despite the board having 7 PWM headers. Tag the chips that genuinely mirror tachs (thinkpad_acpi family + applesmc + macsmc-hwmon + surface_fan + dell-smm-hwmon + asus-ec-sensors / asus-wmi-sensors + hp-wmi-sensors) and only apply dedup to those. Desktop super-I/O (nct6687, nct6798, it8688, etc.) get all their fan_input readings preserved.
+- **Hero spark Y-axis: slow-EMA auto-fit** (#940) — the v0.5.15 fixed-pin to 20-100 °C made small idle deltas (2-3 °C variance, normal at idle) render ~1 px tall on the 48 px card — visually flat. Switch to a slow-EMA-smoothed auto-fit (alpha = 0.05; ~30 s lag at 1.5 s tick) so the axis range moves continuously but slowly. Single-poll outliers don't visibly rescale; sustained workload changes shift the bounds within ~30 s. Padded ±2 °C from the smoothed bounds; range floored at 4 °C to avoid divide-by-zero on a perfectly stable temp. The line now shows real variance at useful resolution while preserving the per-poll layout stability that was the original rationale for pinning.
+
+### Honest framing
+v0.5.16 is a tight follow-up to v0.5.15's no-theatre sweep — two HIL-driven fixes landed in the post-tag verification on Phoenix's MSI Z690-A desktop. The in-UI Update button (v0.5.15 #934) makes this kind of rapid follow-up zero-friction: tag → click Apply on the settings page → daemon rolls forward without restart resetting calibration progress.
+
 ## [v0.5.15] - 2026-05-04
 
 ### Headline
