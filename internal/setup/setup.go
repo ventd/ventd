@@ -1472,6 +1472,17 @@ func restoreExcludedChannels(fans []FanState, doneFans []fanDiscovery, logger *s
 // safe-floor is preferable to full-blast.
 const safeExcludedPWM uint8 = 153
 
+// pwmEnableProbeRange is the set of pwm_enable values to attempt
+// during the chip-capability probe. 1 (manual) is excluded — we
+// already know it works (the calibration sweep ran in manual mode).
+// Range stops at 7 because no documented hwmon driver uses higher
+// values for auto-class modes; the cost of probing too far is one
+// extra sysfs syscall per chip. Values are tried in ascending
+// order; the handback chain picks the highest-numbered accepted
+// value because conventional drivers number "richer" auto modes
+// higher (e.g. nct6687 SmartFan = 5, standard hwmon auto = 2).
+var pwmEnableProbeRange = []int{2, 3, 4, 5, 6, 7}
+
 // Test-injectable sysfs write hooks. nil in production → fall
 // through to hwmonpkg.WritePWMEnable / hwmonpkg.WritePWM. Override
 // from a single _test.go file to simulate driver-specific failure
@@ -1484,27 +1495,94 @@ var (
 	writePWMFn       = hwmonpkg.WritePWM
 )
 
+// probedPWMEnableModes is the per-process cache of pwm_enable
+// values each chip channel accepts. Lazily populated on the first
+// chipAcceptedAutoModes call for a path, cached for the daemon
+// lifetime. Empty slice (not nil-vs-missing) means "we probed and
+// the chip accepts no auto-class value" — distinct from "not yet
+// probed" (key absent). Reset by ResetProbedPWMEnableModesForTest
+// in test-only code.
+var (
+	probedPWMEnableModesMu sync.Mutex
+	probedPWMEnableModes   = map[string][]int{}
+)
+
+// chipAcceptedAutoModes probes which pwm_enable values in
+// pwmEnableProbeRange the chip's driver accepts for this channel,
+// caches the result, and returns the accepted set in ascending
+// order. Empty slice means the chip exposes no auto-class mode
+// (manual-only driver — the in-tree mainline nct6687 in 2026.04
+// kernels is the canonical case, accepts only {0=off, 1=manual}).
+//
+// The probe is destructive on chip state for the duration of the
+// function: each successful write briefly puts the channel into
+// that mode. Caller MUST be in the setup wizard, not the normal
+// control loop. The probe restores pwm_enable=1 (manual) before
+// returning so the caller's subsequent control writes still work.
+//
+// The cache is keyed per-channel rather than per-chip because some
+// drivers (nct6798 in particular) have per-pwm-channel enum
+// quirks; one chip's pwm1 might accept {2,5} while pwm4 accepts
+// only {1}. Per-path caching costs O(channels) memory and zero
+// extra syscalls for the common case where every channel of a
+// chip behaves identically.
+func chipAcceptedAutoModes(pwmPath string) []int {
+	probedPWMEnableModesMu.Lock()
+	if cached, ok := probedPWMEnableModes[pwmPath]; ok {
+		probedPWMEnableModesMu.Unlock()
+		return cached
+	}
+	probedPWMEnableModesMu.Unlock()
+
+	accepted := make([]int, 0, len(pwmEnableProbeRange))
+	for _, v := range pwmEnableProbeRange {
+		if err := writePWMEnableFn(pwmPath, v); err == nil {
+			accepted = append(accepted, v)
+		}
+	}
+	// Always restore manual so the calibration sweep's last PWM byte
+	// keeps applying and the caller's subsequent writes work. We
+	// ignore the restore error: if pwm_enable=1 itself rejects (it
+	// shouldn't on any chip we've seen — manual is universal), the
+	// channel is in whatever last-written state already, which is
+	// no worse than where the probe found it.
+	_ = writePWMEnableFn(pwmPath, 1)
+
+	probedPWMEnableModesMu.Lock()
+	probedPWMEnableModes[pwmPath] = accepted
+	probedPWMEnableModesMu.Unlock()
+	return accepted
+}
+
 // handbackExcludedChannel attempts to leave one excluded channel
 // (no-tach fan, or otherwise dropped from the controlled set) in a
 // sane resting state. Per #909 + the operator-promise that the
 // daemon never silently ignores a failure it could attempt to
 // resolve, the resolution chain is:
 //
-//  1. pwm_enable = 2 (standard hwmon "auto" — handed back to BIOS)
-//  2. on EINVAL: pwm_enable = 5 (nct6687 SmartFan; the canonical
-//     known-quirk where the chip rejects the standard value)
-//  3. on both failing: write a safe PWM floor (60%) directly and
-//     leave pwm_enable = 1 (manual). Mirrors the watchdog's
-//     full-speed fallback in spirit — any controlled state is
-//     preferable to leaving the channel stranded at the calibration
-//     sweep's last byte.
+//  1. pwm_enable = 2 (standard hwmon "auto" — handed back to BIOS).
+//     This is the fast path for the >95 % of chips that follow
+//     convention; one sysfs write, no probe.
+//  2. on EINVAL: probe the chip's accepted pwm_enable enum (writing
+//     each candidate in {2..7} once, observing which return success
+//     vs EINVAL), pick the highest-numbered accepted value, and
+//     write that. nct6687 SmartFan = 5 lands here cleanly when the
+//     driver build accepts it; nct6687 builds that accept only
+//     {0,1} return an empty probe set and drop to step 3. Probe
+//     result cached per pwm path.
+//  3. on probe finding nothing OR the chosen value also failing:
+//     write a safe PWM floor (60 %) directly to the PWM file and
+//     leave pwm_enable = 1 (manual, where the calibration sweep
+//     already left it). Mirrors the watchdog's full-speed fallback
+//     in spirit — any controlled state is preferable to leaving the
+//     channel stranded at the calibration sweep's last byte.
 //  4. only after all three exhaust does ventd log a final-position
 //     WARN with the resolution chain in the message so the
 //     operator-facing diagnostic is honest about what was tried.
 //
 // fs.ErrNotExist on the first write is the short-circuit for chips
 // that don't expose pwm_enable at all (e.g. nct6683 for NCT6687D —
-// distinct from the EINVAL case for the standard nct6687 driver).
+// distinct from the EINVAL case for the in-tree nct6687 driver).
 // In that case the channel never had manual mode taken from it so
 // there's nothing to restore — return cleanly without entering the
 // fallback chain.
@@ -1522,26 +1600,41 @@ func handbackExcludedChannel(f FanState, logger *slog.Logger) {
 		return
 	}
 
-	// Step 2: nct6687 SmartFan quirk. Chip rejects 2 with EINVAL but
-	// accepts 5. Try unconditionally on EINVAL — the cost of an extra
-	// failed write on a non-nct6687 chip is one syscall and one log
-	// line; the cost of skipping it is leaving every nct6687-driven
-	// system stuck at sweep-end PWM forever.
+	// Step 2: chip rejected the standard value. Probe what it
+	// actually accepts in the auto-class range, then write the
+	// highest-numbered one (richer-mode-wins on conventional
+	// drivers — e.g. nct6687 SmartFan=5 over standard auto=2).
+	// Probe runs once per channel per daemon lifetime; subsequent
+	// calls hit the cache.
 	if errors.Is(err, syscall.EINVAL) {
-		if err5 := writePWMEnableFn(f.PWMPath, 5); err5 == nil {
-			logger.Info("setup: excluded channel handed back to chip auto-curve (chip rejected mode=2)",
-				"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason, "mode", 5)
-			return
+		accepted := chipAcceptedAutoModes(f.PWMPath)
+		for i := len(accepted) - 1; i >= 0; i-- {
+			v := accepted[i]
+			if perr := writePWMEnableFn(f.PWMPath, v); perr == nil {
+				logger.Info("setup: excluded channel handed back to chip auto-curve via probed mode",
+					"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason,
+					"mode", v, "probed_modes", accepted)
+				return
+			}
+		}
+		// Probe found nothing OR every probed value failed at
+		// handback time (race / state-dependent rejection). Surface
+		// the probe-came-up-empty case explicitly so the operator
+		// sees "this driver only does manual" rather than a generic
+		// safe-PWM warning.
+		if len(accepted) == 0 {
+			logger.Info("setup: chip exposes no pwm_enable auto modes; driver supports only manual control",
+				"pwm_path", f.PWMPath, "fan", f.Name, "probed_range", pwmEnableProbeRange)
 		}
 	}
 
 	// Step 3: safe-PWM-floor fallback. Leave pwm_enable=1 (manual,
-	// which is where the calibration sweep already left it) and
-	// write a 60% duty cycle so any inadvertently-attached fan keeps
-	// spinning at a quiet, sustainable speed instead of stranded at
-	// the sweep's last byte.
+	// which is where the calibration sweep / probe-restore left it)
+	// and write a 60% duty cycle so any inadvertently-attached fan
+	// keeps spinning at a quiet, sustainable speed instead of
+	// stranded at the sweep's last byte.
 	if pwmErr := writePWMFn(f.PWMPath, safeExcludedPWM); pwmErr == nil {
-		logger.Warn("setup: chip rejected pwm_enable auto modes; held excluded channel at safe PWM floor under manual control",
+		logger.Warn("setup: chip rejected all pwm_enable auto modes; held excluded channel at safe PWM floor under manual control",
 			"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason,
 			"safe_pwm", safeExcludedPWM, "first_err", err)
 		return
@@ -1551,7 +1644,7 @@ func handbackExcludedChannel(f FanState, logger *slog.Logger) {
 		// previous log-and-ignore: the WARN names every attempted
 		// strategy and its failure so the operator surface (and any
 		// downstream recovery card) has the full picture.
-		logger.Warn("setup: could not hand excluded channel back to BIOS, alt mode, or safe PWM — channel left in last sweep state",
+		logger.Warn("setup: could not hand excluded channel back to BIOS, probed modes, or safe PWM — channel left in last sweep state",
 			"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason,
 			"err_mode_2", err, "err_safe_pwm", pwmErr)
 	}
