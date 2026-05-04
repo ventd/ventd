@@ -1036,39 +1036,69 @@
       if (el) el.remove();
     });
   }
+  /* aliveSetForecastBadge keeps a STABLE layout per Phoenix's UX
+     feedback (24-04 burst-frame session): the sub-line always shows
+     "60 s past · 30 s ahead → <forecast>" with the forecast value
+     as either a signed °C delta + arrow OR a small "—" pill. The
+     wrapper element + arrow node + value node are reused across
+     polls so the only thing that changes per tick is the textContent
+     of the value span — no innerHTML rewrite, no class swap, no
+     "forecast pending" / "forecast uncertain" sub-line replacement.
+     Pinned to silence the "constantly flicking between current and
+     forecasted" flicker. */
   function aliveSetForecastBadge(kind, deltaC) {
     var subId = kind === 'cpu' ? 'hero-cpu-sub' : 'hero-gpu-sub';
     var sub = document.getElementById(subId);
     if (!sub) return;
+    sub.className = 'dash-hero-sub';
+
+    // Lazily build the stable structure on first call. Reuse forever
+    // afterwards — the parent <div>, both spans, and the arrow text
+    // node are all static; only the forecast value text and the
+    // wrap class change per poll.
+    var wrap = sub.querySelector('.dash-hero-forecast');
+    if (!wrap) {
+      sub.textContent = '';
+      var pastLab = document.createElement('span');
+      pastLab.className = 'dash-hero-past-label';
+      pastLab.textContent = '60 s past · 30 s ahead';
+      sub.appendChild(pastLab);
+      wrap = document.createElement('span');
+      wrap.className = 'dash-hero-forecast is-flat';
+      var arr = document.createElement('span');
+      arr.className = 'dash-hero-forecast-arrow';
+      arr.textContent = '→';
+      var val = document.createElement('span');
+      val.className = 'dash-hero-forecast-val';
+      val.textContent = '—';
+      wrap.appendChild(arr);
+      wrap.appendChild(val);
+      sub.appendChild(wrap);
+    }
+    var arrEl = wrap.querySelector('.dash-hero-forecast-arrow');
+    var valEl = wrap.querySelector('.dash-hero-forecast-val');
+
     if (deltaC == null || !isFinite(deltaC)) {
-      sub.textContent = 'forecast pending';
-      sub.className = 'dash-hero-sub';
+      // History too short — keep the layout, fill the value with em-dash
+      // so the layout stays stable.
+      wrap.className = 'dash-hero-forecast is-flat';
+      arrEl.textContent = '→';
+      valEl.textContent = '—';
       return;
     }
     if (Math.abs(deltaC) > ALIVE_FORECAST_MAX_DELTA_C) {
-      // Slope unreliable — sensor noise dominates the linear fit.
-      // Show an honest "uncertain" rather than the fabricated number.
-      sub.textContent = 'forecast uncertain';
-      sub.className = 'dash-hero-sub';
+      // Slope unreliable. Same layout, no fabricated number.
+      wrap.className = 'dash-hero-forecast is-flat';
+      arrEl.textContent = '→';
+      valEl.textContent = 'noisy · —';
       return;
     }
     var dir = deltaC > 1.5 ? 'up' : (deltaC < -1.5 ? 'down' : 'flat');
     var arrow = dir === 'up' ? '↗' : dir === 'down' ? '↘' : '→';
     var sign = deltaC >= 0 ? '+' : '';
-    sub.className = 'dash-hero-sub';
-    // Render via DOM ops (CSP-friendly); class on the inner span
-    // drives the arrow colour token.
-    sub.innerHTML = '';
-    var wrap = document.createElement('span');
     wrap.className = 'dash-hero-forecast is-' + dir;
-    var arr = document.createElement('span');
-    arr.className = 'dash-hero-forecast-arrow';
-    arr.textContent = arrow;
-    var lab = document.createElement('span');
-    lab.textContent = '30s · ' + sign + deltaC.toFixed(1) + '°C';
-    wrap.appendChild(arr);
-    wrap.appendChild(lab);
-    sub.appendChild(wrap);
+    arrEl.textContent = arrow;
+    valEl.textContent = sign + deltaC.toFixed(1) + ' °C';
   }
 
   /* aliveAttachSensorIntent: idempotent — attaches an intent pill
