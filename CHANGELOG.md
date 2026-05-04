@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.12] - 2026-05-04
+
+### Headline
+- **R30 acoustic capture + calibration** — `ventd calibrate --acoustic <mic_device>` CLI subcommand wires up mic capture → IEC 61672-1 A-weighting → K_cal reference-tone offset. Split across #886 (A-weighting filter coefficients), #892 (runner extracted to `internal/acoustic/runner`), #887 (`calibrate_acoustic` PhaseGate constructor), #893 (Manager.run gate wiring), #894 (`--mic` flag + adapter). Privacy contract: WAV temp files architecturally denylisted from diag bundles (RULE-DIAG-PR2C-11), no audio device opened by the daemon, only the operator-invoked CLI.
+- **R32 quietness-target preset** (#888, #891) — operator-typed dBA cap (Silent=25 / Balanced=32 / Performance=45 dBA per R32 user-perception thresholds, with explicit-value override via the new `dba_target` config field). Cost gate refuses ramps where predicted dBA exceeds the budget; refusal cascade applies after Path-A and benefit-vs-cost (RULE-CTRL-PRESET-04). Wired into `BlendedController.Compute` via the `AcousticBudget` struct from per-fan R33 proxy + per-host R30 K_cal.
+- **R31 fan-stall detector — advisory only** (#889) — 2-of-3 detector during calibration soak (broadband rise ≥6 dB / crest factor excess ≥2 / kurtosis excess ≥1.5), triggered when at least 2 cross threshold within a 3 s window. Output is a flag (`AcousticStallSuspected`) propagated to the polarity classifier; **never refuses fan writes**. 5× RULE-STALL-* invariants bound to synthetic-fixture subtests; MIMII real-world validation deferred to a follow-up PR.
+- **R36 IT5570 chip-probe fallback** (#885) — schema v1.3's `chip_probe: {hwmon_name}` field for mini-PCs whose BIOS authors leave DMI as the literal string `"Default string"` (Beelink / Minisforum / GMKtec / AceMagic). Tier-1.5 matcher walks `/sys/class/hwmon/*/name` when DMI fingerprint is empty / default, binds to the matching board profile via the `chip_probe` anchor. Confidence 0.85 (vs DMI tier-1 0.9). Existing 16 board rows unaffected.
+
+### Changed
+- **Acoustic calibration runner extracted to internal package** (#892) — calibration logic from `cmd/ventd/calibrate_acoustic.go` moved into a reusable internal package so both the CLI subcommand and the wizard PhaseGate drive the same code path without duplication.
+
+### Fixed
+- **A-weighting filter coefficients** (#886) — IEC 61672-1:2013 Class 1 cascade now correctly sized for fs=48 kHz (3-stage biquad via canonical bilinear transform). Matches the standard's tolerance band (1 kHz ≈ 0 dB, 100 Hz ≈ -19 dB, 10 kHz ≈ -2.5 dB) within the wider error envelope absorbed for bilinear roll-off near Nyquist.
+
+### CI / chore
+- **errcheck discards on six pre-existing offenses** (#890) — explicit `_ =` discards keep the per-package errcheck floor at zero so future violations stand out.
+- **CI unblock + diag-send flake registration** (#895) — five fixes that were exposed by the v0.5.12 acoustic stack landing on main:
+  - `scripts/retry-flaky.sh` rewritten in pure POSIX awk (drops the `python3: command not found` failure on Fedora / Ubuntu 22.04 / Debian 12 / Arch minimal containers).
+  - `bash coreutils-single` added to the opensuse-tumbleweed prereqs (minimal image lacks `/bin/sh`).
+  - `docs/binary_size_baseline` BYTES bumped 9441572 → 11821348 (acoustic-stack growth, +25%).
+  - `TestHandleDiagSend_IngestRejects_Returns502` registered in `.github/flaky-tests.yaml` (issue #883). Roadmap fix is to inject `diag.Generate` via a `Server` field so the test mocks bundle generation.
+  - E2E (browser) job routed through `retry-flaky.sh` so registry entries actually fire on that lane.
+
+### Honest framing
+v0.5.12 closes the R28-R36 acoustic implementation arc that began in v0.5.11. The R30/R31/R33 research bundles synthesise into one operator-visible behaviour: type `25 dBA` in the Silent preset, the daemon opens the mic on demand for one-time calibration, the cost gate refuses ramps that would exceed the budget. Privacy-sensitive surfaces (mic capture, ALSA device opening) are gated behind an explicit opt-in (`--mic` flag); the WAV temp files are architecturally denylisted from diag bundles; the only persisted artefacts are the K_cal scalar offset + dBA-vs-PWM curve in the calibration JSON. R31's stall detector is intentionally advisory-only this release — it surfaces a flag but never blocks fan writes; refusal-on-stall is deferred until MIMII validation lands in a follow-up PR. The PR-3 cost-gate work in #888 also lifts the v0.5.11 `CostFactorBalanced=0.01°C/PWM` synthetic constant out of the controller in favour of the per-fan R33 `CostRate` measurement, which is the load-bearing simplification that makes the dBA budget refusal computationally cheap on the hot path.
+
 ## [v0.5.11] - 2026-05-03
 
 ### Headline
