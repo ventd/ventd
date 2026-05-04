@@ -209,15 +209,126 @@
         setT('about-commit',  v.commit  || '—');
         setT('about-date',    v.date    || '—');
         setT('about-go',      v.go      || v.goversion || '—');
+        setT('upd-installed', v.version || '—');
         var sb = $('sb-version'); if (sb) sb.textContent = v.version || '—';
       })
       .catch(function () {
-        setT('about-version', '0.5.4');
-        setT('about-commit',  'demo·local');
-        setT('about-date',    '2026-04-30');
-        setT('about-go',      'go1.25.9');
-        var sb = $('sb-version'); if (sb) sb.textContent = '0.5.4';
+        setT('about-version', '—');
+        setT('about-commit',  '—');
+        setT('about-date',    '—');
+        setT('about-go',      '—');
+        setT('upd-installed', '—');
       });
+  }
+
+  // ── Update flow ──────────────────────────────────────────────────
+  // /api/v1/update/check polls GitHub for the latest release tag.
+  // /api/v1/update/apply spawns the install.sh script with the
+  // requested VENTD_VERSION; the daemon dies during the install's
+  // systemctl restart and comes back under the new binary. After
+  // POST /apply we poll /healthz until it returns 200 then reload
+  // the page. Calibration / smart shards / config / login persist
+  // across the restart via /var/lib/ventd.
+  function wireUpdateFlow() {
+    var checkBtn = $('upd-check');
+    var applyBtn = $('upd-apply');
+    var applyRow = $('upd-apply-row');
+    var progRow  = $('upd-progress-row');
+    var errRow   = $('upd-error-row');
+    if (!checkBtn || !applyBtn) return;
+
+    var latestVersion = null;
+
+    checkBtn.addEventListener('click', function () {
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking…';
+      if (errRow) errRow.hidden = true;
+      if (applyRow) applyRow.hidden = true;
+      fetch('/api/v1/update/check', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          checkBtn.disabled = false;
+          checkBtn.textContent = 'Check for updates';
+          if (j.error) {
+            if (errRow) {
+              errRow.hidden = false;
+              setT('upd-error-sub', j.error);
+            }
+            return;
+          }
+          setT('upd-latest', j.latest || '—');
+          latestVersion = j.latest;
+          if (j.available && j.latest) {
+            if (applyRow) applyRow.hidden = false;
+            setT('upd-apply-title', 'Update available · ' + j.latest);
+            var subTxt = 'Installed ' + (j.current || '?') + ' → ' + j.latest;
+            if (j.published_at) subTxt += ' (published ' + (j.published_at.split('T')[0] || j.published_at) + ')';
+            setT('upd-apply-sub', subTxt);
+            applyBtn.textContent = 'Apply ' + j.latest;
+          } else {
+            if (applyRow) applyRow.hidden = true;
+            setT('upd-latest', (j.latest || '—') + ' · already on latest');
+          }
+        })
+        .catch(function (e) {
+          checkBtn.disabled = false;
+          checkBtn.textContent = 'Check for updates';
+          if (errRow) {
+            errRow.hidden = false;
+            setT('upd-error-sub', String(e));
+          }
+        });
+    });
+
+    applyBtn.addEventListener('click', function () {
+      if (!latestVersion) return;
+      if (!confirm('Apply update to ' + latestVersion + '? The daemon will restart. Calibration and smart-mode state persist; in-flight calibrations resume from the last completed step.')) return;
+      applyBtn.disabled = true;
+      checkBtn.disabled = true;
+      if (applyRow) applyRow.hidden = true;
+      if (progRow)  progRow.hidden  = false;
+      setT('upd-progress-title', 'Update in progress · ' + latestVersion);
+      setT('upd-progress-sub', 'Daemon restarting under the new binary…');
+
+      fetch('/api/v1/update/apply', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: latestVersion })
+      }).then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            applyBtn.disabled = false;
+            checkBtn.disabled = false;
+            if (progRow) progRow.hidden = true;
+            if (errRow)  {
+              errRow.hidden = false;
+              setT('upd-error-sub', 'apply failed: HTTP ' + r.status + ' ' + t);
+            }
+          });
+        }
+        // Poll /healthz every 1.5 s for up to 120 s. Once it returns
+        // 200, reload the page so we get the new dashboard.js.
+        var deadline = Date.now() + 120000;
+        var poll = function () {
+          if (Date.now() > deadline) {
+            setT('upd-progress-sub', 'Daemon did not come back within 2 minutes — check journal: journalctl -u ventd');
+            return;
+          }
+          fetch('/healthz', { credentials: 'same-origin', cache: 'no-store' })
+            .then(function (rr) {
+              if (rr.ok) {
+                setT('upd-progress-sub', 'Daemon back up — reloading…');
+                setTimeout(function () { location.reload(); }, 500);
+              } else {
+                setTimeout(poll, 1500);
+              }
+            })
+            .catch(function () { setTimeout(poll, 1500); });
+        };
+        setTimeout(poll, 3000);  // give the install script a 3s head start
+      });
+    });
   }
 
   function loadWatchdog() {
@@ -385,6 +496,7 @@
   loadConfig();
   loadVersion();
   loadWatchdog();
+  wireUpdateFlow();
   setLive(true);
   setInterval(loadWatchdog, 5000);
 })();
