@@ -55,16 +55,22 @@ func scanHwmon() []Device {
 		}
 		dev := Device{Name: friendlyDeviceName(chip), Path: e.Name()}
 		dev.Readings = append(dev.Readings, scanInputs(dir, "temp", "°C", 1000)...)
-		// Fan readings get an extra dedup pass for mirror-tach EC zones
-		// (#796). Many embedded EC firmwares expose the same physical
-		// fan's RPM across multiple `fan*_input` zones — labelled as
-		// CPU / system / chassis virtual zones — that all read the
-		// same value because there's only one physical tach behind
-		// them. Showing four "Fan 1, Fan 2, Fan 3, Fan 4" rows that
-		// all report 1500 RPM clutters the dashboard. Collapse fans
-		// whose RPM is within mirrorRPMTolerance of an already-seen
-		// reading on the same device.
-		dev.Readings = append(dev.Readings, dedupMirrorFans(scanInputs(dir, "fan", "RPM", 1))...)
+		// Fan readings get an extra dedup pass on chips known to mirror
+		// the same physical tach across multiple `fan*_input` zones —
+		// embedded EC firmwares (thinkpad_acpi, dell-smm-hwmon,
+		// asus-ec-sensors, hp-wmi-sensors) expose CPU / system /
+		// chassis virtual zones that all read the same value because
+		// there's only one physical tach behind them. Desktop super-I/O
+		// chips (nct6687, it8688, etc.) expose N distinct PWM channels
+		// with N distinct tachs — applying dedup there is the bug from
+		// #40 where Phoenix's MSI Z690-A only showed 1 fan_input
+		// despite the board having 7 PWM headers. Trust the chip's
+		// declared layout rather than coincidental idle-RPM matches.
+		fanReadings := scanInputs(dir, "fan", "RPM", 1)
+		if chipMirrorsTachs(chip) {
+			fanReadings = dedupMirrorFans(fanReadings)
+		}
+		dev.Readings = append(dev.Readings, fanReadings...)
 		dev.Readings = append(dev.Readings, scanInputs(dir, "in", "V", 1000)...)
 		dev.Readings = append(dev.Readings, scanInputs(dir, "power", "W", 1000000)...)
 		if len(dev.Readings) > 0 {
@@ -109,6 +115,31 @@ nextFan:
 		out = append(out, r)
 	}
 	return out
+}
+
+// chipMirrorsTachs reports whether a hwmon chip name is in the known
+// set of EC drivers that expose the same physical fan's RPM across
+// multiple fan*_input zones. Desktop super-I/O chips (nct6687,
+// it8688, etc.) report N distinct PWMs + N distinct tachs and MUST
+// NOT be dedup'd — that's #40, where the dedup collapsed real
+// distinct fans on Phoenix's MSI Z690-A.
+//
+// Add new entries here only after confirming via vendor docs OR
+// hwmon source that the chip mirrors a single physical tach across
+// multiple sysfs zones.
+var ecMirrorChips = map[string]bool{
+	"thinkpad_acpi":     true,
+	"dell-smm-hwmon":    true,
+	"asus-ec-sensors":   true,
+	"asus-wmi-sensors":  true,
+	"hp-wmi-sensors":    true,
+	"surface_fan":       true,
+	"applesmc":          true,
+	"macsmc-hwmon":      true,
+}
+
+func chipMirrorsTachs(chip string) bool {
+	return ecMirrorChips[strings.ToLower(chip)]
 }
 
 // labelMoreInformative returns true when a is a better label than b.
