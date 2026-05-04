@@ -131,16 +131,20 @@
              c.acoustic_optimisation === true);
         }
       })
-      .catch(function () {
-        // Demo fallback when API is unreachable so the screen never looks
-        // empty during preview.
-        setT('set-listen', '0.0.0.0:9999 (demo)');
-        setT('set-tls',    'off');
-        setT('set-ttl',    '8h');
-        setT('set-active', 'Quiet');
-        setT('set-curves', '5');
-        setT('set-fans',   '14');
-        setT('set-proxy',  'none');
+      .catch(function (err) {
+        // Honest error path — the previous "demo fallback" populated
+        // every readout with plausible-looking placeholder values
+        // (0.0.0.0:9999, Quiet, 5 curves, 14 fans), which masked a
+        // broken daemon as a working one. Bug-hunt finding (Agent 1
+        // #4): operator on an unreachable daemon couldn't tell.
+        // Render every readout as "—" + a single error line so the
+        // failure mode is unmistakable.
+        ['set-listen', 'set-tls', 'set-ttl', 'set-active',
+         'set-curves', 'set-fans', 'set-proxy'].forEach(function (id) {
+          setT(id, '—');
+        });
+        var msg = (err && err.message) ? err.message : 'unknown error';
+        console.error('settings: /api/v1/config GET failed:', msg);
       });
   }
 

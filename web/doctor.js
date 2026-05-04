@@ -11,7 +11,7 @@
 
   // SEVERITY constants mirror internal/doctor/severity.go's String()
   // output: "ok" | "info" | "warning" | "blocker" | "error".
-  var SEVERITIES = ['blocker', 'warning', 'error', 'ok'];
+  var SEVERITIES = ['blocker', 'warning', 'error', 'ok', 'info'];
 
   // Per-FailureClass docs links lived here in the first cut but
   // RULE-UI-01 forbids external URLs in shipped JS. Operators see the
@@ -139,13 +139,14 @@
     var facts = (report && Array.isArray(report.facts)) ? report.facts : [];
     var detErrs = (report && Array.isArray(report.detector_errors)) ? report.detector_errors : [];
 
-    // Group facts by severity.
+    // Group facts by severity. Bug-hunt finding (Agent 1 #2): info
+    // used to roll into the "ok" group, making informational facts
+    // (active experimental flags, etc.) visually invisible — operator
+    // saw a green OK count and missed that flags they care about
+    // are on. Info now has its own section + blue tag.
     var groups = { blocker: [], warning: [], error: [], ok: [], info: [] };
     facts.forEach(function (f) {
       var s = (f.severity || 'ok').toLowerCase();
-      // "info" rolls into the "ok" group for display purposes — both
-      // are informational findings that don't block operation.
-      if (s === 'info') s = 'ok';
       if (!groups[s]) s = 'ok';
       groups[s].push(f);
     });

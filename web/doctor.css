@@ -67,6 +67,7 @@
 .doc-group-tag.is-warning  { background: var(--amber-bg); color: var(--amber); }
 .doc-group-tag.is-error    { background: var(--red-bg);   color: var(--red2, var(--red)); }
 .doc-group-tag.is-ok       { background: var(--teal-bg);  color: var(--teal);  }
+.doc-group-tag.is-info     { background: var(--blue-bg);  color: var(--blue);  }
 .doc-group-tag.is-detector-error { background: var(--red-bg); color: var(--red2, var(--red)); }
 .doc-group-count {
   color: var(--fg1);
