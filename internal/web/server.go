@@ -253,6 +253,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	s.registerWebPage("dashboard")
 	s.registerWebPage("devices")
 	s.registerWebPage("hardware")
+	s.registerWebPage("smart")
 	s.registerWebPage("curve-editor")
 	s.registerWebPage("schedule")
 	s.registerWebPage("sensors")
