@@ -1369,49 +1369,55 @@
     return '';
   }
 
-  /* aliveRenderNarrator: shows a single line at a time. When called
-     with a fresh decision, immediately switches to that line and
-     resets the rotation timer. Otherwise rotates through the most
-     recent decisions every ALIVE_NARRATOR_PERIOD_MS, falling back
-     to "system idle" after ALIVE_NARRATOR_IDLE_MS without any new
-     decision. NO typewriter effect. */
-  function aliveRenderNarrator(immediate, entry) {
+  /* aliveRenderNarrator shows a SINGLE stable line: the most recent
+     decision the controller actually made. When a new decision
+     arrives, the line updates to that. After ALIVE_NARRATOR_IDLE_MS
+     without any new decision, the line transitions to "system idle".
+     Per Phoenix's UX feedback (24-04 burst-frame session), the line
+     used to rotate through past decisions every 6 s — operators
+     read the rotating strings as new things constantly happening
+     when really only one thing happened. The line now stays put
+     until the next REAL transition. */
+  function aliveRenderNarrator(_immediate, entry) {
     var bar = $('dash-narrator');
     var txt = $('dash-narrator-text');
     var time = $('dash-narrator-time');
     if (!bar || !txt) return;
     var now = Date.now();
-    var line = '';
-    var stamp = '';
+
+    // If a fresh decision was just emitted, pin the line to it.
     if (entry) {
-      line = aliveNarratorLine(entry);
-      stamp = aliveFormatTime(entry.ts);
+      txt.textContent = aliveNarratorLine(entry);
+      if (time) time.textContent = aliveFormatTime(entry.ts);
+      bar.hidden = false;
       aliveState.narratorLastShown = now;
-    } else if (aliveState.decisions.length > 0) {
-      var idx = aliveState.narratorIdx % aliveState.decisions.length;
-      var d = aliveState.decisions[idx];
-      var ageMs = now - d.ts;
-      if (ageMs > ALIVE_NARRATOR_IDLE_MS && idx === 0) {
-        line = 'system idle — no decisions in ' + Math.round(ageMs / 1000) + ' s';
-        stamp = aliveFormatTime(d.ts);
-      } else {
-        line = aliveNarratorLine(d);
-        stamp = aliveFormatTime(d.ts);
-      }
-    } else {
-      // No decisions yet — keep the strip hidden until we see one OR
-      // we've been polling for ALIVE_NARRATOR_IDLE_MS.
-      if (now - bootAt > ALIVE_NARRATOR_IDLE_MS) {
-        line = 'system idle — no decisions yet';
-        stamp = '';
-      } else {
-        bar.hidden = true;
-        return;
-      }
+      return;
     }
-    txt.textContent = line;
-    if (time) time.textContent = stamp;
-    bar.hidden = false;
+
+    // Otherwise: pin to the most recent decision in the feed (index 0),
+    // upgrading to "system idle" when it's been quiet long enough.
+    if (aliveState.decisions.length > 0) {
+      var d = aliveState.decisions[0];
+      var ageMs = now - d.ts;
+      if (ageMs > ALIVE_NARRATOR_IDLE_MS) {
+        txt.textContent = 'system idle — no decisions in ' + Math.round(ageMs / 1000) + ' s';
+      } else {
+        txt.textContent = aliveNarratorLine(d);
+      }
+      if (time) time.textContent = aliveFormatTime(d.ts);
+      bar.hidden = false;
+      return;
+    }
+
+    // No decisions yet — keep hidden until the page has been live
+    // long enough to confidently say "no decisions yet".
+    if (now - bootAt > ALIVE_NARRATOR_IDLE_MS) {
+      txt.textContent = 'system idle — no decisions yet';
+      if (time) time.textContent = '';
+      bar.hidden = false;
+    } else {
+      bar.hidden = true;
+    }
   }
   function aliveNarratorLine(d) {
     if (d.dir === 'up') {
@@ -1428,16 +1434,13 @@
     return pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
   }
 
-  /* Rotate the narrator strip on a 6 s tick — only steps the
-     index when no new decision has arrived in this window. The
-     index wraps modulo decisions.length so the operator always
-     sees recent activity. */
+  /* aliveRotateNarrator no longer rotates indices — it just refreshes
+     the single most-recent line so the relative-age suffix updates
+     ("system idle — no decisions in N s") as time passes. Kept as a
+     periodic tick because the strip can transition from "ramped X
+     from A% → B%" to "system idle — no decisions in 12 s" without
+     a new decision arriving. */
   function aliveRotateNarrator() {
-    if (aliveState.decisions.length === 0) {
-      aliveRenderNarrator(false);
-      return;
-    }
-    aliveState.narratorIdx += 1;
     aliveRenderNarrator(false);
   }
 

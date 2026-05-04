@@ -122,7 +122,14 @@
   function parseRFC3339(s) {
     if (!s) return null;
     var t = Date.parse(s);
-    return isNaN(t) ? null : t;
+    if (isNaN(t)) return null;
+    // Go's zero-value RFC3339 timestamp is "0001-01-01T00:00:00Z"
+    // (Date.parse → -62135596800000). Treat it as "never happened"
+    // rather than letting it propagate through fmtAge as "17753741h ago".
+    // Anything before 1970 is the same kind of sentinel; the daemon's
+    // RFC3339 outputs are real wall-clock when populated.
+    if (t < 0) return null;
+    return t;
   }
 
   // ── state ────────────────────────────────────────────────────────

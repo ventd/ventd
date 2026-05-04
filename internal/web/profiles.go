@@ -65,6 +65,17 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 // callers rely on it to be atomic from the reader's perspective, which
 // the atomic.Pointer swap gives us.
 func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		// Read-only branch — dashboard.js polls this on every tick to
+		// surface the active-profile pill. Returning {"name":"..."}
+		// keeps the body shape minimal so the dashboard's existing
+		// JSON shape contract is satisfied without a separate handler.
+		live := s.cfg.Load()
+		s.writeJSON(r, w, struct {
+			Name string `json:"name"`
+		}{Name: live.ActiveProfile})
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
