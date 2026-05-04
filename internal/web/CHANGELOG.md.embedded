@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.24] - 2026-05-04
+
+### Headline
+- **Bug-hunt iteration 1: security + UI honesty batches** (#971 + #972) — Phoenix asked for an extensive bug hunt after the v0.6 work landed; this release ships the first batch of confirmed-real findings.
+
+### Security (#971)
+- **\`ventd-setup.service\` RuntimeDirectoryMode=0755 → 0750** — original declaration would have publicised the wizard's request file (operator-supplied module names, package selectors, audit metadata) to every user on the system if ventd-setup happened to win the create race against ventd.service. 0750 matches ventd.service and keeps the dir tight (root + ventd group).
+- **JSON request decoder cap** — \`MaxRequestBytes = 64 KiB\` via \`io.LimitReader\` + post-decode \`dec.More()\` check. Without the cap, a malicious 10 GiB request file would let \`json.Decoder.Decode\` allocate the giant string field into the \`Request\` struct before any type validation short-circuits. ventd-setup OOMs before reaching the wizard's result-file reader.
+- New install-contract tests (`TestVentdSetupUnit_*`) pin the unit's RuntimeDirectoryMode + Type=oneshot + User=root.
+
+### UI honesty (#972)
+- **\`/settings\` no longer renders demo placeholder values on \`/api/v1/config\` GET failure** — operators on a host where the daemon was unreachable used to see a fully-rendered settings page with \"0.0.0.0:9999 (demo)\" / \"Quiet\" / 5 curves / 14 fans, which masked the broken state. Now every readout shows \"—\".
+- **\`/health\` topbar pill turns warn on partial endpoint failure** — silent per-endpoint catch-to-null had made \"Hottest: —\" indistinguishable from \"system has zero sensors\". Pill now reads \`partial · N endpoints failed\` with the per-endpoint cause in the meta footer.
+- **\`/doctor\` \"Info\" severity gets its own visual section** — informational findings (active experimental flags, etc.) used to roll into the OK group, making them visually invisible. New blue-tagged \"Info\" section sits between OK and Detector errors with its own count badge.
+
+### Filed for follow-up
+3 lower-priority findings filed as issues for tracking: #973 (tighten module name regex to reject leading hyphen), #974 (in-UI updater retry on transient GitHub 5xx), #975 (in-UI updater timeout on detached install.sh hang).
+
+### Honest framing
+The bug hunt's no-theatre-rule extension to error states is the load-bearing change in this release: when an endpoint isn't reachable or a fact is informational, the UI MUST say so — not paper over the gap with placeholder values that look authoritative.
+
 ## [v0.5.23] - 2026-05-04
 
 ### Headline
