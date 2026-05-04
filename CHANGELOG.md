@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.17] - 2026-05-04
+
+### Headline
+- **Real Layer-C predicted ΔT forecast on the dashboard hero cards** (#945, closes #43, P0) — the v0.5.15 dashboard removed the fake 12-sample client-side linear-regression forecast and left a forecast-shaped hole. v0.5.17 fills it with the real model output: the daemon's existing `marginal.Snapshot.MarginalSlope` (`β_0 + β_1·load`, the Path-A formula from RULE-CMB-SAT-01) is plumbed through `/api/v1/smart/channels` and the dashboard renders it as an arrow-and-magnitude beneath each hero spark (`↓ 0.042 °C/PWM · last 60 s`). Below the saturation floor (2°C across the full 0-255 ramp) the badge reads `· saturated · last 60 s`; with no usable shard yet (warming up, no samples) it reads only `last 60 s` — never a fabricated number, no theatre.
+- **Patch-notes-on-first-login modal** (#942, closes #48) — after the in-UI Update button (#934) rolls the daemon to a new tag, the operator's first post-update page load surfaces a dismissible modal containing the CHANGELOG section(s) for everything between their last-seen version and the current daemon version. Backend parses `/usr/share/doc/ventd/CHANGELOG.md`, splits on `## [vX.Y.Z]` headings, returns sections newer than the `since` query param. Cached after first parse; invalidated only by daemon restart, which matches the install + restart cycle exactly. Frontend renders safe markdown-to-DOM (textContent only — no innerHTML, RULE-UI-01).
+- **First-visit walkthrough banners on Dashboard, Hardware, and Smart** (#947, closes #36) — small dismissible card injected at the top of each of the three pages a first-time operator is most likely to land on. 2-3 plain-text paragraphs explain what they're looking at, why the signals are shaped the way they are, and where to look next. Persists `ventd-walkthrough-<page>` in localStorage so subsequent loads skip. Content stays honest — it describes what's actually on the screen and traces each signal back to its real backend source.
+
+### Fixed
+- **`is-just-changed` decision flash freshness gate** (#946, closes #35) — the yellow halo on a fan tile is supposed to fire in lock-step with a new entry being unshifted onto the decision feed. The flash flag was a bare bool, so any stale flag that survived a render cycle without being consumed could re-trigger the keyframe later when the tile next re-rendered. The corresponding decision entry by then may have been pushed below the visible 8-row window — operator sees a phantom flash with nothing to explain it. Stamp the flash with an epoch-ms timestamp and only consume it when ≤ 3 s old; stale flashes drop silently.
+- **/calibration page CSP regression** (#944, closes #42) — the system-card body had `style="padding-top: 6px;"` inline, which violates the daemon's strict CSP (`style-src 'self'`, no `unsafe-inline`). The browser silently dropped the override and emitted a console warning since the CSP shipped. Move the override to a `.tight-top` modifier class on `.v2-card-body`.
+- **Pre-existing bug in `aliveModeWorkloadLabel`** (in #945) — was walking `aliveState.channels.channels` (object-style) when `/api/v1/smart/channels` actually returns a bare JSON array. The workload-mode label has been silently empty since #39 landed; now correctly shows the modal signature label across channels.
+
+### CI / chore
+- **gofmt drift cleanup** (#943) — `golangci-lint`'s gofmt step caught two drifts that local pre-push missed (`golangci-lint` isn't in the local sweep): per-key whitespace alignment in `monitor.ecMirrorChips` (added in #939) and doc-comment bullet chars + struct-tag column alignment in `release_notes.go` (added in #942). Pure cosmetic; no behaviour change.
+- **Dead-code removal** (#948) — drop unused `changelogCachePath` var and `resetChangelogCacheForTest` func from `release_notes.go`; both were introduced in #942 but never read by any caller.
+
+### Honest framing
+v0.5.17 closes the largest remaining P0 from the v0.5.14 dashboard bug-hunt (the missing real forecast — Phoenix's frustrated "WHY AREN'T WE USING THE MODEL we spent hours researching" feedback) plus three operator-facing UX completions: the first-visit walkthrough that explains each new page, the patch-notes modal that tells operators what just changed after they click Update, and the freshness gate that stops phantom flashes on the dashboard. With v0.5.17 every visible signal on the dashboard, hardware, and smart pages traces to a real backend signal — the no-theatre rule is now uniformly enforced.
+
 ## [v0.5.16] - 2026-05-04
 
 ### Headline
