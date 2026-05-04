@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.23] - 2026-05-04
+
+### Headline
+- **Monitor-only systems default to /health on root navigation** (#967, closes #784 Branch B) — operators on EC-locked laptops, mini-PCs, BMC-managed servers no longer land on `/dashboard` (which is mostly empty for them) when they hit the root URL. Detection: `setup.IsApplied() && len(cfg.Controls) == 0`. Pre-wizard hosts still land on `/calibration`; control-mode hosts still land on `/dashboard`. Direct URL navigation to `/dashboard` remains available — the redirect is just default landing.
+- **Split-daemon Phase B: first two real handlers in setupbroker** (#968 load_module, #969 unload_module) — the broker scaffold from #962 has its first concrete operations. Both are tightly-scoped privileged surfaces with strict module-name validation (`^[A-Za-z0-9_-]{1,64}$`), shell-metacharacter rejection on every modprobe arg, optional persistence to `/etc/modules-load.d/ventd-<module>.conf`, partial-success reporting (modprobe OK but persistence failed), and idempotence on already-absent persistence files. 15 unit tests cover happy paths, validation rejection cases, modprobe failure surfacing, and decoder strictness.
+
+### v0.6 plan status
+4 of 5 prereqs fully done; 5th (catalog harvest) has spec. Split-daemon architecture done at the broker layer; per-operation handlers continue iteratively across follow-up PRs (3 of 7 done, 4 to go: install_dependency, patch_kernel_param, nvml_write, run_sensors_detect, install_oot_driver — minus the unimplemented count of 4 since 3 are done after this release: load_module, unload_module, and the dispatch fallthrough behaviour).
+
+The "User=ventd flip + AppArmor restore" Phase B finalisation is gated on HIL re-test across the full grid (Phoenix's three boxes + the 2-laptop and Steam Deck additions); release-engineering rather than architectural design.
+
+### Honest framing
+v0.5.23 doesn't change runtime behaviour for any operator on a control-mode system — every fan / sensor / pill / spark renders the same. The visible change is for monitor-only operators (the redirect) and for ventd-setup smoke testers (the broker now actually does load/unload module operations on real /sbin/modprobe). The wizard does not yet ROUTE through ventd-setup; that wiring lands in the next Phase B sub-PR.
+
 ## [v0.5.22] - 2026-05-04
 
 ### Headline
