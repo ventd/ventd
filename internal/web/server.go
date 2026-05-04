@@ -21,6 +21,7 @@ import (
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/grub"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
@@ -80,9 +81,15 @@ type Server struct {
 	// nil until SetSmartRuntimes is called.
 	couplingRT *coupling.Runtime
 	marginalRT *marginal.Runtime
-	restartCh  chan<- struct{}
-	sessions   *sessionStore
-	diag       *hwdiag.Store
+	// decisions caches per-channel BlendedResult (the controller's
+	// next-tick PWM target + refusal flags). Populated by main.go's
+	// BlendFn after every controller.Compute. Read by the
+	// /api/v1/smart/channels handler. Lock-free reads via atomic
+	// pointer-swap; nil-safe (monitor-only mode skips wiring).
+	decisions *controller.DecisionCache
+	restartCh chan<- struct{}
+	sessions  *sessionStore
+	diag      *hwdiag.Store
 	// doctorCache memoises the most recent doctor.Report; the runner
 	// is constructed lazily on first /api/v1/doctor GET. See doctor.go.
 	doctorCache    doctorRunnerCache
@@ -1149,6 +1156,15 @@ func (s *Server) SetConfidence(agg *aggregator.Aggregator, est *layer_a.Estimato
 	s.layerA = est
 }
 
+// SetDecisions wires the controller's per-channel BlendedResult cache
+// so /api/v1/smart/channels can show the next-tick PWM target +
+// refusal flags + predicted dBA alongside the upstream RLS state.
+// nil-safe (monitor-only mode skips wiring); safe to call once at
+// daemon start. (#790)
+func (s *Server) SetDecisions(d *controller.DecisionCache) {
+	s.decisions = d
+}
+
 // confidenceChannel is the JSON wire shape for one channel's
 // confidence snapshot. UI renders this directly.
 type confidenceChannel struct {
@@ -1329,6 +1345,30 @@ type smartChannelEntry struct {
 	Coupling       *smartCouplingShard   `json:"coupling,omitempty"`
 	Marginal       []*smartMarginalShard `json:"marginal,omitempty"`
 	SignatureLabel string                `json:"signature_label,omitempty"`
+	// Decision is the controller's most-recent BlendedResult for this
+	// channel — what the next tick will write. Lets the dashboard
+	// render the predicted next-tick ΔT (= MarginalSlope ×
+	// (OutputPWM − ReactivePWM)) instead of just the per-PWM rate.
+	// nil when no decision has been recorded (monitor-only / fresh
+	// daemon / channel just admitted). (#790)
+	Decision *smartChannelDecision `json:"decision,omitempty"`
+}
+
+// smartChannelDecision mirrors the operator-meaningful fields of
+// controller.BlendedResult. The wire shape stays small — the doctor
+// surface still consumes the full Result via its own path.
+type smartChannelDecision struct {
+	OutputPWM        uint8   `json:"output_pwm"`
+	ReactivePWM      uint8   `json:"reactive_pwm"`
+	PredictivePWM    uint8   `json:"predictive_pwm"`
+	UIState          string  `json:"ui_state"` // reactive | blended | refused-pi | refused-pathA | refused-cost | refused-dba
+	PredictedDBA     float64 `json:"predicted_dba,omitempty"`
+	PathARefused     bool    `json:"path_a_refused,omitempty"`
+	CostRefused      bool    `json:"cost_refused,omitempty"`
+	DBABudgetRefused bool    `json:"dba_budget_refused,omitempty"`
+	PIRefused        bool    `json:"pi_refused,omitempty"`
+	IntegratorFrozen bool    `json:"integrator_frozen,omitempty"`
+	DiagnosticReason string  `json:"diagnostic_reason,omitempty"`
 }
 
 type smartCouplingShard struct {
@@ -1471,11 +1511,31 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Snapshot the controller's per-channel decision cache once per
+	// request — gives the dashboard the next-tick PWM target +
+	// refusal flags alongside Layer-C's MarginalSlope. (#790)
+	decisionsByChannel := s.decisions.LoadAll()
+
 	for _, a := range aggSnaps {
 		entry := smartChannelEntry{
 			ChannelID: a.ChannelID,
 			UIState:   a.UIState,
 			Wpred:     a.Wpred,
+		}
+		if dec, ok := decisionsByChannel[a.ChannelID]; ok {
+			entry.Decision = &smartChannelDecision{
+				OutputPWM:        dec.Result.OutputPWM,
+				ReactivePWM:      dec.ReactivePWM,
+				PredictivePWM:    dec.Result.PredictivePWM,
+				UIState:          dec.Result.UIState,
+				PredictedDBA:     dec.Result.PredictedDBA,
+				PathARefused:     dec.Result.PathARefused,
+				CostRefused:      dec.Result.CostRefused,
+				DBABudgetRefused: dec.Result.DBABudgetRefused,
+				PIRefused:        dec.Result.PIRefused,
+				IntegratorFrozen: dec.Result.IntegratorFrozen,
+				DiagnosticReason: dec.Result.DiagnosticReason,
+			}
 		}
 		if c, ok := couplingByChannel[a.ChannelID]; ok && c != nil {
 			entry.Coupling = &smartCouplingShard{
