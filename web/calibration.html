@@ -347,14 +347,14 @@
         </div>
       </div>
 
-      <!-- PHASE NARRATOR (placeholder for SSE log in PR-2) ------------ -->
+      <!-- LIVE ACTIVITY (SSE-backed; phase narrator above for context) ---- -->
       <div class="v2-card">
         <div class="v2-card-head">
           <div class="v2-card-head-left">
-            <div class="v2-card-eyebrow blue">Phase narrator</div>
-            <div class="v2-card-title">What ventd is doing</div>
+            <div class="v2-card-eyebrow blue" id="cal-log-eyebrow">Daemon log · awaiting…</div>
+            <div class="v2-card-title">Live activity</div>
           </div>
-          <div class="v2-card-meta" id="cal-narrator-meta">live</div>
+          <div class="v2-card-meta" id="cal-narrator-meta"><span id="cal-log-count">0</span> events</div>
         </div>
         <div class="v2-narrator" id="cal-narrator">
           <div class="v2-narrator-eyebrow" id="cal-narrator-eyebrow">Awaiting daemon…</div>
@@ -362,6 +362,7 @@
           <div class="v2-narrator-blurb" id="cal-narrator-blurb">The calibration log will stream here once the daemon connects.</div>
           <div class="v2-narrator-msg mono" id="cal-narrator-msg"></div>
         </div>
+        <div class="v2-log" id="cal-log"></div>
       </div>
 
       <!-- THERMAL PREVIEW (hidden when compute hero takes over) ------ -->

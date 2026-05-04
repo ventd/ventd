@@ -307,6 +307,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "calibrate/abort", handler: s.handleCalibrateAbort, auth: true},
 		{name: "detect-rpm", handler: s.handleDetectRPM, auth: true},
 		{name: "setup/status", handler: s.handleSetupStatus, auth: true},
+		{name: "setup/events", handler: s.handleSetupEvents, auth: true},
 		{name: "setup/start", handler: s.handleSetupStart, auth: true},
 		{name: "setup/apply", handler: s.handleSetupApply, auth: true},
 		{name: "setup/apply-monitor-only", handler: s.handleSetupApplyMonitorOnly, auth: true},

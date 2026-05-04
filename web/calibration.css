@@ -1087,6 +1087,38 @@ body.cal-body {
 .v2-strips::-webkit-scrollbar { width: 6px; }
 .v2-strips::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
 
+/* ── live activity log (PR-2: SSE-backed daemon log) ───── */
+.v2-log {
+  padding: 8px 0 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  mask-image: linear-gradient(180deg, transparent 0, black 14px, black calc(100% - 8px), transparent 100%);
+}
+.v2-log-line {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 10px;
+  padding: 2px 4px;
+  position: relative;
+  animation: v2-log-in 0.4s ease-out;
+}
+@keyframes v2-log-in {
+  from { opacity: 0; transform: translateX(-6px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.v2-log-line.fresh { background: linear-gradient(90deg, rgba(var(--rgb-teal), 0.1), transparent 60%); }
+.v2-log-time { color: var(--fg3); white-space: nowrap; }
+.v2-log-msg { color: var(--fg1); min-width: 0; word-break: break-word; }
+.v2-log-msg .lvl { display: inline-block; width: 22px; }
+.v2-log-msg .lvl-info  { color: var(--blue); }
+.v2-log-msg .lvl-ok    { color: var(--teal); }
+.v2-log-msg .lvl-warn  { color: var(--amber); }
+.v2-log-msg .lvl-err   { color: var(--red); }
+.v2-log-msg .tag       { color: var(--fg2); margin-right: 6px; }
+
 /* Universal hidden override — CSS `display: flex` on the banner / modal
  * / done-banner rules below would otherwise win against the UA
  * stylesheet's default for `[hidden]`, leaving them visible on page
