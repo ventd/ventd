@@ -26,6 +26,7 @@ import (
 	"os"
 
 	"github.com/ventd/ventd/internal/setupbroker"
+	"github.com/ventd/ventd/internal/setupbroker/handlers"
 )
 
 const (
@@ -74,9 +75,14 @@ func run(logger *slog.Logger, requestPath, resultPath string) int {
 		"client_ip", req.Audit.ClientIP)
 
 	disp := setupbroker.NewDispatcher()
-	// Phase A: no operations implemented yet; every Dispatch falls
-	// through to ErrOperationNotImpl. Phase B fills these in via
-	// disp.Register(setupbroker.OpInstallOOTDriver, handler), etc.
+	// Phase B is filling in the handlers one operation at a time.
+	// Each Register call below is a load-bearing privileged surface;
+	// adding a new entry requires a corresponding handler under
+	// internal/setupbroker/handlers/ + a per-handler test pack.
+	// Operations without a registered handler still fall through
+	// to ErrOperationNotImpl (the broker's default) with a clean
+	// result file the wizard can surface to the operator.
+	disp.Register(setupbroker.OpLoadModule, handlers.LoadModuleHandler(handlers.RealLoadModuleDeps()))
 
 	result, dispatchErr := disp.Dispatch(req)
 	if dispatchErr != nil {
