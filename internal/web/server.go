@@ -289,6 +289,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// back under the new binary). /var/lib/ventd state persists.
 		{name: "update/check", handler: s.handleUpdateCheck, auth: true},
 		{name: "update/apply", handler: s.handleUpdateApply, auth: true},
+		// Patch-notes endpoint — frontend reads on every page load and
+		// shows a modal when the daemon's current version is newer than
+		// the browser's last-seen-version (localStorage). #48.
+		{name: "release-notes", handler: s.handleReleaseNotes, auth: true},
 
 		// Authenticated routes.
 		{name: "status", handler: s.handleStatus, auth: true},

@@ -252,6 +252,18 @@ nfpms:
         dst: /usr/share/selinux/ventd/Makefile
       - src: scripts/_ventd_account.sh
         dst: /usr/share/ventd/_ventd_account.sh
+      # CHANGELOG.md ships under /usr/share/doc/ventd/ so the daemon
+      # can read it at runtime for the in-UI release-notes modal
+      # (#48 — patch-notes-on-first-login after an update).
+      - src: CHANGELOG.md
+        dst: /usr/share/doc/ventd/CHANGELOG.md
+      # install.sh ships in the same docs dir so the in-UI Update
+      # button (#934) can find it via the candidate list in
+      # internal/web/update.go::updateInstallScriptCandidates.
+      - src: scripts/install.sh
+        dst: /usr/share/ventd/install.sh
+        file_info:
+          mode: 0755
       - src: scripts/ventd-wait-hwmon
         dst: /usr/local/sbin/ventd-wait-hwmon
         file_info:
