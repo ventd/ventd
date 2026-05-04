@@ -555,7 +555,9 @@
     container.appendChild(rail);
   }
 
-  // Mini SVG sensor → curve → fan diagram with packet flows.
+  // Mini SVG sensor → curve → fan diagram. Edges only — the previous
+  // animateMotion pulses were cosmetic (no real signal driving them);
+  // removed per the no-theatre rule. The wiring itself is the story.
   function makeCouplingMini(sensor, curves) {
     var W = 280, H = 90;
     var sx = 24, cx = W / 2, fx = W - 24;
@@ -577,35 +579,20 @@
             + ' C' + ((sx + cx)/2) + ',' + (H/2)
             + ' ' + ((sx + cx)/2) + ',' + cy
             + ' ' + (cx - 8) + ',' + cy;
-      var g = svgEl('g');
-      g.appendChild(svgEl('path', { 'class': 'edge', d: d }));
-      var p = svgEl('circle', { 'class': 'pulse', r: '2' });
-      var anim = svgEl('animateMotion', { dur: '2.4s', repeatCount: 'indefinite', path: d });
-      p.appendChild(anim);
-      g.appendChild(p);
-      svg.appendChild(g);
+      svg.appendChild(svgEl('path', { 'class': 'edge', d: d }));
     });
 
     // Curve → fan edges
     curves.forEach(function (c, i) {
       var cy = H / 2 + (i - (curves.length - 1) / 2) * 22;
-      (c.drives || []).forEach(function (fid, j) {
+      (c.drives || []).forEach(function (fid) {
         var idx = fans.indexOf(fid);
         var fyy = (idx + 0.5) / Math.max(1, fans.length) * H;
         var d = 'M' + (cx + 8) + ',' + cy
               + ' C' + ((cx + fx)/2) + ',' + cy
               + ' ' + ((cx + fx)/2) + ',' + fyy
               + ' ' + (fx - 8) + ',' + fyy;
-        var g = svgEl('g');
-        g.appendChild(svgEl('path', { 'class': 'edge', d: d }));
-        var p = svgEl('circle', { 'class': 'pulse', r: '2' });
-        var anim = svgEl('animateMotion', {
-          dur: '2.8s', begin: (j * 0.2) + 's',
-          repeatCount: 'indefinite', path: d
-        });
-        p.appendChild(anim);
-        g.appendChild(p);
-        svg.appendChild(g);
+        svg.appendChild(svgEl('path', { 'class': 'edge', d: d }));
       });
     });
 
@@ -734,24 +721,18 @@
       var isDown = chip.status === 'offline';
       var g = svgEl('g');
       g.appendChild(svgEl('path', { 'class': 'bus-line' + (!isDown ? ' active' : ''), d: d }));
-      if (!isDown) {
-        var pktCls = 'packet' + (chip.bus === 'nvml' ? ' gpu' : '');
-        var p = svgEl('circle', { 'class': pktCls, r: '2.5' });
-        var a = svgEl('animateMotion', {
-          dur: (1.4 + (i % 3) * 0.3) + 's',
-          repeatCount: 'indefinite',
-          path: d, keyPoints: '1;0', keyTimes: '0;1', calcMode: 'linear'
-        });
-        p.appendChild(a);
-        g.appendChild(p);
-      }
+      // animateMotion packet flow REMOVED — was cosmetic, not tied to
+      // real bus events. The line itself indicates the daemon→chip
+      // wiring; activity rate is conveyed elsewhere (per-sensor
+      // sparklines in Inventory view).
       svg.appendChild(g);
     });
 
-    // Daemon glow + box
+    // Daemon box (the previous "glow pulse" was cosmetic — fixed cycle
+    // unrelated to real daemon activity. Removed per the no-theatre rule;
+    // a static box conveys "the daemon is here" without pretending to
+    // animate based on something).
     var glow = svgEl('circle', { 'class': 'daemon-glow', cx: String(daemonX), cy: String(daemonY), r: '50' });
-    var glowAnim = svgEl('animate', { attributeName: 'r', values: '50;58;50', dur: '2.4s', repeatCount: 'indefinite' });
-    glow.appendChild(glowAnim);
     svg.appendChild(glow);
     svg.appendChild(svgEl('rect', {
       'class': 'daemon',
@@ -806,16 +787,9 @@
           var t = svgEl('text', { 'class': 'label tag', x: String(sxn), y: String(syn + 28), 'text-anchor': 'middle' });
           t.textContent = String(s.alias || s.label || s.id).slice(0, 9);
           sg.appendChild(t);
-          var pktCls = 'packet' + (s.kind === 'temp' ? ' amber' : '');
-          var p = svgEl('circle', { 'class': pktCls, r: '1.6' });
-          var a = svgEl('animateMotion', {
-            dur: (1.2 + (j % 4) * 0.25) + 's',
-            begin: (j * 0.15) + 's',
-            repeatCount: 'indefinite',
-            path: d, keyPoints: '1;0', keyTimes: '0;1'
-          });
-          p.appendChild(a);
-          sg.appendChild(p);
+          // Sensor packet animation REMOVED — same no-theatre rationale
+          // as the daemon→chip line above. Wiring is structural, not
+          // a real-time event stream.
           g.appendChild(sg);
         });
       }
@@ -824,13 +798,13 @@
 
     wrap.appendChild(svg);
 
-    // Legend
+    // Legend (packet entry removed — no animated packets in this view
+    // anymore per the no-theatre rule).
     var legend = el('div', { cls: 'hw-topo-legend' });
     [
       { cls: 'teal',   txt: 'hwmon' },
       { cls: 'blue',   txt: 'nvml' },
-      { cls: 'purple', txt: 'acpi' },
-      { cls: 'amber',  txt: 'temp packets' }
+      { cls: 'purple', txt: 'acpi' }
     ].forEach(function (item) {
       var li = el('div', { cls: 'hw-topo-legend-item' });
       li.appendChild(el('span', { cls: 'hw-topo-legend-dot ' + item.cls }));
