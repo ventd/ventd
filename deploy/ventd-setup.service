@@ -27,13 +27,28 @@ RemainAfterExit=no
 # of spec-v0_6_0-split-daemon. PRIVILEGED OPERATIONS ONLY.
 User=root
 
-# RuntimeDirectory=ventd creates /run/ventd/ with mode 0755 and the
-# canonical request/result files (setup-request.json, setup-result.json)
-# land there. Cleaned up by systemd at unit deactivation by default,
-# which is fine — the wizard reads the result file BEFORE acknowledging
-# the unit's exit, so it consumes the file before systemd reaps it.
+# RuntimeDirectory=ventd creates /run/ventd/ with mode 0750 — must
+# match ventd.service's declaration on the same RuntimeDirectory
+# (systemd uses the FIRST unit's mode when two units declare the
+# same dir; setting them differently is bad form even if cosmetic).
+# 0750 is root + ventd-group, which is tight enough for production:
+# the only non-root principal that can read the request file is
+# the ventd daemon user itself (no shell, no other users in the
+# ventd group by default).
+#
+# Bug-hunt finding (Agent 2 #6): the original 0755 declaration
+# would have publicised the request file contents to every user
+# on the system if ventd-setup happened to win the create race.
+#
+# The result file is written with mode 0600 explicitly by
+# cmd/ventd-setup/main.go's os.OpenFile call so it stays root-only
+# regardless of the directory mode.
+#
+# Cleaned up by systemd at unit deactivation by default, which is
+# fine — the wizard reads the result file BEFORE acknowledging the
+# unit's exit, so it consumes the file before systemd reaps it.
 RuntimeDirectory=ventd
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0750
 RuntimeDirectoryPreserve=restart
 
 # ExecStart points at the binary shipped in the same .deb / .rpm /
