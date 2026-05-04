@@ -536,3 +536,474 @@
     background-position: 50% 0 !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * "Alive" overlay — extends the steady-state dashboard with
+ * AI-aware affordances. Phoenix's framing: ventd IS the AI; the
+ * UI surfaces what it's actually doing from real backend state.
+ * No synthetic feeds, no fake confidence pulses. Every visible
+ * number traces back to a real endpoint or a real client-side
+ * computation over real history.
+ *
+ * Layered ON TOP of the existing dashboard rules above; reuses
+ * tokens only (RULE-UI-02). New prefixes:
+ *   dash-narrator-
+ *   dash-hero-spark- (new SVG sub-elements only — wrapper unchanged)
+ *   dash-hero-forecast-
+ *   dash-tile-intent-
+ *   dash-tile-coupling
+ *   dash-fan-bar-target
+ *   dash-insight-
+ *   dash-coupling-
+ *   dash-decision-, dash-decisions-
+ *   dash-brief-
+ * ───────────────────────────────────────────────────────────── */
+
+/* ── decision-narration strip (above first hero section) ─────── */
+.dash-narrator {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.dash-narrator::before {
+  /* Faint teal sweep so the strip reads as "active" without
+     overwhelming the steady-state palette. Same shimmer family
+     as .dash-hero-card::after. */
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 30%, var(--teal-bg) 50%, transparent 70%);
+  background-size: 200% 100%;
+  opacity: 0.45;
+  animation: dash-narrator-sweep 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes dash-narrator-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.dash-narrator-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 6px var(--teal);
+  animation: dash-narrator-blink 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+  position: relative; z-index: 1;
+}
+@keyframes dash-narrator-blink {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+.dash-narrator-eyebrow {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--teal);
+  position: relative; z-index: 1;
+}
+.dash-narrator-text {
+  font-size: 0.88rem;
+  color: var(--fg1);
+  line-height: 1.35;
+  position: relative; z-index: 1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dash-narrator-time {
+  font-size: 0.7rem;
+  color: var(--fg3);
+  position: relative; z-index: 1;
+  flex-shrink: 0;
+}
+
+/* ── hero spark forecast band — extends existing hero spark ──
+   The alive JS adds three new SVG children inside .dash-hero-spark
+   alongside the existing #hero-cpu-path / #hero-gpu-path:
+     .dash-hero-spark-band   — uncertainty triangle (fill)
+     .dash-hero-spark-future — extrapolated line (dashed)
+     .dash-hero-spark-now    — boundary cap dot
+   The wrapper SVG carries data-kind="cpu"|"gpu" so colour
+   selection follows the existing hero-card palette. */
+.dash-hero-spark-band {
+  fill: var(--teal);
+  opacity: 0.10;
+}
+.dash-hero-spark[data-kind="gpu"] .dash-hero-spark-band { fill: var(--blue); }
+.dash-hero-spark-future {
+  fill: none;
+  stroke: var(--teal);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+.dash-hero-spark[data-kind="gpu"] .dash-hero-spark-future { stroke: var(--blue); }
+.dash-hero-spark-now {
+  fill: var(--teal);
+}
+.dash-hero-spark[data-kind="gpu"] .dash-hero-spark-now { fill: var(--blue); }
+
+.dash-hero-forecast {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg3);
+}
+.dash-hero-forecast-arrow {
+  font-weight: 600;
+}
+.dash-hero-forecast.is-up   .dash-hero-forecast-arrow { color: var(--amber); }
+.dash-hero-forecast.is-down .dash-hero-forecast-arrow { color: var(--teal); }
+.dash-hero-forecast.is-flat .dash-hero-forecast-arrow { color: var(--fg2); }
+
+/* ── tile intent pills (sensors + fans) ──────────────────────── */
+.dash-tile-intent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  background: var(--bg3);
+  color: var(--fg2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+.dash-tile-intent.is-up {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.dash-tile-intent.is-down {
+  background: var(--teal-bg);
+  color: var(--teal);
+  border-color: var(--teal);
+}
+.dash-tile-intent.is-hold {
+  background: var(--bg3);
+  color: var(--fg2);
+}
+.dash-tile-intent-arrow {
+  font-weight: 600;
+}
+
+/* Fan tile coupling sub-line — adds a thin mono line under the
+   duty bar showing the curve binding the fan. */
+.dash-tile-coupling {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--fg3);
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Target marker on the duty bar — shows where the controller is
+   trying to drive the fan. The existing .dash-fan-bar uses
+   `overflow: hidden` which would clip a marker that extends past
+   the 4px bar height; we keep the marker inside the bar at its
+   full height (4px), with a 2-px-wide vertical line in the
+   foreground colour. The visual reads as a clean tick mark —
+   not the dot-and-line variant from the JSX (which assumed a
+   taller bar). */
+.dash-fan-bar {
+  position: relative;
+}
+.dash-fan-bar-target {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: var(--fg1);
+  opacity: 0.75;
+  border-radius: 1px;
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Flash on decision — applied for ~1.2s after a fan's PWM moves
+   ≥2% across a poll. Just a teal halo + border tint. */
+.dash-tile.is-just-changed {
+  animation: dash-fan-flash 1.2s ease-out;
+}
+@keyframes dash-fan-flash {
+  0%   { box-shadow: 0 0 0 0 var(--teal-bg2); border-color: var(--teal); }
+  60%  { box-shadow: 0 0 0 8px transparent;   border-color: var(--teal); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ── insight rail (coupling map · decisions · brief) ─────────── */
+.dash-insight-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.1fr) minmax(260px, 1fr) minmax(240px, 0.9fr);
+  gap: 14px;
+}
+@media (max-width: 1100px) {
+  .dash-insight-grid { grid-template-columns: 1fr; }
+}
+
+/* Coupling map */
+.dash-coupling {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 10px;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.dash-coupling-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px;
+}
+.dash-coupling-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg1);
+}
+.dash-coupling-meta {
+  font-size: 0.62rem;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+.dash-coupling-svg {
+  width: 100%;
+  height: 240px;
+  display: block;
+}
+.dash-coupling-edge {
+  stroke: var(--fg3);
+  stroke-width: 1;
+  opacity: 0.32;
+  fill: none;
+}
+.dash-coupling-edge-active {
+  stroke: var(--teal);
+  stroke-width: 1.5;
+  opacity: 0.85;
+  fill: none;
+}
+.dash-coupling-pulse {
+  fill: var(--teal);
+  filter: drop-shadow(0 0 4px var(--teal));
+}
+.dash-coupling-node {
+  fill: var(--bg3);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.dash-coupling-node.is-sensor {
+  stroke: var(--cyan);
+  stroke-opacity: 0.7;
+}
+.dash-coupling-node.is-curve {
+  stroke: var(--blue);
+  stroke-opacity: 0.7;
+}
+.dash-coupling-node.is-fan {
+  stroke: var(--teal);
+  stroke-opacity: 0.55;
+}
+.dash-coupling-node.is-fan.is-on {
+  stroke: var(--teal);
+  fill: var(--teal-bg);
+}
+.dash-coupling-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  fill: var(--fg2);
+  letter-spacing: 0.06em;
+}
+.dash-coupling-label-sub {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--fg3);
+}
+.dash-coupling-empty {
+  font-size: 0.78rem;
+  color: var(--fg3);
+  text-align: center;
+  padding: 32px 12px;
+}
+
+/* Decision feed */
+.dash-decisions {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 0 6px;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  min-height: 240px;
+  max-height: 320px;
+  overflow: hidden;
+}
+.dash-decisions-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+}
+.dash-decisions-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg1);
+}
+.dash-decisions-meta {
+  font-size: 0.62rem;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+.dash-decisions-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: 0 0 6px;
+}
+.dash-decisions-list::-webkit-scrollbar { width: 6px; }
+.dash-decisions-list::-webkit-scrollbar-thumb {
+  background: var(--bg3);
+  border-radius: 3px;
+}
+.dash-decision {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px dashed var(--border2);
+  font-size: 0.82rem;
+}
+.dash-decision:last-child { border-bottom: none; }
+.dash-decision.is-fresh {
+  animation: dash-decision-in 0.4s ease-out;
+}
+@keyframes dash-decision-in {
+  from { opacity: 0; transform: translateY(-4px); background: var(--teal-bg); }
+  to   { opacity: 1; transform: translateY(0);    background: transparent; }
+}
+.dash-decision-time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.dash-decision-body {
+  display: flex; flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dash-decision-act {
+  font-size: 0.82rem;
+  color: var(--fg1);
+  display: inline-flex; align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-decision-target {
+  font-family: var(--font-mono);
+  color: var(--teal);
+}
+.dash-decision-delta {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.dash-decision-delta.is-up   { color: var(--amber); }
+.dash-decision-delta.is-down { color: var(--teal); }
+.dash-decision-cause {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dash-decision-empty {
+  display: block;
+  text-align: center;
+  color: var(--fg3);
+  font-size: 0.78rem;
+  border-bottom: none;
+  padding: 24px 16px;
+}
+
+/* AI brief */
+.dash-brief {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex; flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.dash-brief-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px;
+}
+.dash-brief-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg1);
+}
+.dash-brief-meta {
+  font-size: 0.62rem;
+  color: var(--fg3);
+  letter-spacing: 0.06em;
+}
+.dash-brief-stat {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border2);
+}
+.dash-brief-stat:last-of-type { border-bottom: none; }
+.dash-brief-stat-label {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--fg3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.dash-brief-stat-val {
+  font-size: 0.84rem;
+  color: var(--fg1);
+  font-variant-numeric: tabular-nums;
+}
+.dash-brief-stat-val.is-good { color: var(--teal); }
+.dash-brief-stat-val.is-warn { color: var(--amber); }
+.dash-brief-foot {
+  font-size: 0.78rem;
+  color: var(--fg2);
+  line-height: 1.4;
+  padding-top: 6px;
+}
+.dash-brief-foot strong {
+  color: var(--fg1);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-narrator::before { animation: none; }
+  .dash-narrator-dot { animation: none; }
+  .dash-tile.is-just-changed { animation: none; }
+  .dash-decision.is-fresh { animation: none; }
+}

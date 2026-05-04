@@ -103,6 +103,18 @@
         <a href="/login" class="dash-demo-banner-action">Re-authenticate</a>
       </div>
 
+      <!-- Decision-narration strip — plain single-line narration of the
+           most recent real PWM transition observed by the alive overlay.
+           Sourced from the diff of fan duty across consecutive polls;
+           NOT a synthetic "thought" feed. Stays hidden until the overlay
+           has at least one decision (or its idle fallback) to show. -->
+      <div class="dash-narrator" id="dash-narrator" hidden role="status" aria-live="polite">
+        <span class="dash-narrator-dot" aria-hidden="true"></span>
+        <span class="dash-narrator-eyebrow mono">controller</span>
+        <span class="dash-narrator-text" id="dash-narrator-text">—</span>
+        <span class="dash-narrator-time mono" id="dash-narrator-time"></span>
+      </div>
+
       <!-- HERO at-a-glance -->
       <section class="dash-hero">
         <div class="dash-hero-card">
@@ -180,6 +192,63 @@
             <span class="status-pill ok no-dot" id="profile-source">live</span>
           </div>
           <div class="dash-profile-sub mono" id="profile-sub">—</div>
+        </div>
+      </section>
+
+      <!-- INSIGHT RAIL — coupling map, decision feed, AI brief.
+           Each column hydrates independently from real endpoints
+           (/api/v1/hardware/inventory, decision diff, /api/v1/smart/*).
+           The brief column hides itself when smart mode is disabled
+           (only coupling+decisions remain — they're honest data even
+           in monitor-only mode). -->
+      <section class="dash-section dash-insight" id="dash-insight" hidden>
+        <div class="dash-section-head">
+          <div class="card-title"><span class="card-title-accent"></span>What the controller is doing</div>
+          <div class="dash-section-meta mono" id="dash-insight-meta">—</div>
+        </div>
+        <div class="dash-insight-grid">
+          <!-- Coupling map -->
+          <div class="dash-coupling">
+            <div class="dash-coupling-head">
+              <div class="dash-coupling-title">Coupling map</div>
+              <div class="dash-coupling-meta mono" id="dash-coupling-meta">sensor → curve → fan</div>
+            </div>
+            <svg class="dash-coupling-svg" id="dash-coupling-svg" viewBox="0 0 360 240" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          </div>
+          <!-- Decision feed -->
+          <div class="dash-decisions">
+            <div class="dash-decisions-head">
+              <div class="dash-decisions-title">Decision feed</div>
+              <div class="dash-decisions-meta mono" id="dash-decisions-meta">—</div>
+            </div>
+            <div class="dash-decisions-list" id="dash-decisions-list">
+              <div class="dash-decision dash-decision-empty">no recent decisions — system steady</div>
+            </div>
+          </div>
+          <!-- AI brief -->
+          <div class="dash-brief" id="dash-brief">
+            <div class="dash-brief-head">
+              <div class="dash-brief-title">AI brief</div>
+              <div class="dash-brief-meta mono" id="dash-brief-meta">smart</div>
+            </div>
+            <div class="dash-brief-stat">
+              <span class="dash-brief-stat-label">workload</span>
+              <span class="dash-brief-stat-val mono" id="dash-brief-workload">—</span>
+            </div>
+            <div class="dash-brief-stat">
+              <span class="dash-brief-stat-label">thermal headroom</span>
+              <span class="dash-brief-stat-val mono" id="dash-brief-headroom">—</span>
+            </div>
+            <div class="dash-brief-stat">
+              <span class="dash-brief-stat-label">avg duty</span>
+              <span class="dash-brief-stat-val mono" id="dash-brief-avgduty">—</span>
+            </div>
+            <div class="dash-brief-stat">
+              <span class="dash-brief-stat-label">policy</span>
+              <span class="dash-brief-stat-val mono" id="dash-brief-policy">—</span>
+            </div>
+            <div class="dash-brief-foot" id="dash-brief-foot">—</div>
+          </div>
         </div>
       </section>
     </div>
