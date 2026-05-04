@@ -7,16 +7,17 @@
 // resumable from the last completed step.
 //
 // Two endpoints:
-//   GET  /api/v1/update/check  — queries GitHub releases for the latest
-//                                tag; returns {current, latest, available}.
-//   POST /api/v1/update/apply  — body: {version: "vX.Y.Z"}. Spawns a
-//                                detached install.sh in the background
-//                                with VENTD_VERSION=<version> set; the
-//                                install script handles dpkg/rpm install
-//                                + systemctl restart. Returns 202 then
-//                                the daemon dies + restarts under the
-//                                new binary; the frontend polls /healthz
-//                                to detect re-up and reloads.
+//
+//	GET  /api/v1/update/check  — queries GitHub releases for the latest
+//	                             tag; returns {current, latest, available}.
+//	POST /api/v1/update/apply  — body: {version: "vX.Y.Z"}. Spawns a
+//	                             detached install.sh in the background
+//	                             with VENTD_VERSION=<version> set; the
+//	                             install script handles dpkg/rpm install
+//	                             + systemctl restart. Returns 202 then
+//	                             the daemon dies + restarts under the
+//	                             new binary; the frontend polls /healthz
+//	                             to detect re-up and reloads.
 //
 // Per the no-theatre rule: this surfaces a real backend capability
 // (the install.sh script that already exists) through a clean UI
