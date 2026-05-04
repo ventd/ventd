@@ -1,0 +1,154 @@
+/* Doctor page (spec-10) — runtime detector pack rendered as
+   severity-grouped Fact cards. Token-only colours (RULE-UI-02);
+   sidebar comes from /shared/sidebar.html (RULE-UI-03). */
+
+.doc-page {
+  padding: 16px 24px 28px;
+  display: flex; flex-direction: column;
+  gap: 16px;
+  max-width: 1080px;
+}
+
+.doc-header {
+  margin-bottom: 4px;
+}
+.doc-title {
+  font-size: 1.2rem; font-weight: 600;
+  color: var(--fg1);
+  margin: 0 0 4px;
+  letter-spacing: 0.01em;
+}
+.doc-sub {
+  font-size: 0.85rem; line-height: 1.5;
+  color: var(--fg);
+  margin: 0;
+  max-width: 64ch;
+}
+
+.doc-loading {
+  color: var(--fg2);
+  font-size: 0.85rem;
+  padding: 12px 0;
+}
+
+.doc-empty {
+  color: var(--fg2);
+  font-size: 0.9rem;
+  padding: 24px 16px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+}
+
+/* Severity group container */
+.doc-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1, #161b22);
+  overflow: hidden;
+}
+.doc-group-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border2);
+  background: var(--bg);
+}
+.doc-group-tag {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.doc-group-tag.is-blocker  { background: var(--red-bg);   color: var(--red);   }
+.doc-group-tag.is-warning  { background: var(--amber-bg); color: var(--amber); }
+.doc-group-tag.is-error    { background: var(--red-bg);   color: var(--red2, var(--red)); }
+.doc-group-tag.is-ok       { background: var(--teal-bg);  color: var(--teal);  }
+.doc-group-tag.is-detector-error { background: var(--red-bg); color: var(--red2, var(--red)); }
+.doc-group-count {
+  color: var(--fg1);
+  font-size: 0.85rem;
+  min-width: 1.5em;
+}
+.doc-group-sub {
+  color: var(--fg2);
+  font-size: 0.78rem;
+  margin-left: auto;
+}
+.doc-group-list {
+  display: flex; flex-direction: column;
+}
+
+/* Single Fact card */
+.doc-card {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border2);
+  display: flex; flex-direction: column;
+  gap: 6px;
+}
+.doc-card:first-child { border-top: 0; }
+.doc-card-head {
+  display: flex; align-items: baseline; gap: 10px;
+  flex-wrap: wrap;
+}
+.doc-card-title {
+  font-size: 0.92rem; font-weight: 500;
+  color: var(--fg1);
+  margin: 0;
+}
+.doc-card-detector {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--fg3);
+}
+.doc-card-class {
+  font-size: 0.74rem;
+  color: var(--fg2);
+  background: var(--bg3);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.doc-card-detail {
+  font-size: 0.83rem;
+  line-height: 1.5;
+  color: var(--fg);
+  margin: 0;
+}
+.doc-card-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--fg3);
+}
+.doc-card-meta a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+}
+.doc-card-meta a:hover { text-decoration-color: var(--teal); }
+.doc-card-journal {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--fg2);
+  background: var(--bg3);
+  border-radius: 4px;
+  padding: 6px 9px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 6lh;
+}
+
+.doc-footer {
+  font-size: 0.72rem;
+  color: var(--fg3);
+  padding: 6px 0 0;
+  border-top: 1px solid var(--border2);
+}
+
+/* topbar pill takes its style from .status-pill in shell.css; the
+   rollup recolour fires from doctor.js by toggling severity classes. */
+.status-pill.is-rollup-blocker { background: var(--red-bg);   color: var(--red);   }
+.status-pill.is-rollup-warning { background: var(--amber-bg); color: var(--amber); }
+.status-pill.is-rollup-ok      { background: var(--teal-bg);  color: var(--teal);  }

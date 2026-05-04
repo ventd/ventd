@@ -78,11 +78,14 @@ type Server struct {
 	// shards. Both expose SnapshotAll() with atomic.Pointer reads so
 	// /api/v1/smart/channels never blocks the controller hot loop.
 	// nil until SetSmartRuntimes is called.
-	couplingRT     *coupling.Runtime
-	marginalRT     *marginal.Runtime
-	restartCh      chan<- struct{}
-	sessions       *sessionStore
-	diag           *hwdiag.Store
+	couplingRT *coupling.Runtime
+	marginalRT *marginal.Runtime
+	restartCh  chan<- struct{}
+	sessions   *sessionStore
+	diag       *hwdiag.Store
+	// doctorCache memoises the most recent doctor.Report; the runner
+	// is constructed lazily on first /api/v1/doctor GET. See doctor.go.
+	doctorCache    doctorRunnerCache
 	ctx            context.Context // scoped to daemon lifetime; used by goroutines that outlive request handlers
 	loginLim       *loginLimiter
 	tlsActive      bool         // server serves TLS directly; gates HSTS
@@ -258,6 +261,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	s.registerWebPage("schedule")
 	s.registerWebPage("sensors")
 	s.registerWebPage("settings")
+	s.registerWebPage("doctor")
 
 	// /login is served by handleLogin (which also handles POST), so the
 	// HTML route is already wired. Only the /login.js asset needs its own
@@ -365,6 +369,11 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// state + signature label.
 		{name: "smart/status", handler: s.handleSmartStatus, auth: true},
 		{name: "smart/channels", handler: s.handleSmartChannels, auth: true},
+		// v0.5.19 #50: doctor surface (spec-10). Read-only Report poll
+		// against the runtime detector pack; cached for ~5s so a
+		// multi-tab dashboard doesn't fan out into N detector re-runs
+		// per tick.
+		{name: "doctor", handler: s.handleDoctorReport, auth: true},
 	})
 
 	dlHandler := s.requireAuth(s.handleDiagDownload)
