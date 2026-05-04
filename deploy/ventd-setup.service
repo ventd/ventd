@@ -1,0 +1,74 @@
+[Unit]
+Description=ventd setup-side privileged operations broker
+Documentation=https://github.com/ventd/ventd/blob/main/specs/spec-v0_6_0-split-daemon.md
+# Coupled to ventd.service: the wizard writes a request file under
+# /run/ventd/, then `systemctl start ventd-setup.service`. Once the
+# setup binary exits, ventd reads the result file. Both daemons read
+# /run/ventd/ so we need it to exist before either starts. The
+# RuntimeDirectory= directive on ventd.service creates it; the After=
+# pin here ensures setup never wins a race against that creation
+# (an unlikely race today but cheap insurance).
+After=local-fs.target ventd.service
+Wants=local-fs.target
+
+[Service]
+# Type=oneshot — the setup binary executes a single privileged
+# operation, writes the result file, exits. systemd unit transitions
+# to inactive(dead) on success / failed(N) on non-zero exit, which
+# the wizard polls for.
+Type=oneshot
+# RemainAfterExit=no so a follow-up `systemctl start ventd-setup`
+# (the wizard's next step) actually re-starts the unit instead of
+# being a no-op against a still-active oneshot.
+RemainAfterExit=no
+
+# User=root — the entire reason this unit exists is to bear the
+# privileged surface so ventd.service can drop privileges in Phase B
+# of spec-v0_6_0-split-daemon. PRIVILEGED OPERATIONS ONLY.
+User=root
+
+# RuntimeDirectory=ventd creates /run/ventd/ with mode 0755 and the
+# canonical request/result files (setup-request.json, setup-result.json)
+# land there. Cleaned up by systemd at unit deactivation by default,
+# which is fine — the wizard reads the result file BEFORE acknowledging
+# the unit's exit, so it consumes the file before systemd reaps it.
+RuntimeDirectory=ventd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=restart
+
+# ExecStart points at the binary shipped in the same .deb / .rpm /
+# .tar.gz as ventd. install.sh + nfpms.contents drop it next to the
+# main binary in /usr/local/bin/ for tarball installs and
+# /usr/local/sbin/ for package installs (both are on root's PATH).
+# The shell-form fallback `--request /run/ventd/setup-request.json
+# --result /run/ventd/setup-result.json` is also the binary's
+# default; specifying it here makes systemd's `systemctl status`
+# output self-explanatory.
+ExecStart=/usr/local/bin/ventd-setup --request /run/ventd/setup-request.json --result /run/ventd/setup-result.json
+
+# Phase A note: the binary is shipped but the wizard does not yet
+# route privileged operations through it. systemd will enable the
+# unit on install but no one starts it. Operators can smoke-test
+# manually with `sudo systemctl start ventd-setup` after staging
+# a request file under /run/ventd/. Phase B (a future PR) wires
+# the wizard's per-step privileged operations to actually invoke
+# `systemctl start ventd-setup.service` per request.
+
+# No sandbox hardening here — the entire purpose of this unit is
+# the unconfined privileged surface. ventd.service keeps the
+# AppArmor / NoNewPrivileges / etc hardening; ventd-setup.service
+# is the explicit escape valve for the operations that need it.
+
+# StandardOutput=journal so ventd-setup's structured slog output
+# lands in `journalctl -u ventd-setup` for audit + post-mortem.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# WantedBy=ventd.service so enabling ventd.service implicitly
+# enables ventd-setup.service. Operators who only enable the main
+# unit get the broker for free. The unit is Type=oneshot + only
+# started on demand by the wizard, so being "enabled" doesn't mean
+# it runs at boot — just that `systemctl start ventd-setup` works
+# without a prior `systemctl enable`.
+WantedBy=ventd.service
