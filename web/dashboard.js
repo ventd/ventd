@@ -926,24 +926,30 @@
     }
 
     var W = 240, H = 48;
-    var lo = HERO_SPARK_TEMP_MIN_C;
-    var hi = HERO_SPARK_TEMP_MAX_C;
-    var range = hi - lo;
+
+    // Smooth the data first so per-poll sensor jitter (real but
+    // visually noisy) doesn't dominate the line shape. Big number
+    // above the spark stays the raw current value.
+    var smoothed = aliveSmoothEMA(history, 0.4);
+
+    // Y-axis: slow-EMA-smoothed auto-fit. The previous fixed pin to
+    // 20-100°C made small idle deltas (2-3°C variance) ~1px tall —
+    // visually flat. Auto-fit per-poll caused the rescale flicker
+    // Phoenix originally complained about. Compromise: track a
+    // SLOW-EMA min/max (alpha=0.05; ~20 polls = 30 s lag) so the
+    // axis range moves continuously but slowly, single-poll outliers
+    // don't visibly rescale, and the line shows real variance at
+    // useful resolution. Pad ±2°C from the smoothed min/max so the
+    // line never touches the card edges.
+    var sparkBounds = aliveUpdateSparkBounds(svg, smoothed);
+    var lo = sparkBounds.lo;
+    var hi = sparkBounds.hi;
+    var range = Math.max(4, hi - lo); // floor the range at 4°C so a perfectly stable temp doesn't divide-by-zero
     function toY(v) {
       var clamped = Math.max(lo, Math.min(hi, v));
       return (H - 2) - ((clamped - lo) / range) * (H - 4);
     }
     function toX(i, n) { return (i / Math.max(1, n - 1)) * W; }
-
-    // Apply EMA smoothing to the displayed line so per-poll sensor
-    // jitter (real but visually noisy) doesn't render as a chaotic
-    // sawtooth scribble. The big number above the spark stays the
-    // raw current value — we're only smoothing the visualisation,
-    // not lying about the reading. Phoenix's Tailscale screenshot
-    // showed the unsmoothed line as visual chaos within a single
-    // frame; alpha=0.4 keeps real trends visible while damping the
-    // ±1°C single-sample swings.
-    var smoothed = aliveSmoothEMA(history, 0.4);
 
     var n = smoothed.length;
     var d = '';
@@ -953,6 +959,33 @@
     pathEl.setAttribute('d', d);
 
     aliveEnsureNowDotOnly(svg, toX(n - 1, n), toY(smoothed[n - 1]));
+  }
+  /* aliveUpdateSparkBounds maintains a slow-EMA tracking of the
+     min/max for one hero spark SVG. Stores prior bounds in dataset
+     so they survive across polls. Alpha = 0.05 means the bounds
+     take ~20 polls (30s @ 1.5s tick) to fully follow a sustained
+     range shift — fast enough to track real workload changes,
+     slow enough that a single outlier doesn't rescale the line.
+     Padded by 2°C above and below to prevent the line touching
+     the card edges. */
+  function aliveUpdateSparkBounds(svg, samples) {
+    var alpha = 0.05;
+    var pad = 2;
+    var sampleMin = Math.min.apply(null, samples);
+    var sampleMax = Math.max.apply(null, samples);
+    var priorLo = parseFloat(svg.dataset.boundsLo);
+    var priorHi = parseFloat(svg.dataset.boundsHi);
+    var lo, hi;
+    if (isFinite(priorLo) && isFinite(priorHi)) {
+      lo = alpha * sampleMin + (1 - alpha) * priorLo;
+      hi = alpha * sampleMax + (1 - alpha) * priorHi;
+    } else {
+      lo = sampleMin;
+      hi = sampleMax;
+    }
+    svg.dataset.boundsLo = String(lo);
+    svg.dataset.boundsHi = String(hi);
+    return { lo: lo - pad, hi: hi + pad };
   }
   /* aliveSmoothEMA applies a single-pole exponential moving average
      to a numeric series. Output[0] = input[0]; output[i] = alpha *
