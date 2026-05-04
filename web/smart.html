@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ventd — devices</title>
+<title>ventd — smart mode</title>
 <link rel="stylesheet" href="/shared/tokens.css">
 <link rel="stylesheet" href="/shared/shell.css">
 <link rel="stylesheet" href="/shared/brand.css">
 <link rel="stylesheet" href="/shared/ambient.css">
-<link rel="stylesheet" href="/devices.css">
+<link rel="stylesheet" href="/smart.css">
 </head>
 <body>
 
@@ -48,79 +48,25 @@
 
     <div class="topbar">
       <div class="crumbs">
-        <span class="crumb">Hardware</span>
+        <span class="crumb">Smart mode</span>
         <span class="crumb-sep">/</span>
-        <span class="crumb current">Devices</span>
+        <span class="crumb current" id="sm-crumb-current">Live controller</span>
       </div>
       <div class="topbar-actions">
-        <button class="btn btn--ghost" id="dv-rescan" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5"/></svg>
-          Rescan
-        </button>
-        <a class="btn btn--ghost" href="/calibration">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1018 0 9 9 0 00-18 0zM12 8v4l3 2"/></svg>
-          Calibrate all
-        </a>
+        <span class="status-pill ro" id="sm-topbar-pill" hidden>—</span>
         <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
           <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
         </button>
       </div>
     </div>
 
-    <!-- summary strip -->
-    <div class="summary-strip">
-      <div class="summary-cell">
-        <div class="summary-label">Chips</div>
-        <div class="summary-value mono" id="sm-chips">—</div>
-        <div class="summary-meta" id="sm-chips-meta">—</div>
-      </div>
-      <div class="summary-cell">
-        <div class="summary-label">Fans</div>
-        <div class="summary-value mono" id="sm-fans">—</div>
-        <div class="summary-meta" id="sm-fans-meta">spinning live</div>
-      </div>
-      <div class="summary-cell">
-        <div class="summary-label">Temps</div>
-        <div class="summary-value mono" id="sm-temps">—</div>
-        <div class="summary-meta" id="sm-temps-meta">across all chips</div>
-      </div>
-      <div class="summary-cell">
-        <div class="summary-label">Voltages</div>
-        <div class="summary-value mono" id="sm-volts">—</div>
-        <div class="summary-meta" id="sm-volts-meta">on Super I/O</div>
-      </div>
-      <div class="summary-cell">
-        <div class="summary-label">Last scan</div>
-        <div class="summary-value mono" id="sm-scan">—</div>
-        <div class="summary-meta">refresh to update</div>
-      </div>
-    </div>
-
-    <div class="shell-content dv-page">
-
-      <!-- filters -->
-      <div class="filter-bar">
-        <div class="filter-search">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input id="dv-filter" type="text" placeholder="filter chips, sensors, paths…" autocomplete="off" spellcheck="false" aria-label="Filter devices">
-        </div>
-        <div class="filter-segments" role="tablist" id="dv-segments">
-          <button class="filter-segment is-active" type="button" role="tab" aria-selected="true" data-bus="all">All <span class="seg-count mono" id="sg-all">0</span></button>
-          <button class="filter-segment" type="button" role="tab" aria-selected="false" data-bus="hwmon">hwmon <span class="seg-count mono" id="sg-hwmon">0</span></button>
-          <button class="filter-segment" type="button" role="tab" aria-selected="false" data-bus="nvml">nvml <span class="seg-count mono" id="sg-nvml">0</span></button>
-        </div>
-      </div>
-
-      <!-- chip tree -->
-      <div class="chip-table" id="dv-chips" role="tree" aria-label="Devices">
-        <div class="chip-empty">Scanning hardware…</div>
-      </div>
-
+    <div class="shell-content" id="sm-content">
+      <div class="sm-empty">Connecting to ventd…</div>
     </div>
   </main>
 </div>
 
 <script src="/shared/brand.js"></script>
-<script src="/devices.js"></script>
+<script src="/smart.js"></script>
 </body>
 </html>

@@ -6,5 +6,5 @@ package webstatic
 
 import "embed"
 
-//go:embed index.html index.css shared/tokens.css shared/shell.css shared/brand.css shared/brand.js shared/ambient.css setup.html setup.css setup.js calibration.html calibration.css calibration.js dashboard.html dashboard.css dashboard.js devices.html devices.css devices.js hardware.html hardware.css hardware.js curve-editor.html curve-editor.css curve-editor.js schedule.html schedule.css schedule.js sensors.html sensors.css sensors.js settings.html settings.css settings.js login.html login.js
+//go:embed index.html index.css shared/tokens.css shared/shell.css shared/brand.css shared/brand.js shared/ambient.css setup.html setup.css setup.js calibration.html calibration.css calibration.js dashboard.html dashboard.css dashboard.js devices.html devices.css devices.js hardware.html hardware.css hardware.js smart.html smart.css smart.js curve-editor.html curve-editor.css curve-editor.js schedule.html schedule.css schedule.js sensors.html sensors.css sensors.js settings.html settings.css settings.js login.html login.js
 var FS embed.FS
