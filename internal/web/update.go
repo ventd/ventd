@@ -76,7 +76,7 @@ func fetchLatestRelease(repoSlug string) (tag, publishedAt, htmlURL string, err 
 	if err != nil {
 		return "", "", "", fmt.Errorf("fetch %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return "", "", "", fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
 	}
