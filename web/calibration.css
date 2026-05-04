@@ -376,6 +376,7 @@ body.cal-body {
   letter-spacing: 0.04em;
 }
 .v2-card-body { padding: 14px 18px 16px; }
+.v2-card-body.tight-top { padding-top: 6px; }
 
 /* ── live oscilloscope (center stage) ───────────────────── */
 .v2-scope { padding: 0; }
