@@ -793,19 +793,19 @@
   var ALIVE_DECISION_WINDOW = 3;          // polls in the comparison window
   var ALIVE_DECISION_RATELIMIT_MS = 6000; // min interval between decisions per fan
   var ALIVE_DECISION_CAP = 40;
-  // Forecast-band suppression: linear extrapolation over <12 samples
-  // produces wild slopes (#920 — "+138.6°C/30s" badges right after page
-  // load). Wait until the per-sensor history ring has at least this many
-  // samples before drawing the future band + forecast badge.
-  var ALIVE_FORECAST_MIN_SAMPLES = 12;
-  // Forecast slope sanity clamp: the linear fit can produce wildly large
-  // slopes when the input data is noisy (a single 14°C sensor outlier
-  // between adjacent samples projects to ±100s of °C over 30 s). Real
-  // consumer-silicon thermal transients top out around ±15 °C / 30 s
-  // (a Cinebench start can spike CPU 12-14 °C in 30 s; cooling is slower).
-  // Beyond this, the forecast is noise — render the badge as "uncertain"
-  // rather than a fabricated number.
-  var ALIVE_FORECAST_MAX_DELTA_C = 15;
+  // Hero spark Y-axis is PINNED to a stable temperature range so the
+  // line shape only evolves left-to-right with new samples — never
+  // rescales (Phoenix's UX feedback: the line shouldn't look completely
+  // different every poll). 20-100°C covers every consumer-silicon
+  // thermal envelope from idle to throttle.
+  var HERO_SPARK_TEMP_MIN_C = 20;
+  var HERO_SPARK_TEMP_MAX_C = 100;
+  // The naive client-side linear-fit forecast was REMOVED in this
+  // branch — it doesn't use the smart-mode Layer-C marginal-benefit
+  // RLS estimator the daemon spent v0.5.5-v0.5.10 building. The
+  // dashboard hero card now shows the past spark only; the daemon-
+  // backed predicted ΔT will land via #43 (P0 followup) once the
+  // confidence/status endpoint exposes per-sensor predicted_delta_t.
   var ALIVE_NARRATOR_PERIOD_MS = 6000;  // line rotation cadence
   var ALIVE_NARRATOR_IDLE_MS = 12000;   // declare "system idle" after this
   var TJ_MAX = 100;                      // matches existing TJ constant
@@ -885,38 +885,19 @@
     return null;
   }
 
-  /* aliveLinearForecast: estimates the slope of the last 12 samples.
-     Returns null when history is shorter than ALIVE_FORECAST_MIN_SAMPLES
-     so the caller can skip drawing the future band rather than show
-     a wildly noisy extrapolation (#920 — "+138.6°C/30s" badges right
-     after page load when only 2-3 samples were available).
+  /* aliveRenderHeroForecast renders the past-only spark with a
+     fixed Y-axis pinned to HERO_SPARK_TEMP_MIN_C..MAX_C. The line
+     evolves left-to-right as new samples arrive; its shape is
+     stable across polls because the Y mapping never changes
+     (Phoenix's UX feedback: "the line should never change it just
+     goes up or down with the temp changes").
 
-     Returns the °C delta over the next 30 s assuming sample cadence
-     equal to history length / 60 s. Calibrated against the existing
-     dashboard 1 s tick — 60-sample history = one sample per second. */
-  function aliveLinearForecast(history) {
-    if (!Array.isArray(history) || history.length < ALIVE_FORECAST_MIN_SAMPLES) return null;
-    var n = Math.min(12, history.length);
-    var recent = history.slice(history.length - n);
-    var meanX = (n - 1) / 2;
-    var meanY = recent.reduce(function (a, b) { return a + b; }, 0) / n;
-    var num = 0, den = 0;
-    for (var i = 0; i < n; i++) {
-      num += (i - meanX) * (recent[i] - meanY);
-      den += (i - meanX) * (i - meanX);
-    }
-    if (den === 0) return 0;
-    var slopePerSample = num / den;
-    return slopePerSample * 30;       // 30 samples ≈ 30 s at 1 Hz
-  }
-
-  /* aliveRenderHeroForecast: extends the existing CPU/GPU hero
-     sparks with a forecast band + dashed extrapolation + boundary
-     dot, plus a small forecast badge under each card. Reuses the
-     existing client-side history buffers (heroCpuHistory /
-     heroGpuHistory) when the inventory payload doesn't expose a
-     matching sensor — those buffers are real samples too, just
-     drawn from /api/v1/status. */
+     The fake client-side linear-fit forecast (and its badge,
+     uncertainty band, dashed future line, "forecast pending" /
+     "uncertain" text) was REMOVED in this branch — see #43. The
+     daemon-backed predicted ΔT from Layer-C marginal RLS lands
+     once /api/v1/confidence/status (or a sibling endpoint)
+     exposes per-sensor predicted_delta_t. */
   function aliveRenderHeroForecast() {
     aliveRenderHeroSpark('hero-cpu-path', 'cpu', heroCpuHistory, looksLikeCPU);
     aliveRenderHeroSpark('hero-gpu-path', 'gpu', heroGpuHistory, looksLikeGPU);
@@ -933,93 +914,46 @@
       return matcher(String(name));
     });
     var history = (inv && inv.length >= 4) ? inv : fallbackHistory;
+    aliveClearHeroExtras(svg);
+    aliveResetForecastSub(kind);
     if (!history || history.length < 4) {
-      // Without enough samples we leave the past path alone (the
-      // steady-state code already draws it) and clear the forecast
-      // sub-elements so we don't show stale extrapolation.
-      aliveClearHeroExtras(svg);
-      aliveSetForecastBadge(kind, null);
+      pathEl.setAttribute('d', '');
       return;
     }
 
-    // viewBox is 0 0 240 48 (matches existing). 70% past, 30% future.
-    var W = 240, H = 48, pastW = 168;
-    var min = Math.min.apply(null, history);
-    var max = Math.max.apply(null, history);
-    var minRange = 5;
-    var range = Math.max(max - min, minRange);
-    var mid = (max + min) / 2;
-    var lo = mid - range / 2;
-    function toY(v) { return (H - 2) - ((v - lo) / range) * (H - 4); }
-    function toX(i, n) { return (i / (n - 1)) * pastW; }
+    var W = 240, H = 48;
+    var lo = HERO_SPARK_TEMP_MIN_C;
+    var hi = HERO_SPARK_TEMP_MAX_C;
+    var range = hi - lo;
+    function toY(v) {
+      var clamped = Math.max(lo, Math.min(hi, v));
+      return (H - 2) - ((clamped - lo) / range) * (H - 4);
+    }
+    function toX(i, n) { return (i / Math.max(1, n - 1)) * W; }
 
-    // Past path replaces the existing hero-*-path's d attribute so
-    // the steady-state spark and the alive band stay in lockstep.
     var n = history.length;
-    var past = '';
+    var d = '';
     for (var i = 0; i < n; i++) {
-      past += (i === 0 ? 'M ' : ' L ') + toX(i, n).toFixed(1) + ' ' + toY(history[i]).toFixed(1);
+      d += (i === 0 ? 'M ' : ' L ') + toX(i, n).toFixed(1) + ' ' + toY(history[i]).toFixed(1);
     }
-    pathEl.setAttribute('d', past);
+    pathEl.setAttribute('d', d);
 
-    // Forecast extrapolation. Returns null when history is too short
-    // for a stable slope (#920); in that case we draw the past path
-    // only and let the badge show "forecast pending" rather than a
-    // wild "+138.6°C/30s" lie.
-    var lastV = history[n - 1];
-    var deltaC = aliveLinearForecast(history);
-    var lastY = toY(lastV);
-    if (deltaC == null) {
-      aliveClearHeroExtras(svg);
-      // Re-add the now-dot only — past line stays drawn from above.
-      aliveEnsureNowDotOnly(svg, pastW, lastY);
-      aliveSetForecastBadge(kind, null);
-      return;
-    }
-    var futureV = lastV + deltaC;
-    var futureY = toY(futureV);
-    var uncertainty = Math.min(14, Math.abs(deltaC) * 1.4 + 4);
-
-    var futurePath = 'M ' + pastW + ' ' + lastY.toFixed(1) + ' L ' + W + ' ' + futureY.toFixed(1);
-    var bandPath =
-      'M ' + pastW + ' ' + (lastY - 1).toFixed(1) +
-      ' L ' + W + ' ' + (futureY - uncertainty).toFixed(1) +
-      ' L ' + W + ' ' + (futureY + uncertainty).toFixed(1) +
-      ' L ' + pastW + ' ' + (lastY + 1).toFixed(1) + ' Z';
-
-    aliveEnsureHeroExtras(svg, bandPath, futurePath, pastW, lastY);
-    aliveSetForecastBadge(kind, deltaC);
+    aliveEnsureNowDotOnly(svg, toX(n - 1, n), toY(history[n - 1]));
+  }
+  /* aliveResetForecastSub clears the hero card sub-line back to the
+     simple "last 60 s" label. Called every poll so any stale forecast
+     DOM left over from a previous v0.5.14 deploy is purged in-place. */
+  function aliveResetForecastSub(kind) {
+    var subId = kind === 'cpu' ? 'hero-cpu-sub' : 'hero-gpu-sub';
+    var sub = document.getElementById(subId);
+    if (!sub) return;
+    if (sub.dataset.aliveSimpleSub === '1') return;
+    sub.textContent = 'last 60 s';
+    sub.className = 'dash-hero-sub';
+    sub.dataset.aliveSimpleSub = '1';
   }
   function aliveEnsureNowDotOnly(svg, nowX, nowY) {
     var SVG_NS = 'http://www.w3.org/2000/svg';
-    var dot = svg.querySelector('.dash-hero-spark-now');
-    if (!dot) {
-      dot = document.createElementNS(SVG_NS, 'circle');
-      dot.setAttribute('class', 'dash-hero-spark-now');
-      dot.setAttribute('r', '2.5');
-      svg.appendChild(dot);
-    }
-    dot.setAttribute('cx', String(nowX));
-    dot.setAttribute('cy', nowY.toFixed(1));
-  }
-  function aliveEnsureHeroExtras(svg, bandPath, futurePath, nowX, nowY) {
-    var SVG_NS = 'http://www.w3.org/2000/svg';
-    var band = svg.querySelector('.dash-hero-spark-band');
-    if (!band) {
-      band = document.createElementNS(SVG_NS, 'path');
-      band.setAttribute('class', 'dash-hero-spark-band');
-      // Insert as the first child so the future + past lines render
-      // on top of the band fill.
-      svg.insertBefore(band, svg.firstChild);
-    }
-    band.setAttribute('d', bandPath);
-    var future = svg.querySelector('.dash-hero-spark-future');
-    if (!future) {
-      future = document.createElementNS(SVG_NS, 'path');
-      future.setAttribute('class', 'dash-hero-spark-future');
-      svg.appendChild(future);
-    }
-    future.setAttribute('d', futurePath);
     var dot = svg.querySelector('.dash-hero-spark-now');
     if (!dot) {
       dot = document.createElementNS(SVG_NS, 'circle');
@@ -1036,70 +970,11 @@
       if (el) el.remove();
     });
   }
-  /* aliveSetForecastBadge keeps a STABLE layout per Phoenix's UX
-     feedback (24-04 burst-frame session): the sub-line always shows
-     "60 s past · 30 s ahead → <forecast>" with the forecast value
-     as either a signed °C delta + arrow OR a small "—" pill. The
-     wrapper element + arrow node + value node are reused across
-     polls so the only thing that changes per tick is the textContent
-     of the value span — no innerHTML rewrite, no class swap, no
-     "forecast pending" / "forecast uncertain" sub-line replacement.
-     Pinned to silence the "constantly flicking between current and
-     forecasted" flicker. */
-  function aliveSetForecastBadge(kind, deltaC) {
-    var subId = kind === 'cpu' ? 'hero-cpu-sub' : 'hero-gpu-sub';
-    var sub = document.getElementById(subId);
-    if (!sub) return;
-    sub.className = 'dash-hero-sub';
-
-    // Lazily build the stable structure on first call. Reuse forever
-    // afterwards — the parent <div>, both spans, and the arrow text
-    // node are all static; only the forecast value text and the
-    // wrap class change per poll.
-    var wrap = sub.querySelector('.dash-hero-forecast');
-    if (!wrap) {
-      sub.textContent = '';
-      var pastLab = document.createElement('span');
-      pastLab.className = 'dash-hero-past-label';
-      pastLab.textContent = '60 s past · 30 s ahead';
-      sub.appendChild(pastLab);
-      wrap = document.createElement('span');
-      wrap.className = 'dash-hero-forecast is-flat';
-      var arr = document.createElement('span');
-      arr.className = 'dash-hero-forecast-arrow';
-      arr.textContent = '→';
-      var val = document.createElement('span');
-      val.className = 'dash-hero-forecast-val';
-      val.textContent = '—';
-      wrap.appendChild(arr);
-      wrap.appendChild(val);
-      sub.appendChild(wrap);
-    }
-    var arrEl = wrap.querySelector('.dash-hero-forecast-arrow');
-    var valEl = wrap.querySelector('.dash-hero-forecast-val');
-
-    if (deltaC == null || !isFinite(deltaC)) {
-      // History too short — keep the layout, fill the value with em-dash
-      // so the layout stays stable.
-      wrap.className = 'dash-hero-forecast is-flat';
-      arrEl.textContent = '→';
-      valEl.textContent = '—';
-      return;
-    }
-    if (Math.abs(deltaC) > ALIVE_FORECAST_MAX_DELTA_C) {
-      // Slope unreliable. Same layout, no fabricated number.
-      wrap.className = 'dash-hero-forecast is-flat';
-      arrEl.textContent = '→';
-      valEl.textContent = 'noisy · —';
-      return;
-    }
-    var dir = deltaC > 1.5 ? 'up' : (deltaC < -1.5 ? 'down' : 'flat');
-    var arrow = dir === 'up' ? '↗' : dir === 'down' ? '↘' : '→';
-    var sign = deltaC >= 0 ? '+' : '';
-    wrap.className = 'dash-hero-forecast is-' + dir;
-    arrEl.textContent = arrow;
-    valEl.textContent = sign + deltaC.toFixed(1) + ' °C';
-  }
+  // aliveSetForecastBadge / aliveLinearForecast: REMOVED in this branch.
+  // The dashboard no longer fabricates a forecast from a 12-sample
+  // client-side linear fit (#43). Until the daemon's confidence
+  // endpoint exposes per-sensor predicted ΔT from Layer-C marginal
+  // RLS, the hero card shows the past spark only.
 
   /* aliveAttachSensorIntent: idempotent — attaches an intent pill
      to the sensor tile head when missing, and updates its label
