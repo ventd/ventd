@@ -463,6 +463,10 @@ type Sensor struct {
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
 	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor Path across renumbering
 	Heuristic   bool   `yaml:"heuristic,omitempty" json:"heuristic,omitempty"`       // true when auto-assigned by heuristic binding; verify in Curves page
+	// Position is the operator-supplied normalised (x,y) coordinate
+	// inside the case heatmap, both in [0,1]. Optional; nil omits the
+	// sensor from the heatmap view. Independent of any thermal logic.
+	Position *Position `yaml:"position,omitempty" json:"position,omitempty"`
 }
 
 type Fan struct {
@@ -484,6 +488,20 @@ type Fan struct {
 	// Rule: NEVER write PWM=0 unless MinPWM=0 AND AllowStop=true. Absent
 	// (zero value) means the controller will refuse PWM=0 even if MinPWM=0.
 	AllowStop bool `yaml:"allow_stop,omitempty" json:"allow_stop,omitempty"`
+	// Position is the operator-supplied normalised (x,y) coordinate
+	// inside the case heatmap, both in [0,1]. Optional; nil omits the
+	// fan from the heatmap view. Independent of any control logic.
+	Position *Position `yaml:"position,omitempty" json:"position,omitempty"`
+}
+
+// Position is the normalised (x, y) coordinate of a sensor or fan
+// inside the heatmap view. Both axes run [0,1] from top-left
+// origin; rendering scales to whatever case-shape geometry the
+// view chooses. Operator-supplied via YAML; absent defaults to nil
+// and excludes the entity from the heatmap.
+type Position struct {
+	X float64 `yaml:"x" json:"x"`
+	Y float64 `yaml:"y" json:"y"`
 }
 
 type CurveConfig struct {

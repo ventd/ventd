@@ -252,6 +252,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	s.registerWebPage("calibration")
 	s.registerWebPage("dashboard")
 	s.registerWebPage("devices")
+	s.registerWebPage("hardware")
 	s.registerWebPage("curve-editor")
 	s.registerWebPage("schedule")
 	s.registerWebPage("sensors")
@@ -288,6 +289,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "config", handler: s.handleConfig, auth: true},
 		{name: "config/dryrun", handler: s.handleConfigDryrun, auth: true},
 		{name: "hardware", handler: s.handleHardware, auth: true},
+		{name: "hardware/inventory", handler: s.handleHardwareInventory, auth: true},
 		{name: "hardware/rescan", handler: s.handleHardwareRescan, auth: true},
 		{name: "debug/hwmon", handler: s.handleHwmonDebug, auth: true},
 		{name: "panic", handler: s.handlePanic, auth: true},
