@@ -59,7 +59,6 @@ type releaseNotesResponse struct {
 // so the cache lifetime matches exactly.
 var (
 	changelogCacheMu       sync.Mutex
-	changelogCachePath     string
 	changelogCacheSections []releaseNotesSection
 	changelogCacheErr      string
 )
@@ -76,12 +75,10 @@ func loadChangelog() ([]releaseNotesSection, string) {
 	if changelogCacheSections != nil || changelogCacheErr != "" {
 		return changelogCacheSections, changelogCacheErr
 	}
-	var path string
 	var data []byte
 	for _, p := range releaseNotesCandidates {
 		b, err := os.ReadFile(p)
 		if err == nil {
-			path = p
 			data = b
 			break
 		}
@@ -90,7 +87,6 @@ func loadChangelog() ([]releaseNotesSection, string) {
 		changelogCacheErr = "CHANGELOG.md not found in any of " + strings.Join(releaseNotesCandidates, " | ")
 		return nil, changelogCacheErr
 	}
-	changelogCachePath = path
 	changelogCacheSections = parseChangelog(string(data))
 	return changelogCacheSections, ""
 }
@@ -230,14 +226,4 @@ func splitNumeric(v string) []int {
 		out = append(out, n)
 	}
 	return out
-}
-
-// resetChangelogCacheForTest empties the package-level cache so tests
-// can swap candidate paths + force a fresh parse.
-func resetChangelogCacheForTest() {
-	changelogCacheMu.Lock()
-	defer changelogCacheMu.Unlock()
-	changelogCachePath = ""
-	changelogCacheSections = nil
-	changelogCacheErr = ""
 }
