@@ -264,10 +264,14 @@
 
     var cpuEl = $('hero-cpu-val'); if (cpuEl) cpuEl.textContent = cpu == null ? '—' : Number(cpu).toFixed(1);
     var gpuEl = $('hero-gpu-val'); if (gpuEl) gpuEl.textContent = gpu == null ? '—' : Number(gpu).toFixed(1);
-    var cpuP  = $('hero-cpu-path'); if (cpuP) cpuP.setAttribute('d', sparkPathTemp(heroCpuHistory, 240, 48));
-    var gpuP  = $('hero-gpu-path'); if (gpuP) gpuP.setAttribute('d', sparkPathTemp(heroGpuHistory, 240, 48));
-    var cpuS = $('hero-cpu-sub'); if (cpuS) cpuS.textContent = cpu == null ? 'no source' : 'last 60s';
-    var gpuS = $('hero-gpu-sub'); if (gpuS) gpuS.textContent = gpu == null ? 'no source' : 'last 60s';
+    // Hero spark path + sub-line are owned by the alive overlay
+    // (aliveRenderHeroSpark) which uses the inventory ring + EMA
+    // smoothing + pinned Y-axis. The OLD per-/status writers here
+    // were fighting the alive renderer and producing the
+    // "flat → jagged → flat" alternation Phoenix saw — disabled.
+    // heroCpuHistory / heroGpuHistory still get populated above so
+    // the alive renderer's fallback path has data when inventory's
+    // matcher misses.
 
     // Fan hero
     var spinning = 0, total = 0;
