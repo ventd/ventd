@@ -1456,10 +1456,91 @@
     poll();
     pollTimer = setInterval(poll, POLL_INTERVAL);
     liveTimer = setInterval(pollLive, LIVE_INTERVAL);
+    openSetupEvents();
   }
   // Repaint scope animations even when no new poll arrives, so the
   // decorative strip stays alive between polls.
   paintTimer = setInterval(function () {
     paintScope(lastUiPhase);
   }, PAINT_INTERVAL);
+
+  // ── live activity log via Server-Sent Events ───────────────────────
+  // /api/v1/setup/events streams the structured {ts, level, tag, text}
+  // log that internal/setup/setup.go appends to on every phase
+  // transition (and any future per-fan emit). Cursor is the unix-ns
+  // TS of the last event seen — passed back as ?since= on reconnect
+  // so we don't re-render the full backlog.
+  var sseSource = null;
+  var sseCursor = 0;
+  var sseEventCount = 0;
+  var SSE_LOG_CAP = 60;     // most-recent N rows kept in DOM
+  var SSE_RECONNECT_MS = 2000;
+  function openSetupEvents() {
+    if (typeof EventSource !== 'function') return;     // no SSE support
+    if (sseSource) { try { sseSource.close(); } catch (_) {} }
+    var url = '/api/v1/setup/events' + (sseCursor > 0 ? '?since=' + sseCursor : '');
+    sseSource = new EventSource(url, { withCredentials: false });
+    sseSource.addEventListener('setup', function (msg) {
+      var ev;
+      try { ev = JSON.parse(msg.data); } catch (_) { return; }
+      if (!ev || !ev.ts) return;
+      if (ev.ts > sseCursor) sseCursor = ev.ts;
+      appendLogRow(ev);
+    });
+    sseSource.addEventListener('error', function () {
+      // Browser will auto-retry but we want jittered control over the
+      // cadence to avoid thundering-herd on a daemon restart.
+      try { sseSource.close(); } catch (_) {}
+      sseSource = null;
+      setTimeout(openSetupEvents, SSE_RECONNECT_MS);
+    });
+  }
+  function appendLogRow(ev) {
+    var log = document.getElementById('cal-log');
+    if (!log) return;
+    var line = document.createElement('div');
+    line.className = 'v2-log-line fresh';
+    // strip 'fresh' decoration after the row settles so only the
+    // latest one glows.
+    setTimeout(function () { line.classList.remove('fresh'); }, 800);
+
+    var time = document.createElement('span');
+    time.className = 'v2-log-time';
+    // ev.ts is unix nanoseconds — convert to seconds with 3-digit
+    // precision matching the cal-state.js demo formatting.
+    var secs = (ev.ts / 1e9);
+    time.textContent = '[' + secs.toFixed(3).slice(-7) + ']';
+    line.appendChild(time);
+
+    var msg = document.createElement('span');
+    msg.className = 'v2-log-msg';
+    var lvl = document.createElement('span');
+    lvl.className = 'lvl lvl-' + (ev.level || 'info');
+    lvl.textContent = lvlGlyph(ev.level);
+    msg.appendChild(lvl);
+    var tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = ev.tag || '';
+    msg.appendChild(tag);
+    msg.appendChild(document.createTextNode(ev.text || ''));
+    line.appendChild(msg);
+
+    log.appendChild(line);
+    sseEventCount++;
+    var counter = document.getElementById('cal-log-count');
+    if (counter) counter.textContent = String(sseEventCount);
+    var eyebrow = document.getElementById('cal-log-eyebrow');
+    if (eyebrow) eyebrow.textContent = 'Daemon log · live';
+
+    // cap rendered rows
+    while (log.childElementCount > SSE_LOG_CAP) log.removeChild(log.firstChild);
+    // auto-scroll to bottom
+    log.scrollTop = log.scrollHeight;
+  }
+  function lvlGlyph(level) {
+    if (level === 'ok')   return '+';
+    if (level === 'warn') return '!';
+    if (level === 'err')  return 'x';
+    return 'i';
+  }
 })();

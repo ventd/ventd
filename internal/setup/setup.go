@@ -186,6 +186,16 @@ type Manager struct {
 	// the wizard proceeds straight to the finalising phase.
 	// SetAcousticGateOptions is the production wiring hook.
 	acousticGateOpts AcousticGateOptions
+
+	// events is the in-memory ring buffer for the activity-feed SSE.
+	// Capped at maxEventsRingSize entries; appendEventLocked drops the
+	// oldest on overflow. Reads happen via EventsSince(cursor) which
+	// returns a copy so the caller can render without holding m.mu.
+	// The SSE handler in internal/web polls this every 250ms and
+	// re-flushes only the new entries since the last cursor — there's
+	// no goroutine plumbing or per-subscriber channel; the bounded
+	// ring + cursor poll is the whole transport.
+	events []Event
 }
 
 // Default path roots used when the Manager is constructed via New. Exported
@@ -361,12 +371,97 @@ func (m *Manager) Start() error {
 }
 
 // setPhase updates the current phase and its human-readable description.
+// Also appends a phase-transition event to the in-memory ring buffer so
+// subscribers to /api/v1/setup/events see the change without polling.
 func (m *Manager) setPhase(phase, msg string) {
 	m.mu.Lock()
 	m.phase = phase
 	m.phaseMsg = msg
+	m.appendEventLocked("ok", "phase."+phase, msg)
 	m.mu.Unlock()
 	m.logger.Info("setup: " + msg)
+}
+
+// Event is one structured entry in the setup activity feed. Times are
+// unix milliseconds so the JS-side renderer doesn't need to parse RFC
+// timestamps. Level is one of {"info", "ok", "warn", "err"} matching
+// the calibration UI's structured-event renderer (cal-state.js
+// brand-voice taxonomy). Tag is a dotted namespace (e.g. "phase",
+// "kmod.scan", "cal.start") that the renderer translates into a pill.
+type Event struct {
+	TS    int64  `json:"ts"`    // unix ms
+	Level string `json:"level"` // info | ok | warn | err
+	Tag   string `json:"tag"`   // dotted namespace
+	Text  string `json:"text"`  // one-line free-form
+}
+
+// maxEventsRingSize bounds the in-memory event log. 500 entries
+// covers a full ~50s calibration walk (the cal-state.js demo emits
+// ~200 events end-to-end) with headroom for re-runs in the same
+// daemon lifetime. Older entries drop on overflow.
+const maxEventsRingSize = 500
+
+// appendEventLocked appends one event to the ring buffer, dropping
+// the oldest on overflow. Caller must hold m.mu. The TS is stamped
+// from time.Now().UnixNano() so cursors stay strictly monotonic
+// even when callers emit several events in the same millisecond
+// (the calibration loop bursts ~5-10 events per fan transition).
+// If two emits race in the same nanosecond — vanishingly rare on
+// modern kernels but not impossible — the second one gets bumped
+// by 1 ns so the cursor still advances and the SSE poll never
+// silently drops a transition.
+func (m *Manager) appendEventLocked(level, tag, text string) {
+	ts := time.Now().UnixNano()
+	if n := len(m.events); n > 0 && ts <= m.events[n-1].TS {
+		ts = m.events[n-1].TS + 1
+	}
+	m.events = append(m.events, Event{
+		TS:    ts,
+		Level: level,
+		Tag:   tag,
+		Text:  text,
+	})
+	if len(m.events) > maxEventsRingSize {
+		// Drop oldest by sliding window — copy is unavoidable for
+		// the slice header reuse to keep the ring bounded.
+		m.events = m.events[len(m.events)-maxEventsRingSize:]
+	}
+}
+
+// EmitEvent is the exported event-emit hook for callers outside
+// setup.Manager (e.g. the calibrate manager bridging fan-level
+// transitions). Production code uses appendEventLocked from inside
+// already-locked sections; this wrapper takes the lock for callers
+// that don't already hold it. Also serves as a stable surface that
+// tests can observe via EventsSince.
+func (m *Manager) EmitEvent(level, tag, text string) {
+	m.mu.Lock()
+	m.appendEventLocked(level, tag, text)
+	m.mu.Unlock()
+}
+
+// EventsSince returns events whose TS is strictly greater than
+// sinceMs, along with the largest TS observed (for the caller to
+// pass back as the next cursor). When the ring is empty or has
+// nothing newer, returns (nil, sinceMs). Returned slice is a copy;
+// safe for the caller to read without holding any lock.
+func (m *Manager) EventsSince(sinceMs int64) ([]Event, int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.events) == 0 {
+		return nil, sinceMs
+	}
+	out := make([]Event, 0, len(m.events))
+	latest := sinceMs
+	for _, e := range m.events {
+		if e.TS > sinceMs {
+			out = append(out, e)
+			if e.TS > latest {
+				latest = e.TS
+			}
+		}
+	}
+	return out, latest
 }
 
 // readSysfsInt reads a single integer from a sysfs path. Used to
