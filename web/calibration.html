@@ -12,35 +12,37 @@
 <body class="cal-body">
 
 <!-- ambient background ------------------------------------------------- -->
-<div class="cal-bg" aria-hidden="true">
-  <div class="cal-bg-grid"></div>
-  <div class="cal-bg-glow cal-bg-glow--a"></div>
-  <div class="cal-bg-glow cal-bg-glow--b"></div>
-  <div class="cal-bg-glow cal-bg-glow--c"></div>
+<div class="v2-bg" aria-hidden="true">
+  <div class="v2-bg-grid"></div>
+  <div class="v2-bg-glow v2-bg-glow--a"></div>
+  <div class="v2-bg-glow v2-bg-glow--b"></div>
+  <div class="v2-bg-glow v2-bg-glow--c"></div>
 </div>
 
-<main class="cal-stage">
+<main class="v2-stage">
 
   <!-- HEADER ----------------------------------------------------------- -->
-  <header class="cal-head">
-    <div class="cal-head-brand">
-      <div class="brand-mark spinning"></div>
-      <div class="cal-head-text">
-        <div class="cal-head-name">Ventd</div>
-        <div class="cal-head-sub" id="cal-headline">Auto-calibrating your fans</div>
+  <header class="v2-head">
+    <div class="v2-brand">
+      <div class="v2-mark brand-mark spinning" aria-hidden="true"></div>
+      <div class="v2-brand-text">
+        <div class="v2-brand-name">ventd <span class="v2-brand-version" id="cal-brand-version">v0.6.0</span></div>
+        <div class="v2-brand-sub" id="cal-brand-sub">First-boot calibration · do not interrupt</div>
       </div>
     </div>
-    <div class="cal-head-actions">
-      <div class="cal-eta">
-        <div class="cal-eta-label">elapsed · remaining</div>
-        <div class="cal-eta-value mono">
-          <span id="cal-elapsed">00:00</span>
-          <span class="cal-eta-sep">/</span>
-          <span id="cal-remaining">—</span>
+    <div class="v2-head-right">
+      <div class="v2-clocks">
+        <div class="v2-clock-item">
+          <div class="v2-clock-label">Elapsed</div>
+          <div class="v2-clock-val mono" id="cal-elapsed">00:00</div>
+        </div>
+        <div class="v2-clock-item">
+          <div class="v2-clock-label">Remaining</div>
+          <div class="v2-clock-val mono" id="cal-remaining"><span class="dim">—</span></div>
         </div>
       </div>
-      <button class="btn btn--danger cal-abort-btn" id="cal-abort" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+      <button class="v2-abort" id="cal-abort" type="button">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="8" height="8" rx="1"/></svg>
         Abort
       </button>
       <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle theme">
@@ -49,265 +51,363 @@
     </div>
   </header>
 
-  <!-- PHASE PIPELINE --------------------------------------------------- -->
-  <section class="cal-pipeline" aria-label="Calibration phase pipeline">
-    <ol class="cal-pipeline-steps" id="cal-pipeline">
-      <li class="pipe-step" data-phase="detecting">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Detect hardware</span>
-        <span class="pipe-sub">Discovering chips and fans</span>
+  <!-- COMMAND BRIDGE --------------------------------------------------- -->
+  <section class="v2-bridge" aria-label="Command bridge">
+    <div class="v2-bridge-row1">
+      <div class="v2-phase-headline">
+        <div class="v2-phase-eyebrow" id="cal-phase-eyebrow">Phase 01 / 07 · Detecting</div>
+        <div class="v2-phase-title" id="cal-phase-title">Probing system bus</div>
+        <div class="v2-phase-sub" id="cal-phase-sub">Probing Super-IO and embedded controllers</div>
+      </div>
+      <div class="v2-bridge-stats">
+        <div class="v2-bstat">
+          <div class="v2-bstat-label">Channels live</div>
+          <div class="v2-bstat-val blue" id="cal-bstat-channels">0<small id="cal-bstat-channels-of">/0</small></div>
+        </div>
+        <div class="v2-bstat">
+          <div class="v2-bstat-label">Samples / sec</div>
+          <div class="v2-bstat-val teal" id="cal-bstat-sps">0</div>
+        </div>
+        <div class="v2-bstat">
+          <div class="v2-bstat-label">Total captured</div>
+          <div class="v2-bstat-val" id="cal-bstat-total">0</div>
+        </div>
+        <div class="v2-bstat">
+          <div class="v2-bstat-label">Fans ready</div>
+          <div class="v2-bstat-val" id="cal-bstat-fans">0<small id="cal-bstat-fans-of">/0</small></div>
+        </div>
+      </div>
+    </div>
+
+    <ol class="v2-pipeline" id="cal-pipeline">
+      <li class="v2-pipe-step pending" data-phase="detecting">
+        <div class="v2-pipe-num">01</div>
+        <div class="v2-pipe-label">Detect chip</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="installing_driver">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Driver</span>
-        <span class="pipe-sub">Loading kernel module</span>
+      <li class="v2-pipe-step pending" data-phase="installing_driver">
+        <div class="v2-pipe-num">02</div>
+        <div class="v2-pipe-label">Install driver</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="scanning_fans">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Scan fans</span>
-        <span class="pipe-sub">Mapping PWM controllers</span>
+      <li class="v2-pipe-step pending" data-phase="scanning_fans">
+        <div class="v2-pipe-num">03</div>
+        <div class="v2-pipe-label">Map channels</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="detecting_rpm">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Pair tach</span>
-        <span class="pipe-sub">Matching RPM sensors</span>
+      <li class="v2-pipe-step pending" data-phase="detecting_rpm">
+        <div class="v2-pipe-num">04</div>
+        <div class="v2-pipe-label">Pair tachs</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="probing_polarity">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Polarity</span>
-        <span class="pipe-sub">Direction of duty cycle</span>
+      <li class="v2-pipe-step pending" data-phase="probing_polarity">
+        <div class="v2-pipe-num">05</div>
+        <div class="v2-pipe-label">Probe polarity</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="calibrating">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Calibrate</span>
-        <span class="pipe-sub">Sweeping each fan</span>
+      <li class="v2-pipe-step pending" data-phase="calibrating">
+        <div class="v2-pipe-num">06</div>
+        <div class="v2-pipe-label">Sweep curves</div>
+        <div class="v2-pipe-time">—</div>
       </li>
-      <li class="pipe-step" data-phase="finalizing">
-        <span class="pipe-dot"></span>
-        <span class="pipe-label">Curve</span>
-        <span class="pipe-sub">Building thermal profile</span>
+      <li class="v2-pipe-step pending" data-phase="finalizing">
+        <div class="v2-pipe-num">07</div>
+        <div class="v2-pipe-label">Compute curves</div>
+        <div class="v2-pipe-time">—</div>
       </li>
     </ol>
-    <div class="cal-pipeline-progress">
-      <div class="cal-pipeline-bar"><div class="cal-pipeline-fill" id="cal-pipeline-fill"></div></div>
+
+    <div class="v2-bridge-progress">
+      <div class="v2-bridge-progress-fill" id="cal-bridge-progress"></div>
+    </div>
+  </section>
+
+  <!-- DONE BANNER ------------------------------------------------------ -->
+  <section class="v2-done" id="cal-done-banner" hidden>
+    <div class="v2-done-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M5 12 L 10 17 L 19 7"/></svg>
+    </div>
+    <div class="v2-done-text">
+      <div class="v2-done-eyebrow">Calibration complete</div>
+      <div class="v2-done-title" id="cal-done-title">Calibration finished</div>
+      <div class="v2-done-sub" id="cal-done-sub">Your custom fan curve is ready. Apply to take over from firmware control.</div>
+    </div>
+    <button class="v2-apply-btn" id="cal-apply-btn">
+      Apply &amp; continue
+      <svg viewBox="0 0 24 24"><path d="M5 12 H 19 M 13 6 L 19 12 L 13 18"/></svg>
+    </button>
+  </section>
+
+  <!-- COMPUTE HERO (visible during finalizing/done) -------------------- -->
+  <section class="v2-compute" id="cal-compute" hidden>
+    <div class="v2-compute-left">
+      <div class="v2-compute-head">
+        <div>
+          <div class="v2-compute-eyebrow">Solving thermal model · live</div>
+          <div class="v2-compute-title" id="cal-compute-title">Computing your fan curve</div>
+          <div class="v2-compute-sub" id="cal-compute-sub">— samples · CPU + GPU coupled · least-squares fit</div>
+        </div>
+        <div class="v2-compute-iter">
+          <div class="v2-compute-iter-label">Iter</div>
+          <div class="v2-compute-iter-val mono" id="cal-compute-iter">000<small> / 047</small></div>
+          <div class="v2-compute-residual-bar">
+            <div class="v2-compute-residual-fill" id="cal-compute-residual"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="v2-compute-canvas">
+        <svg class="v2-compute-svg" id="cal-compute-svg" viewBox="0 0 720 320" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="v2-area-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" class="v2-area-stop-top"/>
+              <stop offset="100%" class="v2-area-stop-bot"/>
+            </linearGradient>
+          </defs>
+          <g class="v2-compute-grid" id="cal-compute-grid"></g>
+          <g class="v2-compute-axis" id="cal-compute-axis"></g>
+          <rect class="v2-compute-stop-band" id="cal-compute-stop-band" x="0" y="0" width="0" height="0"/>
+          <line class="v2-compute-stop-line" id="cal-compute-stop-line" x1="0" x2="0" y1="0" y2="0"/>
+          <text class="v2-compute-stop-label" id="cal-compute-stop-label" x="0" y="0">FAN STOP</text>
+          <g id="cal-compute-samples"></g>
+          <path class="v2-compute-curve-area" id="cal-compute-curve-area" d=""/>
+          <path class="v2-compute-curve" id="cal-compute-curve" d=""/>
+          <g id="cal-compute-anchors"></g>
+        </svg>
+      </div>
+
+      <div class="v2-compute-results">
+        <div class="v2-compute-result" id="cal-result-samples">
+          <div class="v2-compute-result-label">Samples</div>
+          <div class="v2-compute-result-val mono" id="cal-result-samples-val">—</div>
+          <div class="v2-compute-result-sub" id="cal-result-samples-sub">— channels · 3 zones</div>
+        </div>
+        <div class="v2-compute-result" id="cal-result-residual">
+          <div class="v2-compute-result-label">Residual</div>
+          <div class="v2-compute-result-val mono" id="cal-result-residual-val">—</div>
+          <div class="v2-compute-result-sub">RMS · normalized</div>
+        </div>
+        <div class="v2-compute-result" id="cal-result-headroom">
+          <div class="v2-compute-result-label">Headroom</div>
+          <div class="v2-compute-result-val mono" id="cal-result-headroom-val">—<small>°C</small></div>
+          <div class="v2-compute-result-sub">vs tj.max</div>
+        </div>
+        <div class="v2-compute-result" id="cal-result-curve">
+          <div class="v2-compute-result-label">curve.toml</div>
+          <div class="v2-compute-result-val mono" id="cal-result-curve-val">—</div>
+          <div class="v2-compute-result-sub">/etc/ventd/</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="v2-compute-right">
+      <div class="v2-compute-right-eyebrow">Solver pipeline</div>
+      <ol class="v2-compute-steps" id="cal-compute-steps">
+        <li class="v2-compute-step is-pending" data-step="ingest">
+          <div class="v2-compute-step-icon">1</div>
+          <div class="v2-compute-step-label">Ingest sweep samples</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+        <li class="v2-compute-step is-pending" data-step="fit">
+          <div class="v2-compute-step-icon">2</div>
+          <div class="v2-compute-step-label">Least-squares per-fan fit</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+        <li class="v2-compute-step is-pending" data-step="couple">
+          <div class="v2-compute-step-icon">3</div>
+          <div class="v2-compute-step-label">Couple CPU/GPU thermals</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+        <li class="v2-compute-step is-pending" data-step="anchors">
+          <div class="v2-compute-step-icon">4</div>
+          <div class="v2-compute-step-label">Place curve anchors</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+        <li class="v2-compute-step is-pending" data-step="headroom">
+          <div class="v2-compute-step-icon">5</div>
+          <div class="v2-compute-step-label">Verify thermal headroom</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+        <li class="v2-compute-step is-pending" data-step="write">
+          <div class="v2-compute-step-icon">6</div>
+          <div class="v2-compute-step-label">Sign &amp; write curve.toml</div>
+          <div class="v2-compute-step-value">—</div>
+        </li>
+      </ol>
     </div>
   </section>
 
   <!-- BODY GRID -------------------------------------------------------- -->
-  <section class="cal-body-grid">
+  <section class="v2-body">
+    <div class="v2-main">
 
-    <!-- DONE BANNER (hidden until applied) — placed inside body-grid so
-         it occupies the left column where the live sweep card was, mid-
-         viewport. Phoenix's HIL feedback (#821): the banner used to live
-         at the bottom of the page below the fold on 1366×768 laptops, so
-         the user had to scroll to find the Apply button. Now it replaces
-         the live card in the same grid cell, and JS hides the live card
-         on `p.done` so there's no double-render. -->
-    <section class="cal-done-banner" id="cal-done-banner" hidden>
-      <div class="cal-done-celebrate" aria-hidden="true">
-        <svg viewBox="0 0 64 64"><path d="M16 32l10 10 22-22"/></svg>
-      </div>
-      <div class="cal-done-text">
-        <div class="cal-done-title">Calibration complete</div>
-        <div class="cal-done-sub" id="cal-done-sub">
-          Your custom fan curve is ready. Apply to take over from firmware control.
-        </div>
-      </div>
-      <button class="btn btn--primary btn--lg" id="cal-apply-btn">
-        Apply &amp; Continue
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-      </button>
-    </section>
-
-    <!-- LEFT: live sweep --------------------------------------------- -->
-    <div class="cal-card cal-live-card" id="cal-live-card">
-      <div class="cal-card-head">
-        <div class="cal-card-eyebrow">
-          <span class="cal-pulse-dot"></span>
-          NOW PROBING
-        </div>
-        <div class="cal-card-title" id="cal-live-name">Waiting to start…</div>
-        <div class="cal-card-sub mono" id="cal-live-source">—</div>
-      </div>
-
-      <!-- live stat strip -->
-      <div class="cal-live-stats">
-        <div class="cal-live-stat">
-          <div class="cal-live-stat-label">PWM</div>
-          <div class="cal-live-stat-value mono">
-            <span id="cal-live-pwm">—</span><span class="cal-live-stat-of">/255</span>
+      <!-- LIVE OSCILLOSCOPE / BUS TELEMETRY ------------------------- -->
+      <div class="v2-card v2-scope">
+        <div class="v2-card-head">
+          <div class="v2-card-head-left">
+            <div class="v2-card-eyebrow teal">Live signal · gpio + hwmon</div>
+            <div class="v2-card-title">Bus telemetry</div>
           </div>
-          <div class="cal-live-bar"><div class="cal-live-bar-fill" id="cal-live-pwm-bar"></div></div>
+          <div class="v2-card-meta" id="cal-scope-meta">trace · 2-ch · noise floor</div>
         </div>
-        <div class="cal-live-stat">
-          <div class="cal-live-stat-label">RPM</div>
-          <div class="cal-live-stat-value mono">
-            <span id="cal-live-rpm">—</span>
+        <div class="v2-scope-canvas">
+          <div class="v2-scope-grid"></div>
+          <svg class="v2-scope-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            <path id="cal-scope-tx" class="v2-scope-trace tx" d=""/>
+            <path id="cal-scope-rx" class="v2-scope-trace rx" d=""/>
+          </svg>
+          <div class="v2-scope-sweep"></div>
+          <div class="v2-corner v2-tl">CH1 · TX <span class="v2-corner-swatch v2-corner-swatch--blue">━</span></div>
+          <div class="v2-corner v2-bl">CH2 · RX <span class="v2-corner-swatch v2-corner-swatch--teal">━</span></div>
+          <div class="v2-corner v2-tr" id="cal-scope-state">CAPTURING</div>
+          <div class="v2-corner v2-br teal">25.000 kHz / 5 ms·div</div>
+        </div>
+        <div class="v2-scope-ribbon">
+          <div class="v2-scope-ribbon-cell">
+            <div class="v2-srib-label">Stage</div>
+            <div class="v2-srib-val blue" id="cal-srib-stage">super-io</div>
           </div>
-          <div class="cal-live-spark">
-            <svg id="cal-live-spark-svg" viewBox="0 0 240 36" preserveAspectRatio="none" aria-hidden="true">
-              <path id="cal-live-spark-path" d="" fill="none" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
+          <div class="v2-scope-ribbon-cell">
+            <div class="v2-srib-label">PWM duty</div>
+            <div class="v2-srib-val mono" id="cal-srib-duty">—</div>
+          </div>
+          <div class="v2-scope-ribbon-cell">
+            <div class="v2-srib-label">Tach freq</div>
+            <div class="v2-srib-val teal mono" id="cal-srib-tach">—</div>
+          </div>
+          <div class="v2-scope-ribbon-cell">
+            <div class="v2-srib-label">ADC noise</div>
+            <div class="v2-srib-val mono" id="cal-srib-adc">—</div>
+          </div>
+          <div class="v2-scope-ribbon-cell">
+            <div class="v2-srib-label">Activity</div>
+            <div class="v2-srib-spark">
+              <svg id="cal-srib-spark" viewBox="0 0 100 14" preserveAspectRatio="none">
+                <path id="cal-srib-spark-path" d="" fill="none" stroke="currentColor" stroke-width="1.2" vector-effect="non-scaling-stroke"/>
+              </svg>
+            </div>
           </div>
         </div>
-        <div class="cal-live-stat">
-          <div class="cal-live-stat-label">Phase</div>
-          <div class="cal-live-stat-value cal-live-stat-value--phase" id="cal-live-phase">idle</div>
-          <div class="cal-live-stat-sub" id="cal-live-phase-sub">awaiting first probe</div>
-        </div>
-        <div class="cal-live-stat">
-          <div class="cal-live-stat-label">Progress</div>
-          <div class="cal-live-stat-value mono">
-            <span id="cal-live-progress">0</span><span class="cal-live-stat-of">%</span>
+      </div>
+
+      <!-- FAN ROSTER --------------------------------------------------- -->
+      <div class="v2-card">
+        <div class="v2-card-head">
+          <div class="v2-card-head-left">
+            <div class="v2-card-eyebrow blue">Fan roster · <span id="cal-roster-viable">0</span> viable channels</div>
+            <div class="v2-card-title">Per-fan calibration</div>
           </div>
-          <div class="cal-live-bar"><div class="cal-live-bar-fill cal-live-bar-fill--progress" id="cal-live-progress-bar"></div></div>
+          <div class="v2-card-meta" id="cal-roster-meta">0 of 0 resolved</div>
+        </div>
+        <div class="v2-strips" id="cal-strips">
+          <div class="v2-strips-empty">Waiting for hardware scan…</div>
         </div>
       </div>
 
-      <!-- scatter chart (PWM ↔ RPM, builds in real time) -->
-      <div class="cal-chart">
-        <svg id="cal-scatter" viewBox="0 0 800 320" preserveAspectRatio="none" aria-label="PWM vs RPM scatter, building live">
-          <defs>
-            <linearGradient id="curve-grad" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%"  stop-color="var(--teal)" stop-opacity="0"/>
-              <stop offset="40%" stop-color="var(--teal)" stop-opacity="0.18"/>
-              <stop offset="100%" stop-color="var(--teal)" stop-opacity="0.45"/>
-            </linearGradient>
-            <radialGradient id="dot-glow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stop-color="var(--teal)" stop-opacity="0.9"/>
-              <stop offset="60%"  stop-color="var(--teal)" stop-opacity="0.25"/>
-              <stop offset="100%" stop-color="var(--teal)" stop-opacity="0"/>
-            </radialGradient>
-          </defs>
-          <!-- grid -->
-          <g class="cal-chart-grid">
-            <line x1="0" y1="80"  x2="800" y2="80"/>
-            <line x1="0" y1="160" x2="800" y2="160"/>
-            <line x1="0" y1="240" x2="800" y2="240"/>
-            <line x1="200" y1="0" x2="200" y2="320"/>
-            <line x1="400" y1="0" x2="400" y2="320"/>
-            <line x1="600" y1="0" x2="600" y2="320"/>
-          </g>
-          <!-- axis labels -->
-          <g class="cal-chart-axis">
-            <text x="6"   y="14" >max RPM</text>
-            <text x="6"   y="166">½</text>
-            <text x="6"   y="316">stall</text>
-            <text x="200" y="316" text-anchor="middle">25%</text>
-            <text x="400" y="316" text-anchor="middle">50%</text>
-            <text x="600" y="316" text-anchor="middle">75%</text>
-            <text x="794" y="316" text-anchor="end">100%</text>
-          </g>
-          <!-- curve fitted area (drawn live) -->
-          <path id="cal-curve-area" class="cal-curve-area" d="" fill="url(#curve-grad)" />
-          <path id="cal-curve-line" class="cal-curve-line" d="" fill="none" stroke="var(--teal)" stroke-width="2"/>
-          <!-- sample dots get appended here -->
-          <g id="cal-samples"></g>
-          <!-- live cursor -->
-          <line   id="cal-cursor"     class="cal-cursor"     x1="-10" y1="0" x2="-10" y2="320"/>
-          <circle id="cal-cursor-dot" class="cal-cursor-dot" cx="-10" cy="320" r="6" />
-          <circle id="cal-cursor-halo" class="cal-cursor-halo" cx="-10" cy="320" r="14" fill="url(#dot-glow)" />
-          <!-- markers (start / stop) -->
-          <g id="cal-markers"></g>
-        </svg>
-        <div class="cal-chart-legend">
-          <span class="legend-item"><span class="legend-swatch legend-swatch--blue"></span>PWM target</span>
-          <span class="legend-item"><span class="legend-swatch legend-swatch--teal"></span>RPM measured</span>
-          <span class="legend-item"><span class="legend-swatch legend-swatch--marker"></span>start / stop point</span>
-        </div>
-      </div>
-
-      <!-- rotating reassurance message -->
-      <div class="cal-flavour" id="cal-flavour">
-        Calibration runs once per host. Walk away — your work isn't wasted.
-      </div>
     </div>
 
-    <!-- RIGHT: fan roster + system profile --------------------------- -->
-    <div class="cal-side">
+    <div class="v2-rail">
 
-      <div class="cal-card cal-roster-card">
-        <div class="cal-card-head cal-card-head--inline">
-          <div class="cal-card-eyebrow">FANS</div>
-          <div class="cal-card-counter mono">
-            <span id="cal-counter-done">0</span><span class="cal-card-counter-of">/</span><span id="cal-counter-total">0</span>
+      <!-- SYSTEM CARD -------------------------------------------------- -->
+      <div class="v2-card">
+        <div class="v2-card-head">
+          <div class="v2-card-head-left">
+            <div class="v2-card-eyebrow teal">System</div>
+            <div class="v2-card-title" id="cal-sys-board">Discovering…</div>
           </div>
+          <span class="v2-pill info" id="cal-sys-state">calibrating</span>
         </div>
-        <div class="cal-roster" id="cal-roster">
-          <div class="cal-roster-empty">Waiting for hardware scan…</div>
-        </div>
-        <div class="cal-roster-totals">
-          <span class="status-pill ok"><span class="cal-pulse-dot cal-pulse-dot--ok"></span><span id="cal-totals-done">0</span> done</span>
-          <span class="status-pill info"><span class="cal-pulse-dot cal-pulse-dot--info"></span><span id="cal-totals-running">0</span> running</span>
-          <span class="status-pill ro"><span id="cal-totals-queued">0</span> queued</span>
-          <span class="status-pill warn" id="cal-totals-skipped-pill" hidden><span id="cal-totals-skipped">0</span> skipped</span>
+        <div class="v2-card-body" style="padding-top: 6px;">
+          <dl class="v2-sys-list">
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-chip">
+              <dt>Chip</dt>
+              <dd id="cal-sys-chip"><span class="dim">probing super-io…</span></dd>
+            </div>
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-driver">
+              <dt>Driver</dt>
+              <dd id="cal-sys-driver"><span class="dim">queued</span></dd>
+            </div>
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-cpu">
+              <dt>CPU</dt>
+              <dd id="cal-sys-cpu"><span class="dim">—</span></dd>
+            </div>
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-gpu">
+              <dt>GPU</dt>
+              <dd id="cal-sys-gpu"><span class="dim">—</span></dd>
+            </div>
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-fans">
+              <dt>Fans</dt>
+              <dd id="cal-sys-fans"><span class="dim">scanning…</span></dd>
+            </div>
+            <div class="v2-sys-row" data-state="pending" id="cal-sys-row-tachs">
+              <dt>Tachs</dt>
+              <dd id="cal-sys-tachs"><span class="dim">—</span></dd>
+            </div>
+          </dl>
         </div>
       </div>
 
-      <div class="cal-card cal-profile-card" id="cal-profile-card" hidden>
-        <div class="cal-card-head">
-          <div class="cal-card-eyebrow">SYSTEM PROFILE</div>
-          <div class="cal-card-title" id="cal-profile-board">—</div>
+      <!-- PHASE NARRATOR (placeholder for SSE log in PR-2) ------------ -->
+      <div class="v2-card">
+        <div class="v2-card-head">
+          <div class="v2-card-head-left">
+            <div class="v2-card-eyebrow blue">Phase narrator</div>
+            <div class="v2-card-title">What ventd is doing</div>
+          </div>
+          <div class="v2-card-meta" id="cal-narrator-meta">live</div>
         </div>
-        <dl class="cal-profile-list">
-          <div class="cal-profile-row" id="cal-profile-cpu-row" hidden>
-            <dt>CPU</dt>
-            <dd><span id="cal-profile-cpu">—</span> <span class="cal-profile-w mono" id="cal-profile-cpu-tdp"></span></dd>
-          </div>
-          <div class="cal-profile-row" id="cal-profile-gpu-row" hidden>
-            <dt>GPU</dt>
-            <dd><span id="cal-profile-gpu">—</span> <span class="cal-profile-w mono" id="cal-profile-gpu-tdp"></span></dd>
-          </div>
-          <div class="cal-profile-row" id="cal-profile-chip-row" hidden>
-            <dt>Chip</dt>
-            <dd class="mono" id="cal-profile-chip">—</dd>
-          </div>
-        </dl>
+        <div class="v2-narrator" id="cal-narrator">
+          <div class="v2-narrator-eyebrow" id="cal-narrator-eyebrow">Awaiting daemon…</div>
+          <div class="v2-narrator-title" id="cal-narrator-title">Standing by</div>
+          <div class="v2-narrator-blurb" id="cal-narrator-blurb">The calibration log will stream here once the daemon connects.</div>
+          <div class="v2-narrator-msg mono" id="cal-narrator-msg"></div>
+        </div>
       </div>
 
-      <div class="cal-card cal-safety-card">
-        <div class="cal-card-head">
-          <div class="cal-card-eyebrow">SAFETY</div>
-        </div>
-        <ul class="cal-safety-list">
-          <li><span class="cal-safety-icon">✓</span> Aborts if any temperature exceeds 85&nbsp;°C</li>
-          <li><span class="cal-safety-icon">✓</span> Restores firmware control within 2&nbsp;s on abort</li>
-          <li><span class="cal-safety-icon">✓</span> Sweeps run sequentially — no thermal interference</li>
-        </ul>
-      </div>
-
-      <!-- LIVE ACTIVITY FEED ------------------------------------------ -->
-      <!-- Real-time narration of what the daemon is doing right now.
-           Synthesised client-side from /api/setup/status polls + per-fan
-           PWM/RPM transitions. Every visible state change appends one
-           timestamped line so operators see the daemon's actual
-           methodology unfolding instead of just static phase labels.    -->
-      <div class="cal-card cal-activity-card">
-        <div class="cal-card-head cal-card-head--inline">
-          <div class="cal-card-eyebrow">
-            <span class="cal-pulse-dot cal-pulse-dot--info"></span>
-            LIVE ACTIVITY
+      <!-- THERMAL PREVIEW (hidden when compute hero takes over) ------ -->
+      <div class="v2-card v2-thermal" id="cal-thermal">
+        <div class="v2-card-head">
+          <div class="v2-card-head-left">
+            <div class="v2-card-eyebrow amber">Computed curve · CPU loop</div>
+            <div class="v2-card-title">Your fan curve</div>
           </div>
-          <div class="cal-activity-counter mono" id="cal-activity-counter">0 events</div>
+          <div class="v2-card-meta" id="cal-thermal-meta">pending</div>
         </div>
-        <ol class="cal-activity-feed" id="cal-activity-feed" aria-live="polite" aria-atomic="false">
-          <li class="cal-activity-empty">Waiting for first action…</li>
-        </ol>
+        <svg class="v2-thermal-svg" id="cal-thermal-svg" viewBox="0 0 360 200" preserveAspectRatio="none">
+          <g class="v2-thermal-grid" id="cal-thermal-grid"></g>
+          <g class="v2-thermal-axis" id="cal-thermal-axis"></g>
+          <rect class="v2-thermal-stop-band" id="cal-thermal-stop-band" x="0" y="0" width="0" height="0"/>
+          <line class="v2-thermal-stop-line" id="cal-thermal-stop-line" x1="0" x2="0" y1="0" y2="0"/>
+          <text class="v2-thermal-stop-label" id="cal-thermal-stop-label" x="0" y="0">FAN STOP</text>
+          <path class="v2-thermal-curve-bg" id="cal-thermal-curve-bg" d=""/>
+          <path class="v2-thermal-curve" id="cal-thermal-curve" d=""/>
+          <g id="cal-thermal-anchors"></g>
+        </svg>
+        <div class="v2-thermal-foot">
+          <div class="v2-thermal-foot-cell">
+            <div class="v2-thermal-foot-label">Min spin</div>
+            <div class="v2-thermal-foot-val teal mono" id="cal-thermal-minspin">—</div>
+          </div>
+          <div class="v2-thermal-foot-cell">
+            <div class="v2-thermal-foot-label">Slope</div>
+            <div class="v2-thermal-foot-val mono" id="cal-thermal-slope">—</div>
+          </div>
+          <div class="v2-thermal-foot-cell">
+            <div class="v2-thermal-foot-label">Headroom</div>
+            <div class="v2-thermal-foot-val mono" id="cal-thermal-headroom">—</div>
+          </div>
+        </div>
       </div>
 
     </div>
   </section>
 
-  <!-- ERROR BANNER (hidden unless an error or abort fires) ------------ -->
+  <!-- ERROR BANNER ----------------------------------------------------- -->
   <section class="cal-error-banner" id="cal-error-banner" hidden role="alert">
     <div class="cal-error-text">
       <div class="cal-error-title">Calibration could not complete</div>
       <div class="cal-error-sub" id="cal-error-sub">—</div>
     </div>
-    <!-- v0.5.9 wizard recovery cards (#800). Populated from
-         /api/v1/setup/status's `remediation` array when the
-         classifier identified the failure. Hidden when remediation
-         is empty (ClassUnknown ⇒ generic bundle button only). -->
     <div class="cal-recovery-cards" id="cal-recovery-cards" hidden></div>
     <div class="cal-error-actions">
       <button class="btn btn--ghost" id="cal-retry-btn">Retry</button>
@@ -317,7 +417,7 @@
     <div class="cal-error-bundle-status" id="cal-bundle-status" hidden></div>
   </section>
 
-  <!-- Modal hosting "Show instructions" card output (e.g. MOK enrollment). -->
+  <!-- Modal hosting "Show instructions" card output ------------------- -->
   <div class="cal-modal-overlay" id="cal-modal-overlay" hidden>
     <div class="cal-modal" role="dialog" aria-labelledby="cal-modal-title">
       <header class="cal-modal-header">
