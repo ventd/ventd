@@ -312,18 +312,25 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
 /* ─── release-notes modal (#48) ─────────────────────────── */
 .rn-modal {
   position: fixed; inset: 0; z-index: 1000;
-  background: rgba(0, 0, 0, 0.65);
+  /* Heavier backdrop + blur so the card reads as a distinct surface
+     against the page underneath (Phoenix HIL feedback: the v0.5.17
+     modal looked translucent and hard to read). */
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
 }
 .rn-card {
-  background: var(--surface-1);
+  /* Explicit hex fallback in case --surface-1 ever fails to resolve
+     again — never let the card become see-through. */
+  background: var(--surface-1, #161b22);
   border: 1px solid var(--border);
   border-radius: 12px;
   max-width: 720px; width: 100%;
   max-height: 80vh;
   display: flex; flex-direction: column;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
 }
 .rn-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -343,8 +350,10 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
 .rn-body {
   padding: 16px 20px;
   overflow-y: auto; flex: 1;
-  font-size: 0.85rem; line-height: 1.5;
-  color: var(--fg2);
+  font-size: 0.9rem; line-height: 1.55;
+  /* Body copy uses --fg (primary text) not --fg2 (secondary) so the
+     paragraph contrast is comfortably readable, not faded-out. */
+  color: var(--fg);
 }
 .rn-version-line {
   display: flex; align-items: baseline; gap: 6px;
@@ -374,9 +383,9 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
 .rn-body .rn-md li { margin: 3px 0; }
 .rn-body .rn-md code {
   font-family: var(--font-mono);
-  background: var(--surface-2);
+  background: var(--surface-2, #21262d);
   padding: 1px 5px; border-radius: 3px;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   color: var(--blue);
 }
 .rn-body .rn-md a {
@@ -399,7 +408,7 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
 .walkthrough {
   border: 1px solid var(--border);
   border-left: 3px solid var(--teal);
-  background: var(--surface-1);
+  background: var(--surface-1, #161b22);
   border-radius: 8px;
   margin: 16px 24px 8px;
   padding: 0;
@@ -421,8 +430,8 @@ svg.spark .spark-fill.blue   { fill: var(--blue);  opacity: 0.12; }
 .walkthrough-close:hover { color: var(--fg1); }
 .walkthrough-body {
   padding: 4px 16px 12px;
-  font-size: 0.83rem; line-height: 1.5;
-  color: var(--fg2);
+  font-size: 0.88rem; line-height: 1.55;
+  color: var(--fg);
 }
 .walkthrough-body p {
   margin: 6px 0;
