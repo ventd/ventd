@@ -70,5 +70,11 @@ sync-install-sh: ## Refresh internal/web/install.sh.embedded from scripts/instal
 	cp scripts/install.sh internal/web/install.sh.embedded
 	@echo "OK: internal/web/install.sh.embedded refreshed"
 
+sync-changelog: ## Refresh internal/web/CHANGELOG.md.embedded from CHANGELOG.md after editing the project changelog.
+	cp CHANGELOG.md internal/web/CHANGELOG.md.embedded
+	@echo "OK: internal/web/CHANGELOG.md.embedded refreshed"
+
+sync-embeds: sync-install-sh sync-changelog ## Refresh every install-time embed in one shot.
+
 clean: ## Remove build artifacts.
 	rm -rf dist/ coverage.out
