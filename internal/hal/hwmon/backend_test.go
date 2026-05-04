@@ -2,9 +2,11 @@ package hwmon_test
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/ventd/ventd/internal/hal"
@@ -88,6 +90,83 @@ func TestEnsureManualMode_CachedOnSuccess(t *testing.T) {
 	if callCount.Load() != 1 {
 		t.Errorf("writePWMEnable call count = %d after 3 Writes, want 1 (cached after first success)",
 			callCount.Load())
+	}
+}
+
+// TestWrite_EBUSY_ReacquiresAndRetries is the binding for
+// RULE-HWMON-MODE-REACQUIRE (issue #904). Some BIOSes — Gigabyte
+// Q-Fan / Smart Fan Control on IT8xxx is the canonical case —
+// periodically reassert pwm_enable=2 mid-run. The next duty-cycle
+// write then returns EBUSY because the chip is back in firmware
+// auto. Backend.Write must (1) drop the cached acquired-state for
+// the channel, (2) re-write pwm_enable=1, and (3) retry the
+// original duty-cycle write exactly once. A second EBUSY surfaces
+// the failure so the controller logs it against the fan.
+func TestWrite_EBUSY_ReacquiresAndRetries(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm4"
+
+	var enableCount, dutyCount atomic.Int32
+
+	// pwm_enable=1 always succeeds. We expect TWO calls: the first
+	// during the initial Write, the second during the EBUSY retry.
+	enableFn := func(pwmPath string, value int) error {
+		enableCount.Add(1)
+		return nil
+	}
+
+	// First duty write returns EBUSY (BIOS reasserted auto mid-run).
+	// Second duty write succeeds (manual mode re-acquired).
+	dutyFn := func(st hwmon.State, pwm uint8) error {
+		n := dutyCount.Add(1)
+		if n == 1 {
+			return fmt.Errorf("hwmon: write pwm %s=%d: %w", st.PWMPath, pwm, syscall.EBUSY)
+		}
+		return nil
+	}
+
+	b := hwmon.NewBackendForTestWithDuty(slog.Default(), enableFn, dutyFn)
+	ch := hwmon.MakeTestChannel(pwmPath, false)
+
+	if err := b.Write(ch, 191); err != nil {
+		t.Fatalf("Write: expected success after EBUSY retry, got %v", err)
+	}
+	if got := enableCount.Load(); got != 2 {
+		t.Errorf("writePWMEnable call count = %d, want 2 (initial acquire + post-EBUSY re-acquire)", got)
+	}
+	if got := dutyCount.Load(); got != 2 {
+		t.Errorf("writeDuty call count = %d, want 2 (initial + retry)", got)
+	}
+}
+
+// TestWrite_PersistentEBUSY_FailsAfterOneRetry pins the
+// "no infinite-retry" half of RULE-HWMON-MODE-REACQUIRE. If the
+// duty-write returns EBUSY twice in a row (BIOS contesting on a
+// tighter timer than our single retry can absorb), the second
+// EBUSY surfaces to the caller so the controller logs it against
+// the fan and triggers the fan-aborted path. This is a separate
+// problem (heartbeat) from this primitive recovery.
+func TestWrite_PersistentEBUSY_FailsAfterOneRetry(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm5"
+
+	var dutyCount atomic.Int32
+	enableFn := func(pwmPath string, value int) error { return nil }
+	dutyFn := func(st hwmon.State, pwm uint8) error {
+		dutyCount.Add(1)
+		return fmt.Errorf("hwmon: write pwm %s=%d: %w", st.PWMPath, pwm, syscall.EBUSY)
+	}
+
+	b := hwmon.NewBackendForTestWithDuty(slog.Default(), enableFn, dutyFn)
+	ch := hwmon.MakeTestChannel(pwmPath, false)
+
+	err := b.Write(ch, 191)
+	if err == nil {
+		t.Fatal("Write: expected error on persistent EBUSY, got nil")
+	}
+	if !errors.Is(err, syscall.EBUSY) {
+		t.Errorf("Write: expected wrapped EBUSY, got %v", err)
+	}
+	if got := dutyCount.Load(); got != 2 {
+		t.Errorf("writeDuty call count = %d, want 2 (initial + one retry only — never spin)", got)
 	}
 }
 
