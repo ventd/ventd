@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwmon"
@@ -65,6 +66,11 @@ type Backend struct {
 	// fan*_target (RPM-target) channels. nil → hwmon.WritePWMEnablePath.
 	// Overridden in tests via export_test.go to inject failures.
 	writePWMEnablePath func(path string, value int) error
+	// writeDutyFn lets tests inject the actual duty-cycle write so the
+	// EBUSY-retry path (RULE-HWMON-MODE-REACQUIRE) can be exercised
+	// without real sysfs. nil in production: writeDuty falls through
+	// to the real hwmon.WritePWM / hwmon.WriteFanTarget dispatch.
+	writeDutyFn func(st State, pwm uint8) error
 }
 
 // NewBackend constructs a Backend that logs through the given slog
@@ -181,7 +187,19 @@ func (b *Backend) Read(ch hal.Channel) (hal.Reading, error) {
 // Acquire failures with fs.ErrNotExist are logged and ignored (some
 // drivers — notably nct6683 for NCT6687D — don't expose pwm_enable);
 // other errors are surfaced so the controller can log the specific
-// failure. Duty-cycle write errors are always surfaced.
+// failure.
+//
+// EBUSY recovery (RULE-HWMON-MODE-REACQUIRE / issue #904): some
+// BIOSes — Gigabyte Q-Fan / Smart Fan Control on IT8xxx chips is the
+// canonical case — periodically reassert pwm_enable=2 on channels
+// that ventd has already acquired. The next PWM write then returns
+// EBUSY because the chip is back under firmware control. When that
+// happens we drop the acquired-cache entry, re-write pwm_enable=1,
+// and retry the original write exactly once. A second EBUSY surfaces
+// the original failure so the controller logs it against the fan and
+// triggers the fan-aborted path. Single retry only — if the BIOS is
+// re-asserting on a tighter timer than our retry, that's a heartbeat
+// problem worth its own fix; this path is the recovery primitive.
 func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 	st, err := stateFrom(ch)
 	if err != nil {
@@ -189,6 +207,31 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 	}
 	if err := b.ensureManualMode(st); err != nil {
 		return err
+	}
+	writeErr := b.writeDuty(st, pwm)
+	if writeErr != nil && errors.Is(writeErr, syscall.EBUSY) {
+		b.logger.Warn("hwmon: write returned EBUSY, BIOS may be contesting manual mode — re-acquiring",
+			"pwm_path", st.PWMPath, "first_err", writeErr)
+		b.acquired.Delete(st.PWMPath)
+		if reacqErr := b.ensureManualMode(st); reacqErr != nil {
+			return fmt.Errorf("hal/hwmon: EBUSY re-acquire failed for %s: %w", st.PWMPath, reacqErr)
+		}
+		writeErr = b.writeDuty(st, pwm)
+		if writeErr == nil {
+			b.logger.Info("hwmon: re-acquired manual mode after EBUSY, write succeeded",
+				"pwm_path", st.PWMPath)
+		}
+	}
+	return writeErr
+}
+
+// writeDuty performs the actual duty-cycle write. Split out from
+// Write so the EBUSY-retry path can re-invoke it after re-acquiring
+// manual mode without duplicating the rpm-target / pwm dispatch.
+// b.writeDutyFn lets tests inject failures (only used in tests).
+func (b *Backend) writeDuty(st State, pwm uint8) error {
+	if b.writeDutyFn != nil {
+		return b.writeDutyFn(st, pwm)
 	}
 	if st.RPMTarget {
 		// Opt-4: prefer the cached MaxRPM embedded by the controller; fall back

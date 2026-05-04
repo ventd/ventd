@@ -41,6 +41,31 @@ already in manual mode and proceed without error.
 Bound: internal/controller/safety_test.go:pwm_enable/manual_mode_set_on_run_start
 Bound: internal/controller/safety_test.go:pwm_enable/unsupported_driver_proceeds
 
+## RULE-HWMON-MODE-REACQUIRE: EBUSY on PWM write triggers single re-acquire + retry
+
+RULE-HWMON-ENABLE-MODE covers the FIRST write contract. This rule covers
+the SUSTAIN contract: some BIOSes — Gigabyte Q-Fan / Smart Fan Control on
+IT8xxx chips is the canonical case (see issue #904) — periodically reassert
+pwm_enable=2 on channels ventd has already acquired. The next duty-cycle
+write returns EBUSY because the chip is back under firmware control,
+exactly as if no acquire had ever happened.
+
+`Backend.Write` MUST detect `errors.Is(err, syscall.EBUSY)` on the
+duty-cycle write, drop the cached acquired-state for the channel
+(`b.acquired.Delete(pwmPath)`), re-write `pwm_enable=1`, and retry the
+original duty-cycle write **exactly once**. A second EBUSY surfaces the
+wrapped failure to the caller so the controller logs it against the fan
+and the calibration / control loop triggers the fan-aborted path.
+
+Single retry only — never spin. If the BIOS is reasserting on a tighter
+timer than this primitive can absorb, that's a heartbeat-class problem
+worth its own fix (probably a periodic re-write of pwm_enable=1 from the
+control loop) and a separate rule. This rule documents the recovery
+primitive only; it never converts a real EBUSY-storm into a hung daemon.
+
+Bound: internal/hal/hwmon/backend_test.go:TestWrite_EBUSY_ReacquiresAndRetries
+Bound: internal/hal/hwmon/backend_test.go:TestWrite_PersistentEBUSY_FailsAfterOneRetry
+
 ## RULE-HWMON-RESTORE-EXIT: Watchdog.Restore() fires on every documented exit path
 
 The controller's Run method must call Watchdog.Restore() on every exit:
