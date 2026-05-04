@@ -232,16 +232,50 @@
     }
   }
 
+  // tick polls every endpoint, swallowing per-endpoint failures into
+  // a null result so one broken endpoint doesn't blank the whole page.
+  // BUT the operator MUST be told when an endpoint failed: bug-hunt
+  // finding (Agent 1 #1) was that the silent-null fallback made
+  // "Hottest: —" indistinguishable from "system has zero sensors"
+  // versus "the inventory endpoint 500'd". The mode pill turns
+  // 'warn' on any partial failure + a one-line cause lands in the
+  // sub-line so the operator knows what they're looking at.
   function tick() {
     Promise.all([
-      fetchJSON('/api/v1/hardware/inventory').catch(function () { return null; }),
-      fetchJSON('/api/v1/doctor').catch(function () { return null; }),
-      fetchJSON('/api/v1/version').catch(function () { return null; })
+      fetchJSON('/api/v1/hardware/inventory').catch(function (e) { return { __err: e }; }),
+      fetchJSON('/api/v1/doctor').catch(function (e) { return { __err: e }; }),
+      fetchJSON('/api/v1/version').catch(function (e) { return { __err: e }; })
     ]).then(function (rs) {
-      renderInventory(rs[0]);
-      renderDoctor(rs[1]);
-      renderVersion(rs[2]);
+      var failures = [];
+      rs.forEach(function (r, i) {
+        if (r && r.__err) {
+          failures.push(['inventory', 'doctor', 'version'][i] + ': ' + (r.__err.message || 'fetch failed'));
+        }
+      });
+      renderInventory((rs[0] && !rs[0].__err) ? rs[0] : null);
+      renderDoctor((rs[1] && !rs[1].__err) ? rs[1] : null);
+      renderVersion((rs[2] && !rs[2].__err) ? rs[2] : null);
+      paintErrorState(failures);
     });
+  }
+
+  // paintErrorState toggles the topbar mode pill + writes the per-
+  // endpoint failure list into the meta footer. Empty failures →
+  // pill back to 'live' green.
+  function paintErrorState(failures) {
+    var pill = $('hl-mode-pill');
+    if (!pill) return;
+    pill.classList.remove('ok', 'warn');
+    if (failures.length === 0) {
+      pill.classList.add('ok');
+      pill.textContent = 'live';
+      return;
+    }
+    pill.classList.add('warn');
+    pill.textContent = 'partial · ' + failures.length + ' endpoint' +
+      (failures.length === 1 ? '' : 's') + ' failed';
+    var meta = $('hl-meta');
+    if (meta) meta.textContent = 'errors: ' + failures.join(' · ');
   }
 
   if (document.readyState === 'loading') {
