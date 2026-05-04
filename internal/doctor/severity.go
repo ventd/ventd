@@ -6,6 +6,8 @@
 // internal/recovery, one detector here, both UIs (CLI + web) pick it up.
 package doctor
 
+import "encoding/json"
+
 // Severity is the doctor-output triage level. The values map directly
 // to the CLI exit codes pinned by RULE-DOCTOR-02:
 //
@@ -39,6 +41,50 @@ func (s Severity) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// MarshalJSON emits the lowercase token form so the JSON wire format
+// matches RULE-DOCTOR-08's schema-versioned promise. Without this, the
+// uint8 zero value marshalled as the integer 0 (and 1/2 for the other
+// members), and the web /doctor surface crashed on
+// `(f.severity || "ok").toLowerCase()` because it assumed a string.
+// Caught live on Phoenix's HIL after v0.5.26 rollout.
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+// UnmarshalJSON accepts both the canonical string form ("ok" /
+// "warning" / "blocker") and the legacy integer form (0 / 1 / 2).
+// The legacy path keeps round-trips working against persisted JSON
+// written by daemons predating MarshalJSON — diagnostic bundles or
+// piped doctor output captured before v0.5.27.
+func (s *Severity) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 {
+		return nil
+	}
+	if b[0] == '"' {
+		var name string
+		if err := json.Unmarshal(b, &name); err != nil {
+			return err
+		}
+		switch name {
+		case "ok":
+			*s = SeverityOK
+		case "warning":
+			*s = SeverityWarning
+		case "blocker":
+			*s = SeverityBlocker
+		default:
+			*s = Severity(99) // → String() = "unknown" → ExitCode = 3
+		}
+		return nil
+	}
+	var n uint8
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*s = Severity(n)
+	return nil
 }
 
 // Worse returns whichever of two severities is more alarming. Used by
