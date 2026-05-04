@@ -778,20 +778,34 @@
   // ────────────────────────────────────────────────────────────────────
 
   var ALIVE_TICK_MS = 1500;
-  // Decision threshold tuning: 2 pp was too tight — every controller tick
-  // crossed it because PWM naturally jitters as the curve smooths against
-  // sensor noise (8-poll sample on Phoenix's MSI Z690-A: 17/28 transitions
-  // crossed 2 pp, 15/28 still crossed 5 pp). 10 pp + a 2-poll persistence
-  // gate filters the curve-noise band and keeps only ramps the operator
-  // actually cares about.
-  var ALIVE_DECISION_THRESHOLD = 10;    // |Δduty pct| AND must persist N polls
-  var ALIVE_DECISION_PERSIST_POLLS = 2; // ramp must hold direction for this many polls
+  // Decision detection: windowed-delta + per-fan rate limit. Track the
+  // last ALIVE_DECISION_WINDOW polls per fan; emit a decision when the
+  // delta from the OLDEST sample in the window to the NEWEST exceeds
+  // ALIVE_DECISION_THRESHOLD pp. The window naturally absorbs single-poll
+  // noise (a 14% spike followed by 11% steady doesn't carry across the
+  // window). The per-fan ALIVE_DECISION_RATELIMIT_MS prevents a sustained
+  // ramp from emitting one decision per poll.
+  //
+  // Replaces the v1 persistence-gate from #925 which mis-classified a
+  // ramp's stable tail as "flat → reset candidate" and missed real ramps
+  // (Cpu Fan 41 → 64% over 4 s went undetected on the desktop HIL).
+  var ALIVE_DECISION_THRESHOLD = 10;
+  var ALIVE_DECISION_WINDOW = 3;          // polls in the comparison window
+  var ALIVE_DECISION_RATELIMIT_MS = 6000; // min interval between decisions per fan
   var ALIVE_DECISION_CAP = 40;
   // Forecast-band suppression: linear extrapolation over <12 samples
   // produces wild slopes (#920 — "+138.6°C/30s" badges right after page
   // load). Wait until the per-sensor history ring has at least this many
   // samples before drawing the future band + forecast badge.
   var ALIVE_FORECAST_MIN_SAMPLES = 12;
+  // Forecast slope sanity clamp: the linear fit can produce wildly large
+  // slopes when the input data is noisy (a single 14°C sensor outlier
+  // between adjacent samples projects to ±100s of °C over 30 s). Real
+  // consumer-silicon thermal transients top out around ±15 °C / 30 s
+  // (a Cinebench start can spike CPU 12-14 °C in 30 s; cooling is slower).
+  // Beyond this, the forecast is noise — render the badge as "uncertain"
+  // rather than a fabricated number.
+  var ALIVE_FORECAST_MAX_DELTA_C = 15;
   var ALIVE_NARRATOR_PERIOD_MS = 6000;  // line rotation cadence
   var ALIVE_NARRATOR_IDLE_MS = 12000;   // declare "system idle" after this
   var TJ_MAX = 100;                      // matches existing TJ constant
@@ -801,8 +815,9 @@
     smart: null,             // /api/v1/smart/status payload
     channels: null,          // /api/v1/smart/channels payload
     opp: null,               // /api/v1/probe/opportunistic/status payload
-    lastFanDuty: {},         // fan-name → last seen duty_pct
-    fanTransitionCandidate: {}, // fan-name → {dir, anchor, polls} for persistence gate
+    lastFanDuty: {},         // fan-name → last seen duty_pct (for sparkline + tile intent)
+    fanDutyWindow: {},       // fan-name → array of last ALIVE_DECISION_WINDOW duty_pct values
+    fanLastDecisionAt: {},   // fan-name → epoch ms of last emitted decision (rate limit)
     lastFanRpm: {},          // fan-name → last seen RPM (used for cause hint)
     lastFans: {},            // fan-name → most recent fan struct (for narrator)
     decisions: [],           // most-recent first; cap ALIVE_DECISION_CAP
@@ -1030,6 +1045,13 @@
       sub.className = 'dash-hero-sub';
       return;
     }
+    if (Math.abs(deltaC) > ALIVE_FORECAST_MAX_DELTA_C) {
+      // Slope unreliable — sensor noise dominates the linear fit.
+      // Show an honest "uncertain" rather than the fabricated number.
+      sub.textContent = 'forecast uncertain';
+      sub.className = 'dash-hero-sub';
+      return;
+    }
     var dir = deltaC > 1.5 ? 'up' : (deltaC < -1.5 ? 'down' : 'flat');
     var arrow = dir === 'up' ? '↗' : dir === 'down' ? '↘' : '→';
     var sign = deltaC >= 0 ? '+' : '';
@@ -1204,19 +1226,17 @@
     return out;
   }
 
-  /* aliveDetectDecisions: runs against /api/v1/status payload (we
-     hook it from inside applyStatus). Two gates before emitting:
-     (1) candidate ramp must move ≥ ALIVE_DECISION_THRESHOLD pp from
-         the anchor (last stable value),
-     (2) candidate must hold the same direction for at least
-         ALIVE_DECISION_PERSIST_POLLS consecutive polls — the controller's
-         natural sensor-noise micro-recomputes oscillate up/down poll-to-
-         poll, so a real ramp is the only thing that holds direction.
-     Cause is derived from the controller-coupled sensor's recent trend.
+  /* aliveDetectDecisions: windowed-delta + per-fan rate limit.
+     Tracks the last ALIVE_DECISION_WINDOW duty_pct samples per fan;
+     emits a decision when oldest-vs-newest delta crosses threshold
+     AND the per-fan rate-limit window has elapsed since last emit.
+     Cause is derived from the controller-coupled sensor's recent
+     trend.
 
-     This is a short-term mitigation — the architectural fix (#924) has
-     the controller emit real decision events via an SSE surface and the
-     dashboard subscribes to those, retiring inference entirely. */
+     Replaces the v1 persistence-gate from #925 which mis-classified
+     a ramp's stable tail as "flat → reset candidate" and missed
+     real ramps. The architectural fix (#924) — controller emits
+     real decisions via SSE — retires inference entirely. */
   function aliveDetectDecisions(fans, sensors) {
     if (!Array.isArray(fans)) return;
     var now = Date.now();
@@ -1227,41 +1247,33 @@
       var d = (typeof f.duty_pct === 'number') ? f.duty_pct : null;
       aliveState.lastFans[name] = f;
       if (d == null) return;
+
+      // Maintain per-fan window of the last N polls; lastFanDuty stays
+      // populated as a single-poll cache for the tile intent arrows.
       var prev = aliveState.lastFanDuty[name];
       aliveState.lastFanDuty[name] = d;
-      if (prev == null) return;
-
-      var delta = d - prev;
-      var dir = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
-      var cand = aliveState.fanTransitionCandidate[name];
-
-      // Below the threshold OR direction == flat → reset / hold candidate.
-      if (Math.abs(delta) < ALIVE_DECISION_THRESHOLD || dir === 'flat') {
-        if (cand && cand.dir !== 'flat') {
-          // Direction reversed before the persistence gate fired —
-          // discard the candidate entirely (this was the noise we
-          // were filtering out: 11 → 14 → 11 thrashing).
-          aliveState.fanTransitionCandidate[name] = null;
-        }
-        return;
+      var win = aliveState.fanDutyWindow[name];
+      if (!win) {
+        win = [];
+        aliveState.fanDutyWindow[name] = win;
       }
+      win.push(d);
+      if (win.length > ALIVE_DECISION_WINDOW) win.shift();
+      if (win.length < 2) return;
 
-      if (!cand || cand.dir !== dir) {
-        // New ramp candidate or direction flip — start fresh.
-        aliveState.fanTransitionCandidate[name] = {
-          dir: dir,
-          anchor: prev,
-          polls: 1
-        };
-        return;
-      }
+      var oldest = win[0];
+      var newest = win[win.length - 1];
+      var delta = newest - oldest;
+      if (Math.abs(delta) < ALIVE_DECISION_THRESHOLD) return;
 
-      // Same direction continues — increment persistence counter.
-      cand.polls += 1;
-      if (cand.polls < ALIVE_DECISION_PERSIST_POLLS) return;
+      // Per-fan rate limit: a sustained ramp that keeps moving N pp per
+      // poll would otherwise emit one decision per tick. 6 s gate gives
+      // the operator one event per real transition.
+      var lastAt = aliveState.fanLastDecisionAt[name] || 0;
+      if (now - lastAt < ALIVE_DECISION_RATELIMIT_MS) return;
+      aliveState.fanLastDecisionAt[name] = now;
 
-      // Gate cleared — emit the decision with cause.
-      aliveState.fanTransitionCandidate[name] = null;
+      var dir = delta > 0 ? 'up' : 'down';
       var curveName = aliveFindCurveForFan(f);
       var coupledSensor = aliveFindCoupledSensor(curveName);
       var trendInfo = coupledSensor ? sensorTrends[coupledSensor] : null;
@@ -1276,8 +1288,8 @@
       var entry = {
         ts: now,
         fan: name,
-        from: Math.round(cand.anchor),
-        to: Math.round(d),
+        from: Math.round(oldest),
+        to: Math.round(newest),
         dir: dir,
         cause: causeText
       };
