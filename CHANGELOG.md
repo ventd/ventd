@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.15] - 2026-05-04
+
+### Headline
+- **No-theatre web UI sweep + in-UI update button.** A single-day audit + bug-squash session driven by Phoenix's UX feedback that the v0.5.14 dashboard was "constantly flicking" and "doesnt seem like its actually real". Outcome: every cosmetic animation that didn't trace to a real backend signal removed, the dashboard hero spark stabilised + smoothed, the renderer fight that produced the flat→jagged→flat alternation killed at its source, and a settings-page Update affordance so operators can roll forward without losing calibration progress.
+- **In-UI update button** (#934) — new \`/api/v1/update/check\` polls GitHub releases-latest; new \`/api/v1/update/apply\` spawns \`scripts/install.sh\` detached with \`VENTD_VERSION\` set, daemon dies during the install's \`systemctl restart\` and comes back under the new binary. \`/var/lib/ventd\` state (calibration JSON, smart shards under \`smart/shard-{B,C}/\`, \`.signature_salt\`, \`state.yaml\`) persists across the restart; RULE-ENVELOPE-09 confirms in-flight calibration sweeps resume from the last completed step. Settings page Update section shows installed + latest, Check button + Apply button, polls \`/healthz\` for re-up and reloads the page.
+
+### No-theatre cleanup
+The v0.5.14 dashboard / smart / hardware pages shipped a number of cosmetic animations that animated continuously regardless of any real backend event. Phoenix's rule (saved as auto-memory feedback): *every visible signal must trace to real backend research, not cheap client-side fakes*. All of the below removed in this release:
+- **Smart Bridge "continuous loop" rotating spotlight** (#932) — was rotating every 600 ms through 6 sub-steps without being tied to any actual sub-step tick events.
+- **Smart Scope tach-wobble** (#932) — was a synthetic Lissajous wobble keyed off \`opp.tick_count\`, not real RPM data. Replaced with the real PWM hold line + a caption that the daemon doesn't surface probe-time tach samples yet.
+- **Hardware Topology view animateMotion packets** (#932) — daemon→chip and chip→sensor edges had decorative packet animations with no real bus events behind them.
+- **Hardware Topology daemon-glow pulse** (#932) — fixed-cycle pulse unrelated to real daemon activity.
+- **Hardware Inventory rail CouplingMini packet pulses** (#932).
+- **Dashboard coupling-map active-edge pulses** (#932) — the active-class colour change already communicates "fan is running"; the moving packet implied a per-event data-flow signal we don't actually have.
+
+### Dashboard hero card stabilisation
+The v0.5.14 dashboard hero CPU/GPU cards were the most visually broken element — Phoenix described them as flicking constantly and showing fabricated forecasts (e.g. \`+138.6 °C / 30 s\`). Sequence of fixes:
+- **Decision detector** (#925, #926) — the v0.5.14 dashboard inferred "decisions" from any 2 pp duty change between consecutive \`/api/v1/status\` polls, but the controller's natural curve micro-recompute jitter swung PWM ~2-3 pp every poll. 30-s sample on Phoenix's MSI Z690-A: daemon journal had ZERO controller log lines while the dashboard would have emitted 30 fake decisions. Replaced with a windowed-delta detector (3-poll window, 10 pp threshold, 6 s per-fan rate limit). Real ramps now fire one event each; sensor-noise micro-recomputes are silenced.
+- **Hero forecast badge** (#928, #930) — the v0.5.14 forecast was a 12-sample client-side linear regression on raw sensor history. Removed entirely. The daemon-backed predicted ΔT from Layer-C marginal RLS lands via #43 (P0 follow-up).
+- **Hero spark Y-axis pinned** (#930) to 20–100 °C so the line evolves left-to-right with new samples instead of rescaling per poll.
+- **EMA-smoothed hero spark line** (#933) — alpha = 0.4 — to suppress per-poll sensor jitter that rendered as visual chaos within a single frame. Big number above the spark is still the raw current reading.
+- **Killed dual-renderer fight** (commit 67ae370) — the OLD \`/api/v1/status\` 1 Hz writer and the NEW alive-overlay 1.5 s writer were both setting the same \`hero-cpu-path\` SVG d-attribute with different data. Disabled the old writer; alive overlay owns the hero spark now. This was the source of Phoenix's "every poll the line resets to flat then back to jagged".
+- **Pinned narrator strip** (#929) — was rotating through past decisions every 6 s, giving the impression of constant new activity. Now pins to the most-recent decision until a newer one arrives, transitions to "system idle — no decisions in N s" after 12 s of silence.
+- **Smart-mode "Last probe" formatter** (#929) — was rendering Go's zero-time as "17753741h ago"; now shows "—" / never (closes #921).
+- **\`/api/v1/profile/active\` GET branch** (#929) — was POST-only; dashboard.js polled it as GET and got 405 silently. Added the GET branch returning \`{"name": "<active>"}\`.
+
+### Backend correctness
+- **NVML enumeration fix** (#927) — the v0.5.14 \`/api/v1/hardware/inventory\` returned 7 sensors all with \`id="0"\` and \`kind="temp"\` for the GPU chip regardless of unit. Two readings (210 MHz, 405 MHz GPU clocks) were classified as temperatures, which is why the Hardware page "Hottest" cell read "405°" (#920, #922). Fixed by composing per-NVML sensor IDs as \`gpu<idx>:<metric>\` and classifying \`kind\` from the Metric field rather than the unit string. NVML metrics that don't fit the four-kind enum (util / clocks) drop out of inventory rather than being mislabeled.
+
+### Honest framing
+v0.5.15 closes out the visible-flicker / fake-forecast / dual-renderer-fight class of bugs in the v0.5.14 design handoff. The DAEMON's actual smart-mode predictions (Layer-C marginal RLS) still aren't surfaced anywhere on the UI — that's the P0 follow-up (#43) and requires a new daemon endpoint exposing per-sensor predicted ΔT. Today's UI honestly says "—" / "no recent decisions" / "warming" when the model isn't yet contributing, instead of fabricating numbers. The in-UI update button (#934) makes it possible for the smart-mode stack to accumulate days of real samples without losing them to snapshot rebuilds.
+
 ## [v0.5.14] - 2026-05-04
 
 ### Headline
