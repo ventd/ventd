@@ -83,6 +83,11 @@ jobs:
           key: rod-chromium-${{ runner.os }}-v1
 
       - name: Run e2e suite
-        run: go test -tags=e2e -count=1 -timeout=5m ./internal/web/...
+        # Route through retry-flaky.sh so registered flakes (see
+        # .github/flaky-tests.yaml) get one automatic retry. The
+        # distro matrix lanes already use this wrapper; the E2E lane
+        # was previously calling `go test` directly and was therefore
+        # exposed to known flakes (e.g. issue #883) without retry.
+        run: ./scripts/retry-flaky.sh -tags=e2e -count=1 -timeout=5m ./internal/web/...
         env:
           CGO_ENABLED: "0"
