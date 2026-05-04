@@ -315,4 +315,3 @@ func readingKind(unit string) string {
 	}
 	return "temp"
 }
-
