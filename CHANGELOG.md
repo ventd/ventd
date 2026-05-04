@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.14] - 2026-05-04
+
+### Headline
+- **Hardware page** (#912) — second of the cal.ai design-handoff trio. Devices and Sensors collapse into a single `/hardware` page with three views: Inventory (chip → sensor tree, sparklines from a 60-sample per-channel history ring, side rail showing which curves consume the selected sensor), Topology (daemon ← chip ← sensor wiring with animated packet flow), and Heatmap (case-shaped layout with sensors at their operator-supplied (x, y) positions; renders a clean empty state directing the operator to declare positions in YAML when none are set).
+- **Smart-mode page** (#913) — new `/smart` surface for the v0.5.5+ smart-mode stack. ventd has been quietly running a continuous learning stack since v0.5.5 (opportunistic probing, Layer A/B/C confidence aggregation, marginal-benefit RLS per workload signature, predictive-vs-reactive PWM blending) but operators had no surface to see any of it. This page makes the AI visible. Reuses the calibration v2 chrome (header, bridge pipeline, scope, fan strips, system card, log card) but rewires every signal to real backend endpoints. Phoenix's framing: *ventd IS an AI constantly improving and calibrating your fans in the background, not a page that pretends to be one.*
+- **Dashboard alive overlay** (#914) — third and final cal.ai handoff. Layered on top of the existing `/dashboard` to turn it from a status page into a storyteller: hero spark forecast bands (linear extrapolation of last 12 samples × 30 s), sensor / fan tile intent arrows + flash-on-decision, narrator strip rotating real decisions ("ramped pump_fan from 35% → 42% — cpu_pkg trending up"), insight rail (coupling map with `<animateMotion>` packets when fan duty > 30 %, decision feed, AI brief). Existing polling intact — new 1500 ms tick adds `/api/v1/hardware/inventory` + smart endpoints in parallel without double-fetching `/status`.
+- **Runtime-probe `pwm_enable` enum** (#911) — refines #910's hardcoded `pwm_enable = 5` EINVAL fallback. HIL on Phoenix's MSI PRO Z690-A surfaced the in-tree-nct6687 case where the chip rejects `5` as well; the driver build accepts only `{0, 1}`. Replaced with a runtime probe of `{2..7}` on the first EINVAL per pwm path, picking the highest-numbered accepted value (richer-mode-wins on conventional drivers). Probe runs once per pwm path per daemon lifetime (cached in `probedPWMEnableModes`). When the probe finds nothing, surfaces a distinct INFO line ("driver supports only manual control") before falling through to the safe-PWM floor. RULE-HWMON-ENABLE-EINVAL-FALLBACK refined; 3 mode-5-specific tests replaced with 4 probe-based tests.
+
+### Added
+- `GET /api/v1/hardware/inventory` composes `monitor.Scan()` with the live config to surface bus / kind / alias / used_by per sensor plus a top-level `curves[]` coupling array. Per-sensor history ring (cap 60 samples, in-process, appended on each call) so sparklines have chronological history without client-side state across reloads.
+- `config.Sensor` and `config.Fan` gain an optional `Position{X, Y}` field for the Heatmap view. Operator-supplied via YAML; nil when unset.
+- New web pages: `web/hardware.{html,css,js}` (75 / 647 / 1023 lines), `web/smart.{html,css,js}` (72 / 575 / 942 lines).
+- Sidebar canonical updated twice: Devices + Sensors collapse into a single Hardware entry (#912); Smart mode entry added under Control between Dashboard and Curves (#913). Propagated byte-for-byte across all 8 sidebar-bearing pages (RULE-UI-03).
+
+### Changed
+- `web/dashboard.{html,css,js}` extended with the alive overlay (192 → 261 / 538 → 1009 / 746 → 1749 lines). Existing `/api/v1/status` polling wrapped not replaced; demo-mode banner pathway untouched.
+
+### Fixed
+- Excluded-channel handback no longer strands NCT6687D-driven channels at the calibration sweep's last byte when the in-tree driver build rejects both `pwm_enable = 2` (standard auto) and `5` (SmartFan); the runtime probe correctly finds the empty set and falls through to the safe-PWM floor with an explicit INFO line (#911).
+
+### CI / chore
+- Five contract tests in `internal/web/hardware_inventory_test.go` cover the load-bearing inventory paths (empty config returns well-formed envelope, alias mapping from config, used_by populated from curves, history ring accumulates chronologically, position propagates).
+
+### Honest framing
+v0.5.14 closes out the cal.ai design-handoff trio that v0.5.13 set up — Hardware + Smart-mode + Dashboard alive all land in this tag. Plus the in-tree-nct6687 EINVAL refinement that surfaced from Phoenix's MSI PRO Z690-A HIL run. **No fake AI theatre on any of the new pages**: every visible signal traces to a real endpoint or a real client-side computation over real history. Where data isn't computable from existing endpoints (acoustic dBA estimate, next-probe ETA, per-sensor physical positions on first ship), the affordance is omitted or shows an honest empty state rather than a fabricated number.
+
 ## [v0.5.13] - 2026-05-04
 
 ### Headline
