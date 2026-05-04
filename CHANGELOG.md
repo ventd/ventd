@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.25] - 2026-05-05
+
+### Headline
+- **Race condition in observation.Writer fixed** (#977) — bug-hunt iteration 2 caught a real production race. The `Writer` struct's docstring said "NOT safe for concurrent use", but the actual wiring violated that contract: both the controller tick goroutine AND the opportunistic-probe scheduler goroutine call `Writer.Append` against the same instance. The unsynchronised `bytesWritten` / `activeDay` / `headerWritten` fields would race on the rotation-trigger check (50 MiB cap and midnight crossings) — two goroutines could both observe the rotate trigger, both call Rotate(), and the second's Header write would land in the FIRST one's brand-new file. Fix: add `sync.Mutex` to the Writer; split Rotate into public + lock-held inner so Append's auto-rotate path can call it without recursive-lock dance. New `TestWriter_ConcurrentAppendRaceSafe` runs 8 goroutines × 1000 Appends; `go test -race` clean.
+
+### Filed for follow-up
+3 lower-priority iteration 2 findings: #978 (Config struct fields not protected from concurrent read/write — latent), #979 (smart pill counts configs not control state), #980 (opp pill missing progress context).
+
+### Bug-hunt summary
+Iteration 2 surfaced 18 raw findings from 3 parallel Explore agents. Validation pass: ~10 hallucinated (controller goroutine pile-up that doesn't exist; DecisionCache.slot race that's properly locked; etc.), 1 fixed in this release (Writer race), 3 filed as issues for follow-up, the rest design-by-choice or already addressed in earlier PRs. The agent track record holds: ~50 % hallucination rate, but the 50 % that's real is worth chasing.
+
 ## [v0.5.24] - 2026-05-04
 
 ### Headline
