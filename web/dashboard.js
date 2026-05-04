@@ -830,7 +830,13 @@
     narratorLastShown: 0,
     pollOk: false
   };
+  // Each entry is the epoch-ms timestamp the decision was emitted, NOT a
+  // bool. The fan-tile renderer requires the timestamp to be ≤ FRESHNESS
+  // ms before consuming so a stale flash from a previous render cycle
+  // can't re-trigger the keyframe without a corresponding entry actually
+  // being visible in the decision feed (#35).
   var aliveDecisionFlashSet = {};
+  var ALIVE_FLASH_FRESHNESS_MS = 3000;
 
   /* aliveFetchJSON: same shape as smart.js fetchJSON — credentialed
      fetch + json parse + reject on non-2xx so Promise.all's catch
@@ -1174,13 +1180,21 @@
     aliveUpdateFanIntentAndTarget(tile, fan);
     aliveUpdateFanCoupling(tile, fan);
 
-    if (aliveDecisionFlashSet[fan.name]) {
+    var flashTs = aliveDecisionFlashSet[fan.name];
+    if (flashTs) {
       delete aliveDecisionFlashSet[fan.name];
-      tile.classList.remove('is-just-changed');
-      // Restart the keyframe by forcing a reflow.
-      // eslint-disable-next-line no-unused-expressions
-      void tile.offsetWidth;
-      tile.classList.add('is-just-changed');
+      // Freshness gate (#35): only fire the flash if the decision is
+      // recent enough that the corresponding entry is still near the
+      // top of the visible 8-row decision feed. A stale flash whose
+      // entry has been pushed off would surface as a phantom flash
+      // with no traceable cause for the operator.
+      if (Date.now() - flashTs <= ALIVE_FLASH_FRESHNESS_MS) {
+        tile.classList.remove('is-just-changed');
+        // Restart the keyframe by forcing a reflow.
+        // eslint-disable-next-line no-unused-expressions
+        void tile.offsetWidth;
+        tile.classList.add('is-just-changed');
+      }
     }
   }
 
@@ -1322,7 +1336,7 @@
       if (aliveState.decisions.length > ALIVE_DECISION_CAP) {
         aliveState.decisions.length = ALIVE_DECISION_CAP;
       }
-      aliveDecisionFlashSet[name] = true;
+      aliveDecisionFlashSet[name] = now;
       aliveRenderNarrator(true, entry);
       aliveRenderInsightRail();
     });
