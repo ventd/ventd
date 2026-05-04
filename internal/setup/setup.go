@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -1458,20 +1459,101 @@ func restoreExcludedChannels(fans []FanState, doneFans []fanDiscovery, logger *s
 		if _, ok := included[f.PWMPath]; ok {
 			continue
 		}
-		if err := hwmonpkg.WritePWMEnable(f.PWMPath, 2); err != nil {
-			// Some chips (e.g. nct6683 for NCT6687D) have no pwm_enable;
-			// fall through silently — the channel never had manual mode
-			// in the first place.
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			logger.Warn("setup: restore excluded channel to BIOS auto failed",
-				"pwm_path", f.PWMPath, "fan", f.Name, "err", err)
-			continue
-		}
+		handbackExcludedChannel(f, logger)
+	}
+}
+
+// safeExcludedPWM is the duty-cycle written to an excluded channel
+// when no auto-mode value is accepted by the chip. 153 ≈ 60% — quiet
+// enough not to dominate a desktop, fast enough to keep any
+// inadvertently-attached fan from stalling. Mirrors the watchdog's
+// PWM=255 full-speed fallback (RULE-HWMON-RESTORE-EXIT) but tuned
+// for a non-emergency cleanup path: the daemon stays running, so a
+// safe-floor is preferable to full-blast.
+const safeExcludedPWM uint8 = 153
+
+// Test-injectable sysfs write hooks. nil in production → fall
+// through to hwmonpkg.WritePWMEnable / hwmonpkg.WritePWM. Override
+// from a single _test.go file to simulate driver-specific failure
+// modes (EINVAL on pwm_enable=2 for nct6687, etc.) that real sysfs
+// fixtures can't reproduce — kernel-side enum validation isn't
+// observable through plain tmpfs writes. Tests hold a reference to
+// the previous value and restore it via t.Cleanup.
+var (
+	writePWMEnableFn = hwmonpkg.WritePWMEnable
+	writePWMFn       = hwmonpkg.WritePWM
+)
+
+// handbackExcludedChannel attempts to leave one excluded channel
+// (no-tach fan, or otherwise dropped from the controlled set) in a
+// sane resting state. Per #909 + the operator-promise that the
+// daemon never silently ignores a failure it could attempt to
+// resolve, the resolution chain is:
+//
+//  1. pwm_enable = 2 (standard hwmon "auto" — handed back to BIOS)
+//  2. on EINVAL: pwm_enable = 5 (nct6687 SmartFan; the canonical
+//     known-quirk where the chip rejects the standard value)
+//  3. on both failing: write a safe PWM floor (60%) directly and
+//     leave pwm_enable = 1 (manual). Mirrors the watchdog's
+//     full-speed fallback in spirit — any controlled state is
+//     preferable to leaving the channel stranded at the calibration
+//     sweep's last byte.
+//  4. only after all three exhaust does ventd log a final-position
+//     WARN with the resolution chain in the message so the
+//     operator-facing diagnostic is honest about what was tried.
+//
+// fs.ErrNotExist on the first write is the short-circuit for chips
+// that don't expose pwm_enable at all (e.g. nct6683 for NCT6687D —
+// distinct from the EINVAL case for the standard nct6687 driver).
+// In that case the channel never had manual mode taken from it so
+// there's nothing to restore — return cleanly without entering the
+// fallback chain.
+func handbackExcludedChannel(f FanState, logger *slog.Logger) {
+	reason := excludedReason(f)
+
+	err := writePWMEnableFn(f.PWMPath, 2)
+	if err == nil {
 		logger.Info("setup: excluded channel handed back to BIOS auto-curve",
-			"pwm_path", f.PWMPath, "fan", f.Name,
-			"reason", excludedReason(f))
+			"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason, "mode", 2)
+		return
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		// pwm_enable absent — chip never had manual mode taken.
+		return
+	}
+
+	// Step 2: nct6687 SmartFan quirk. Chip rejects 2 with EINVAL but
+	// accepts 5. Try unconditionally on EINVAL — the cost of an extra
+	// failed write on a non-nct6687 chip is one syscall and one log
+	// line; the cost of skipping it is leaving every nct6687-driven
+	// system stuck at sweep-end PWM forever.
+	if errors.Is(err, syscall.EINVAL) {
+		if err5 := writePWMEnableFn(f.PWMPath, 5); err5 == nil {
+			logger.Info("setup: excluded channel handed back to chip auto-curve (chip rejected mode=2)",
+				"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason, "mode", 5)
+			return
+		}
+	}
+
+	// Step 3: safe-PWM-floor fallback. Leave pwm_enable=1 (manual,
+	// which is where the calibration sweep already left it) and
+	// write a 60% duty cycle so any inadvertently-attached fan keeps
+	// spinning at a quiet, sustainable speed instead of stranded at
+	// the sweep's last byte.
+	if pwmErr := writePWMFn(f.PWMPath, safeExcludedPWM); pwmErr == nil {
+		logger.Warn("setup: chip rejected pwm_enable auto modes; held excluded channel at safe PWM floor under manual control",
+			"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason,
+			"safe_pwm", safeExcludedPWM, "first_err", err)
+		return
+	} else {
+		// Step 4: final position. All resolution attempts exhausted.
+		// This is the genuine "daemon could not resolve" case, not the
+		// previous log-and-ignore: the WARN names every attempted
+		// strategy and its failure so the operator surface (and any
+		// downstream recovery card) has the full picture.
+		logger.Warn("setup: could not hand excluded channel back to BIOS, alt mode, or safe PWM — channel left in last sweep state",
+			"pwm_path", f.PWMPath, "fan", f.Name, "reason", reason,
+			"err_mode_2", err, "err_safe_pwm", pwmErr)
 	}
 }
 

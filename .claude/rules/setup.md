@@ -42,3 +42,56 @@ Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_Hands
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_NoOpWhenAllControlled
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_SkipsNonHwmonTypes
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_TolerantOfMissingPwmEnable
+
+## RULE-HWMON-ENABLE-EINVAL-FALLBACK: Excluded channel handback resolves through three stages before logging a final-position WARN.
+
+The hwmon `pwm_enable` enum isn't universal: standard convention is
+`{0=off, 1=manual, 2=auto}`, but the mainline kernel `nct6687`
+driver uses `{0=off, 1=manual, 5=SmartFan auto}` — writing `2`
+returns `EINVAL`. `restoreExcludedChannels` previously hardcoded
+`2` and bailed to a WARN log on rejection, which left every
+NCT6687D-driven channel stranded at the calibration sweep's last
+PWM byte (issue #909).
+
+The operator-promise that "the daemon should never silently ignore
+a failure it could attempt to resolve" requires `restoreExcludedChannels`
+to work through a resolution chain instead of giving up on the
+first error. `handbackExcludedChannel(f, logger)` MUST attempt:
+
+1. **`pwm_enable = 2`** — standard hwmon "auto". Most chips. On
+   `errors.Is(err, fs.ErrNotExist)`: short-circuit clean (the chip
+   doesn't expose `pwm_enable`; nothing to restore — distinct from
+   the EINVAL case).
+2. **On `errors.Is(err, syscall.EINVAL)`: `pwm_enable = 5`** —
+   nct6687 SmartFan / known quirk. Tried unconditionally on EINVAL
+   because the cost of an extra failed write on a non-nct6687 chip
+   is one syscall and one log line; the cost of skipping it is
+   leaving every nct6687-driven system stuck forever.
+3. **On both auto-mode writes failing: write `safeExcludedPWM`
+   (`153 ≈ 60%`)** to the PWM path directly and leave
+   `pwm_enable = 1` (manual, where the calibration sweep already
+   left it). Any controlled state is preferable to stranding the
+   channel at the sweep-end byte. Mirrors the watchdog's
+   `WritePWM(path, 255)` fallback (RULE-HWMON-RESTORE-EXIT) but
+   tuned for non-emergency cleanup.
+4. **Only after all three exhaust** does the daemon log a WARN.
+   The WARN names every attempted strategy and its specific
+   failure (`err_mode_2`, `err_safe_pwm`) so any operator-facing
+   surface (recovery card, diag bundle) has the full picture
+   rather than the previous opaque log-and-ignore.
+
+Asymmetry: the mode=5 retry fires ONLY on `EINVAL`. Other errors
+(IO error, permission denied, etc.) skip step 2 and fall straight
+through to step 3. Step 2 is a known-driver-quirk recovery, not a
+generic "try anything" loop.
+
+Test injection: `writePWMEnableFn` and `writePWMFn` are
+package-level `var`s defaulted to the production `hwmonpkg`
+functions. Tests swap them via `t.Cleanup` to simulate the EINVAL
+behaviour that real tmpfs sysfs fixtures can't reproduce
+(kernel-side enum validation isn't observable through plain file
+writes).
+
+Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_EINVALFallsBackToMode5
+Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_BothModesFailFallsBackToSafePWM
+Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_OnlyEINVALTriggersMode5Retry

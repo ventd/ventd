@@ -1,11 +1,15 @@
 package setup
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 )
 
@@ -145,4 +149,157 @@ func readEnable(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// TestRestoreExcludedChannels_EINVALFallsBackToMode5 pins the
+// nct6687 SmartFan recovery half of RULE-HWMON-ENABLE-EINVAL-FALLBACK
+// (issue #909). The mainline kernel nct6687 driver rejects
+// pwm_enable=2 with EINVAL because its enum is {0,1,5} — 2 is not a
+// valid value, 5 is its SmartFan/auto. The handback chain MUST
+// catch the EINVAL, retry with mode=5, and not surface a WARN on
+// the happy path. Test injects writePWMEnableFn directly so the
+// EINVAL behaviour can be reproduced without a real nct6687.
+func TestRestoreExcludedChannels_EINVALFallsBackToMode5(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm2"
+	var (
+		mode2Calls atomic.Int32
+		mode5Calls atomic.Int32
+		pwmCalls   atomic.Int32
+	)
+	prevEnable, prevPWM := writePWMEnableFn, writePWMFn
+	writePWMEnableFn = func(path string, value int) error {
+		switch value {
+		case 2:
+			mode2Calls.Add(1)
+			return fmt.Errorf("hwmon: write pwm_enable %s_enable=2: %w", path, syscall.EINVAL)
+		case 5:
+			mode5Calls.Add(1)
+			return nil
+		}
+		return fmt.Errorf("unexpected enable value: %d", value)
+	}
+	writePWMFn = func(path string, value uint8) error {
+		pwmCalls.Add(1)
+		return nil
+	}
+	t.Cleanup(func() { writePWMEnableFn, writePWMFn = prevEnable, prevPWM })
+
+	fans := []FanState{
+		{Name: "Pump Fan", Type: "hwmon", PWMPath: pwmPath, DetectPhase: "none"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	restoreExcludedChannels(fans, nil, logger)
+
+	if mode2Calls.Load() != 1 {
+		t.Errorf("mode=2 calls = %d, want 1 (initial attempt)", mode2Calls.Load())
+	}
+	if mode5Calls.Load() != 1 {
+		t.Errorf("mode=5 calls = %d, want 1 (EINVAL fallback)", mode5Calls.Load())
+	}
+	if pwmCalls.Load() != 0 {
+		t.Errorf("pwm calls = %d, want 0 (mode=5 succeeded; safe-PWM should NOT fire)", pwmCalls.Load())
+	}
+}
+
+// TestRestoreExcludedChannels_BothModesFailFallsBackToSafePWM pins
+// the third leg of the chain: when both mode=2 and mode=5 fail
+// (chip is genuinely unwilling to accept any auto value), the
+// daemon writes a safe PWM floor (60%) under the manual mode the
+// calibration sweep already set, instead of stranding the channel
+// at sweep-end PWM. The "daemon shouldn't ignore failures" rule
+// says we resolve to a safe state, even when the obviously-correct
+// resolution path is blocked.
+func TestRestoreExcludedChannels_BothModesFailFallsBackToSafePWM(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm3"
+	var (
+		mode2Calls atomic.Int32
+		mode5Calls atomic.Int32
+		pwmCalls   atomic.Int32
+		pwmValue   atomic.Uint32
+	)
+	prevEnable, prevPWM := writePWMEnableFn, writePWMFn
+	writePWMEnableFn = func(path string, value int) error {
+		switch value {
+		case 2:
+			mode2Calls.Add(1)
+			return fmt.Errorf("hwmon: write pwm_enable %s_enable=2: %w", path, syscall.EINVAL)
+		case 5:
+			mode5Calls.Add(1)
+			return fmt.Errorf("hwmon: write pwm_enable %s_enable=5: %w", path, syscall.EINVAL)
+		}
+		return fmt.Errorf("unexpected enable value: %d", value)
+	}
+	writePWMFn = func(path string, value uint8) error {
+		pwmCalls.Add(1)
+		pwmValue.Store(uint32(value))
+		return nil
+	}
+	t.Cleanup(func() { writePWMEnableFn, writePWMFn = prevEnable, prevPWM })
+
+	fans := []FanState{
+		{Name: "Stubborn Fan", Type: "hwmon", PWMPath: pwmPath, DetectPhase: "none"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	restoreExcludedChannels(fans, nil, logger)
+
+	if mode2Calls.Load() != 1 {
+		t.Errorf("mode=2 calls = %d, want 1", mode2Calls.Load())
+	}
+	if mode5Calls.Load() != 1 {
+		t.Errorf("mode=5 calls = %d, want 1 (EINVAL fallback path)", mode5Calls.Load())
+	}
+	if pwmCalls.Load() != 1 {
+		t.Errorf("pwm-write calls = %d, want 1 (safe-PWM final fallback)", pwmCalls.Load())
+	}
+	if got := pwmValue.Load(); got != uint32(safeExcludedPWM) {
+		t.Errorf("safe PWM value = %d, want %d (60%% floor const)", got, safeExcludedPWM)
+	}
+}
+
+// TestRestoreExcludedChannels_OnlyEINVALTriggersMode5Retry pins
+// the asymmetry in the chain: a non-EINVAL error on mode=2 (e.g.
+// permission denied, IO error) MUST NOT trigger the mode=5 retry —
+// that's a known-quirk-only path, not a generic "try anything"
+// fallback. Such errors fall straight through to safe-PWM.
+func TestRestoreExcludedChannels_OnlyEINVALTriggersMode5Retry(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm4"
+	var (
+		mode2Calls atomic.Int32
+		mode5Calls atomic.Int32
+		pwmCalls   atomic.Int32
+	)
+	prevEnable, prevPWM := writePWMEnableFn, writePWMFn
+	writePWMEnableFn = func(path string, value int) error {
+		if value == 2 {
+			mode2Calls.Add(1)
+			// non-EINVAL: pretend the file got a generic IO error
+			return fmt.Errorf("hwmon: write pwm_enable %s_enable=2: %w", path, errors.New("input/output error"))
+		}
+		if value == 5 {
+			mode5Calls.Add(1)
+			return nil
+		}
+		return nil
+	}
+	writePWMFn = func(path string, value uint8) error {
+		pwmCalls.Add(1)
+		return nil
+	}
+	t.Cleanup(func() { writePWMEnableFn, writePWMFn = prevEnable, prevPWM })
+
+	fans := []FanState{
+		{Name: "IO-error Fan", Type: "hwmon", PWMPath: pwmPath, DetectPhase: "none"},
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	restoreExcludedChannels(fans, nil, logger)
+
+	if mode2Calls.Load() != 1 {
+		t.Errorf("mode=2 calls = %d, want 1", mode2Calls.Load())
+	}
+	if mode5Calls.Load() != 0 {
+		t.Errorf("mode=5 calls = %d, want 0 (only EINVAL triggers the SmartFan retry — not generic errors)", mode5Calls.Load())
+	}
+	if pwmCalls.Load() != 1 {
+		t.Errorf("pwm-write calls = %d, want 1 (non-EINVAL falls straight through to safe-PWM)", pwmCalls.Load())
+	}
 }
