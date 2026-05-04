@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.20] - 2026-05-04
+
+### Headline
+- **In-UI updater chicken-and-egg loop closed for good** (#960) — two stacked root causes were blocking Phoenix's HIL fleet (Proxmox + MiniPC + Desktop) from self-updating via the dashboard's Update button. Both fixed in one PR because either alone leaves the loop open.
+  - **Bug 1 (embedded install.sh frozen at build time)**: every daemon binary embeds the install.sh that was current AT BUILD TIME. Any later install.sh fix (e.g. v0.5.19's two-phase commit) only reaches operators whose binary was built AFTER the fix — older daemons forever spawn the buggy embedded copy. Fix: the daemon's apply handler now fetches `install.sh` from the target release tag's GitHub assets (`scripts/install.sh` is now a top-level release asset via `release.extra_files`), falls back to on-disk + embedded only when the network fetch fails. Every in-UI update from v0.5.20+ uses `install.sh@<target_version>`, picking up every fix that landed in [running, target]. Hardening: 1 MiB cap on the fetched body, sub-256-byte rejection (catches HTML 404 pages), `#!` shebang prefix check.
+  - **Bug 2 (preflight blocks on dkms_missing for in-tree-driver hosts)**: hosts running only in-tree hwmon drivers (Phoenix's Proxmox + MiniPC) don't have DKMS / GCC / kernel headers / make / Secure Boot signing tools — and shouldn't have to grow them just to update the daemon binary. Preflight unconditionally required all of these, leaving operators permanently stuck. Fix: the daemon's apply handler now sets `VENTD_SKIP_PREFLIGHT_CHECKS=dkms_missing,gcc_missing,kernel_headers_missing,make_missing,signfile_missing,mokutil_missing,mok_keypair_missing,mok_not_enrolled` when spawning install.sh. install.sh threads the env through to `ventd preflight --skip <names>`. The orchestrator (RULE-PREFLIGHT-ORCH-06) excludes the named checks from both the run AND the BlockerCount tally. Wizard-driven first-install paths still run the full preflight chain — only the in-UI binary-update path narrows it.
+
+### Operator-facing impact
+v0.5.20 is the **last manual install needed for any operator** on a pre-v0.5.20 build. Once on this binary, every future tag rolls forward through the in-UI Update button cleanly:
+- Network fetch always uses the latest install.sh from the target tag — future install.sh fixes are a release-asset away, no binary update required.
+- Preflight skips the build-tools chain when the operator just wants a binary swap.
+- The two-phase commit (v0.5.19) ensures any preflight failure leaves zero on-disk state behind.
+
+The chicken-and-egg loop that made every install.sh fix require an external manual install is closed.
+
 ## [v0.5.19] - 2026-05-04
 
 ### Headline
