@@ -24,12 +24,22 @@
 package web
 
 import (
+	_ "embed"
 	"net/http"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
 )
+
+// changelogEmbedded is the canonical CHANGELOG.md baked into the
+// daemon binary at build time. Used as a last-resort fallback when
+// no on-disk copy exists in any candidate path — covers operators
+// who installed via the curl-pipe-bash path (which only extracts
+// the binary from the .tar.gz, not auxiliary files into /usr/share/).
+//
+//go:embed CHANGELOG.md.embedded
+var changelogEmbedded []byte
 
 // releaseNotesCandidates is the list of paths the daemon checks for
 // CHANGELOG.md, in priority order. The .deb / .rpm packagers drop it
@@ -82,6 +92,16 @@ func loadChangelog() ([]releaseNotesSection, string) {
 			data = b
 			break
 		}
+	}
+	if data == nil && len(changelogEmbedded) > 0 {
+		// Embed bootstrap: the curl-pipe-bash install path only
+		// extracts the binary, not auxiliary docs. Without this
+		// fallback the patch-notes modal silently no-ops on every
+		// such install. The embedded copy is fixed at build time
+		// to the project's CHANGELOG.md as of the build commit, so
+		// operators always see the section for the version they
+		// just rolled forward to.
+		data = changelogEmbedded
 	}
 	if data == nil {
 		changelogCacheErr = "CHANGELOG.md not found in any of " + strings.Join(releaseNotesCandidates, " | ")
