@@ -193,6 +193,22 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 		bus := chipBus(d)
 		sensorsOut := make([]InventorySensor, 0, len(d.Readings))
 		for _, rd := range d.Readings {
+			// Stable per-(chip, reading) sensor ID. The hwmon path is
+			// already unique per reading (.../temp1_input vs ../fan1_input
+			// etc.). The NVML path is just the GPU index ("0") and is
+			// shared by every metric of that GPU, so without prefixing the
+			// metric we get id="0" duplicated across temp / fan_pct /
+			// power / clocks (#920 + #922 root cause: hottest comparator
+			// picked the 405 MHz GPU clock thinking it was a temperature).
+			id := rd.SensorPath
+			if rd.SensorType == "nvidia" {
+				if rd.Metric != "" {
+					id = "gpu" + rd.SensorPath + ":" + rd.Metric
+				} else {
+					id = "gpu" + rd.SensorPath + ":temp"
+				}
+			}
+
 			alias := sensorAliasByPath[rd.SensorPath]
 			// Fans use PWMPath as alias key, which differs from the
 			// fan's monitor SensorPath (which is fan*_input). Try
@@ -208,14 +224,21 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 			if pos == nil {
 				pos = fanPosByAlias[alias]
 			}
-			kind := readingKind(rd.Unit)
+			// Kind classification: NVML readings carry the metric name,
+			// which is the authoritative signal for kind. The unit string
+			// (°C / % / MHz / W) is ambiguous on its own — % could be a
+			// fan-pct or a util reading, MHz is a clock that doesn't fit
+			// the four-kind enum at all and used to fall through to the
+			// "temp" default. Drop unit-only inference for NVML; keep it
+			// as the fallback for hwmon.
+			kind := classifyKind(rd)
 			usedBy := append([]string(nil), usedByAlias[alias]...)
 			if usedBy == nil {
 				usedBy = []string{}
 			}
-			history := recordHistory(rd.SensorPath, rd.Value)
+			history := recordHistory(id, rd.Value)
 			sensorsOut = append(sensorsOut, InventorySensor{
-				ID:       rd.SensorPath,
+				ID:       id,
 				Label:    rd.Label,
 				Alias:    alias,
 				Kind:     kind,
@@ -292,10 +315,36 @@ func chipBus(d monitor.Device) string {
 	return "hwmon"
 }
 
-// readingKind maps the monitor.Reading.Unit field to the four-way
-// enum the frontend expects. Empty / unknown units classify as
-// "temp" by default — temperature is the most common reading type
-// and the frontend renders unknown kinds as temp anyway.
+// classifyKind maps a monitor.Reading to the four-way kind enum the
+// frontend expects. NVML readings classify by Metric (the authoritative
+// signal — `temp`, `fan_pct`, `util`, `power`, `clock_gpu`, `clock_mem`);
+// hwmon falls back to the unit string. Returns "" for readings that
+// don't fit the four-kind set (e.g. NVML clocks in MHz, util in %)
+// so the caller can drop them from inventory rather than mislabel.
+func classifyKind(rd monitor.Reading) string {
+	if rd.SensorType == "nvidia" {
+		switch rd.Metric {
+		case "temp":
+			return "temp"
+		case "fan_pct":
+			return "fan"
+		case "power":
+			return "power"
+		case "util", "mem_util", "clock_gpu", "clock_mem":
+			// These are real metrics but don't fit the temp/fan/volt/power
+			// enum. Skip them from inventory so the Hottest comparator and
+			// the kind filter don't treat utilisation% or clock MHz as
+			// temperatures (#920 root cause).
+			return ""
+		}
+		// Unknown NVML metric — drop rather than mislabel.
+		return ""
+	}
+	return readingKind(rd.Unit)
+}
+
+// readingKind maps a hwmon Unit string to the kind enum. Used as the
+// fallback when classifyKind doesn't have a more specific signal.
 func readingKind(unit string) string {
 	switch unit {
 	case "°C":
