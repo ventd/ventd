@@ -11,10 +11,10 @@
 // file on `## [vX.Y.Z]` headings and serves a slice of sections.
 //
 // Endpoint: GET /api/v1/release-notes?since=vX.Y.Z
-//   • since absent → return ONLY the current version's section
-//   • since present → return every section newer than `since` up
+//   - since absent → return ONLY the current version's section
+//   - since present → return every section newer than `since` up
 //     to and including the current version
-//   • current version derived from s.version.Version (set at
+//   - current version derived from s.version.Version (set at
 //     daemon start via SetVersionInfo)
 //
 // Privacy: the CHANGELOG is operator-readable repo content; no
@@ -41,16 +41,16 @@ var releaseNotesCandidates = []string{
 }
 
 type releaseNotesSection struct {
-	Version  string `json:"version"`           // e.g. "v0.5.16"
-	Date     string `json:"date,omitempty"`    // ISO-ish from the heading
-	Markdown string `json:"markdown"`          // full section body, original markdown
+	Version  string `json:"version"`        // e.g. "v0.5.16"
+	Date     string `json:"date,omitempty"` // ISO-ish from the heading
+	Markdown string `json:"markdown"`       // full section body, original markdown
 }
 
 type releaseNotesResponse struct {
-	Current  string                 `json:"current"`            // daemon's running version
-	Since    string                 `json:"since,omitempty"`    // echoed from the query param
-	Sections []releaseNotesSection  `json:"sections"`           // newest-first
-	Error    string                 `json:"error,omitempty"`    // populated when CHANGELOG can't be read
+	Current  string                `json:"current"`         // daemon's running version
+	Since    string                `json:"since,omitempty"` // echoed from the query param
+	Sections []releaseNotesSection `json:"sections"`        // newest-first
+	Error    string                `json:"error,omitempty"` // populated when CHANGELOG can't be read
 }
 
 // changelogCache memoises the parsed CHANGELOG so we don't re-read +

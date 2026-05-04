@@ -128,14 +128,14 @@ nextFan:
 // hwmon source that the chip mirrors a single physical tach across
 // multiple sysfs zones.
 var ecMirrorChips = map[string]bool{
-	"thinkpad_acpi":     true,
-	"dell-smm-hwmon":    true,
-	"asus-ec-sensors":   true,
-	"asus-wmi-sensors":  true,
-	"hp-wmi-sensors":    true,
-	"surface_fan":       true,
-	"applesmc":          true,
-	"macsmc-hwmon":      true,
+	"thinkpad_acpi":    true,
+	"dell-smm-hwmon":   true,
+	"asus-ec-sensors":  true,
+	"asus-wmi-sensors": true,
+	"hp-wmi-sensors":   true,
+	"surface_fan":      true,
+	"applesmc":         true,
+	"macsmc-hwmon":     true,
 }
 
 func chipMirrorsTachs(chip string) bool {
