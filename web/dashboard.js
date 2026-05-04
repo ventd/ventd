@@ -931,14 +931,39 @@
     }
     function toX(i, n) { return (i / Math.max(1, n - 1)) * W; }
 
-    var n = history.length;
+    // Apply EMA smoothing to the displayed line so per-poll sensor
+    // jitter (real but visually noisy) doesn't render as a chaotic
+    // sawtooth scribble. The big number above the spark stays the
+    // raw current value — we're only smoothing the visualisation,
+    // not lying about the reading. Phoenix's Tailscale screenshot
+    // showed the unsmoothed line as visual chaos within a single
+    // frame; alpha=0.4 keeps real trends visible while damping the
+    // ±1°C single-sample swings.
+    var smoothed = aliveSmoothEMA(history, 0.4);
+
+    var n = smoothed.length;
     var d = '';
     for (var i = 0; i < n; i++) {
-      d += (i === 0 ? 'M ' : ' L ') + toX(i, n).toFixed(1) + ' ' + toY(history[i]).toFixed(1);
+      d += (i === 0 ? 'M ' : ' L ') + toX(i, n).toFixed(1) + ' ' + toY(smoothed[i]).toFixed(1);
     }
     pathEl.setAttribute('d', d);
 
-    aliveEnsureNowDotOnly(svg, toX(n - 1, n), toY(history[n - 1]));
+    aliveEnsureNowDotOnly(svg, toX(n - 1, n), toY(smoothed[n - 1]));
+  }
+  /* aliveSmoothEMA applies a single-pole exponential moving average
+     to a numeric series. Output[0] = input[0]; output[i] = alpha *
+     input[i] + (1 - alpha) * output[i-1]. Lower alpha = smoother
+     line, more lag. The smoothed value at the latest sample tracks
+     the underlying trend within a couple of polls; the per-sample
+     noise is suppressed in proportion to (1 - alpha). */
+  function aliveSmoothEMA(arr, alpha) {
+    if (!Array.isArray(arr) || arr.length === 0) return arr || [];
+    var out = new Array(arr.length);
+    out[0] = arr[0];
+    for (var i = 1; i < arr.length; i++) {
+      out[i] = alpha * arr[i] + (1 - alpha) * out[i - 1];
+    }
+    return out;
   }
   /* aliveResetForecastSub clears the hero card sub-line back to the
      simple "last 60 s" label. Called every poll so any stale forecast
