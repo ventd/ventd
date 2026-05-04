@@ -25,13 +25,25 @@
 package web
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+// installShEmbedded is the canonical scripts/install.sh source baked
+// into the daemon binary at build time. The bootstrap fallback in
+// findInstallScript writes this to a temp file when no on-disk copy
+// exists in any of the candidate paths — covers operators who
+// upgraded from a pre-v0.5.17 build that didn't ship install.sh in
+// the .deb / .rpm package, plus dev runs and partial installs.
+//
+//go:embed install.sh.embedded
+var installShEmbedded []byte
 
 // updateCheckResponse is the GET /api/v1/update/check payload. Available
 // is computed by lex-comparing the SemVer-shaped version strings; if
@@ -164,22 +176,55 @@ func realUpdateRun(version, scriptPath string) error {
 }
 
 // findInstallScript walks the candidate path list; returns the first
-// existing path or empty string.
+// existing path. If no on-disk copy is found AND the embedded
+// install.sh is non-empty, write it to a temp file with mode 0755
+// and return that path. Empty return means even the embed bootstrap
+// failed — only happens in dev builds that didn't run the embed sync.
+//
+// The embed bootstrap closes the chicken-and-egg loop hit on v0.5.16:
+// the .tar.gz install.sh only ships the binary (no /usr/share/ventd/
+// copy of itself), so an operator who installed via curl-pipe-bash
+// had no install.sh on disk for the in-UI Update button to find.
+// With embed, the daemon binary always carries its own bootstrap.
 func findInstallScript() string {
 	for _, p := range updateInstallScriptCandidates {
-		if _, err := exec.LookPath(p); err == nil {
+		if _, err := os.Stat(p); err == nil {
 			return p
 		}
-		// LookPath only succeeds for executables on PATH. For absolute
-		// paths we need a plain stat; cheaper to defer to bash itself.
 	}
-	// Fallback: try the canonical packager path explicitly.
-	for _, p := range updateInstallScriptCandidates {
-		if statErr := exec.Command("test", "-f", p).Run(); statErr == nil {
+	if len(installShEmbedded) > 0 {
+		if p, err := writeEmbeddedInstallSh(); err == nil {
 			return p
 		}
 	}
 	return ""
+}
+
+// writeEmbeddedInstallSh materialises the embedded install.sh into a
+// fresh temp file with mode 0755. The caller is responsible for
+// nothing — install.sh sets up a self-overwriting / atomic-rename
+// install path and never relies on its own on-disk identity past
+// daemon-restart, so leaving the temp file is harmless. Worst case
+// the OS sweeps it on next reboot.
+func writeEmbeddedInstallSh() (string, error) {
+	f, err := os.CreateTemp("", "ventd-install-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("create temp install.sh: %w", err)
+	}
+	if _, err := f.Write(installShEmbedded); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("write embedded install.sh: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("close temp install.sh: %w", err)
+	}
+	if err := os.Chmod(f.Name(), 0o755); err != nil {
+		_ = os.Remove(f.Name())
+		return "", fmt.Errorf("chmod temp install.sh: %w", err)
+	}
+	return f.Name(), nil
 }
 
 // shellQuote is a defensive single-quote escape for VENTD_VERSION /

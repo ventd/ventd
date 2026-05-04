@@ -66,5 +66,9 @@ verify-repro: ## Smoke-test reproducibility: two sequential builds must produce 
 	rm -rf "$${TMPDIR1}" "$${TMPDIR2}" "$${MODCACHE1}" "$${MODCACHE2}"; \
 	echo "OK: builds are reproducible"
 
+sync-install-sh: ## Refresh internal/web/install.sh.embedded from scripts/install.sh after editing the canonical script.
+	cp scripts/install.sh internal/web/install.sh.embedded
+	@echo "OK: internal/web/install.sh.embedded refreshed"
+
 clean: ## Remove build artifacts.
 	rm -rf dist/ coverage.out
