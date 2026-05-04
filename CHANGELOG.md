@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.13] - 2026-05-04
+
+### Headline
+- **Calibration v2** (#906) — operator-facing calibration takeover replaced with the claude.ai/design v2 layout. Command bridge with phase pipeline + live channels/sps/total/fans-ready stats, oscilloscope with PWM/tach/ADC ribbon, per-fan strips with sparklines + live PWM%/RPM cells, system card, thermal preview, and the climactic compute hero. Vanilla JS (no React/JSX/CDN per RULE-UI-01), token-only colours (RULE-UI-02), demo mode (`?demo=1`) for screenshots and offline preview. Per-fan strips read `FanProbe.CurrentPWM` / `FanProbe.CurrentRPM` directly so the sweep shows real numbers, not em-dashes.
+- **Live activity feed via SSE** (#907) — new `GET /api/v1/setup/events` streams the structured `{ts, level, tag, text}` event log that `setup.Manager` appends on every phase transition. Frontend opens an `EventSource`, renders one row per event with colored level glyph + tag pill in the calibration narrator card. "Ring + cursor poll" transport (250 ms tick, 500-entry bounded ring) avoids per-subscriber goroutine plumbing for a write-rare/read-rare workload. `setPhase` is the only emit hook today; per-fan transition emits drop in via the same `EmitEvent` surface in a follow-up.
+- **Calibration recovers from BIOS Q-Fan contention** (#905, closes #904) — Backend.Write now detects `EBUSY` on the duty-cycle write (BIOS reasserted `pwm_enable=2` mid-sweep, classic Gigabyte Q-Fan / Smart Fan Control behaviour on IT8xxx chips), drops the cached acquired-state for the channel, re-writes `pwm_enable=1`, and retries the original write exactly once. Single retry only — never spin. New `RULE-HWMON-MODE-REACQUIRE` documents the sustain contract; `RULE-HWMON-ENABLE-MODE` covered the first-write contract previously.
+
+### Changed
+- `setup.Manager` gains an in-memory event ring buffer (`events []Event`) plus `EmitEvent` / `EventsSince(cursor)` accessors. Public surface for any future emit hook (per-fan transitions, recovery actions, etc.).
+- `internal/hal/hwmon/Backend.Write` split into Write + private `writeDuty` so the EBUSY-retry path can re-invoke the duty write after re-acquiring manual mode without duplicating the rpm-target / pwm dispatch.
+
+### Fixed
+- Empty "Instructions" modal, "Calibration could not complete" error banner, and "Calibration finished" done banner all showed on page load on the new calibration takeover (#906) because author CSS rules for those elements set `display: flex|grid` which beats the UA stylesheet's `[hidden] → display: none` default. Added explicit `[hidden] { display: none !important; }` to `web/calibration.css`. Caught from Phoenix's HIL screenshots before ship.
+
+### CI / chore
+- Backend test fixtures (`internal/hal/hwmon/export_test.go`) gain `NewBackendForTestWithDuty` so tests can inject the duty-cycle write. Required for the EBUSY-retry binding tests; production callers leave `writeDutyFn` nil and use `NewBackend` unchanged.
+
+### Honest framing
+The handoff from claude.ai/design landed with three pages — Calibration (primary), Hardware, and Dashboard. v0.5.13 ships the **Calibration** half (PR-1 layout + PR-2 live feed) plus the **EBUSY-retry** backend fix that surfaced from the first HIL run on the Proxmox host (Gigabyte B550M AORUS PRO + IT8688). The activity feed currently emits one event per phase transition (~7 per run); per-fan transition hooks (`cal.start` / `cal.minspin` / `cal.done`, etc.) are scoped for the next round and drop in via the same `EmitEvent` surface without touching the SSE transport. Hardware page redesign + Dashboard restyle are queued but unstarted; they ride in their own tags once they land.
+
 ## [v0.5.12] - 2026-05-04
 
 ### Headline
