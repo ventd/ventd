@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.21] - 2026-05-04
+
+### Headline
+- **Split-daemon Phase A scaffolding** (#962, **closes #787 PR-A; v0.6 prereq architectural**) — first concrete step toward `spec-v0_6_0-split-daemon`'s "long-running unprivileged control loop + oneshot root setup service" architecture. Ships the new `cmd/ventd-setup` binary + `internal/setupbroker` package + `deploy/ventd-setup.service` systemd unit ALONGSIDE the existing root `ventd.service` — wizard behaviour is unchanged (every operation falls through to the broker's `ErrOperationNotImpl` stub). Operators on v0.5.21 can smoke-test the binary in isolation via `sudo systemctl start ventd-setup` after staging a request file under `/run/ventd/`. Phase B (a future PR) flips `ventd.service` to `User=ventd` + restores the AppArmor sandbox + actually routes the wizard's privileged steps through this binary.
+- **Wire format pinned** at `SchemaVersion=1` so Phase B's per-operation handlers can land incrementally without breaking the envelope. 7 operation constants reserved: `install_oot_driver`, `install_dependency`, `load_module`, `unload_module`, `patch_kernel_param`, `nvml_write`, `run_sensors_detect`. Each new operation adds (a) a constant, (b) a `Params*` struct, (c) a `dispatcher.Register` call.
+- **First validation of the in-UI updater chicken-and-egg fix** (v0.5.20 #960): operators on a v0.5.20 daemon can update to v0.5.21 entirely through the Settings → Update button on hosts that previously hit the DKMS / build-tools preflight blocker. Phoenix's three HILs (Proxmox, Desktop, MiniPC) all on v0.5.20 at tag time; this is the first release that actually exercises the network-fetch + skip-checks paths end-to-end.
+
+### CI / chore
+- 15 new tests for the broker package + setup binary (envelope schema, dispatch fallthrough, request file handling, result file mode 0600).
+- `ventd-setup` binary added to the default + musl tarball archives + .deb / .rpm `nfpms.contents`.
+
+### Honest framing
+v0.5.21 doesn't change runtime behaviour for any operator — Phase A is "ship but don't use". Its strategic value is twofold: it lays the architectural foundation for v0.6's security story (control loop dropping privileges), and it gives the v0.5.20 in-UI updater fix its first chance to prove itself end-to-end on Phoenix's HIL grid.
+
 ## [v0.5.20] - 2026-05-04
 
 ### Headline
