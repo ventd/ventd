@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -188,6 +189,26 @@ var updateRunFn = realUpdateRun
 // `ventd preflight` invocation as `--skip <names>`.
 const inUIUpdateSkipChecks = "dkms_missing,gcc_missing,kernel_headers_missing,make_missing,signfile_missing,mokutil_missing,mok_keypair_missing,mok_not_enrolled"
 
+// systemdRunPath is the canonical location of systemd-run. Empty when
+// the binary is unavailable; the caller falls back to the nohup spawn.
+// Overridable for tests.
+var systemdRunPath = func() string {
+	if p, err := exec.LookPath("systemd-run"); err == nil {
+		return p
+	}
+	return ""
+}
+
+// systemdAvailable reports whether systemd is the running init. The
+// /run/systemd/system check is the canonical "running under systemd"
+// probe documented in sd_booted(3).
+var systemdAvailable = func() bool {
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		return true
+	}
+	return false
+}
+
 func realUpdateRun(version, scriptPath string) error {
 	// Detach so the install script outlives the daemon's HTTP handler.
 	// The script itself does the dpkg install + systemctl restart;
@@ -197,10 +218,57 @@ func realUpdateRun(version, scriptPath string) error {
 	// can actually block a binary-only update. install.sh threads
 	// the env through to `ventd preflight --skip ...` so the
 	// orchestrator excludes the named checks.
-	cmd := exec.Command("nohup", "bash", "-c",
+	//
+	// SANDBOX ESCAPE: ventd.service ships with PrivateTmp=yes,
+	// ProtectSystem=strict, and a ReadWritePaths= list that excludes
+	// /usr/local/bin and /var/log. A naive nohup-fork from this
+	// process inherits the entire sandbox — install.sh fails the
+	// moment it tries to stage the new binary or write the update
+	// log, leaving the daemon unchanged. systemd-run with --scope
+	// disabled (default) creates a transient SERVICE unit that runs
+	// outside the daemon's cgroup with its own (clean, root) sandbox
+	// view. --no-block returns immediately so the HTTP handler can
+	// ack the operator before install.sh starts the rename + restart.
+	// --collect frees the unit on completion so we don't leak failed
+	// units across attempts. KillMode=process keeps install.sh alive
+	// even when systemd kills the spawning daemon during try-restart.
+	cmd := buildUpdateCmd(version, scriptPath)
+	if cmd.Path == "" || len(cmd.Args) == 0 {
+		return fmt.Errorf("internal: empty update spawn command")
+	}
+	// systemd-run --no-block returns immediately; nohup detaches via
+	// cmd.Start(). Pick the right termination per spawn shape.
+	if filepath.Base(cmd.Path) == "systemd-run" {
+		return cmd.Run()
+	}
+	return cmd.Start()
+}
+
+// buildUpdateCmd constructs the spawn command for install.sh. Exposed
+// so tests can inspect the resulting argv without actually executing
+// the install. Picks systemd-run when systemd is the running init AND
+// systemd-run is on PATH; otherwise falls back to the pre-v0.5.26
+// nohup-detached-bash pattern.
+func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
+	if sr := systemdRunPath(); sr != "" && systemdAvailable() {
+		return exec.Command(sr,
+			"--no-block",
+			"--collect",
+			"--unit=ventd-update",
+			"--description=ventd in-UI update",
+			"--service-type=oneshot",
+			"--property=KillMode=process",
+			"--setenv=VENTD_VERSION="+version,
+			"--setenv=VENTD_SKIP_PREFLIGHT_CHECKS="+inUIUpdateSkipChecks,
+			"bash", scriptPath,
+		)
+	}
+	// Fallback for non-systemd hosts (OpenRC, runit). The nohup +
+	// detached-bash + log-redirect pattern works on these hosts
+	// because they don't impose a service-unit sandbox.
+	return exec.Command("nohup", "bash", "-c",
 		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s bash %s >/var/log/ventd-update.log 2>&1 &",
 			shellQuote(version), shellQuote(inUIUpdateSkipChecks), shellQuote(scriptPath)))
-	return cmd.Start()
 }
 
 // findInstallScript walks the candidate path list; returns the first
