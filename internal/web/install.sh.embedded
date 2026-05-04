@@ -583,12 +583,34 @@ if [[ "$VENTD_TEST_MODE" != "1" ]]; then
 fi
 
 # ── Install ──────────────────────────────────────────────────────────────────
+#
+# Two-phase commit (issue #953):
+#   Phase 1 — STAGE the new binary at $VENTD_PREFIX/.ventd.new and run
+#             preflight against it. No file at $VENTD_PREFIX/ventd is
+#             touched yet, so the running daemon's mapped inode stays
+#             intact through the preflight check.
+#   Phase 2 — On preflight pass, atomic-rename .ventd.new → ventd.
+#             The end-of-script systemctl restart then loads the new
+#             inode cleanly.
+#
+# Why: prior to this change the order was install-then-preflight. A
+# preflight bailout (DKMS missing, build tools absent, etc.) would
+# leave the new binary on disk but skip the restart — the running
+# daemon kept the (now deleted) old inode mapped, /api/v1/version
+# still reported the previous build, and the in-UI Update button
+# never exercised the new code paths. Phoenix HIL three-host repro
+# in issue #953.
 
 echo "Installing ventd..."
 
 install -d -m 755 "$VENTD_PREFIX"
-install -m 755 "$BINARY" "$VENTD_PREFIX/ventd"
-echo "  ✓ binary → $VENTD_PREFIX/ventd"
+
+VENTD_STAGED="$VENTD_PREFIX/.ventd.new"
+install -m 755 "$BINARY" "$VENTD_STAGED"
+echo "  ✓ staged → $VENTD_STAGED"
+
+# Make sure a bailout doesn't leave the staged copy lying around.
+trap 'rm -f "$VENTD_STAGED" 2>/dev/null || true' EXIT
 
 # ── Preflight ────────────────────────────────────────────────────────────────
 #
@@ -603,6 +625,9 @@ echo "  ✓ binary → $VENTD_PREFIX/ventd"
 # with a re-entry hint; file-form (`sudo bash <(curl ...)` or
 # `sudo ./install.sh`) gets the interactive Y/N flow.
 #
+# Preflight runs against the STAGED binary so we exercise the
+# new build's preflight checks without committing the swap yet.
+#
 # Exit code mapping:
 #   0 — preflight clean, continue install
 #   1 — internal error (broken binary, etc.) — abort
@@ -613,16 +638,17 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
     echo
     echo "Running install-time preflight..."
     if [[ -t 0 ]]; then
-        "$VENTD_PREFIX/ventd" preflight --interactive
+        "$VENTD_STAGED" preflight --interactive
         rc=$?
     else
         # Piped form (curl ... | sudo bash): cannot prompt. Run JSON
         # detect-only; if any blocker is found, print the human-
         # readable summary and the actionable re-entry command, then
-        # exit 1.
-        if ! "$VENTD_PREFIX/ventd" preflight --json >/tmp/ventd-preflight.json 2>/dev/null; then
+        # exit 1. The staged binary is wiped by the EXIT trap so the
+        # running daemon stays on its current inode.
+        if ! "$VENTD_STAGED" preflight --json >/tmp/ventd-preflight.json 2>/dev/null; then
             echo
-            "$VENTD_PREFIX/ventd" preflight 2>/dev/null || true
+            "$VENTD_STAGED" preflight 2>/dev/null || true
             echo
             echo "═══════════════════════════════════════════════════════════════════"
             echo "  ACTION REQUIRED"
@@ -635,6 +661,9 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
             echo
             echo "  The interactive installer will walk you through each fix with"
             echo "  Y/N prompts and a clear post-reboot checklist."
+            echo
+            echo "  No on-disk changes were made — the running daemon stays on"
+            echo "  its current version until a clean install completes."
             echo "═══════════════════════════════════════════════════════════════════"
             exit 1
         fi
@@ -647,6 +676,7 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
         2)
             echo
             echo "Preflight blockers remain unresolved. Aborting install." >&2
+            echo "Running daemon stays on its current version (no on-disk changes)." >&2
             echo "Re-run \`sudo $VENTD_PREFIX/ventd preflight --interactive\` to retry." >&2
             exit 1
             ;;
@@ -657,14 +687,21 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
             echo
             echo "    sudo bash <(curl -sSL https://github.com/ventd/ventd/releases/latest/download/install.sh)"
             echo
+            echo "(No on-disk binary swap was made; running daemon stays on its current version.)"
             exit 0
             ;;
         *)
             echo "Preflight failed (exit $rc). Aborting install." >&2
+            echo "Running daemon stays on its current version (no on-disk changes)." >&2
             exit 1
             ;;
     esac
 fi
+
+# ── Commit phase: atomic-rename the staged binary into place ────────────────
+mv -f "$VENTD_STAGED" "$VENTD_PREFIX/ventd"
+trap - EXIT
+echo "  ✓ binary → $VENTD_PREFIX/ventd"
 
 # ventd-wait-hwmon: ExecStartPre gate for the cold-boot udev race
 # (issue #103). Lives under /usr/local/sbin because it's a root-only
@@ -1153,6 +1190,34 @@ if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" ]]; then
             runit)   echo "  Inspect the log:  tail -n 50 /var/log/ventd/current" >&2 ;;
         esac
         exit 1
+    fi
+
+    # Running-daemon version check (#953). The two-phase commit above
+    # guarantees the binary on disk matches what we just installed,
+    # but a missed restart, an inode pin from a long-lived watchdog,
+    # or a systemd unit that points elsewhere can leave the running
+    # process on a stale binary. Compare the running daemon's reported
+    # version against the binary's embedded version; warn loudly on
+    # mismatch with the exact remediation command.
+    DISK_VER=$("$VENTD_PREFIX/ventd" --version 2>/dev/null | awk '{print $2}')
+    if [[ -n "$DISK_VER" ]]; then
+        # Probe the daemon's HTTP version endpoint. Try https loopback
+        # first (default in v0.5.x), fall back to http for older builds.
+        # 5-second timeout each — bounded by the post-restart settle.
+        RUNNING_VER=$(curl -sk --max-time 5 https://127.0.0.1:9999/api/v1/version 2>/dev/null \
+            | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
+        if [[ -z "$RUNNING_VER" ]]; then
+            RUNNING_VER=$(curl -s --max-time 5 http://127.0.0.1:9999/api/v1/version 2>/dev/null \
+                | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')
+        fi
+        if [[ -n "$RUNNING_VER" && "$RUNNING_VER" != "$DISK_VER" ]]; then
+            echo ""
+            echo "  ⚠ daemon version mismatch — running $RUNNING_VER, binary on disk $DISK_VER"
+            echo "    Force a clean restart:   sudo systemctl restart ventd"
+            echo "    Then verify:             curl -sk https://127.0.0.1:9999/api/v1/version"
+        elif [[ -n "$RUNNING_VER" ]]; then
+            echo "  ✓ ventd $RUNNING_VER live"
+        fi
     fi
 fi
 
