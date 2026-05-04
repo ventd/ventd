@@ -12,7 +12,6 @@ package web
 
 import (
 	"net/http"
-	"path"
 	"strings"
 	"sync"
 
@@ -317,9 +316,3 @@ func readingKind(unit string) string {
 	return "temp"
 }
 
-// pathLeaf is a small helper retained as a hook; today it's
-// unused but the test file references it for future per-channel
-// keys derived from path-leaf forms.
-func pathLeaf(p string) string {
-	return path.Base(p)
-}
