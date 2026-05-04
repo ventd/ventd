@@ -269,6 +269,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	s.registerWebPage("sensors")
 	s.registerWebPage("settings")
 	s.registerWebPage("doctor")
+	s.registerWebPage("health")
 
 	// /login is served by handleLogin (which also handles POST), so the
 	// HTML route is already wired. Only the /login.js asset needs its own
