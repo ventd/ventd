@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.22] - 2026-05-04
+
+### Headline
+- **Consolidated /health view for monitor-only systems** (#964, **closes #793; v0.6 prereq #2 completion**) — single page that aggregates every sensor / fan / voltage / power reading the daemon enumerated, surfaces a doctor-finding count badge, and gives operators on monitor-only fallback systems (BIOS-locked PWMs, server BMCs, EC-locked laptops) a useful default view instead of the dashboard's mostly-empty control affordances. 4 summary cards (hottest sensor, spinning fans count, doctor findings count, total sensor count) + 4 grouped sections (Temperatures / Fans / Voltages / Power) with per-sensor cards (friendly name + current value + 60-sample trend spark + chip name + trend arrow). 2 s poll cadence; pulls from existing `/api/v1/hardware/inventory` + `/api/v1/doctor` + `/api/v1/version` so no new backend endpoints land. Sidebar gains a Health entry under Diagnostics.
+
+### Honest framing
+v0.5.22 is presentation-only: every value on /health is a real sensor reading with a chip-name backing it, zero fabricated metrics. The MVP scope explicitly defers (per Phoenix's "ship the consolidation, not new sub-systems" framing on the issue): SMART-parsing endpoint, anomaly detection, wizard auto-redirect for monitor-only outcomes (#784 follow-up), PSI / loadavg surfacing.
+
+This closes 4 of Phoenix's 5 v0.6 prerequisites:
+- #1 Zero-terminal install UX — covered by the in-UI updater fixes (v0.5.18, v0.5.20)
+- #2 Full health monitoring even when fans can't be controlled — closed by this release (#793 + the doctor surface from #957)
+- #3 AI-quality control — closed by Layer-C forecast + acoustic toggle (v0.5.19, #945 + #956 + #958)
+- #4 Friendly auto-detected hardware names — still open (#791 catalog harvest, needs spec)
+- #5 Beat competitors — implicit in #1-#4
+
+Remaining v0.6 work: split-daemon Phase B (flip ventd to User=ventd + restore sandbox + actually route privileged steps through ventd-setup) + the catalog harvest spec + harvest implementation.
+
 ## [v0.5.21] - 2026-05-04
 
 ### Headline
