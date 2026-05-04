@@ -125,7 +125,12 @@ jobs:
             # 4.x on 24.04). Catches grammar regressions like #202
             # before they land in the LTS support window.
             container: "ubuntu@sha256:962f6cadeae0ea6284001009daa4cc9a8c37e75d1f5191cf0eb83fe565b63dd7" # ubuntu:22.04
-            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar"
+            # gcc + libc6-dev are needed by `go test -race` (race detector
+            # requires CGO). Fedora/Arch already install gcc; ubuntu 22.04
+            # / debian 12 / opensuse minimal images don't ship one by
+            # default and would otherwise fail with "go: -race requires
+            # cgo; enable cgo by setting CGO_ENABLED=1".
+            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar gcc libc6-dev"
             use-setup-go: true
             race: true
           - name: build-and-test-debian-12
@@ -136,7 +141,7 @@ jobs:
             # manager-shape regressions in install.sh + preflight's
             # DistroInfo dispatch before users hit them.
             container: "debian@sha256:8a8cd02c5912770b4980228a54d4aff9e4f986f1eb2525d2d371dec5232cefcc" # debian:12
-            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar"
+            prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar gcc libc6-dev"
             use-setup-go: true
             race: true
           - name: build-and-test-opensuse-tumbleweed
@@ -149,9 +154,13 @@ jobs:
             # opensuse/tumbleweed:latest minimal image lacks /bin/sh —
             # GitHub Actions' default `shell: sh` then aborts every step
             # with "exec: \"sh\": executable file not found in $PATH"
-            # (caught at the `go vet` step). bash + coreutils-single
-            # restore the standard POSIX shell + utility set.
-            prereqs: "zypper -n install -y ca-certificates curl git tar bash coreutils-single"
+            # (caught at the `go vet` step). bash provides /bin/sh on
+            # opensuse via the standard symlink. gcc is required by
+            # `go test -race`. coreutils-single was tried in #895 but
+            # conflicts with the busybox-coreutils already in the image,
+            # causing zypper's resolver to ask for interactive resolution
+            # and exit code 4 in -n mode.
+            prereqs: "zypper -n install -y ca-certificates curl git tar bash gcc"
             use-setup-go: true
             race: true
     steps:
