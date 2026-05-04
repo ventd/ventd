@@ -1002,17 +1002,75 @@
     }
     return out;
   }
-  /* aliveResetForecastSub clears the hero card sub-line back to the
-     simple "last 60 s" label. Called every poll so any stale forecast
-     DOM left over from a previous v0.5.14 deploy is purged in-place. */
+  /* aliveResetForecastSub renders the hero card sub-line. Combines:
+     - Real Layer-C predicted ΔT-per-+1-PWM (from /api/v1/smart/channels
+       MarginalSlope on each channel's active marginal shard) — the
+       honest forecast surface that closes #43.
+     - The "last 60 s" past-window label that anchors the spark.
+
+     Sign convention: cooling fan → MarginalSlope < 0 → arrow ↓ (model
+     predicts next +1 PWM will lower temp). Positive slope is anomalous
+     (sign-guard territory) but we render it honestly anyway. Below
+     SLOPE_EPS we show "saturated" (Path-A predicts no benefit; per
+     RULE-CMB-SAT-01's 2°C-across-full-ramp threshold). When no usable
+     shard exists (no smart-mode runtime, all warming up, no n_samples)
+     we fall back to "last 60 s" — the no-theatre rule means we never
+     fabricate a forecast we can't trace to backend research. */
+  var SLOPE_EPS_C_PER_PWM = 0.008; // 2°C / 255 raw PWM units ≈ saturation floor
   function aliveResetForecastSub(kind) {
     var subId = kind === 'cpu' ? 'hero-cpu-sub' : 'hero-gpu-sub';
     var sub = document.getElementById(subId);
     if (!sub) return;
-    if (sub.dataset.aliveSimpleSub === '1') return;
-    sub.textContent = 'last 60 s';
+    var label = aliveForecastSubLabel();
+    if (sub.dataset.aliveForecastLabel === label) return;
+    sub.textContent = label;
     sub.className = 'dash-hero-sub';
-    sub.dataset.aliveSimpleSub = '1';
+    sub.dataset.aliveForecastLabel = label;
+  }
+  /* aliveForecastSubLabel returns the per-tick sub-line text. Picks
+     the strongest signal we can derive from real backend data. */
+  function aliveForecastSubLabel() {
+    var slope = aliveSystemMarginalSlope();
+    if (slope === null) return 'last 60 s';
+    if (Math.abs(slope) < SLOPE_EPS_C_PER_PWM) {
+      return '· saturated · last 60 s';
+    }
+    var arrow = slope < 0 ? '↓' : '↑';
+    return arrow + ' ' + Math.abs(slope).toFixed(3) + ' °C/PWM · last 60 s';
+  }
+  /* aliveSystemMarginalSlope walks aliveState.channels and returns the
+     mean MarginalSlope across each channel's ACTIVE marginal shard
+     (the one whose signature_label matches the channel's active
+     signature). Skips channels whose active shard is warming up or
+     has zero samples. Returns null when no usable shard exists. */
+  function aliveSystemMarginalSlope() {
+    // /api/v1/smart/channels returns a bare JSON array of channel
+    // entries (see smartChannelEntry in internal/web/server.go and
+    // TestHandleSmartChannels_NoAggregator_ReturnsEmptyArray).
+    var ch = aliveState.channels;
+    if (!Array.isArray(ch) || ch.length === 0) return null;
+    var sum = 0, n = 0;
+    for (var i = 0; i < ch.length; i++) {
+      var c = ch[i];
+      if (!c || !Array.isArray(c.marginal) || c.marginal.length === 0) continue;
+      var active = c.signature_label || '';
+      var pick = null;
+      for (var j = 0; j < c.marginal.length; j++) {
+        var m = c.marginal[j];
+        if (!m) continue;
+        if (active && m.signature_label === active) { pick = m; break; }
+        if (!pick) pick = m;
+      }
+      if (!pick) continue;
+      if (pick.warming_up) continue;
+      if (!pick.n_samples || pick.n_samples === 0) continue;
+      var s = pick.marginal_slope;
+      if (typeof s !== 'number' || !isFinite(s)) continue;
+      sum += s;
+      n++;
+    }
+    if (n === 0) return null;
+    return sum / n;
   }
   function aliveEnsureNowDotOnly(svg, nowX, nowY) {
     var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1699,11 +1757,13 @@
     }
   }
   function aliveModeWorkloadLabel() {
+    // /api/v1/smart/channels returns a bare array; the previous
+    // .channels.channels access silently dropped every label.
     var ch = aliveState.channels;
-    if (!ch || !Array.isArray(ch.channels) || ch.channels.length === 0) return '';
+    if (!Array.isArray(ch) || ch.length === 0) return '';
     var counts = {};
     var max = 0, mode = '';
-    ch.channels.forEach(function (c) {
+    ch.forEach(function (c) {
       var lab = c && c.signature_label;
       if (!lab) return;
       counts[lab] = (counts[lab] || 0) + 1;
