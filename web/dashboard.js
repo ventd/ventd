@@ -1034,15 +1034,76 @@
     sub.dataset.aliveForecastLabel = label;
   }
   /* aliveForecastSubLabel returns the per-tick sub-line text. Picks
-     the strongest signal we can derive from real backend data. */
+     the strongest signal we can derive from real backend data:
+
+     1. Predicted next-tick ΔT (#790). When the controller has a
+        recent decision AND Layer-C has a usable MarginalSlope, we
+        compute the predicted thermal change for the candidate ramp
+        the controller is about to issue. This is the most
+        operator-meaningful signal: "in the next tick the controller
+        plans to nudge PWM by N units; the model thinks that'll
+        cool by M °C". Path-A / cost / dBA refusals collapse into a
+        zero-ramp prediction, which we surface as "holding".
+     2. Fallback to the per-PWM marginal rate (still useful when the
+        decision cache is empty — fresh daemon, monitor-only, etc).
+     3. Fallback to "last 60 s" when no model state is available. */
   function aliveForecastSubLabel() {
+    var nextTick = aliveSystemPredictedNextTickDeltaT();
+    if (nextTick !== null) {
+      if (Math.abs(nextTick.dPWM) < 1) {
+        // Controller is holding (refused or content with current PWM).
+        return '· holding · last 60 s';
+      }
+      if (Math.abs(nextTick.deltaT) < 0.05) {
+        return '· saturated · last 60 s';
+      }
+      var arrow = nextTick.deltaT < 0 ? '↓' : '↑';
+      return arrow + ' ' + Math.abs(nextTick.deltaT).toFixed(2) +
+        ' °C predicted · ΔPWM ' + (nextTick.dPWM > 0 ? '+' : '') +
+        nextTick.dPWM.toFixed(0) + ' · last 60 s';
+    }
     var slope = aliveSystemMarginalSlope();
     if (slope === null) return 'last 60 s';
     if (Math.abs(slope) < SLOPE_EPS_C_PER_PWM) {
       return '· saturated · last 60 s';
     }
-    var arrow = slope < 0 ? '↓' : '↑';
-    return arrow + ' ' + Math.abs(slope).toFixed(3) + ' °C/PWM · last 60 s';
+    var arrow2 = slope < 0 ? '↓' : '↑';
+    return arrow2 + ' ' + Math.abs(slope).toFixed(3) + ' °C/PWM · last 60 s';
+  }
+  /* aliveSystemPredictedNextTickDeltaT walks aliveState.channels and
+     returns the mean predicted ΔT across channels that have BOTH a
+     recent controller decision AND a usable MarginalSlope.
+     Returns {deltaT, dPWM} (mean ramp + mean predicted change), or
+     null if no channel has both. */
+  function aliveSystemPredictedNextTickDeltaT() {
+    var ch = aliveState.channels;
+    if (!Array.isArray(ch) || ch.length === 0) return null;
+    var sumDT = 0, sumDP = 0, n = 0;
+    for (var i = 0; i < ch.length; i++) {
+      var c = ch[i];
+      if (!c || !c.decision || !Array.isArray(c.marginal)) continue;
+      // Pick the active marginal shard.
+      var active = c.signature_label || '';
+      var pick = null;
+      for (var j = 0; j < c.marginal.length; j++) {
+        var m = c.marginal[j];
+        if (!m) continue;
+        if (active && m.signature_label === active) { pick = m; break; }
+        if (!pick) pick = m;
+      }
+      if (!pick || pick.warming_up) continue;
+      if (!pick.n_samples || pick.n_samples === 0) continue;
+      var slope = pick.marginal_slope;
+      if (typeof slope !== 'number' || !isFinite(slope)) continue;
+      var dPWM = (c.decision.output_pwm || 0) - (c.decision.reactive_pwm || 0);
+      var dT = slope * dPWM;
+      if (!isFinite(dT)) continue;
+      sumDT += dT;
+      sumDP += dPWM;
+      n++;
+    }
+    if (n === 0) return null;
+    return { deltaT: sumDT / n, dPWM: sumDP / n };
   }
   /* aliveSystemMarginalSlope walks aliveState.channels and returns the
      mean MarginalSlope across each channel's ACTIVE marginal shard

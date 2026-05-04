@@ -523,6 +523,7 @@ func run() error {
 		LayerA:     buildLayerAEstimator(channels, logger),
 		Aggregator: buildAggregator(channels, logger),
 		Blended:    buildBlendedController(channels, cfg, logger),
+		Decisions:  controller.NewDecisionCache(),
 	}
 	if obsWriter != nil {
 		smartMode.ObsAppend = buildObsAppend(obsWriter)
@@ -934,6 +935,14 @@ func buildBlendFn(
 		if res.FirstContactClamp || (res.WPred > 0 && layerASnap != nil && !layerASnap.SeenFirstContact) {
 			smart.LayerA.MarkFirstContact(chID, now)
 		}
+		// Cache for the web /smart/channels handler so the dashboard
+		// can show the controller's actual next-tick PWM target +
+		// refusal flags alongside Layer-C's MarginalSlope. Atomic
+		// pointer-swap; nil-safe when smart.Decisions is unwired.
+		smart.Decisions.Store(chID, controller.Decision{
+			Result:      res,
+			ReactivePWM: reactivePWM,
+		})
 		return res.OutputPWM
 	}
 }
@@ -1150,6 +1159,13 @@ type SmartModeBundle struct {
 	// no controllable channels exist. Drives the per-controller
 	// BlendFn closure constructed in runDaemonInternal.
 	Blended *controller.BlendedController
+
+	// Decisions caches the most-recent BlendedResult per channel so
+	// the web /api/v1/smart/channels handler can show the controller's
+	// next-tick PWM target alongside Layer-C's MarginalSlope. Hot-loop
+	// safe (atomic per-channel pointer-swap). Updated by the BlendFn
+	// closure in runDaemonInternal after every Compute call.
+	Decisions *controller.DecisionCache
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -1361,6 +1377,10 @@ func runDaemonInternal(
 		// so /api/v1/smart/{status,channels} can return per-channel
 		// RLS state for the dashboard + doctor surfaces.
 		webSrv.SetSmartRuntimes(smartMode.Coupling, smartMode.Marginal)
+		// #790: wire the controller's per-channel decision cache so
+		// /api/v1/smart/channels can show the next-tick PWM target +
+		// refusal flags alongside Layer-C's MarginalSlope.
+		webSrv.SetDecisions(smartMode.Decisions)
 	}
 
 	// v0.5.5: build and launch the opportunistic-probe scheduler when
