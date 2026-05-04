@@ -71,6 +71,12 @@
 }
 .set-row--danger { border-top-color: rgba(var(--rgb-red), 0.3); }
 
+/* Narrow numeric input used by the smart-mode dBA override (#789).
+   Reuses .set-pw-input's chrome — same border / focus ring / mono
+   glyphs — but caps width at ~6 characters so a sub-100 dBA value
+   doesn't take up the whole row. */
+.set-number-narrow { width: 6em; text-align: right; }
+
 /* segments (theme / unit toggle) */
 .set-segments {
   display: inline-flex;
