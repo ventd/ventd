@@ -21,9 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### CI / chore
 - **errcheck discards on six pre-existing offenses** (#890) — explicit `_ =` discards keep the per-package errcheck floor at zero so future violations stand out.
-- **CI unblock + diag-send flake registration** (#895) — five fixes that were exposed by the v0.5.12 acoustic stack landing on main:
+- **CI unblock + diag-send flake registration** (#895, #897, #899) — fixes that were exposed by the v0.5.12 acoustic stack landing on main:
   - `scripts/retry-flaky.sh` rewritten in pure POSIX awk (drops the `python3: command not found` failure on Fedora / Ubuntu 22.04 / Debian 12 / Arch minimal containers).
-  - `bash coreutils-single` added to the opensuse-tumbleweed prereqs (minimal image lacks `/bin/sh`).
+  - `gcc libc6-dev` added to ubuntu-22.04 + debian-12 prereqs and `gcc` added to opensuse-tumbleweed prereqs (#897). The race detector requires CGO and the previous python3-blocked path masked the missing-compiler error on three distros that don't ship gcc by default. Closes the `-race+CGO` half of the project's known-red CI memory.
+  - `defaults.run.shell: bash` set at the build matrix job level (#899). opensuse/tumbleweed:latest minimal image leaves `/bin/sh` in an inconsistent state after the gcc install (busybox + libalternatives land as deps and the alternatives system never picks bash as the sh provider on the next docker exec). Every distro in the matrix ships bash, so making it the default sidesteps the brittle symlink dance instead of trying to repair it on opensuse specifically. #895's first attempt added `coreutils-single` and #897 dropped it; #899 obviates the package-level fight entirely.
   - `docs/binary_size_baseline` BYTES bumped 9441572 → 11821348 (acoustic-stack growth, +25%).
   - `TestHandleDiagSend_IngestRejects_Returns502` registered in `.github/flaky-tests.yaml` (issue #883). Roadmap fix is to inject `diag.Generate` via a `Server` field so the test mocks bundle generation.
   - E2E (browser) job routed through `retry-flaky.sh` so registry entries actually fire on that lane.
