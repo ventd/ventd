@@ -1341,6 +1341,16 @@ type smartMarginalShard struct {
 	NSamples       uint64    `json:"n_samples"`
 	TrP            float64   `json:"tr_p"`
 	EWMAResidual   float64   `json:"ewma_residual"`
+	// MarginalSlope is the Layer-C model's prediction of how much the
+	// channel's temperature changes per +1 PWM unit at the last
+	// observed load — i.e. β_0 + β_1·load (RULE-CMB-SAT-01). Cooling
+	// fans yield negative values (more PWM → lower temp). Consumed by
+	// the dashboard hero card to render an honest forecast arrow:
+	// magnitude → arrow size, sign → arrow direction. Zero / NaN means
+	// the shard has no usable estimate yet (warming up or
+	// unidentifiable); the UI shows "—".
+	MarginalSlope float64 `json:"marginal_slope"`
+	WarmingUp     bool    `json:"warming_up"`
 }
 
 // handleSmartStatus GET /api/v1/smart/status — aggregate dashboard
@@ -1483,6 +1493,8 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 					NSamples:       m.NSamples,
 					TrP:            m.TrP,
 					EWMAResidual:   m.EWMAResidual,
+					MarginalSlope:  m.MarginalSlope,
+					WarmingUp:      m.WarmingUp,
 				})
 				if entry.SignatureLabel == "" {
 					// Use the first marginal shard's signature as the
