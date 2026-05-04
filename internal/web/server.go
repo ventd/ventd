@@ -283,6 +283,12 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// Build metadata — same shape as `ventd --version --json`, exposed
 		// so operators can identify a running daemon without shell access.
 		{name: "version", handler: s.handleVersion, auth: false},
+		// Self-update endpoints. /check polls GitHub for the latest tag;
+		// /apply spawns install.sh with VENTD_VERSION set and exits 202
+		// (daemon dies during the install's systemctl restart, comes
+		// back under the new binary). /var/lib/ventd state persists.
+		{name: "update/check", handler: s.handleUpdateCheck, auth: true},
+		{name: "update/apply", handler: s.handleUpdateApply, auth: true},
 
 		// Authenticated routes.
 		{name: "status", handler: s.handleStatus, auth: true},
