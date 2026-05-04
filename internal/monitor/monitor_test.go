@@ -363,24 +363,22 @@ func TestScanHwmon_FanRPMZeroSkipped(t *testing.T) {
 	}
 }
 
-// TestScanHwmon_MirrorFansDeduped — #796: many embedded EC firmwares
-// expose the same physical fan's RPM across multiple `fan*_input`
-// zones (CPU / system / chassis virtual zones, all reading the
-// identical RPM because there's only one tach behind them). Phoenix's
-// minipc HIL surfaced four fan tach zones for one physical fan.
-// scanHwmon now collapses fans within ±10 RPM on the same hwmon
-// device. Distinct fans (>10 RPM apart) are preserved.
+// TestScanHwmon_MirrorFansDeduped — #796: known EC firmware chips
+// (thinkpad_acpi, dell-smm-hwmon, asus-ec-sensors, hp-wmi-sensors,
+// surface_fan, applesmc, macsmc-hwmon) expose the same physical
+// fan's RPM across multiple fan*_input zones; we collapse fans
+// within ±10 RPM on those chips. Distinct fans (>10 RPM apart)
+// are preserved even on mirror chips.
 func TestScanHwmon_MirrorFansDeduped(t *testing.T) {
 	root := t.TempDir()
 	withScanRoot(t, root)
 
-	d := mkHwmonDir(t, root, "hwmon0", "fake_ec")
-	// 4 mirror tachs all reading 1500 RPM (within tolerance of each other).
+	// thinkpad_acpi is a known-mirror EC chip; dedup applies.
+	d := mkHwmonDir(t, root, "hwmon0", "thinkpad_acpi")
 	writeFile(t, filepath.Join(d, "fan1_input"), "1500\n")
 	writeFile(t, filepath.Join(d, "fan2_input"), "1502\n")
 	writeFile(t, filepath.Join(d, "fan3_input"), "1497\n")
 	writeFile(t, filepath.Join(d, "fan4_input"), "1505\n")
-	// One distinct fan at a different speed — must NOT collapse.
 	writeFile(t, filepath.Join(d, "fan5_input"), "800\n")
 
 	devs := scanHwmon()
@@ -388,13 +386,40 @@ func TestScanHwmon_MirrorFansDeduped(t *testing.T) {
 		t.Fatalf("Scan: got %d devices, want 1", len(devs))
 	}
 	if got := len(devs[0].Readings); got != 2 {
-		t.Fatalf("hwmon0: %d fan readings after dedup, want 2 (one mirror cluster + one distinct): %+v",
+		t.Fatalf("hwmon0 (thinkpad_acpi): %d fan readings after dedup, want 2 (one mirror cluster + one distinct): %+v",
 			got, devs[0].Readings)
 	}
-	// First reading wins from the cluster (fan1 = 1500); fan5 distinct.
 	rpms := []float64{devs[0].Readings[0].Value, devs[0].Readings[1].Value}
 	if !((rpms[0] == 1500 && rpms[1] == 800) || (rpms[0] == 800 && rpms[1] == 1500)) {
 		t.Errorf("hwmon0 surviving fan rpms = %v, want {1500, 800}", rpms)
+	}
+}
+
+// TestScanHwmon_DesktopChipPreservesAllFans pins the #40 fix: super-I/O
+// chips on desktop boards (nct6687, it8688, nct6798, etc.) expose N
+// distinct PWM channels with N distinct tach inputs. The dedup MUST
+// NOT apply — Phoenix's MSI Z690-A NCT6687 was losing 6 of 7 fans to
+// dedup that coincidentally collapsed real distinct fans whose idle
+// RPMs happened to fall within ±10 RPM. Only known-EC-mirror chips
+// get dedup'd.
+func TestScanHwmon_DesktopChipPreservesAllFans(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d := mkHwmonDir(t, root, "hwmon0", "nct6687")
+	writeFile(t, filepath.Join(d, "fan1_input"), "1500\n")
+	writeFile(t, filepath.Join(d, "fan2_input"), "1502\n") // would have been collapsed
+	writeFile(t, filepath.Join(d, "fan3_input"), "1497\n") // would have been collapsed
+	writeFile(t, filepath.Join(d, "fan4_input"), "1505\n") // would have been collapsed
+	writeFile(t, filepath.Join(d, "fan5_input"), "800\n")
+
+	devs := scanHwmon()
+	if len(devs) != 1 {
+		t.Fatalf("Scan: got %d devices, want 1", len(devs))
+	}
+	if got := len(devs[0].Readings); got != 5 {
+		t.Fatalf("hwmon0 (nct6687): %d fan readings, want 5 (no dedup on desktop super-I/O): %+v",
+			got, devs[0].Readings)
 	}
 }
 
