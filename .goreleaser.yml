@@ -88,6 +88,32 @@ builds:
     ldflags:
       - -s -w
 
+  # ventd-setup: split-daemon Phase A privileged-operations broker.
+  # systemd starts it on demand from the wizard; reads
+  # /run/ventd/setup-request.json, dispatches to internal/setupbroker,
+  # writes /run/ventd/setup-result.json, exits. Phase A ships the
+  # binary alongside the existing root ventd.service but the wizard
+  # doesn't yet route through it (every operation is the broker's
+  # ErrOperationNotImpl stub). Phase B (a future PR) flips ventd to
+  # User=ventd + restores the AppArmor sandbox, with privileged
+  # operations actually dispatching through this binary. See
+  # specs/spec-v0_6_0-split-daemon.md.
+  - id: ventd-setup
+    main: ./cmd/ventd-setup
+    binary: ventd-setup
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    ldflags:
+      - -s -w
+
   # musl-compatible build — fully static, NVIDIA support compiled out.
   # Required for Alpine, Void-musl, and other musl-libc distros where
   # purego's fakecgo shim would drag in glibc SONAMEs and fail to exec.
@@ -119,6 +145,7 @@ archives:
       - ventd-recover
       - ventd-ipmi
       - ventd-nvml-helper
+      - ventd-setup
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     files:
@@ -129,6 +156,7 @@ archives:
       - deploy/ventd-recover.service
       - deploy/ventd-postreboot-verify.service
       - deploy/ventd-ipmi.service
+      - deploy/ventd-setup.service
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/ventd
@@ -151,6 +179,7 @@ archives:
       - ventd-musl
       - ventd-recover
       - ventd-ipmi
+      - ventd-setup
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_musl"
     formats: [tar.gz]
     files:
@@ -161,6 +190,7 @@ archives:
       - deploy/ventd-recover.service
       - deploy/ventd-postreboot-verify.service
       - deploy/ventd-ipmi.service
+      - deploy/ventd-setup.service
       - deploy/postreboot-verify.sh
       - deploy/90-ventd-hwmon.rules
       - deploy/apparmor.d/ventd
@@ -213,6 +243,7 @@ nfpms:
     ids:
       - ventd
       - ventd-nvml-helper
+      - ventd-setup
     package_name: ventd
     vendor: ventd
     homepage: https://github.com/ventd/ventd
@@ -232,6 +263,12 @@ nfpms:
         dst: /lib/systemd/system/ventd-recover.service
       - src: deploy/ventd-postreboot-verify.service
         dst: /lib/systemd/system/ventd-postreboot-verify.service
+      # Split-daemon Phase A: ship ventd-setup.service alongside the
+      # main unit so the binary is reachable via systemctl. The wizard
+      # doesn't yet route through it (Phase B). See
+      # specs/spec-v0_6_0-split-daemon.md.
+      - src: deploy/ventd-setup.service
+        dst: /lib/systemd/system/ventd-setup.service
       - src: deploy/postreboot-verify.sh
         dst: /usr/local/sbin/ventd-postreboot-verify.sh
         file_info:
