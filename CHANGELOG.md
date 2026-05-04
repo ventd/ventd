@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.26] - 2026-05-05
+
+### Headline
+- **In-UI Update button now actually upgrades the binary** (#982, closes #983) — the third (and final) fix in the in-UI updater chain. v0.5.18 (#950/#951) embedded the install.sh + CHANGELOG so `findInstallScript` always had something. v0.5.19+ (#955/#960) added the two-phase commit + preflight skip env so install.sh would *succeed in principle*. But every click on Phoenix's HIL still left the daemon stuck on the old version. Root cause this release closes: **`ventd.service` ships with `PrivateTmp=yes` + `ProtectSystem=strict` + a `ReadWritePaths=` list that excludes `/usr/local/bin` and `/var/log`**. The naive `nohup`-fork in `realUpdateRun` put `install.sh` inside the daemon's cgroup and inherited the entire sandbox. install.sh failed the moment it tried to write the staged binary at `/usr/local/bin/.ventd.new`, redirect to `/var/log/ventd-update.log`, or run `dpkg -i`. Diagnosis evidence on Phoenix's Desktop: daemon mtime `2026-05-04 11:29:23 UTC`, last update click `18:51:56 UTC` for v0.5.24, gap unexplained for hours — sandbox was silently blocking every privileged write.
+
+### Fix
+- Spawn install.sh via `systemd-run --no-block --collect --unit=ventd-update --service-type=oneshot --property=KillMode=process --setenv=VENTD_VERSION=… --setenv=VENTD_SKIP_PREFLIGHT_CHECKS=… bash <script>`. This creates a transient SERVICE unit **outside** ventd.service's cgroup with its own clean root sandbox view. `KillMode=process` keeps install.sh alive when it triggers `systemctl try-restart ventd`, which would otherwise SIGTERM the entire spawning cgroup. `--collect` frees the unit on completion so successive update attempts don't accumulate failed transient units.
+- Non-systemd hosts (Alpine OpenRC, Void runit) fall back to the original `nohup` path — those hosts don't impose a service-unit sandbox to begin with.
+
+### Tests
+- `TestBuildUpdateCmd_PrefersSystemdRun` pins the load-bearing flag set when systemd is the running init.
+- `TestBuildUpdateCmd_FallsBackToNohup` covers all three "systemd not usable" edges (init not running, binary missing, both).
+
+### Why this wasn't caught before
+The chicken-and-egg work in #950/#951/#955/#960 fixed install.sh's *contents* — assuming install.sh would run. The test harness invokes install.sh directly, never via the daemon's `exec.Cmd`. The sandbox restrictions were correct for the daemon's normal operation; they only break this one privileged-write path. Operators who ran `curl … | bash` directly never hit it because curl-pipe-bash spawns from the user's shell, not from inside ventd.service. The bug was specifically the in-UI button — invisible until you tried it on a host that already had the daemon installed.
+
 ## [v0.5.25] - 2026-05-05
 
 ### Headline
