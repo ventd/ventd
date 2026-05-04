@@ -114,16 +114,42 @@ var (
 	ErrOperationNotImpl = errors.New("setupbroker: operation not yet implemented in this build")
 )
 
+// MaxRequestBytes caps the broker request file at 64 KiB. The
+// canonical envelope + per-operation params land well under 1 KiB
+// for every operation we know about (install_oot_driver is the
+// largest at ~400 bytes); 64 KiB is generous headroom that still
+// bounds memory if a malicious caller plants a giant request file.
+//
+// Bug-hunt finding (Agent 2 #7): an unbounded json.Decoder.Decode
+// against a 10 GB request file would OOM ventd-setup. Wrapping
+// the source reader in io.LimitReader caps the read at the limit
+// AND the decoder errors on truncated JSON — the failure mode is
+// "ErrInvalidParams"-shaped, not "OOM".
+const MaxRequestBytes = 64 * 1024
+
 // DecodeRequest reads a Request from r with strict field validation
-// (DisallowUnknownFields). Unknown envelope fields, schema-version
-// mismatches, and unknown operation names all reject; the caller is
-// expected to surface the error to the wizard as the result struct.
+// (DisallowUnknownFields). Reader is capped at MaxRequestBytes so
+// a malicious request file can't OOM the broker. Unknown envelope
+// fields, schema-version mismatches, and unknown operation names
+// all reject; the caller is expected to surface the error to the
+// wizard as the result struct.
 func DecodeRequest(r io.Reader) (*Request, error) {
-	dec := json.NewDecoder(r)
+	limited := io.LimitReader(r, MaxRequestBytes+1)
+	dec := json.NewDecoder(limited)
 	dec.DisallowUnknownFields()
 	var req Request
 	if err := dec.Decode(&req); err != nil {
 		return nil, fmt.Errorf("decode request: %w", err)
+	}
+	// Detect "input was truncated at the cap" vs "input was within
+	// the cap and parsed cleanly". If there's still data after
+	// Decode (under the +1 sentinel byte), the request exceeded
+	// the cap and the JSON we parsed may be a SUBSET of the
+	// operator's intended envelope (a higher-level "oversized"
+	// failure that we surface as a clean error rather than a
+	// confused operation dispatch).
+	if extra := dec.More(); extra {
+		return nil, fmt.Errorf("decode request: oversized (>%d bytes)", MaxRequestBytes)
 	}
 	if req.SchemaVersion != SchemaVersion {
 		return nil, fmt.Errorf("%w: got %d, want %d",
