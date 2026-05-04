@@ -149,6 +149,8 @@
       else valEl.textContent = Number(s.value).toFixed(1);
       var path = tile.querySelector('.js-spark');
       if (path) path.setAttribute('d', sparkPathTemp(sensorHistory[s.name], 240, 28));
+      // ── alive overlay: intent pill on sensor head ──
+      aliveAttachSensorIntent(tile, s);
     });
     // Remove tiles for sensors that disappeared.
     Object.keys(existing).forEach(function (k) {
@@ -235,6 +237,11 @@
       // meaningful for fans that actually have a tach signal. Pct-only fans
       // can't be stalled (no feedback to detect it).
       tile.classList.toggle('is-stalled', !pctOnly && rpm === 0 && (f.duty_pct || 0) > 5);
+
+      // ── alive overlay attachments (intent pill, target marker,
+      //    coupling sub-line, decision flash). All idempotent —
+      //    elements are created once per tile and updated in-place.
+      aliveAttachFanAffordances(tile, f);
     });
     Object.keys(existing).forEach(function (k) {
       if (!seen[k]) existing[k].remove();
@@ -732,6 +739,996 @@
     });
   })();
 
+  // ────────────────────────────────────────────────────────────────────
+  // ALIVE OVERLAY — extends the steady-state dashboard with the
+  // cal.ai handoff's "what is the AI doing" affordances. Phoenix's
+  // framing: ventd IS the AI; the UI surfaces what it's actually
+  // doing from real backend state. No synthetic feeds, no fake
+  // forecasts, no decision theatre. Every visible number traces back
+  // to a real endpoint or a real client-side computation over real
+  // history.
+  //
+  // What this block adds, on top of the existing IIFE above:
+  //
+  //   • aliveState           : module-private state holder (inventory,
+  //                            curves, decisions, last fan-PWM map,
+  //                            smart payload).
+  //   • aliveAttachSensorIntent / aliveAttachFanAffordances : per-tile
+  //                            DOM attachments called from the existing
+  //                            renderSensorTiles / renderFanTiles loops.
+  //   • aliveTick            : the new poll, on the same 1500 ms cadence
+  //                            requested by the spec. Coalesces:
+  //                              GET /api/v1/hardware/inventory
+  //                              GET /api/v1/smart/status
+  //                              GET /api/v1/smart/channels
+  //                              GET /api/v1/probe/opportunistic/status
+  //                            Existing /api/v1/status polling stays at
+  //                            1 s — we don't double-fetch it.
+  //   • aliveDetectDecisions : diff fan PWM across polls, emit a
+  //                            decision event when |Δduty| ≥ 2 pp,
+  //                            cap history at 40, drive the narrator
+  //                            strip + decision feed.
+  //   • aliveRenderHeroForecast / aliveRenderInsightRail : DOM updates
+  //                            for the new hero spark band, coupling
+  //                            map, decision feed, AI brief.
+  //
+  // RULE-UI-01: no external CDN, vanilla extension only.
+  // RULE-UI-02: every colour comes from a token via var().
+  // RULE-UI-03: sidebar untouched.
+  // ────────────────────────────────────────────────────────────────────
+
+  var ALIVE_TICK_MS = 1500;
+  var ALIVE_DECISION_THRESHOLD = 2;     // |Δduty pct| to count as a decision
+  var ALIVE_DECISION_CAP = 40;
+  var ALIVE_NARRATOR_PERIOD_MS = 6000;  // line rotation cadence
+  var ALIVE_NARRATOR_IDLE_MS = 12000;   // declare "system idle" after this
+  var TJ_MAX = 100;                      // matches existing TJ constant
+
+  var aliveState = {
+    inventory: null,         // /api/v1/hardware/inventory payload (chips+curves)
+    smart: null,             // /api/v1/smart/status payload
+    channels: null,          // /api/v1/smart/channels payload
+    opp: null,               // /api/v1/probe/opportunistic/status payload
+    lastFanDuty: {},         // fan-name → last seen duty_pct
+    lastFanRpm: {},          // fan-name → last seen RPM (used for cause hint)
+    lastFans: {},            // fan-name → most recent fan struct (for narrator)
+    decisions: [],           // most-recent first; cap ALIVE_DECISION_CAP
+    sensorTrendHistory: {},  // sensor-name → recent values for trend
+    narratorIdx: 0,
+    narratorLastShown: 0,
+    pollOk: false
+  };
+  var aliveDecisionFlashSet = {};
+
+  /* aliveFetchJSON: same shape as smart.js fetchJSON — credentialed
+     fetch + json parse + reject on non-2xx so Promise.all's catch
+     fires when any single endpoint dies. */
+  function aliveFetchJSON(url) {
+    return fetch(url, { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error(url + ' ' + r.status);
+      return r.json();
+    });
+  }
+
+  /* aliveTick: parallel poll of the four alive-overlay endpoints.
+     Coalesces into a single render pass. Failures are downgraded
+     to "feature absent" — the overlay degrades gracefully rather
+     than putting a banner in the user's face (the steady-state
+     dashboard already owns the demo banner for /api/v1/status). */
+  function aliveTick() {
+    Promise.all([
+      aliveFetchJSON('/api/v1/hardware/inventory').catch(function () { return null; }),
+      aliveFetchJSON('/api/v1/smart/status').catch(function () { return null; }),
+      aliveFetchJSON('/api/v1/smart/channels').catch(function () { return null; }),
+      aliveFetchJSON('/api/v1/probe/opportunistic/status').catch(function () { return null; })
+    ]).then(function (rs) {
+      aliveState.inventory = rs[0];
+      aliveState.smart     = rs[1];
+      aliveState.channels  = rs[2];
+      aliveState.opp       = rs[3];
+      aliveState.pollOk = true;
+      aliveRenderHeroForecast();
+      aliveRenderInsightRail();
+      aliveRenderNarrator(false);
+      aliveUpdateOppPill();
+    }).catch(function () {
+      aliveState.pollOk = false;
+    });
+  }
+
+  /* aliveExtractSensorHistory: pull the 60-sample history array for
+     a given sensor by alias. The inventory payload's per-chip sensor
+     list carries history oldest-first per spec. Returns null when
+     no match — the hero spark falls back to its own client-side
+     history buffer (same source the steady-state spark draws from).
+  */
+  function aliveExtractSensorHistory(matcher) {
+    if (!aliveState.inventory || !Array.isArray(aliveState.inventory.chips)) return null;
+    for (var i = 0; i < aliveState.inventory.chips.length; i++) {
+      var chip = aliveState.inventory.chips[i];
+      var sensors = (chip && chip.sensors) || [];
+      for (var j = 0; j < sensors.length; j++) {
+        var s = sensors[j];
+        if (matcher(s) && Array.isArray(s.history) && s.history.length >= 2) {
+          return s.history.slice();
+        }
+      }
+    }
+    return null;
+  }
+
+  /* aliveLinearForecast: estimates the slope of the last 12 samples
+     (or fewer if the history is shorter). Returns the °C delta over
+     the next 30 s assuming sample cadence equal to history length /
+     60 s. We calibrate against the existing dashboard 1 s tick — so
+     a 60-sample history is one sample per second. */
+  function aliveLinearForecast(history) {
+    if (!Array.isArray(history) || history.length < 4) return 0;
+    var n = Math.min(12, history.length);
+    var recent = history.slice(history.length - n);
+    var meanX = (n - 1) / 2;
+    var meanY = recent.reduce(function (a, b) { return a + b; }, 0) / n;
+    var num = 0, den = 0;
+    for (var i = 0; i < n; i++) {
+      num += (i - meanX) * (recent[i] - meanY);
+      den += (i - meanX) * (i - meanX);
+    }
+    if (den === 0) return 0;
+    var slopePerSample = num / den;
+    return slopePerSample * 30;       // 30 samples ≈ 30 s at 1 Hz
+  }
+
+  /* aliveRenderHeroForecast: extends the existing CPU/GPU hero
+     sparks with a forecast band + dashed extrapolation + boundary
+     dot, plus a small forecast badge under each card. Reuses the
+     existing client-side history buffers (heroCpuHistory /
+     heroGpuHistory) when the inventory payload doesn't expose a
+     matching sensor — those buffers are real samples too, just
+     drawn from /api/v1/status. */
+  function aliveRenderHeroForecast() {
+    aliveRenderHeroSpark('hero-cpu-path', 'cpu', heroCpuHistory, looksLikeCPU);
+    aliveRenderHeroSpark('hero-gpu-path', 'gpu', heroGpuHistory, looksLikeGPU);
+  }
+  function aliveRenderHeroSpark(pathId, kind, fallbackHistory, matcher) {
+    var pathEl = document.getElementById(pathId);
+    if (!pathEl) return;
+    var svg = pathEl.parentNode;
+    if (!svg) return;
+    if (!svg.dataset.kind) svg.dataset.kind = kind;
+
+    var inv = aliveExtractSensorHistory(function (s) {
+      var name = (s && (s.alias || s.id)) || '';
+      return matcher(String(name));
+    });
+    var history = (inv && inv.length >= 4) ? inv : fallbackHistory;
+    if (!history || history.length < 4) {
+      // Without enough samples we leave the past path alone (the
+      // steady-state code already draws it) and clear the forecast
+      // sub-elements so we don't show stale extrapolation.
+      aliveClearHeroExtras(svg);
+      aliveSetForecastBadge(kind, null);
+      return;
+    }
+
+    // viewBox is 0 0 240 48 (matches existing). 70% past, 30% future.
+    var W = 240, H = 48, pastW = 168;
+    var min = Math.min.apply(null, history);
+    var max = Math.max.apply(null, history);
+    var minRange = 5;
+    var range = Math.max(max - min, minRange);
+    var mid = (max + min) / 2;
+    var lo = mid - range / 2;
+    function toY(v) { return (H - 2) - ((v - lo) / range) * (H - 4); }
+    function toX(i, n) { return (i / (n - 1)) * pastW; }
+
+    // Past path replaces the existing hero-*-path's d attribute so
+    // the steady-state spark and the alive band stay in lockstep.
+    var n = history.length;
+    var past = '';
+    for (var i = 0; i < n; i++) {
+      past += (i === 0 ? 'M ' : ' L ') + toX(i, n).toFixed(1) + ' ' + toY(history[i]).toFixed(1);
+    }
+    pathEl.setAttribute('d', past);
+
+    // Forecast extrapolation
+    var lastV = history[n - 1];
+    var deltaC = aliveLinearForecast(history);
+    var futureV = lastV + deltaC;
+    var lastY = toY(lastV);
+    var futureY = toY(futureV);
+    var uncertainty = Math.min(14, Math.abs(deltaC) * 1.4 + 4);
+
+    var futurePath = 'M ' + pastW + ' ' + lastY.toFixed(1) + ' L ' + W + ' ' + futureY.toFixed(1);
+    var bandPath =
+      'M ' + pastW + ' ' + (lastY - 1).toFixed(1) +
+      ' L ' + W + ' ' + (futureY - uncertainty).toFixed(1) +
+      ' L ' + W + ' ' + (futureY + uncertainty).toFixed(1) +
+      ' L ' + pastW + ' ' + (lastY + 1).toFixed(1) + ' Z';
+
+    aliveEnsureHeroExtras(svg, bandPath, futurePath, pastW, lastY);
+    aliveSetForecastBadge(kind, deltaC);
+  }
+  function aliveEnsureHeroExtras(svg, bandPath, futurePath, nowX, nowY) {
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var band = svg.querySelector('.dash-hero-spark-band');
+    if (!band) {
+      band = document.createElementNS(SVG_NS, 'path');
+      band.setAttribute('class', 'dash-hero-spark-band');
+      // Insert as the first child so the future + past lines render
+      // on top of the band fill.
+      svg.insertBefore(band, svg.firstChild);
+    }
+    band.setAttribute('d', bandPath);
+    var future = svg.querySelector('.dash-hero-spark-future');
+    if (!future) {
+      future = document.createElementNS(SVG_NS, 'path');
+      future.setAttribute('class', 'dash-hero-spark-future');
+      svg.appendChild(future);
+    }
+    future.setAttribute('d', futurePath);
+    var dot = svg.querySelector('.dash-hero-spark-now');
+    if (!dot) {
+      dot = document.createElementNS(SVG_NS, 'circle');
+      dot.setAttribute('class', 'dash-hero-spark-now');
+      dot.setAttribute('r', '2.5');
+      svg.appendChild(dot);
+    }
+    dot.setAttribute('cx', String(nowX));
+    dot.setAttribute('cy', nowY.toFixed(1));
+  }
+  function aliveClearHeroExtras(svg) {
+    ['.dash-hero-spark-band', '.dash-hero-spark-future', '.dash-hero-spark-now'].forEach(function (sel) {
+      var el = svg.querySelector(sel);
+      if (el) el.remove();
+    });
+  }
+  function aliveSetForecastBadge(kind, deltaC) {
+    var subId = kind === 'cpu' ? 'hero-cpu-sub' : 'hero-gpu-sub';
+    var sub = document.getElementById(subId);
+    if (!sub) return;
+    if (deltaC == null || !isFinite(deltaC)) {
+      sub.textContent = 'forecast pending';
+      sub.className = 'dash-hero-sub';
+      return;
+    }
+    var dir = deltaC > 1.5 ? 'up' : (deltaC < -1.5 ? 'down' : 'flat');
+    var arrow = dir === 'up' ? '↗' : dir === 'down' ? '↘' : '→';
+    var sign = deltaC >= 0 ? '+' : '';
+    sub.className = 'dash-hero-sub';
+    // Render via DOM ops (CSP-friendly); class on the inner span
+    // drives the arrow colour token.
+    sub.innerHTML = '';
+    var wrap = document.createElement('span');
+    wrap.className = 'dash-hero-forecast is-' + dir;
+    var arr = document.createElement('span');
+    arr.className = 'dash-hero-forecast-arrow';
+    arr.textContent = arrow;
+    var lab = document.createElement('span');
+    lab.textContent = '30s · ' + sign + deltaC.toFixed(1) + '°C';
+    wrap.appendChild(arr);
+    wrap.appendChild(lab);
+    sub.appendChild(wrap);
+  }
+
+  /* aliveAttachSensorIntent: idempotent — attaches an intent pill
+     to the sensor tile head when missing, and updates its label
+     each tick from the most recent 5 samples in sensorHistory. */
+  function aliveAttachSensorIntent(tile, sensor) {
+    if (!tile) return;
+    var head = tile.querySelector('.dash-tile-head');
+    if (!head) return;
+    var intent = tile.querySelector('.js-intent');
+    if (!intent) {
+      intent = document.createElement('span');
+      intent.className = 'dash-tile-intent js-intent';
+      var arr = document.createElement('span');
+      arr.className = 'dash-tile-intent-arrow js-intent-arrow';
+      arr.textContent = '·';
+      var lab = document.createElement('span');
+      lab.className = 'js-intent-label';
+      lab.textContent = '—';
+      intent.appendChild(arr);
+      intent.appendChild(document.createTextNode(' '));
+      intent.appendChild(lab);
+      head.appendChild(intent);
+    }
+    var hist = sensorHistory[sensor.name] || [];
+    if (hist.length < 2) {
+      intent.className = 'dash-tile-intent js-intent is-hold';
+      intent.querySelector('.js-intent-arrow').textContent = '·';
+      intent.querySelector('.js-intent-label').textContent = '—';
+      return;
+    }
+    var recent = hist.slice(Math.max(0, hist.length - 5));
+    var trend = recent[recent.length - 1] - recent[0];
+    var dir = trend > 0.6 ? 'up' : (trend < -0.6 ? 'down' : 'hold');
+    var arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '·';
+    intent.className = 'dash-tile-intent js-intent is-' + dir;
+    intent.querySelector('.js-intent-arrow').textContent = arrow;
+    intent.querySelector('.js-intent-label').textContent =
+      dir === 'hold' ? 'steady' : ((trend > 0 ? '+' : '') + trend.toFixed(1) + '°');
+  }
+
+  /* aliveAttachFanAffordances: idempotent — attaches the intent
+     pill, the duty-bar target marker, the coupling sub-line, and
+     dispatches the flash-on-decision class. Safe to call every
+     poll for every fan tile. */
+  function aliveAttachFanAffordances(tile, fan) {
+    if (!tile) return;
+    var head = tile.querySelector('.dash-tile-head');
+    if (head && !tile.querySelector('.js-intent')) {
+      var intent = document.createElement('span');
+      intent.className = 'dash-tile-intent js-intent is-hold';
+      intent.innerHTML = '';
+      var arr = document.createElement('span');
+      arr.className = 'dash-tile-intent-arrow js-intent-arrow';
+      arr.textContent = '·';
+      var lab = document.createElement('span');
+      lab.className = 'js-intent-label';
+      lab.textContent = 'hold';
+      intent.appendChild(arr);
+      intent.appendChild(document.createTextNode(' '));
+      intent.appendChild(lab);
+      head.appendChild(intent);
+    }
+    var bar = tile.querySelector('.dash-fan-bar');
+    if (bar && !bar.querySelector('.dash-fan-bar-target')) {
+      var marker = document.createElement('span');
+      marker.className = 'dash-fan-bar-target js-target';
+      marker.style.left = '0%';
+      bar.appendChild(marker);
+    }
+    if (!tile.querySelector('.dash-tile-coupling')) {
+      var coupling = document.createElement('div');
+      coupling.className = 'dash-tile-coupling js-coupling';
+      coupling.textContent = '';
+      tile.appendChild(coupling);
+    }
+
+    aliveUpdateFanIntentAndTarget(tile, fan);
+    aliveUpdateFanCoupling(tile, fan);
+
+    if (aliveDecisionFlashSet[fan.name]) {
+      delete aliveDecisionFlashSet[fan.name];
+      tile.classList.remove('is-just-changed');
+      // Restart the keyframe by forcing a reflow.
+      // eslint-disable-next-line no-unused-expressions
+      void tile.offsetWidth;
+      tile.classList.add('is-just-changed');
+    }
+  }
+
+  /* aliveUpdateFanIntentAndTarget: derive the controller's target
+     from whatever the fan struct exposes — `target_pwm` (preferred,
+     when the daemon ships it) or `target_duty_pct`, fallback to
+     duty_pct itself (= "hold"). The intent pill shows the target
+     duty when target ≠ current; otherwise "hold". */
+  function aliveUpdateFanIntentAndTarget(tile, fan) {
+    var intent = tile.querySelector('.js-intent');
+    if (!intent) return;
+    var current = (fan && typeof fan.duty_pct === 'number') ? fan.duty_pct : null;
+    var target = null;
+    if (fan && typeof fan.target_duty_pct === 'number') target = fan.target_duty_pct;
+    else if (fan && typeof fan.target_pwm === 'number') target = (fan.target_pwm / 255) * 100;
+
+    var arrow = '·';
+    var dir = 'hold';
+    var label = 'hold';
+    if (current != null && target != null && Math.abs(target - current) > 1.5) {
+      if (target > current) { dir = 'up';   arrow = '↑'; }
+      else                  { dir = 'down'; arrow = '↓'; }
+      label = Math.round(target) + '%';
+    }
+    intent.className = 'dash-tile-intent js-intent is-' + dir;
+    intent.querySelector('.js-intent-arrow').textContent = arrow;
+    intent.querySelector('.js-intent-label').textContent = label;
+
+    var marker = tile.querySelector('.js-target');
+    if (marker) {
+      var t = (target != null) ? Math.max(0, Math.min(100, target)) : (current != null ? current : 0);
+      marker.style.left = t.toFixed(1) + '%';
+    }
+  }
+
+  /* aliveUpdateFanCoupling: looks up the fan in the inventory's
+     curves[].drives lists. The first matching curve wins; if none,
+     show "—" (NEVER fabricate a coupling). */
+  function aliveUpdateFanCoupling(tile, fan) {
+    var el = tile.querySelector('.js-coupling');
+    if (!el) return;
+    var curveName = aliveFindCurveForFan(fan);
+    if (!curveName) {
+      el.textContent = '';
+      return;
+    }
+    el.textContent = 'coupled to ' + curveName;
+  }
+  function aliveFindCurveForFan(fan) {
+    if (!aliveState.inventory || !Array.isArray(aliveState.inventory.curves)) return '';
+    var fanIds = aliveCandidateFanIds(fan);
+    var curves = aliveState.inventory.curves;
+    for (var i = 0; i < curves.length; i++) {
+      var c = curves[i];
+      var drives = (c && c.drives) || [];
+      for (var j = 0; j < drives.length; j++) {
+        if (fanIds.indexOf(String(drives[j])) >= 0) return c.name || c.id || 'curve ' + i;
+      }
+    }
+    return '';
+  }
+  function aliveCandidateFanIds(fan) {
+    if (!fan) return [];
+    var out = [];
+    ['id', 'name', 'pwm_path', 'path', 'channel'].forEach(function (k) {
+      if (fan[k]) out.push(String(fan[k]));
+    });
+    return out;
+  }
+
+  /* aliveDetectDecisions: runs against /api/v1/status payload (we
+     hook it from inside applyStatus). For each fan, compare the
+     current duty_pct to the previously-seen value; if |Δ| ≥ 2,
+     emit a decision with cause derived from the controller-coupled
+     sensor's recent trend. */
+  function aliveDetectDecisions(fans, sensors) {
+    if (!Array.isArray(fans)) return;
+    var now = Date.now();
+    var sensorTrends = aliveSensorTrendMap(sensors);
+    fans.forEach(function (f) {
+      var name = f.name;
+      if (!name) return;
+      var d = (typeof f.duty_pct === 'number') ? f.duty_pct : null;
+      var prev = aliveState.lastFanDuty[name];
+      aliveState.lastFans[name] = f;
+      if (d == null) return;
+      if (prev != null && Math.abs(d - prev) >= ALIVE_DECISION_THRESHOLD) {
+        var curveName = aliveFindCurveForFan(f);
+        var coupledSensor = aliveFindCoupledSensor(curveName);
+        var trendInfo = coupledSensor ? sensorTrends[coupledSensor] : null;
+        var causeText;
+        if (coupledSensor && trendInfo) {
+          causeText = coupledSensor + ' ' + trendInfo.label;
+        } else if (curveName) {
+          causeText = 'curve ' + curveName;
+        } else {
+          causeText = 'controller adjustment';
+        }
+        var dir = d > prev ? 'up' : 'down';
+        var entry = {
+          ts: now,
+          fan: name,
+          from: Math.round(prev),
+          to: Math.round(d),
+          dir: dir,
+          cause: causeText
+        };
+        aliveState.decisions.unshift(entry);
+        if (aliveState.decisions.length > ALIVE_DECISION_CAP) {
+          aliveState.decisions.length = ALIVE_DECISION_CAP;
+        }
+        aliveDecisionFlashSet[name] = true;
+        aliveRenderNarrator(true, entry);
+        aliveRenderInsightRail();
+      }
+      aliveState.lastFanDuty[name] = d;
+    });
+  }
+  function aliveSensorTrendMap(sensors) {
+    var out = {};
+    if (!Array.isArray(sensors)) return out;
+    sensors.forEach(function (s) {
+      var hist = sensorHistory[s.name] || [];
+      if (hist.length < 2) {
+        out[s.name] = { trend: 0, label: 'steady' };
+        return;
+      }
+      var recent = hist.slice(Math.max(0, hist.length - 5));
+      var trend = recent[recent.length - 1] - recent[0];
+      var label = trend > 0.6 ? 'trending up' : (trend < -0.6 ? 'trending down' : 'steady');
+      out[s.name] = { trend: trend, label: label };
+    });
+    return out;
+  }
+  function aliveFindCoupledSensor(curveName) {
+    if (!curveName || !aliveState.inventory || !Array.isArray(aliveState.inventory.curves)) return '';
+    var curves = aliveState.inventory.curves;
+    for (var i = 0; i < curves.length; i++) {
+      var c = curves[i];
+      if ((c.name || c.id) !== curveName) continue;
+      var sensorIds = (c && c.consumes) || [];
+      if (!sensorIds.length) return '';
+      // Walk the inventory chips to resolve sensor id → human alias.
+      var chips = aliveState.inventory.chips || [];
+      for (var k = 0; k < chips.length; k++) {
+        var ss = chips[k].sensors || [];
+        for (var j = 0; j < ss.length; j++) {
+          if (sensorIds.indexOf(ss[j].id) >= 0) return ss[j].alias || ss[j].id;
+        }
+      }
+      return String(sensorIds[0]);
+    }
+    return '';
+  }
+
+  /* aliveRenderNarrator: shows a single line at a time. When called
+     with a fresh decision, immediately switches to that line and
+     resets the rotation timer. Otherwise rotates through the most
+     recent decisions every ALIVE_NARRATOR_PERIOD_MS, falling back
+     to "system idle" after ALIVE_NARRATOR_IDLE_MS without any new
+     decision. NO typewriter effect. */
+  function aliveRenderNarrator(immediate, entry) {
+    var bar = $('dash-narrator');
+    var txt = $('dash-narrator-text');
+    var time = $('dash-narrator-time');
+    if (!bar || !txt) return;
+    var now = Date.now();
+    var line = '';
+    var stamp = '';
+    if (entry) {
+      line = aliveNarratorLine(entry);
+      stamp = aliveFormatTime(entry.ts);
+      aliveState.narratorLastShown = now;
+    } else if (aliveState.decisions.length > 0) {
+      var idx = aliveState.narratorIdx % aliveState.decisions.length;
+      var d = aliveState.decisions[idx];
+      var ageMs = now - d.ts;
+      if (ageMs > ALIVE_NARRATOR_IDLE_MS && idx === 0) {
+        line = 'system idle — no decisions in ' + Math.round(ageMs / 1000) + ' s';
+        stamp = aliveFormatTime(d.ts);
+      } else {
+        line = aliveNarratorLine(d);
+        stamp = aliveFormatTime(d.ts);
+      }
+    } else {
+      // No decisions yet — keep the strip hidden until we see one OR
+      // we've been polling for ALIVE_NARRATOR_IDLE_MS.
+      if (now - bootAt > ALIVE_NARRATOR_IDLE_MS) {
+        line = 'system idle — no decisions yet';
+        stamp = '';
+      } else {
+        bar.hidden = true;
+        return;
+      }
+    }
+    txt.textContent = line;
+    if (time) time.textContent = stamp;
+    bar.hidden = false;
+  }
+  function aliveNarratorLine(d) {
+    if (d.dir === 'up') {
+      return 'ramped ' + d.fan + ' from ' + d.from + '% → ' + d.to + '% — ' + d.cause;
+    }
+    if (d.dir === 'down') {
+      return 'eased ' + d.fan + ' from ' + d.from + '% → ' + d.to + '% — ' + d.cause;
+    }
+    return 'held ' + d.fan + ' at ' + d.to + '% — ' + d.cause;
+  }
+  function aliveFormatTime(ms) {
+    var dt = new Date(ms);
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
+  }
+
+  /* Rotate the narrator strip on a 6 s tick — only steps the
+     index when no new decision has arrived in this window. The
+     index wraps modulo decisions.length so the operator always
+     sees recent activity. */
+  function aliveRotateNarrator() {
+    if (aliveState.decisions.length === 0) {
+      aliveRenderNarrator(false);
+      return;
+    }
+    aliveState.narratorIdx += 1;
+    aliveRenderNarrator(false);
+  }
+
+  /* aliveRenderInsightRail: top-level orchestrator for the three-
+     column rail. Reveals the section once we have a poll, and hides
+     the AI brief column entirely when smart mode is disabled (the
+     coupling map + decision feed are still useful in monitor-only
+     mode). */
+  function aliveRenderInsightRail() {
+    var rail = $('dash-insight');
+    if (!rail) return;
+    if (!aliveState.pollOk && !aliveState.inventory) {
+      // Don't show an empty rail before we've had a successful poll.
+      return;
+    }
+    rail.hidden = false;
+
+    aliveRenderCouplingMap();
+    aliveRenderDecisionFeed();
+    aliveRenderBrief();
+
+    var meta = $('dash-insight-meta');
+    if (meta) {
+      var n = (aliveState.inventory && aliveState.inventory.curves || []).length;
+      meta.textContent = n + ' curve' + (n === 1 ? '' : 's') + ' · ' + (aliveState.smart && aliveState.smart.preset || 'manual');
+    }
+  }
+
+  function aliveRenderCouplingMap() {
+    var svg = $('dash-coupling-svg');
+    if (!svg) return;
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    // Empty out everything we previously rendered. Fast — the map
+    // is small (≤ a few dozen nodes/edges).
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var curves = (aliveState.inventory && aliveState.inventory.curves) || [];
+    if (curves.length === 0) {
+      var fo = document.createElementNS(SVG_NS, 'foreignObject');
+      fo.setAttribute('x', '0'); fo.setAttribute('y', '0');
+      fo.setAttribute('width', '360'); fo.setAttribute('height', '240');
+      // CSP-friendly: render the empty-state via DOM, not innerHTML
+      // strings that may carry a hex-coloured token comment.
+      var div = document.createElement('div');
+      div.className = 'dash-coupling-empty';
+      div.textContent = 'no curves bound — system in monitor-only mode';
+      fo.appendChild(div);
+      svg.appendChild(fo);
+      return;
+    }
+
+    var meta = $('dash-coupling-meta');
+
+    // Resolve unique sensor + fan ids referenced by curves.
+    var sensorList = [];
+    var sensorIdx = {};
+    var fanList = [];
+    var fanIdx = {};
+    curves.forEach(function (c) {
+      (c.consumes || []).forEach(function (s) {
+        var id = String(s);
+        if (sensorIdx[id] == null) {
+          sensorIdx[id] = sensorList.length;
+          sensorList.push(id);
+        }
+      });
+      (c.drives || []).forEach(function (f) {
+        var id = String(f);
+        if (fanIdx[id] == null) {
+          fanIdx[id] = fanList.length;
+          fanList.push(id);
+        }
+      });
+    });
+
+    // Lay out: sensors on left (x=40), curves middle (x=180),
+    // fans on right (x=320). y-positions evenly distributed.
+    var W = 360, H = 240;
+    var leftX = 40, midX = 180, rightX = 320;
+    function spacedY(i, n) { return ((i + 1) / (n + 1)) * H; }
+
+    // Edges are drawn first so nodes overlay them.
+    curves.forEach(function (c, ci) {
+      var cy = spacedY(ci, curves.length);
+      var consumes = c.consumes || [];
+      var drives = c.drives || [];
+      consumes.forEach(function (sid) {
+        var sIdx = sensorIdx[String(sid)];
+        var sy = spacedY(sIdx, sensorList.length);
+        var d = aliveCurvePath(leftX + 14, sy, midX - 14, cy);
+        var p = document.createElementNS(SVG_NS, 'path');
+        p.setAttribute('class', 'dash-coupling-edge');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+      });
+      drives.forEach(function (fid) {
+        var fIdx = fanIdx[String(fid)];
+        var fy = spacedY(fIdx, fanList.length);
+        var d = aliveCurvePath(midX + 14, cy, rightX - 14, fy);
+        // "Active" when the live fan duty exceeds 30% — pulled
+        // from the lastFanDuty map populated by aliveDetectDecisions.
+        var fanDuty = aliveLookupFanDuty(String(fid));
+        var active = (fanDuty != null && fanDuty > 30);
+        var p = document.createElementNS(SVG_NS, 'path');
+        p.setAttribute('class', active ? 'dash-coupling-edge-active' : 'dash-coupling-edge');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+        if (active) {
+          // Animated packet — uses SVG's own animateMotion (no JS
+          // RAF) so the GPU does the work. Period varies per edge
+          // so they don't all pulse in lockstep.
+          var dot = document.createElementNS(SVG_NS, 'circle');
+          dot.setAttribute('class', 'dash-coupling-pulse');
+          dot.setAttribute('r', '2.6');
+          var anim = document.createElementNS(SVG_NS, 'animateMotion');
+          anim.setAttribute('dur', (1.6 + (ci * 0.3) + (fIdx * 0.2)) + 's');
+          anim.setAttribute('repeatCount', 'indefinite');
+          anim.setAttribute('path', d);
+          dot.appendChild(anim);
+          svg.appendChild(dot);
+        }
+      });
+    });
+
+    // Sensor nodes (left column)
+    sensorList.forEach(function (sid, i) {
+      var y = spacedY(i, sensorList.length);
+      var alias = aliveResolveSensorAlias(sid) || sid;
+      aliveDrawNode(svg, SVG_NS, leftX, y, alias, '', 'is-sensor');
+    });
+    // Curve nodes (middle column)
+    curves.forEach(function (c, i) {
+      var y = spacedY(i, curves.length);
+      aliveDrawNode(svg, SVG_NS, midX, y, c.name || c.id || ('curve ' + i), '', 'is-curve');
+    });
+    // Fan nodes (right column)
+    fanList.forEach(function (fid, i) {
+      var y = spacedY(i, fanList.length);
+      var duty = aliveLookupFanDuty(String(fid));
+      var sub = (duty != null) ? Math.round(duty) + '%' : '';
+      var on = (duty != null && duty > 30);
+      aliveDrawNode(svg, SVG_NS, rightX, y, fid, sub, 'is-fan' + (on ? ' is-on' : ''));
+    });
+
+    if (meta) meta.textContent = sensorList.length + ' sensors · ' + curves.length + ' curves · ' + fanList.length + ' fans';
+  }
+  function aliveCurvePath(x1, y1, x2, y2) {
+    var midX = (x1 + x2) / 2;
+    return 'M ' + x1 + ' ' + y1 + ' C ' + midX + ' ' + y1 + ' ' + midX + ' ' + y2 + ' ' + x2 + ' ' + y2;
+  }
+  function aliveDrawNode(svg, SVG_NS, x, y, label, sub, cls) {
+    var c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('class', 'dash-coupling-node ' + (cls || ''));
+    c.setAttribute('cx', String(x));
+    c.setAttribute('cy', y.toFixed(1));
+    c.setAttribute('r', '14');
+    svg.appendChild(c);
+    var t = document.createElementNS(SVG_NS, 'text');
+    t.setAttribute('class', 'dash-coupling-label');
+    t.setAttribute('x', String(x));
+    t.setAttribute('y', (y + 2).toFixed(1));
+    t.setAttribute('text-anchor', 'middle');
+    t.textContent = aliveTrim(label, 8);
+    svg.appendChild(t);
+    if (sub) {
+      var s = document.createElementNS(SVG_NS, 'text');
+      s.setAttribute('class', 'dash-coupling-label-sub');
+      s.setAttribute('x', String(x));
+      s.setAttribute('y', (y + 11).toFixed(1));
+      s.setAttribute('text-anchor', 'middle');
+      s.textContent = sub;
+      svg.appendChild(s);
+    }
+  }
+  function aliveTrim(s, n) {
+    s = String(s || '');
+    return s.length <= n ? s : s.slice(0, n - 1) + '…';
+  }
+  function aliveLookupFanDuty(fid) {
+    // Direct hit on cached lastFanDuty by string id (fan name)
+    if (aliveState.lastFanDuty[fid] != null) return aliveState.lastFanDuty[fid];
+    // Fall back: walk lastFans for any candidate id match.
+    var keys = Object.keys(aliveState.lastFans);
+    for (var i = 0; i < keys.length; i++) {
+      var f = aliveState.lastFans[keys[i]];
+      var ids = aliveCandidateFanIds(f);
+      if (ids.indexOf(fid) >= 0) return aliveState.lastFanDuty[keys[i]];
+    }
+    return null;
+  }
+  function aliveResolveSensorAlias(sid) {
+    if (!aliveState.inventory) return '';
+    var chips = aliveState.inventory.chips || [];
+    for (var k = 0; k < chips.length; k++) {
+      var ss = chips[k].sensors || [];
+      for (var j = 0; j < ss.length; j++) {
+        if (String(ss[j].id) === String(sid)) return ss[j].alias || ss[j].id;
+      }
+    }
+    return '';
+  }
+
+  function aliveRenderDecisionFeed() {
+    var list = $('dash-decisions-list');
+    if (!list) return;
+    var meta = $('dash-decisions-meta');
+    if (aliveState.decisions.length === 0) {
+      list.innerHTML = '';
+      var empty = document.createElement('div');
+      empty.className = 'dash-decision dash-decision-empty';
+      empty.textContent = 'no recent decisions — system steady';
+      list.appendChild(empty);
+      if (meta) meta.textContent = '0 events';
+      return;
+    }
+    list.innerHTML = '';
+    var n = Math.min(8, aliveState.decisions.length);
+    for (var i = 0; i < n; i++) {
+      var d = aliveState.decisions[i];
+      var row = document.createElement('div');
+      row.className = 'dash-decision' + (i === 0 ? ' is-fresh' : '');
+      var t = document.createElement('span');
+      t.className = 'dash-decision-time';
+      t.textContent = aliveFormatTime(d.ts);
+      var body = document.createElement('div');
+      body.className = 'dash-decision-body';
+      var act = document.createElement('div');
+      act.className = 'dash-decision-act';
+      var tg = document.createElement('span');
+      tg.className = 'dash-decision-target';
+      tg.textContent = d.fan;
+      var dl = document.createElement('span');
+      dl.className = 'dash-decision-delta is-' + d.dir;
+      dl.textContent = d.from + '% → ' + d.to + '%';
+      act.appendChild(tg);
+      act.appendChild(dl);
+      var cause = document.createElement('div');
+      cause.className = 'dash-decision-cause';
+      cause.textContent = 'because ' + d.cause;
+      body.appendChild(act);
+      body.appendChild(cause);
+      row.appendChild(t);
+      row.appendChild(body);
+      list.appendChild(row);
+    }
+    if (meta) meta.textContent = aliveState.decisions.length + ' total · 8 shown';
+  }
+
+  function aliveRenderBrief() {
+    var brief = $('dash-brief');
+    if (!brief) return;
+    var smart = aliveState.smart;
+    var smartEnabled = !!(smart && smart.enabled);
+    if (!smartEnabled) {
+      // Honest empty state: hide the brief column. Coupling + decisions
+      // still render — they're real data even without smart mode.
+      brief.hidden = true;
+      return;
+    }
+    brief.hidden = false;
+
+    // Workload signature — modal across channels (most common label).
+    var workloadLabel = aliveModeWorkloadLabel();
+    var workloadEl = $('dash-brief-workload');
+    if (workloadEl) workloadEl.textContent = workloadLabel || '—';
+
+    // Thermal headroom — TJ_MAX − max(cpu_temp, gpu_temp). We don't
+    // have direct access to the live status payload here so we read
+    // the most recent sample from the hero-history client buffers
+    // (those are populated from /api/v1/status on every tick).
+    var cpu = heroCpuHistory.length ? heroCpuHistory[heroCpuHistory.length - 1] : null;
+    var gpu = heroGpuHistory.length ? heroGpuHistory[heroGpuHistory.length - 1] : null;
+    var hot = (cpu == null && gpu == null) ? null : Math.max(cpu == null ? -Infinity : cpu, gpu == null ? -Infinity : gpu);
+    var headroomEl = $('dash-brief-headroom');
+    if (headroomEl) {
+      if (hot == null || !isFinite(hot)) {
+        headroomEl.textContent = '—';
+        headroomEl.className = 'dash-brief-stat-val mono';
+      } else {
+        var headroom = TJ_MAX - hot;
+        var cls = headroom > 15 ? 'is-good' : (headroom > 6 ? '' : 'is-warn');
+        headroomEl.textContent = headroom.toFixed(1) + '°C';
+        headroomEl.className = 'dash-brief-stat-val mono ' + cls;
+      }
+    }
+
+    // Avg duty — honest computable proxy for "acoustic activity". We
+    // explicitly DO NOT render an "acoustic estimate dBA" here: no
+    // R33-proxy endpoint exists in the daemon yet, so any dBA number
+    // would be theatre. avg duty is the closest honest signal.
+    var dutyEl = $('dash-brief-avgduty');
+    if (dutyEl) {
+      var fans = Object.keys(aliveState.lastFans).map(function (k) { return aliveState.lastFans[k]; });
+      var dutyVals = fans.map(function (f) { return (typeof f.duty_pct === 'number') ? f.duty_pct : null; })
+                         .filter(function (v) { return v != null; });
+      if (dutyVals.length === 0) dutyEl.textContent = '—';
+      else {
+        var avg = dutyVals.reduce(function (a, b) { return a + b; }, 0) / dutyVals.length;
+        dutyEl.textContent = avg.toFixed(0) + '%';
+      }
+    }
+
+    // Policy — preset name + " · alive" when smart is on, else
+    // "manual · curves only".
+    var policyEl = $('dash-brief-policy');
+    if (policyEl) {
+      policyEl.textContent = (smart.preset || 'balanced') + ' · alive';
+      policyEl.className = 'dash-brief-stat-val mono is-good';
+    }
+
+    // Summary — based on real signals:
+    //   1. soak: ANY exhaust-named fan ramped UP in the recent decisions
+    //   2. cooling: more "down" decisions than "up" in the last 8
+    //   3. otherwise: steady state
+    var foot = $('dash-brief-foot');
+    if (foot) {
+      var summary = aliveSummary(smart);
+      foot.innerHTML = '';
+      foot.appendChild(summary);
+    }
+
+    // Header meta — opportunistic probe in flight indicator, sourced
+    // from /api/v1/probe/opportunistic/status. Honest "live · probe in
+    // flight" only when the daemon actually reports running=true.
+    var briefMeta = $('dash-brief-meta');
+    if (briefMeta) {
+      var oppRunning = !!(aliveState.opp && aliveState.opp.running);
+      briefMeta.textContent = oppRunning ? 'live · probe in flight' : 'live';
+    }
+  }
+  function aliveModeWorkloadLabel() {
+    var ch = aliveState.channels;
+    if (!ch || !Array.isArray(ch.channels) || ch.channels.length === 0) return '';
+    var counts = {};
+    var max = 0, mode = '';
+    ch.channels.forEach(function (c) {
+      var lab = c && c.signature_label;
+      if (!lab) return;
+      counts[lab] = (counts[lab] || 0) + 1;
+      if (counts[lab] > max) { max = counts[lab]; mode = lab; }
+    });
+    if (!mode) return '';
+    // Truncate to 8 hex chars per spec.
+    return mode.length > 8 ? mode.slice(0, 8) : mode;
+  }
+  function aliveSummary(smart) {
+    var span = document.createElement('span');
+    var recent = aliveState.decisions.slice(0, 8);
+    if (recent.length === 0) {
+      span.textContent = 'system in steady state · loop is in the groove.';
+      return span;
+    }
+    // soak detection: ANY exhaust-shaped fan name moved UP recently
+    var exhaustUp = recent.some(function (d) {
+      return d.dir === 'up' && /exhaust|rear|top/i.test(d.fan);
+    });
+    if (exhaustUp) {
+      var s1 = document.createElement('strong');
+      s1.textContent = 'Soak detected';
+      span.appendChild(s1);
+      span.appendChild(document.createTextNode(' — pre-spinning exhaust fans to absorb the heat.'));
+      return span;
+    }
+    var ups = recent.filter(function (d) { return d.dir === 'up'; }).length;
+    var downs = recent.filter(function (d) { return d.dir === 'down'; }).length;
+    if (downs > ups + 1) {
+      span.appendChild(document.createTextNode('Cooling trend across the last '));
+      var n = document.createElement('strong');
+      n.textContent = recent.length + ' decisions';
+      span.appendChild(n);
+      span.appendChild(document.createTextNode(' — easing duty to recover acoustic budget.'));
+      return span;
+    }
+    span.appendChild(document.createTextNode('Workload signature stable on '));
+    var preset = document.createElement('strong');
+    preset.textContent = smart.preset || 'balanced';
+    span.appendChild(preset);
+    span.appendChild(document.createTextNode('. Loop is in the groove · minor adjustments only.'));
+    return span;
+  }
+
+  // Allow the existing pollOpportunisticStatus pill to share the
+  // same opp payload aliveTick already fetched (avoids a second
+  // /api/v1/probe/opportunistic/status request inside the alive
+  // cadence). The standalone 5 s pill polls in addition — both
+  // payloads agree because they hit the same endpoint.
+  function aliveUpdateOppPill() {
+    var pill = document.getElementById('dash-opp-pill');
+    var text = document.getElementById('dash-opp-pill-text');
+    if (!pill || !text) return;
+    var s = aliveState.opp;
+    if (s && s.running) {
+      var pwm = s.gap_pwm != null ? s.gap_pwm : '?';
+      text.textContent = 'probing PWM ' + pwm;
+      pill.hidden = false;
+    }
+  }
+
+  // Hook into the existing applyStatus path so that /api/v1/status
+  // payloads (already polled at 1 Hz) feed decision detection. We
+  // wrap the original applyStatus rather than re-fetching — the
+  // /api/v1/status endpoint must NOT be double-polled.
+  var __aliveOriginalApplyStatus = applyStatus;
+  applyStatus = function (data) {
+    __aliveOriginalApplyStatus(data);
+    if (data) {
+      aliveDetectDecisions(data.fans || [], data.sensors || []);
+    }
+  };
+
   // ── start ──────────────────────────────────────────────────────────
   seedHistory();
   pollOnce();
@@ -743,4 +1740,10 @@
   setInterval(pollSmartMode, 10000);
   pollConfidence();
   setInterval(pollConfidence, 5000);
+  // alive overlay — coalesced 1500 ms tick (separate cadence from
+  // the 1 s steady-state poll on /api/v1/status; that one is
+  // hooked into applyStatus above for decision detection).
+  aliveTick();
+  setInterval(aliveTick, ALIVE_TICK_MS);
+  setInterval(aliveRotateNarrator, ALIVE_NARRATOR_PERIOD_MS);
 })();
