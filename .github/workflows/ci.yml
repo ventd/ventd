@@ -175,6 +175,12 @@ jobs:
     steps:
       - name: Install prerequisites
         if: matrix.prereqs != ''
+        # Override the job-level `defaults.run.shell: bash` for THIS
+        # step only — Alpine's prereqs install bash itself, so the
+        # default would fire `exec: "bash": executable file not found
+        # in $PATH` before the install can run. Fall back to the POSIX
+        # sh that every base image ships at startup.
+        shell: sh -e {0}
         run: ${{ matrix.prereqs }}
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
