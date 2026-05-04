@@ -25,9 +25,11 @@
 package web
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -165,13 +167,39 @@ type updateApplyResponse struct {
 // swap to a stub that records invocations.
 var updateRunFn = realUpdateRun
 
+// inUIUpdateSkipChecks is the comma-separated set of preflight check
+// names that the daemon's in-UI update path tells install.sh to skip.
+//
+// Why these specific checks: the in-UI updater only swaps the binary
+// — it never builds or loads a kernel module. The build-tools chain
+// (DKMS, GCC, kernel headers, make) and the Secure Boot signing
+// chain (sign-file, mokutil, MOK enrollment) gate first-install OOT
+// builds; they are spurious blockers for an existing install rolling
+// the binary forward. Hosts running in-tree drivers (Proxmox using
+// the in-tree hwmon stack, mini-PCs whose ITE chip works on
+// in-tree it87, etc.) never had any of these tools in the first
+// place and shouldn't have to grow them just to update.
+//
+// The orchestrator's --skip flag (RULE-PREFLIGHT-ORCH-06) excludes
+// the named checks from both the run and the BlockerCount tally,
+// so the install proceeds cleanly.
+//
+// install.sh threads VENTD_SKIP_PREFLIGHT_CHECKS through to its
+// `ventd preflight` invocation as `--skip <names>`.
+const inUIUpdateSkipChecks = "dkms_missing,gcc_missing,kernel_headers_missing,make_missing,signfile_missing,mokutil_missing,mok_keypair_missing,mok_not_enrolled"
+
 func realUpdateRun(version, scriptPath string) error {
 	// Detach so the install script outlives the daemon's HTTP handler.
 	// The script itself does the dpkg install + systemctl restart;
 	// systemd brings the new binary back up.
+	//
+	// VENTD_SKIP_PREFLIGHT_CHECKS narrows preflight to checks that
+	// can actually block a binary-only update. install.sh threads
+	// the env through to `ventd preflight --skip ...` so the
+	// orchestrator excludes the named checks.
 	cmd := exec.Command("nohup", "bash", "-c",
-		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s bash %s >/var/log/ventd-update.log 2>&1 &",
-			shellQuote(version), shellQuote(scriptPath)))
+		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s bash %s >/var/log/ventd-update.log 2>&1 &",
+			shellQuote(version), shellQuote(inUIUpdateSkipChecks), shellQuote(scriptPath)))
 	return cmd.Start()
 }
 
@@ -207,24 +235,116 @@ func findInstallScript() string {
 // daemon-restart, so leaving the temp file is harmless. Worst case
 // the OS sweeps it on next reboot.
 func writeEmbeddedInstallSh() (string, error) {
-	f, err := os.CreateTemp("", "ventd-install-*.sh")
+	return writeInstallShBytes(installShEmbedded, "ventd-install-*.sh")
+}
+
+// writeInstallShBytes is the shared temp-file writer used by both
+// writeEmbeddedInstallSh and fetchInstallScriptForVersion. Returns
+// the temp file's path with mode 0755 set.
+func writeInstallShBytes(body []byte, namePattern string) (string, error) {
+	f, err := os.CreateTemp("", namePattern)
 	if err != nil {
 		return "", fmt.Errorf("create temp install.sh: %w", err)
 	}
-	if _, err := f.Write(installShEmbedded); err != nil {
+	if _, err := f.Write(body); err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("write embedded install.sh: %w", err)
+		return "", fmt.Errorf("write install.sh: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("close temp install.sh: %w", err)
+		return "", fmt.Errorf("close install.sh: %w", err)
 	}
 	if err := os.Chmod(f.Name(), 0o755); err != nil {
 		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("chmod temp install.sh: %w", err)
+		return "", fmt.Errorf("chmod install.sh: %w", err)
 	}
 	return f.Name(), nil
+}
+
+// fetchInstallScriptForVersion downloads install.sh from the GitHub
+// release assets for the requested version (e.g. v0.5.20) and writes
+// it to a temp file with mode 0755.
+//
+// Why bother when we have an embedded copy? Because the embedded
+// copy is FROZEN at the binary's build moment. Any improvement to
+// install.sh — like the v0.5.19 two-phase commit fix that closed
+// issue #953 — only reaches operators whose currently-running
+// daemon was built AFTER the fix. Operators on an older binary
+// would never benefit because their embedded install.sh is forever
+// the pre-fix version, and install.sh fixes are exactly the kind
+// of thing the in-UI updater itself depends on.
+//
+// With a per-release install.sh, every in-UI update fetches the
+// install.sh that matches the target version. v0.5.X-era daemon
+// updating to v0.5.Y always uses install.sh@v0.5.Y, picking up
+// every fix that landed in [X, Y]. Embedded becomes the offline
+// safety net.
+//
+// Returns the temp file path on success. Returns ("", err) on any
+// network / HTTP failure so the caller can fall back to the
+// embedded path.
+func fetchInstallScriptForVersion(repoSlug, version string) (string, error) {
+	if repoSlug == "" || version == "" {
+		return "", fmt.Errorf("fetchInstallScriptForVersion: empty repoSlug or version")
+	}
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/install.sh", repoSlug, version)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	resp, err := updateHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("fetch %s: HTTP %d", url, resp.StatusCode)
+	}
+	// 1 MiB cap — current install.sh is ~57 KiB; this is generous
+	// enough for the next 2× growth and tight enough that a
+	// pathological response (release page HTML, a misuploaded big
+	// binary) doesn't get materialised to disk.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+	if len(body) < 256 {
+		// install.sh is ~57 KiB; a sub-256-byte response is almost
+		// certainly an error page (404 release-asset-missing, etc).
+		return "", fmt.Errorf("fetch %s: body suspiciously short (%d bytes)", url, len(body))
+	}
+	if !bytes.HasPrefix(body, []byte("#!")) {
+		return "", fmt.Errorf("fetch %s: body missing #! shebang (not a shell script)", url)
+	}
+	return writeInstallShBytes(body, "ventd-install-fetched-*.sh")
+}
+
+// resolveInstallScript returns the install.sh path the apply handler
+// should run, in priority order:
+//  1. Fetched from the target release tag (latest fixes; the
+//     load-bearing path that closes issue #953's recurrence class).
+//  2. On-disk candidates (.deb / .rpm shipped + dev tree).
+//  3. Embedded fallback (always works; offline-safe).
+//
+// resolveFetch is the fetch hook (injected for tests). nil → use
+// the production fetch path against updateRepoSlug.
+func resolveInstallScript(version string, resolveFetch func(string) (string, error), logger interface{ Info(string, ...any) }) string {
+	if resolveFetch == nil {
+		resolveFetch = func(v string) (string, error) {
+			return fetchInstallScriptForVersion(updateRepoSlug, v)
+		}
+	}
+	if path, err := resolveFetch(version); err == nil {
+		if logger != nil {
+			logger.Info("update: install.sh fetched from release", "version", version, "path", path)
+		}
+		return path
+	} else if logger != nil {
+		logger.Info("update: release-tag fetch failed; falling back to disk/embedded",
+			"version", version, "err", err.Error())
+	}
+	return findInstallScript()
 }
 
 // shellQuote is a defensive single-quote escape for VENTD_VERSION /
@@ -253,7 +373,7 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "version must look like vX.Y.Z (got "+req.Version+")", http.StatusBadRequest)
 		return
 	}
-	scriptPath := findInstallScript()
+	scriptPath := resolveInstallScript(req.Version, nil, s.logger)
 	if scriptPath == "" {
 		http.Error(w, "install.sh not found in any of "+strings.Join(updateInstallScriptCandidates, " ; "),
 			http.StatusServiceUnavailable)
