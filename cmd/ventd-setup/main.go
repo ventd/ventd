@@ -83,6 +83,7 @@ func run(logger *slog.Logger, requestPath, resultPath string) int {
 	// to ErrOperationNotImpl (the broker's default) with a clean
 	// result file the wizard can surface to the operator.
 	disp.Register(setupbroker.OpLoadModule, handlers.LoadModuleHandler(handlers.RealLoadModuleDeps()))
+	disp.Register(setupbroker.OpUnloadModule, handlers.UnloadModuleHandler(handlers.RealUnloadModuleDeps()))
 
 	result, dispatchErr := disp.Dispatch(req)
 	if dispatchErr != nil {
