@@ -14,6 +14,13 @@
 
   /* dark — default */
   --bg:#0d1117; --bg2:#161b22; --bg3:#21262d; --bg4:#1a1f26;
+  /* --surface-N are semantic aliases for elevated card surfaces.
+     Without these defined, every var(--surface-1) reference in
+     shell.css / dashboard.css fell back to transparent — which is
+     why the patch-notes modal looked see-through against its 65%
+     black backdrop. Aliased to the bg ladder. */
+  --surface-1: var(--bg2);
+  --surface-2: var(--bg3);
   --border:#30363d; --border2:#1a1f26;
   --fg:#c9d1d9; --fg1:#e6edf3; --fg2:#8b949e; --fg3:#484f58; --fg4:#2a3a4a;
 
