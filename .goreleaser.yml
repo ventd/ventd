@@ -295,3 +295,18 @@ release:
   draft: false
   prerelease: auto
   name_template: "ventd {{.Version}}"
+  # Ship scripts/install.sh as a top-level release asset (in addition
+  # to the .deb/.rpm /usr/share/ventd/install.sh copy) so:
+  #   1. Operators can `curl -fsSL https://github.com/ventd/ventd/
+  #      releases/download/<tag>/install.sh | bash` without going
+  #      through the raw-githubusercontent path (which always serves
+  #      main, not the tagged version).
+  #   2. The daemon's in-UI Update apply handler can fetch the install.sh
+  #      that matches the target tag instead of using the binary's
+  #      embedded copy. Embedded install.sh is frozen at build time —
+  #      a future install.sh fix wouldn't reach existing daemons. With
+  #      install.sh as a release asset, every daemon updating to v0.5.X
+  #      uses install.sh@v0.5.X, picking up every fix that landed
+  #      between its own build and the target version.
+  extra_files:
+    - glob: scripts/install.sh

@@ -637,8 +637,22 @@ trap 'rm -f "$VENTD_STAGED" 2>/dev/null || true' EXIT
 if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
     echo
     echo "Running install-time preflight..."
+
+    # VENTD_SKIP_PREFLIGHT_CHECKS is the daemon's in-UI updater hook
+    # (issue: dkms_missing-and-friends false-positive on hosts that
+    # use only in-tree drivers). When set, narrows preflight to
+    # checks that can actually block a binary-only update by passing
+    # the names through to `ventd preflight --skip <names>`. The
+    # orchestrator (RULE-PREFLIGHT-ORCH-06) excludes named checks
+    # from both the run AND the BlockerCount tally.
+    PREFLIGHT_SKIP_ARGS=()
+    if [[ -n "${VENTD_SKIP_PREFLIGHT_CHECKS:-}" ]]; then
+        PREFLIGHT_SKIP_ARGS=(--skip "$VENTD_SKIP_PREFLIGHT_CHECKS")
+        echo "  (skipping checks per VENTD_SKIP_PREFLIGHT_CHECKS=${VENTD_SKIP_PREFLIGHT_CHECKS})"
+    fi
+
     if [[ -t 0 ]]; then
-        "$VENTD_STAGED" preflight --interactive
+        "$VENTD_STAGED" preflight --interactive "${PREFLIGHT_SKIP_ARGS[@]}"
         rc=$?
     else
         # Piped form (curl ... | sudo bash): cannot prompt. Run JSON
@@ -646,9 +660,9 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
         # readable summary and the actionable re-entry command, then
         # exit 1. The staged binary is wiped by the EXIT trap so the
         # running daemon stays on its current inode.
-        if ! "$VENTD_STAGED" preflight --json >/tmp/ventd-preflight.json 2>/dev/null; then
+        if ! "$VENTD_STAGED" preflight --json "${PREFLIGHT_SKIP_ARGS[@]}" >/tmp/ventd-preflight.json 2>/dev/null; then
             echo
-            "$VENTD_STAGED" preflight 2>/dev/null || true
+            "$VENTD_STAGED" preflight "${PREFLIGHT_SKIP_ARGS[@]}" 2>/dev/null || true
             echo
             echo "═══════════════════════════════════════════════════════════════════"
             echo "  ACTION REQUIRED"
