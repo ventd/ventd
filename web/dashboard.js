@@ -1415,28 +1415,18 @@
         var fIdx = fanIdx[String(fid)];
         var fy = spacedY(fIdx, fanList.length);
         var d = aliveCurvePath(midX + 14, cy, rightX - 14, fy);
-        // "Active" when the live fan duty exceeds 30% — pulled
-        // from the lastFanDuty map populated by aliveDetectDecisions.
+        // "Active" when the live fan duty exceeds 30% — real signal,
+        // pulled from the lastFanDuty map populated each poll.
         var fanDuty = aliveLookupFanDuty(String(fid));
         var active = (fanDuty != null && fanDuty > 30);
         var p = document.createElementNS(SVG_NS, 'path');
         p.setAttribute('class', active ? 'dash-coupling-edge-active' : 'dash-coupling-edge');
         p.setAttribute('d', d);
         svg.appendChild(p);
-        if (active) {
-          // Animated packet — uses SVG's own animateMotion (no JS
-          // RAF) so the GPU does the work. Period varies per edge
-          // so they don't all pulse in lockstep.
-          var dot = document.createElementNS(SVG_NS, 'circle');
-          dot.setAttribute('class', 'dash-coupling-pulse');
-          dot.setAttribute('r', '2.6');
-          var anim = document.createElementNS(SVG_NS, 'animateMotion');
-          anim.setAttribute('dur', (1.6 + (ci * 0.3) + (fIdx * 0.2)) + 's');
-          anim.setAttribute('repeatCount', 'indefinite');
-          anim.setAttribute('path', d);
-          dot.appendChild(anim);
-          svg.appendChild(dot);
-        }
+        // animateMotion packet REMOVED per the no-theatre rule —
+        // the edge's active-class colour change already communicates
+        // "fan is running"; the moving packet implied a per-event
+        // data-flow signal we don't actually have.
       });
     });
 

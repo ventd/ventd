@@ -10,19 +10,19 @@
 // failure we surface a "live data unavailable" banner rather than render
 // stale state.
 //
-// Design liberties:
-//   • The "Last probe N ago" stat replaces a hypothetical "Next probe
-//     ETA" — the existing opportunistic status endpoint exposes
-//     started_at, not a scheduled-next timestamp. Showing a fake ETA
-//     would violate the "honest data" rule.
-//   • The bridge sub-step pipeline is the only animation theatre; it
-//     represents the real fact that all six smart-mode sub-steps run
-//     each tick. When a probe is in flight we lock the active step to
-//     "probe-active"; otherwise we rotate every ~600 ms.
+// Design notes (per the "no theatre on the web UI" rule):
+//   • "Last probe N ago" replaces a hypothetical "Next probe ETA" —
+//     the existing opportunistic status endpoint exposes started_at,
+//     not a scheduled-next timestamp. We don't fabricate an ETA.
+//   • The bridge sub-step pipeline (gate-eval → probe-active → … →
+//     controller) was REMOVED in this branch. The rotating spotlight
+//     was cosmetic; rotation wasn't tied to actual sub-step ticks. The
+//     headline + stats above the pipeline already convey the real
+//     state from /smart/status + /probe/opportunistic/status.
 //   • The "Recent decisions" log is built client-side from observed
 //     state transitions and w_pred deltas in the polled snapshots.
 //     Each row reflects what the daemon actually changed between two
-//     successive polls; nothing is fabricated.
+//     successive polls; nothing fabricated.
 //
 // Vanilla JS in IIFE; no frameworks; no external CDN; SVG via
 // document.createElementNS. RULE-UI-01 + RULE-UI-02.
@@ -46,18 +46,10 @@
   // ── helpers ──────────────────────────────────────────────────────
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var POLL_INTERVAL_MS = 1500;
-  var BRIDGE_ROTATE_MS = 600;
   var LOG_RING_MAX = 80;
   var SPARK_RING_MAX = 60;
-
-  var BRIDGE_STEPS = [
-    { id: 'gate-eval',     label: 'Gate eval' },
-    { id: 'probe-active',  label: 'Active probe' },
-    { id: 'layer-B',       label: 'Layer B fit' },
-    { id: 'layer-C',       label: 'Layer C fit' },
-    { id: 'aggregator',    label: 'Aggregator' },
-    { id: 'controller',    label: 'Controller' }
-  ];
+  // BRIDGE_STEPS pipeline + rotation were removed — see no-theatre note
+  // above. Headline + stats already surface the real state.
 
   function $(id) { return document.getElementById(id); }
   function el(tag, opts) {
@@ -141,7 +133,6 @@
     version:     null,    // /api/v1/version (best-effort)
     fetchError:  null,    // last poll error message
     lastPollAt:  null,
-    bridgeStep:  0,       // current active sub-step index
     sparkHistory: {},     // channel_id -> [w_pred values, length <= 60]
     prevChanState: {},    // channel_id -> { ui_state, w_pred } from previous poll
     logRing:     [],      // {ts, html} entries, newest at end
@@ -261,27 +252,9 @@
     while (state.logRing.length > LOG_RING_MAX) state.logRing.shift();
   }
 
-  // ── bridge step rotator ─────────────────────────────────────────
-  function tickBridge() {
-    // If a probe is in flight, lock the active step to "probe-active".
-    if (state.opp && state.opp.running) {
-      var probeIdx = 1; // probe-active in BRIDGE_STEPS
-      state.bridgeStep = probeIdx;
-    } else {
-      // Skip the probe-active slot when no probe is running — rotate
-      // through gate-eval, layer-B, layer-C, aggregator, controller.
-      do {
-        state.bridgeStep = (state.bridgeStep + 1) % BRIDGE_STEPS.length;
-      } while (state.bridgeStep === 1);
-    }
-    var pipeline = $('sm-pipeline');
-    if (!pipeline) return;
-    var children = pipeline.children;
-    for (var i = 0; i < children.length; i++) {
-      if (i === state.bridgeStep) children[i].classList.add('active');
-      else                         children[i].classList.remove('active');
-    }
-  }
+  // tickBridge / BRIDGE_STEPS rotation REMOVED — was cosmetic (rotation
+  // wasn't tied to actual sub-step ticks). Headline + stats convey the
+  // real state now.
 
   // ── empty / error rendering ─────────────────────────────────────
   function renderEmpty(content) {
@@ -473,20 +446,8 @@
 
     bridge.appendChild(row1);
 
-    // Pipeline
-    var ol = el('ol', { cls: 'sm-pipeline', attrs: { id: 'sm-pipeline' } });
-    BRIDGE_STEPS.forEach(function (s, i) {
-      var li = el('li', {
-        cls: 'sm-pipe-step' + (i === state.bridgeStep ? ' active' : ''),
-        attrs: { 'data-step': s.id }
-      });
-      var num = el('div', { cls: 'sm-pipe-num', text: String(i + 1) });
-      var lab = el('div', { cls: 'sm-pipe-label', text: s.label });
-      li.appendChild(num);
-      li.appendChild(lab);
-      ol.appendChild(li);
-    });
-    bridge.appendChild(ol);
+    // Pipeline row removed — see no-theatre note. The headline +
+    // stats above already surface the real loop state.
     return bridge;
   }
 
@@ -580,8 +541,12 @@
     var canvas = el('div', { cls: 'sm-scope-canvas' });
 
     if (state.opp && state.opp.running) {
+      // Show only the REAL signal we have: the PWM hold value the probe
+      // is currently writing (gap_pwm). The tach wobble previously drawn
+      // here was synthetic (keyed off tick_count, not real RPM); REMOVED
+      // per the no-theatre rule. When the opportunistic status endpoint
+      // exposes real probe-time tach samples, draw those instead.
       var svg = svgEl('svg', { class: 'sm-scope-svg', viewBox: '0 0 800 200', preserveAspectRatio: 'none' });
-      // PWM hold line at gap_pwm — express PWM as fraction (0..255) → y in [180..20]
       var gap = clamp(Number(state.opp.gap_pwm) || 0, 0, 255);
       var pwmY = 20 + (255 - gap) / 255 * 160;
       var pwm = svgEl('path', {
@@ -589,21 +554,14 @@
         d: 'M 0 ' + pwmY.toFixed(1) + ' L 800 ' + pwmY.toFixed(1)
       });
       svg.appendChild(pwm);
-
-      // Tach response — small wobble around a target line at ~60% (purely
-      // a "the probe is alive" indicator; the exact RPM isn't returned by
-      // the opportunistic status endpoint, so we draw a stable wobble
-      // anchored in time, NOT a fake reading).
-      var d = 'M 0 120';
-      for (var x = 20; x <= 800; x += 20) {
-        var jitter = Math.sin((x + (state.opp.tick_count || 0) * 7) * 0.08) * 6
-                   + Math.sin((x + (state.opp.tick_count || 0) * 3) * 0.21) * 3;
-        d += ' L ' + x + ' ' + (120 + jitter).toFixed(1);
-      }
-      var tach = svgEl('path', { class: 'sm-scope-trace tach', d: d });
-      svg.appendChild(tach);
-
       canvas.appendChild(svg);
+      // Caption beneath the line so the operator knows what they're
+      // looking at instead of guessing from the trace shape.
+      var cap = el('div', { cls: 'sm-scope-empty-sub',
+        text: 'PWM held at ' + Math.round(gap) +
+              ' (' + Math.round(gap / 255 * 100) + '%) — tach response not surfaced yet' });
+      cap.style.padding = '6px 12px';
+      canvas.appendChild(cap);
     } else {
       var empty = el('div', { cls: 'sm-scope-empty' });
       empty.appendChild(el('div', { cls: 'sm-scope-empty-title', text: 'no probe in flight' }));
@@ -938,7 +896,6 @@
     fetchVersion();
     poll();
     setInterval(poll, POLL_INTERVAL_MS);
-    setInterval(tickBridge, BRIDGE_ROTATE_MS);
   }
 
   if (document.readyState === 'loading') {
