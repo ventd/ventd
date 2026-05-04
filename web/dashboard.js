@@ -778,8 +778,20 @@
   // ────────────────────────────────────────────────────────────────────
 
   var ALIVE_TICK_MS = 1500;
-  var ALIVE_DECISION_THRESHOLD = 2;     // |Δduty pct| to count as a decision
+  // Decision threshold tuning: 2 pp was too tight — every controller tick
+  // crossed it because PWM naturally jitters as the curve smooths against
+  // sensor noise (8-poll sample on Phoenix's MSI Z690-A: 17/28 transitions
+  // crossed 2 pp, 15/28 still crossed 5 pp). 10 pp + a 2-poll persistence
+  // gate filters the curve-noise band and keeps only ramps the operator
+  // actually cares about.
+  var ALIVE_DECISION_THRESHOLD = 10;    // |Δduty pct| AND must persist N polls
+  var ALIVE_DECISION_PERSIST_POLLS = 2; // ramp must hold direction for this many polls
   var ALIVE_DECISION_CAP = 40;
+  // Forecast-band suppression: linear extrapolation over <12 samples
+  // produces wild slopes (#920 — "+138.6°C/30s" badges right after page
+  // load). Wait until the per-sensor history ring has at least this many
+  // samples before drawing the future band + forecast badge.
+  var ALIVE_FORECAST_MIN_SAMPLES = 12;
   var ALIVE_NARRATOR_PERIOD_MS = 6000;  // line rotation cadence
   var ALIVE_NARRATOR_IDLE_MS = 12000;   // declare "system idle" after this
   var TJ_MAX = 100;                      // matches existing TJ constant
@@ -790,6 +802,7 @@
     channels: null,          // /api/v1/smart/channels payload
     opp: null,               // /api/v1/probe/opportunistic/status payload
     lastFanDuty: {},         // fan-name → last seen duty_pct
+    fanTransitionCandidate: {}, // fan-name → {dir, anchor, polls} for persistence gate
     lastFanRpm: {},          // fan-name → last seen RPM (used for cause hint)
     lastFans: {},            // fan-name → most recent fan struct (for narrator)
     decisions: [],           // most-recent first; cap ALIVE_DECISION_CAP
@@ -857,13 +870,17 @@
     return null;
   }
 
-  /* aliveLinearForecast: estimates the slope of the last 12 samples
-     (or fewer if the history is shorter). Returns the °C delta over
-     the next 30 s assuming sample cadence equal to history length /
-     60 s. We calibrate against the existing dashboard 1 s tick — so
-     a 60-sample history is one sample per second. */
+  /* aliveLinearForecast: estimates the slope of the last 12 samples.
+     Returns null when history is shorter than ALIVE_FORECAST_MIN_SAMPLES
+     so the caller can skip drawing the future band rather than show
+     a wildly noisy extrapolation (#920 — "+138.6°C/30s" badges right
+     after page load when only 2-3 samples were available).
+
+     Returns the °C delta over the next 30 s assuming sample cadence
+     equal to history length / 60 s. Calibrated against the existing
+     dashboard 1 s tick — 60-sample history = one sample per second. */
   function aliveLinearForecast(history) {
-    if (!Array.isArray(history) || history.length < 4) return 0;
+    if (!Array.isArray(history) || history.length < ALIVE_FORECAST_MIN_SAMPLES) return null;
     var n = Math.min(12, history.length);
     var recent = history.slice(history.length - n);
     var meanX = (n - 1) / 2;
@@ -930,11 +947,21 @@
     }
     pathEl.setAttribute('d', past);
 
-    // Forecast extrapolation
+    // Forecast extrapolation. Returns null when history is too short
+    // for a stable slope (#920); in that case we draw the past path
+    // only and let the badge show "forecast pending" rather than a
+    // wild "+138.6°C/30s" lie.
     var lastV = history[n - 1];
     var deltaC = aliveLinearForecast(history);
-    var futureV = lastV + deltaC;
     var lastY = toY(lastV);
+    if (deltaC == null) {
+      aliveClearHeroExtras(svg);
+      // Re-add the now-dot only — past line stays drawn from above.
+      aliveEnsureNowDotOnly(svg, pastW, lastY);
+      aliveSetForecastBadge(kind, null);
+      return;
+    }
+    var futureV = lastV + deltaC;
     var futureY = toY(futureV);
     var uncertainty = Math.min(14, Math.abs(deltaC) * 1.4 + 4);
 
@@ -947,6 +974,18 @@
 
     aliveEnsureHeroExtras(svg, bandPath, futurePath, pastW, lastY);
     aliveSetForecastBadge(kind, deltaC);
+  }
+  function aliveEnsureNowDotOnly(svg, nowX, nowY) {
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var dot = svg.querySelector('.dash-hero-spark-now');
+    if (!dot) {
+      dot = document.createElementNS(SVG_NS, 'circle');
+      dot.setAttribute('class', 'dash-hero-spark-now');
+      dot.setAttribute('r', '2.5');
+      svg.appendChild(dot);
+    }
+    dot.setAttribute('cx', String(nowX));
+    dot.setAttribute('cy', nowY.toFixed(1));
   }
   function aliveEnsureHeroExtras(svg, bandPath, futurePath, nowX, nowY) {
     var SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1166,10 +1205,18 @@
   }
 
   /* aliveDetectDecisions: runs against /api/v1/status payload (we
-     hook it from inside applyStatus). For each fan, compare the
-     current duty_pct to the previously-seen value; if |Δ| ≥ 2,
-     emit a decision with cause derived from the controller-coupled
-     sensor's recent trend. */
+     hook it from inside applyStatus). Two gates before emitting:
+     (1) candidate ramp must move ≥ ALIVE_DECISION_THRESHOLD pp from
+         the anchor (last stable value),
+     (2) candidate must hold the same direction for at least
+         ALIVE_DECISION_PERSIST_POLLS consecutive polls — the controller's
+         natural sensor-noise micro-recomputes oscillate up/down poll-to-
+         poll, so a real ramp is the only thing that holds direction.
+     Cause is derived from the controller-coupled sensor's recent trend.
+
+     This is a short-term mitigation — the architectural fix (#924) has
+     the controller emit real decision events via an SSE surface and the
+     dashboard subscribes to those, retiring inference entirely. */
   function aliveDetectDecisions(fans, sensors) {
     if (!Array.isArray(fans)) return;
     var now = Date.now();
@@ -1178,39 +1225,69 @@
       var name = f.name;
       if (!name) return;
       var d = (typeof f.duty_pct === 'number') ? f.duty_pct : null;
-      var prev = aliveState.lastFanDuty[name];
       aliveState.lastFans[name] = f;
       if (d == null) return;
-      if (prev != null && Math.abs(d - prev) >= ALIVE_DECISION_THRESHOLD) {
-        var curveName = aliveFindCurveForFan(f);
-        var coupledSensor = aliveFindCoupledSensor(curveName);
-        var trendInfo = coupledSensor ? sensorTrends[coupledSensor] : null;
-        var causeText;
-        if (coupledSensor && trendInfo) {
-          causeText = coupledSensor + ' ' + trendInfo.label;
-        } else if (curveName) {
-          causeText = 'curve ' + curveName;
-        } else {
-          causeText = 'controller adjustment';
-        }
-        var dir = d > prev ? 'up' : 'down';
-        var entry = {
-          ts: now,
-          fan: name,
-          from: Math.round(prev),
-          to: Math.round(d),
-          dir: dir,
-          cause: causeText
-        };
-        aliveState.decisions.unshift(entry);
-        if (aliveState.decisions.length > ALIVE_DECISION_CAP) {
-          aliveState.decisions.length = ALIVE_DECISION_CAP;
-        }
-        aliveDecisionFlashSet[name] = true;
-        aliveRenderNarrator(true, entry);
-        aliveRenderInsightRail();
-      }
+      var prev = aliveState.lastFanDuty[name];
       aliveState.lastFanDuty[name] = d;
+      if (prev == null) return;
+
+      var delta = d - prev;
+      var dir = delta > 0 ? 'up' : (delta < 0 ? 'down' : 'flat');
+      var cand = aliveState.fanTransitionCandidate[name];
+
+      // Below the threshold OR direction == flat → reset / hold candidate.
+      if (Math.abs(delta) < ALIVE_DECISION_THRESHOLD || dir === 'flat') {
+        if (cand && cand.dir !== 'flat') {
+          // Direction reversed before the persistence gate fired —
+          // discard the candidate entirely (this was the noise we
+          // were filtering out: 11 → 14 → 11 thrashing).
+          aliveState.fanTransitionCandidate[name] = null;
+        }
+        return;
+      }
+
+      if (!cand || cand.dir !== dir) {
+        // New ramp candidate or direction flip — start fresh.
+        aliveState.fanTransitionCandidate[name] = {
+          dir: dir,
+          anchor: prev,
+          polls: 1
+        };
+        return;
+      }
+
+      // Same direction continues — increment persistence counter.
+      cand.polls += 1;
+      if (cand.polls < ALIVE_DECISION_PERSIST_POLLS) return;
+
+      // Gate cleared — emit the decision with cause.
+      aliveState.fanTransitionCandidate[name] = null;
+      var curveName = aliveFindCurveForFan(f);
+      var coupledSensor = aliveFindCoupledSensor(curveName);
+      var trendInfo = coupledSensor ? sensorTrends[coupledSensor] : null;
+      var causeText;
+      if (coupledSensor && trendInfo) {
+        causeText = coupledSensor + ' ' + trendInfo.label;
+      } else if (curveName) {
+        causeText = 'curve ' + curveName;
+      } else {
+        causeText = 'controller adjustment';
+      }
+      var entry = {
+        ts: now,
+        fan: name,
+        from: Math.round(cand.anchor),
+        to: Math.round(d),
+        dir: dir,
+        cause: causeText
+      };
+      aliveState.decisions.unshift(entry);
+      if (aliveState.decisions.length > ALIVE_DECISION_CAP) {
+        aliveState.decisions.length = ALIVE_DECISION_CAP;
+      }
+      aliveDecisionFlashSet[name] = true;
+      aliveRenderNarrator(true, entry);
+      aliveRenderInsightRail();
     });
   }
   function aliveSensorTrendMap(sensors) {
