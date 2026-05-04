@@ -201,6 +201,127 @@
     });
   }
 
+  // ── Smart-mode quietness preset + dBA override (#789, v0.6 prereq) ──
+  // Both fields persist through cfg.smart on /api/v1/config. Server-side
+  // validation is enforced by config.validate (RULE-CTRL-PRESET-01 +
+  // RULE-CTRL-PRESET-03 + spec-v0_5_9 §3.1) so the UI just defends
+  // against the obvious user-input cases.
+  var SMART_PRESETS = ['silent', 'balanced', 'performance'];
+
+  function smartCfg() {
+    return (currentConfig && currentConfig.smart) || {};
+  }
+  function activeSmartPreset() {
+    var p = (smartCfg().preset || 'balanced').toLowerCase();
+    return SMART_PRESETS.indexOf(p) >= 0 ? p : 'balanced';
+  }
+  function paintPresetSegments(active) {
+    SMART_PRESETS.forEach(function (p) {
+      var btn = $('set-smart-preset-' + p);
+      if (btn) btn.classList.toggle('is-active', p === active);
+    });
+  }
+  function paintDbaOverride() {
+    var inp = $('set-smart-dba');
+    if (!inp) return;
+    var t = smartCfg().dba_target;
+    inp.value = (t === undefined || t === null) ? '' : String(t);
+  }
+
+  // Mutates a set of fields on cfg.smart (deleting any whose value is
+  // null) and PUTs the whole config. On success the server returns the
+  // validated config; we cache that as currentConfig so subsequent
+  // patches are based on canonical state.
+  function putSmartPatch(patch) {
+    if (!currentConfig) return Promise.resolve(false);
+    var next = JSON.parse(JSON.stringify(currentConfig));
+    if (!next.smart) next.smart = {};
+    Object.keys(patch).forEach(function (k) {
+      if (patch[k] === null) {
+        delete next.smart[k];
+      } else {
+        next.smart[k] = patch[k];
+      }
+    });
+    return fetch('/api/v1/config', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (validated) {
+        currentConfig = validated;
+        return true;
+      })
+      .catch(function (err) {
+        console.error('settings: smart patch PUT failed', err);
+        return false;
+      });
+  }
+
+  // Wire the preset segment buttons. The set-segments .is-active style
+  // mirrors the existing theme/unit toggle pattern; switching is a
+  // single PUT then repaint on success.
+  SMART_PRESETS.forEach(function (preset) {
+    var btn = $('set-smart-preset-' + preset);
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      if (preset === activeSmartPreset()) return;
+      paintPresetSegments(preset); // optimistic
+      putSmartPatch({ preset: preset }).then(function (ok) {
+        if (!ok) paintPresetSegments(activeSmartPreset()); // rollback
+      });
+    });
+  });
+
+  // Wire the dBA override input. Empty string clears the override
+  // (delete cfg.smart.dba_target) so the controller falls back to the
+  // preset default. Out-of-range or non-numeric input restores the
+  // previous value silently — server-side validation would otherwise
+  // 400 and roll back anyway.
+  var dbaInput = $('set-smart-dba');
+  if (dbaInput) {
+    dbaInput.addEventListener('change', function () {
+      var raw = dbaInput.value.trim();
+      var patch;
+      if (raw === '') {
+        patch = { dba_target: null };
+      } else {
+        var v = parseFloat(raw);
+        if (!isFinite(v) || v < 10 || v > 80) {
+          paintDbaOverride();
+          return;
+        }
+        patch = { dba_target: v };
+      }
+      putSmartPatch(patch).then(function (ok) {
+        if (ok) paintDbaOverride();
+      });
+    });
+  }
+
+  // Initial paint runs after the /api/v1/config GET completes — we
+  // hook into the existing loadConfig flow by polling currentConfig
+  // briefly. After the first non-null cache, paint and stop.
+  (function initialPaintWhenConfigArrives() {
+    var tries = 0;
+    var t = setInterval(function () {
+      tries++;
+      if (currentConfig) {
+        paintPresetSegments(activeSmartPreset());
+        paintDbaOverride();
+        clearInterval(t);
+      } else if (tries > 40) {
+        // 40 × 100 ms = 4 s — give up if /config never returned.
+        clearInterval(t);
+      }
+    }, 100);
+  })();
+
   function loadVersion() {
     fetch('/api/v1/version', { credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
