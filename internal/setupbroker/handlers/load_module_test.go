@@ -167,10 +167,11 @@ func TestLoadModuleHandler_HappyPath_WithArgs(t *testing.T) {
 	}
 }
 
-// TestLoadModuleHandler_RejectsInvalidModuleName — anything outside
-// [A-Za-z0-9_-]{1,64} rejects with OK=false + ErrInvalidParams.
-// Catches path-traversal + shell-metacharacter inputs at the param
-// layer.
+// TestLoadModuleHandler_RejectsInvalidModuleName — anything that
+// doesn't match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` rejects with
+// OK=false + ErrInvalidParams. Catches path-traversal,
+// shell-metacharacter, and (load-bearing) leading-hyphen inputs at
+// the param layer.
 func TestLoadModuleHandler_RejectsInvalidModuleName(t *testing.T) {
 	bad := []string{
 		"",                      // empty
@@ -179,6 +180,9 @@ func TestLoadModuleHandler_RejectsInvalidModuleName(t *testing.T) {
 		"foo bar",               // space
 		"foo$bar",               // shell var
 		strings.Repeat("a", 65), // too long (>64)
+		"-rfdkms",               // leading hyphen — modprobe flag injection (#973)
+		"-r",                    // leading hyphen even with short tail
+		"_priv",                 // leading underscore — also blocked
 	}
 	for _, name := range bad {
 		t.Run("name="+name, func(t *testing.T) {
