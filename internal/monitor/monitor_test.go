@@ -338,10 +338,13 @@ func TestScanHwmon_MissingRoot(t *testing.T) {
 	}
 }
 
-// TestScanHwmon_FanRPMZeroSkipped — case G. fan*_input = 0 means the
-// fan is stopped / unresponsive; the existing code drops it so the UI
-// doesn't show a dead fan. Non-zero fans in the same chip stay visible.
-func TestScanHwmon_FanRPMZeroSkipped(t *testing.T) {
+// TestScanHwmon_FanRPMZeroPreserved — case G (revised). fan*_input = 0
+// is HONEST signal: the header is wired and the kernel exposes it, just
+// no fan is connected (or the fan is intentionally stopped). The old
+// behaviour skipped these readings so the UI didn't show "dead fans" —
+// but that hid 7 of 8 headers on Phoenix's MSI Z690-A NCT6687 (#923).
+// Operators need to see every header to map the board correctly.
+func TestScanHwmon_FanRPMZeroPreserved(t *testing.T) {
 	root := t.TempDir()
 	withScanRoot(t, root)
 
@@ -354,12 +357,57 @@ func TestScanHwmon_FanRPMZeroSkipped(t *testing.T) {
 		t.Fatalf("Scan: got %d devices, want 1: %+v", len(devs), devs)
 	}
 	dev := devs[0]
-	if n := len(dev.Readings); n != 1 {
-		t.Fatalf("hwmon0: %d readings, want 1 (fan1=0 skipped): %+v",
+	if n := len(dev.Readings); n != 2 {
+		t.Fatalf("hwmon0: %d readings, want 2 (fan1=0 preserved): %+v",
 			n, dev.Readings)
 	}
-	if dev.Readings[0].Label != "fan2" || dev.Readings[0].Value != 1500 {
-		t.Errorf("hwmon0 fan: %+v, want fan2=1500", dev.Readings[0])
+	// natural sort: fan1 first, fan2 second.
+	if dev.Readings[0].Label != "fan1" || dev.Readings[0].Value != 0 {
+		t.Errorf("hwmon0 fan1: %+v, want fan1=0", dev.Readings[0])
+	}
+	if dev.Readings[1].Label != "fan2" || dev.Readings[1].Value != 1500 {
+		t.Errorf("hwmon0 fan2: %+v, want fan2=1500", dev.Readings[1])
+	}
+}
+
+// TestScanHwmon_NCT6687_Z690A_AllEightHeaders pins the #923 fix on
+// Phoenix's MSI Z690-A: 8 fan headers, only 1 (CPU Fan) physically
+// connected and spinning; the other 7 read 0 RPM but their headers
+// exist and the daemon is driving them. All 8 must surface in the
+// inventory so the operator can see the full board layout.
+func TestScanHwmon_NCT6687_Z690A_AllEightHeaders(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d := mkHwmonDir(t, root, "hwmon5", "Nuvoton NCT6687")
+	writeFile(t, filepath.Join(d, "fan1_input"), "326\n") // CPU Fan: connected
+	writeFile(t, filepath.Join(d, "fan2_input"), "0\n")   // Pump Fan: empty header
+	writeFile(t, filepath.Join(d, "fan3_input"), "0\n")   // System Fan #1
+	writeFile(t, filepath.Join(d, "fan4_input"), "0\n")   // System Fan #2
+	writeFile(t, filepath.Join(d, "fan5_input"), "0\n")   // System Fan #3
+	writeFile(t, filepath.Join(d, "fan6_input"), "0\n")   // System Fan #4
+	writeFile(t, filepath.Join(d, "fan7_input"), "0\n")   // System Fan #5
+	writeFile(t, filepath.Join(d, "fan8_input"), "0\n")   // System Fan #6
+
+	devs := scanHwmon()
+	if len(devs) != 1 {
+		t.Fatalf("Scan: got %d devices, want 1: %+v", len(devs), devs)
+	}
+	if got := len(devs[0].Readings); got != 8 {
+		t.Fatalf("hwmon5 (NCT6687): %d fan readings, want 8 (all headers preserved): %+v",
+			got, devs[0].Readings)
+	}
+	rpms := make([]float64, len(devs[0].Readings))
+	for i, r := range devs[0].Readings {
+		rpms[i] = r.Value
+	}
+	if rpms[0] != 326 {
+		t.Errorf("fan1 (connected): got %v, want 326", rpms[0])
+	}
+	for i := 1; i < 8; i++ {
+		if rpms[i] != 0 {
+			t.Errorf("fan%d (empty header): got %v, want 0", i+1, rpms[i])
+		}
 	}
 }
 
