@@ -1,6 +1,6 @@
 module github.com/ventd/ventd
 
-go 1.25.9
+go 1.25.10
 
 require (
 	github.com/dchest/siphash v1.2.3
