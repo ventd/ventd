@@ -107,3 +107,65 @@ RULE-SENTINEL-TEMP-FLOOR; this rule covers the suspicious-but-plausible
 band above it.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_low_flagged_as_disconnected
+
+## RULE-FAKEHWMON-QUIRK-HELPERS: fakehwmon exposes four canonical chip-quirk helpers + matching opt-in fields on PWMOptions.
+
+`internal/testfixture/fakehwmon` ships four helper methods that
+inject the four canonical real-world chip misbehaviours the rule
+catalogue guards against. Each helper is explicit (test calls it
+between backend operations) rather than automatic because the fake
+is file-backed and the production hwmon backend reads / writes via
+`os.ReadFile` / `os.WriteFile` directly — there is no interception
+point.
+
+The helpers and what they exercise:
+
+- `Fake.InjectSentinelRPM(chipIndex, fanIndex)` — writes the
+  `SentinelRPMValue = 65535` constant (the 0xFFFF nct6687 sentinel)
+  to `fan<fanIndex>_input`. Tests that loop over backend reads call
+  this on every Nth tick to validate `RULE-HWMON-SENTINEL-FAN`,
+  `RULE-SENTINEL-FAN-IMPLAUSIBLE`, `RULE-HWMON-INVALID-CURVE-SKIP`,
+  and `RULE-HWMON-PROLONGED-INVALID-RESTORE` end-to-end through
+  the controller's tick rather than just at the backend boundary.
+
+- `Fake.SimulateBIOSRevert(chipIndex, pwmIndex, originalValue)` —
+  writes `originalValue` back to `pwm<pwmIndex>`, simulating the
+  it8689e / Gigabyte BIOS-override pattern: writes accept at <50 ms
+  then revert to firmware value at >200 ms. Tests sequence as
+  backend-write → first-readback → SimulateBIOSRevert → second-
+  readback. Validates `RULE-CALIB-PR2B-06` and `RULE-ENVELOPE-14`
+  against a real read-write-readback path.
+
+- `Fake.SimulateFanResponse(chipIndex, pwmIndex, fanIndex, maxRPM, inverted)` —
+  reads `pwm<pwmIndex>` and writes the corresponding RPM to
+  `fan<fanIndex>_input`. When `inverted=true`,
+  `RPM = maxRPM × (255−pwm)/255` (high RPM at low PWM); when
+  `inverted=false`, `RPM = maxRPM × pwm/255` (linear normal). Lets
+  closed-loop tests exercise `RULE-POLARITY-02`, `RULE-CALIB-PR2B-02`,
+  `RULE-OPP-PROBE-04` against a synthetic chip whose fan reading
+  actually responds to the daemon's PWM writes.
+
+- `Fake.ReassertPWMEnable(chipIndex, pwmIndex, value)` — writes
+  `value` to `pwm<pwmIndex>_enable`, modelling the Gigabyte Q-Fan /
+  Smart Fan Control reassertion pattern (BIOS periodically forces
+  pwm_enable back to 2). Tests pair this with their own EBUSY-
+  injecting stub on the backend's `writePWMFn` seam to validate
+  `RULE-HWMON-MODE-REACQUIRE`'s single-retry contract against a
+  stateful fixture rather than a counter.
+
+The matching `PWMOptions` fields document the intended firing cadence
+(`EmitSentinelRPMEvery int`, `BIOSRevertAfter int` ms,
+`InvertedPolarity bool`, `EBUSYReassertEvery int`). Tests that loop
+over backend operations consume these fields to decide when to call
+the helper. The fields exist in the struct so a future v0.6+ wiring
+can drive the helpers automatically off them; in v0.5.32 the fields
+are documentation + opt-in scaffolding.
+
+Bound: internal/testfixture/fakehwmon/quirks_test.go:inject_sentinel_rpm_writes_65535_to_fan_input
+Bound: internal/testfixture/fakehwmon/quirks_test.go:simulate_bios_revert_writes_original_value_back_to_pwm
+Bound: internal/testfixture/fakehwmon/quirks_test.go:simulate_fan_response_normal_polarity_linear_pwm_to_rpm
+Bound: internal/testfixture/fakehwmon/quirks_test.go:simulate_fan_response_inverted_polarity_high_rpm_at_low_pwm
+Bound: internal/testfixture/fakehwmon/quirks_test.go:reassert_pwm_enable_flips_to_firmware_auto
+Bound: internal/testfixture/fakehwmon/quirks_test.go:inject_sentinel_rpm_validates_chip_and_fan_indices
+Bound: internal/testfixture/fakehwmon/quirks_test.go:simulate_fan_response_validates_maxRPM
+Bound: internal/testfixture/fakehwmon/quirks_test.go:options_struct_carries_quirk_knobs
