@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.35] - 2026-05-08
+
+### Headline
+
+Item B1 of the v0.6.0 ship plan (#1021) — closes the senior review's H10 finding on the three-package naming collision (`calibrate/` / `calibration/` / `probe/`). The package's job is to validate whether a hwmon channel can be controlled at all (polarity correct? not stalling? not BIOS-overridden?); calling it "calibration" obscured that distinction from `internal/calibrate` (the legacy V-model PWM sweep).
+
+### Changed
+
+- **`internal/calibration` renamed to `internal/validity` (#1021).** The three-package boundary is now self-documenting: `internal/calibrate/` for the legacy V-model PWM sweep + curve fitting, `internal/validity/` for the PR-2b channel-validity probe (polarity / stall / BIOS-override), `internal/probe/` for the catalog-less smart-mode primary path. Mechanical scope: 6 .go files + 5 testdata YAMLs moved via `git mv`; package decl rewritten in 5 source files + the external test package; import paths rewritten in `cmd/ventd/main.go`, `cmd/ventd/calibrate.go`, and `internal/validity/probe_test.go`; the `calibstore` import alias in main.go dropped (the package is now imported plainly as `validity` since there's no collision with `calibrate`); 9 `RULE-CALIB-PR2B-*.md` rule files had their `Bound:` paths rewritten from `internal/calibration/probe_test.go` to `internal/validity/probe_test.go`. `tools/rulelint` after the rewrite: `ok: 361 rule(s), 556 bound(s) verified` — zero unclaimed bindings.
+
+### Internals
+
+- New `RULE-PKG-VALIDITY-PROBE-BOUNDARY.md` documents the three-package taxonomy + the v0.6.x deprecation gate where `calibrate/` shrinks to a fallback once smart-mode field-validation completes (Phase C of the v0.6.0 ship plan).
+- `CLAUDE.md` gains an **"Architectural Lens — Smart-Mode Pivot (Fork D)"** section spelling out the three-package boundary + a link to `docs/research/r-bundle/smart-mode-handoff.md` (closes the senior review's M22 medium-tier item — "Document smart-mode-handoff explicitly in CLAUDE.md").
+- `.gitignore` adds `/screenshots/` so the locally-rendered screenshot dir (`feedback_keep_screenshots.md` — Phoenix uploads to README manually) doesn't accidentally land in commits.
+
+### Senior review pass
+
+This wraps Phase A + B of the v0.6.0 ship plan. Phase C — smart-mode HIL field-validation across the 5-host fleet — is the actual v0.6.0 ship gate per the smart-mode handoff doc. Phase A items closed across v0.5.30–v0.5.34 (item 4-H8 schema migrator, item 2 fresh-install probe gate, items 2/3 CSRF + body-size + SameSite=Strict, item 4 fakehwmon canonical chip-quirk helpers, item 6 server.go split A5.1, item 6 main.go split A5.2). Phase B item B1 closes here. The remaining server.go splits (calibrate / setup / status / config handler clusters) are deferred — server.go is now at 2064 LOC, down from 2488 in v0.5.32; further splits are nice-to-have but not v0.6.0-blocking.
+
 ## [v0.5.34] - 2026-05-08
 
 ### Headline
