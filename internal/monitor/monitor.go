@@ -27,6 +27,13 @@ type Reading struct {
 	SensorType string  `json:"sensor_type"`      // "hwmon" or "nvidia"
 	SensorPath string  `json:"sensor_path"`      // full sysfs path or GPU index
 	Metric     string  `json:"metric,omitempty"` // nvidia metric name (empty = default "temp")
+	// LikelyDisconnected flags temperature readings that landed in the
+	// suspicious band below LowTempAmbientFloorCelsius — almost
+	// certainly an unconnected hwmon temp pin reading the chip's
+	// analog default rather than a real sensor (B2 / #923, e.g.
+	// Phoenix's NCT6687 "PCIe x1" reading 8.5 °C). The UI renders a
+	// "no sensor connected" badge; the value still surfaces honestly.
+	LikelyDisconnected bool `json:"likely_disconnected,omitempty"`
 }
 
 // scanRoot is the hwmon class directory scanHwmon reads from. Overridable
@@ -196,13 +203,21 @@ func scanInputs(dir, prefix, unit string, divisor float64) []Reading {
 				"path", path, "prefix", prefix, "value", val)
 			continue
 		}
-		readings = append(readings, Reading{
+		rd := Reading{
 			Label:      label,
 			Value:      val,
 			Unit:       unit,
 			SensorType: "hwmon",
 			SensorPath: path,
-		})
+		}
+		// Annotate temp readings that land in the suspicious-low band.
+		// This is a flag, not a reject — the value surfaces but the UI
+		// can show a "no sensor connected" badge so operators know
+		// it's not real telemetry.
+		if prefix == "temp" && halhwmon.IsLowTempLikelyDisconnected(val) {
+			rd.LikelyDisconnected = true
+		}
+		readings = append(readings, rd)
 	}
 	return readings
 }
