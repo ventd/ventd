@@ -49,10 +49,16 @@ type LoadModuleParams struct {
 }
 
 // moduleNameRE locks the operator-supplied module string to the
-// kernel-side legal character set: [A-Za-z0-9_-] up to 64 chars.
-// Rejects path traversal, shell metacharacters, and the spurious
-// dot-leading inputs that have caused historical modprobe foot-guns.
-var moduleNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// kernel-side legal character set: [A-Za-z0-9_-] up to 64 chars,
+// AND requires the first character to be alphanumeric. The leading
+// character is the load-bearing constraint: a value like "-rfdkms"
+// would otherwise pass the old `^[A-Za-z0-9_-]{1,64}$` shape and
+// then `modprobe -rfdkms` interprets the entire string as flags
+// rather than a module name (#973 — B6 from the v0.5.26 bug-floor
+// probe). Rejects path traversal, shell metacharacters, dot- /
+// underscore- / hyphen-leading inputs, and the historical
+// modprobe foot-guns.
+var moduleNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 // LoadModuleDeps lets tests substitute the modprobe + filesystem
 // surface. Production wiring uses RealLoadModuleDeps().

@@ -83,3 +83,27 @@ rail monitoring data and blind the daemon to voltage anomalies that can
 indicate hardware instability.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/voltage_accepts_normal_reading
+
+## RULE-SENTINEL-TEMP-DISCONNECT: temperature readings between absolute-zero and the ambient floor (10°C) are FLAGGED as likely-disconnected, NOT rejected
+
+`IsLowTempLikelyDisconnected(celsius)` returns true when `celsius >
+PlausibleTempMinCelsius && celsius < LowTempAmbientFloorCelsius` — i.e. the
+reading is plausibly real numerically but outside the range a connected
+sensor produces in normal operation. This is an annotation flag, NOT a
+rejection: the reading still surfaces in the inventory so operators can
+see it; the UI renders a "no sensor connected" badge alongside.
+
+The canonical case is Phoenix's MSI Z690-A NCT6687 reporting 8.5°C on the
+"PCIe x1" temp6_input header (#923). PCIe slots don't have temperature
+sensors; the kernel module exposes the input but the chip's analog
+default for an unconnected pin lands in the single digits. Surfacing the
+value as raw data without a hint mis-implies the sensor is real.
+
+Boundaries: a 5°C reading IS flagged (likely disconnected); a 10°C
+reading is NOT flagged (the floor is exclusive); a -17°C reading IS
+flagged (still above the absolute-zero floor — Framework 13 AMD 7040
+EC's I2C underflow case). Sub-absolute-zero stays a hard reject per
+RULE-SENTINEL-TEMP-FLOOR; this rule covers the suspicious-but-plausible
+band above it.
+
+Bound: internal/hal/hwmon/safety_test.go:sentinel/temp_low_flagged_as_disconnected

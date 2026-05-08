@@ -1,0 +1,43 @@
+# golangci-lint configuration for ventd.
+#
+# Pinned to the v2.1.6 toolchain that .github/workflows/ci.yml installs
+# (see the lint job at ci.yml:347). The default `standard` linter set
+# is enabled explicitly here so future golangci-lint v2 default-set
+# changes don't silently widen or narrow what CI checks. Adding a new
+# linter is a deliberate vote: extend the `enable:` list, run
+# `golangci-lint run` against main, fix or `//nolint:...` the
+# pre-existing hits, then commit.
+#
+# Local parity: scripts/ci-local.sh runs `golangci-lint run --timeout=5m`
+# when the binary is on $PATH or at $HOME/go/bin/golangci-lint, so
+# `make pre-push` enforces this config before every push.
+#
+# Adding to the enable list requires an audit pass against current
+# main; existing hits should either be fixed or `//nolint:linter
+# // reason` annotated. Don't enable new linters as a drive-by — that's
+# a separate PR with its own scope.
+
+version: "2"
+
+linters:
+  default: none
+  enable:
+    # Standard set (matches golangci-lint v2.1.6 default).
+    - errcheck      # unchecked error returns
+    - govet         # `go vet` passes
+    - ineffassign   # assignments whose value is never read
+    - staticcheck   # the staticcheck.dev rule pack
+    - unused        # unused consts, vars, funcs, types
+
+  exclusions:
+    # Generated files are out of scope — they can't be authored to
+    # comply with these linters.
+    generated: lax
+
+    # Test files get a small carve-out: errcheck on test cleanup is
+    # noisy and not load-bearing (a defer-close-and-ignore in a test
+    # is the canonical pattern).
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck

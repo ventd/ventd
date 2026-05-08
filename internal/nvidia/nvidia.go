@@ -22,6 +22,7 @@
 package nvidia
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,6 +32,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -63,6 +65,11 @@ var (
 	// Library + symbol resolution happens at most once.
 	loadOnce sync.Once
 	loadErr  error
+
+	// loadLibraryFn is the swappable seam for tests that want to inject
+	// a deliberately-hanging loader to exercise InitWithDeadline's
+	// timeout path. Production code never reassigns this.
+	loadLibraryFn = loadLibrary
 
 	// Function pointers resolved from libnvidia-ml.so.1.
 	pInit_v2                       uintptr
@@ -113,7 +120,7 @@ func Init(logger *slog.Logger) error {
 		logger = slog.Default()
 	}
 
-	loadOnce.Do(func() { loadErr = loadLibrary(logger) })
+	loadOnce.Do(func() { loadErr = loadLibraryFn(logger) })
 	if loadErr != nil {
 		return loadErr
 	}
@@ -140,6 +147,65 @@ func Init(logger *slog.Logger) error {
 	}
 	initRefcount++
 	return nil
+}
+
+// InitWithDeadline wraps Init in a timeout-protected goroutine so a
+// stuck purego.Dlopen — caused by a partial NVIDIA driver install,
+// stale libnvidia-ml.so.1 symbols, or a hung kernel module — cannot
+// hang daemon startup. Per RULE-GPU-PR2D-09:
+//
+//   - On success: returns nil; NVML is initialised and refcounted.
+//   - On underlying Init error (library absent, init failed): returns
+//     that error verbatim (so callers' errors.Is checks still work).
+//   - On timeout: returns an error wrapping ErrLibraryUnavailable
+//     whose message contains "timed out" and the deadline.
+//   - On ctx cancellation: returns an error wrapping
+//     ErrLibraryUnavailable with the cancellation cause.
+//
+// The in-flight goroutine is orphaned on timeout/cancel because
+// purego.Dlopen is uncancellable (Linux dlopen has no per-call
+// timeout). The goroutine eventually completes when Dlopen returns,
+// which may be never on a truly wedged driver. Subsequent callers of
+// Init or InitWithDeadline within the same process will block on the
+// same loadOnce.Do that the orphan owns — so once a timeout fires,
+// NVML is permanently disabled for this process. By design: the
+// daemon proceeds without GPU features rather than hang at startup.
+//
+// timeout <= 0 disables the timeout (equivalent to plain Init), but
+// ctx is still honoured. Logger may be nil.
+func InitWithDeadline(ctx context.Context, logger *slog.Logger, timeout time.Duration) error {
+	return initWithDeadline(ctx, logger, timeout, Init)
+}
+
+// initWithDeadline is the testable inner core. The fn parameter is
+// always Init in production; tests inject stubs to exercise the
+// timeout / cancellation / fast-path / zero-timeout branches without
+// touching package-level loadOnce state.
+func initWithDeadline(ctx context.Context, logger *slog.Logger, timeout time.Duration, fn func(*slog.Logger) error) error {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if timeout <= 0 {
+		// Caller opted out of the timeout; preserve plain Init semantics
+		// (still synchronous w.r.t. the caller's goroutine) but honour
+		// ctx by checking it once before the Dlopen path runs.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%w: %v", ErrLibraryUnavailable, err)
+		}
+		return fn(logger)
+	}
+	done := make(chan error, 1)
+	go func() { done <- fn(logger) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		logger.Warn("NVML init timed out; GPU features disabled for process lifetime",
+			"timeout", timeout)
+		return fmt.Errorf("%w: init timed out after %s", ErrLibraryUnavailable, timeout)
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %v", ErrLibraryUnavailable, ctx.Err())
+	}
 }
 
 // Shutdown decrements the NVML refcount. The library is released on the
