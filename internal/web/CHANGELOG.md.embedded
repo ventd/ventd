@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.30] - 2026-05-08
+
+### Headline
+
+First half of the v0.6.0 ship-plan Phase A. Two unrelated mechanical changes that ship together because both are tiny: a state-schema migrator slot reservation for v0.6, and the fresh-install opportunistic-probe gate dropped from 24 h to 0. The probe-gate change is operator-visible — fresh installs now start opportunistic probing as soon as the standard idle preconditions are met, not 24 h later.
+
+### Changed
+
+- **Fresh-install opportunistic-probe gate dropped (#1009).** `FirstInstallDelay = 0` in `internal/probe/opportunistic/install_marker.go`. Prior: `RULE-OPP-PROBE-07` refused every scheduler tick within 24 h of `/var/lib/ventd/.first-install-ts` mtime, with `LastReason = ReasonOpportunisticBootWindow`. Today's evidence on Phoenix's MSI Z690-A: 8 Layer B coupling shards persisted with `theta=[0,0]` for 5 days because static-PWM workload didn't satisfy `RULE-CMB-OAT-01`'s Δpwm excitation requirement; the 24 h gate further delayed Layer B convergence on every fresh install. The hard idle preconditions (idle gate's 600 s durability, no active SSH, no battery, no container, no scrub, no blocked process, ≥ 24 h post-resume warmup — `RULE-OPP-IDLE-01` through `-04`) are unchanged and remain the load-bearing protection against probing during real workload. `FirstInstallDelay`, `PastFirstInstallDelay`, and `ReasonOpportunisticBootWindow` are kept (not removed) so a future operator-tunable knob has a slot to hang on. Bound to rewritten `RULE-OPP-PROBE-07` with 5 subtests covering: constant is zero, zero-age marker passes, aged marker passes, empty path passes, scheduler does NOT refuse with `ReasonOpportunisticBootWindow`. Existing hosts on v0.5.29 ≤ N see no behaviour change on upgrade (their marker file's mtime is already ≥ 24 h old). A genuinely fresh install on v0.5.30+ starts opportunistic probing within minutes of install rather than 24 h later.
+
+### Internals
+
+- **State schema slot v2 reserved with no-op v1→v2 migrator (#1009).** `internal/state/version.go` bumps `currentVersion` from 1 to 2 and registers `migrations[[2]int{1,2}] = noopV1ToV2`. The v2 schema is identical to v1 on disk; the slot exists for the v0.6.0 broker-namespace migration (and any other v0.6 breaking shape change) without triggering `RULE-STATE-05`'s "treat as missing" path. A registered no-op is structurally distinct from a missing migrator — missing causes the upgrade loop to break out and the caller's state is effectively wiped on next access. Registered no-op keeps existing calibration / polarity / smart-mode shards intact across the version bump while exercising the migration mechanism end-to-end. Bound to new `RULE-STATE-MIGRATION-V1-V2-NOOP.md` with 4 subtests pinning: migrator registered, end-to-end run + sentinel bump, no-op does not mutate sibling files, `currentVersion >= 2`.
+
+### Senior review pass
+
+This is the first delivery in the v0.6.0 ship plan documented at `/root/.claude/plans/you-are-a-30-vivid-pascal.md`. Phase A continues with v0.5.31 (CSRF + body-size + SameSite=Strict), v0.5.32 (fakehwmon four canonical chip quirks + goleak), v0.5.33 (web/server.go + cmd/ventd/main.go file splits), then Phase B (calibrate/calibration/probe rename → internal/validity/), then Phase C (smart-mode HIL field-validation across the 5-host fleet) → tag v0.6.0.
+
 ## [v0.5.29] - 2026-05-08
 
 ### Headline
