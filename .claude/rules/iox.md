@@ -52,3 +52,45 @@ Bound: internal/iox/atomicwrite_test.go:TestWriteFile_RoundTrip
 Bound: internal/iox/atomicwrite_test.go:TestWriteFile_NoTempLeak
 Bound: internal/iox/atomicwrite_test.go:TestWriteFile_OverwritesExisting
 Bound: internal/iox/atomicwrite_test.go:TestWriteFile_CreatesParentDir
+
+## RULE-IOX-02: EnsureFreeSpace returns wrapped ErrInsufficientFreeSpace when the filesystem holding `path` has fewer than `minBytes` available.
+
+`iox.EnsureFreeSpace(path, minBytes)` is the pre-flight gate every
+state-class write path consults BEFORE mutating in-memory state. The
+canonical use case is `KVDB.Set` / `KVDB.Delete` / `KVDB.WithTransaction`
+(per RULE-STATE-12), but any future caller that stages an in-memory
+mutation followed by a disk-write should adopt the same gate.
+
+Behavioural contract:
+
+- **Healthy filesystem (`avail >= minBytes`)**: returns `nil`.
+- **Low-space filesystem (`avail < minBytes`)**: returns an error
+  wrapping `ErrInsufficientFreeSpace` whose message names the path,
+  the measured `avail` bytes, and the required `minBytes`. Operators
+  reading the journal can correlate the refusal to a specific
+  filesystem without taking a separate measurement.
+- **Path doesn't exist** (statfs returns ENOENT, etc.): returns the
+  underlying statfs error WITHOUT wrapping `ErrInsufficientFreeSpace`.
+  Callers can distinguish "we couldn't measure" from "we measured and
+  it's too low" via `errors.Is(err, ErrInsufficientFreeSpace)`. The
+  doctor card path uses this distinction: only the wrapped case
+  warrants a "free up disk space" remediation.
+- **`minBytes == 0`**: short-circuits to `nil` before any syscall, so
+  callers wanting to disable the gate (tests, future operator-tunable
+  override) pass 0 rather than a sentinel.
+
+`MinFreeBytesForState` (1 MiB) is the canonical default for state-class
+writes. Tight enough that healthy systems essentially never see refusals,
+large enough to leave headroom for the tempfile + final + dir-fsync
+sequence even if the marshalled payload grows by an order of magnitude
+relative to what the daemon writes today.
+
+Implementation uses `syscall.Statfs` directly. `Bavail × Bsize` gives
+the free bytes available to the daemon's user; on every Linux filesystem
+ventd targets, `Bsize` equals the fragment size in bytes.
+
+Bound: internal/iox/freespace_test.go:RULE-IOX-02_happy_path_returns_nil
+Bound: internal/iox/freespace_test.go:RULE-IOX-02_zero_minimum_short_circuits
+Bound: internal/iox/freespace_test.go:RULE-IOX-02_missing_path_surfaces_underlying_error
+Bound: internal/iox/freespace_test.go:RULE-IOX-02_huge_minimum_refuses_with_actionable_error
+Bound: internal/iox/freespace_test.go:RULE-IOX-02_works_on_file_path_not_just_dir

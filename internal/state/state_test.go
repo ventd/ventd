@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/iox"
 )
 
 // discardLogger returns a no-op slog.Logger for test use.
@@ -598,4 +600,156 @@ func TestRULE_STATE_10_DirectoryBootstrap(t *testing.T) {
 	if len(logRecords) != 1 || logRecords[0] != "first entry" {
 		t.Errorf("Log.Iterate after bootstrap: got %v, want [first entry]", logRecords)
 	}
+}
+
+// TestRULE_STATE_12_FreeSpaceGuard verifies that KV writes refuse
+// before mutating in-memory state when the state directory has less
+// than iox.MinFreeBytesForState bytes free. This prevents the
+// silent in-memory/on-disk divergence that the senior-review's C7
+// finding identified: prior to this guard, Set() would mutate the
+// in-memory map first (line 100 of kv.go) and call persist() second
+// (line 101); a persist failure on ENOSPC returned the error to the
+// caller but left the in-memory map advanced — on restart the daemon
+// loaded the OLD on-disk value while the runtime had been quietly
+// running on the NEW value (RULE-STATE-12).
+//
+// Tests inject via the ensureFreeSpaceFn package-level seam rather
+// than mounting a tmpfs, so the refusal path is reproducible on any
+// CI runner regardless of the test root's actual free space.
+func TestRULE_STATE_12_FreeSpaceGuard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.yaml")
+
+	t.Run("RULE-STATE-12_set_refuses_before_in_memory_mutation", func(t *testing.T) {
+		db, err := openKV(path, discardLogger())
+		if err != nil {
+			t.Fatalf("openKV: %v", err)
+		}
+		// Seed an initial value so we can prove the refused Set did
+		// not overwrite it.
+		if err := db.Set("ns", "key", "original"); err != nil {
+			t.Fatalf("Set seed: %v", err)
+		}
+
+		// Inject a stub that always refuses.
+		orig := ensureFreeSpaceFn
+		ensureFreeSpaceFn = func(_ string) error {
+			return fmt.Errorf("test stub: %w", iox.ErrInsufficientFreeSpace)
+		}
+		t.Cleanup(func() { ensureFreeSpaceFn = orig })
+
+		err = db.Set("ns", "key", "newvalue")
+		if err == nil {
+			t.Fatal("expected refusal on stubbed-low-space, got nil")
+		}
+		if !errors.Is(err, iox.ErrInsufficientFreeSpace) {
+			t.Errorf("expected wrapped iox.ErrInsufficientFreeSpace, got %v", err)
+		}
+
+		// Critical assertion: in-memory state was NOT mutated by the
+		// refused Set. A naïve "pre-flight in persist()" implementation
+		// would have already mutated the map before persist refused;
+		// this test would then read "newvalue" and fail.
+		v, ok, err := db.Get("ns", "key")
+		if err != nil {
+			t.Fatalf("Get after refused Set: %v", err)
+		}
+		if !ok {
+			t.Fatal("expected key to remain after refused Set")
+		}
+		if v != "original" {
+			t.Errorf("in-memory mutated despite refused Set: Get returned %q, want %q", v, "original")
+		}
+
+		// And on-disk state must also still be the original — a
+		// healthy persist following a low-space refusal doesn't
+		// happen, so the disk file is unchanged.
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read state.yaml: %v", readErr)
+		}
+		if !strings.Contains(string(raw), "original") {
+			t.Errorf("on-disk state.yaml lost the original value; content:\n%s", raw)
+		}
+		if strings.Contains(string(raw), "newvalue") {
+			t.Errorf("on-disk state.yaml acquired the refused newvalue; content:\n%s", raw)
+		}
+	})
+
+	t.Run("RULE-STATE-12_delete_refuses_before_in_memory_mutation", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := openKV(filepath.Join(dir, "state.yaml"), discardLogger())
+		if err != nil {
+			t.Fatalf("openKV: %v", err)
+		}
+		if err := db.Set("ns", "key", "original"); err != nil {
+			t.Fatalf("Set seed: %v", err)
+		}
+
+		orig := ensureFreeSpaceFn
+		ensureFreeSpaceFn = func(_ string) error {
+			return fmt.Errorf("test stub: %w", iox.ErrInsufficientFreeSpace)
+		}
+		t.Cleanup(func() { ensureFreeSpaceFn = orig })
+
+		err = db.Delete("ns", "key")
+		if err == nil {
+			t.Fatal("expected Delete refusal on stubbed-low-space, got nil")
+		}
+		if !errors.Is(err, iox.ErrInsufficientFreeSpace) {
+			t.Errorf("expected wrapped iox.ErrInsufficientFreeSpace, got %v", err)
+		}
+
+		// Key must still be present in-memory — Delete refused before
+		// the delete-from-map step.
+		_, ok, _ := db.Get("ns", "key")
+		if !ok {
+			t.Error("Delete refused but key was still removed from in-memory map")
+		}
+	})
+
+	t.Run("RULE-STATE-12_with_transaction_refuses_before_calling_fn", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := openKV(filepath.Join(dir, "state.yaml"), discardLogger())
+		if err != nil {
+			t.Fatalf("openKV: %v", err)
+		}
+
+		orig := ensureFreeSpaceFn
+		ensureFreeSpaceFn = func(_ string) error {
+			return fmt.Errorf("test stub: %w", iox.ErrInsufficientFreeSpace)
+		}
+		t.Cleanup(func() { ensureFreeSpaceFn = orig })
+
+		fnCalled := false
+		err = db.WithTransaction(func(tx *KVTx) error {
+			fnCalled = true
+			tx.Set("ns", "key", "v")
+			return nil
+		})
+		if err == nil {
+			t.Fatal("expected WithTransaction refusal on stubbed-low-space, got nil")
+		}
+		if !errors.Is(err, iox.ErrInsufficientFreeSpace) {
+			t.Errorf("expected wrapped iox.ErrInsufficientFreeSpace, got %v", err)
+		}
+		if fnCalled {
+			t.Error("WithTransaction invoked fn despite low-space refusal; expected pre-flight to short-circuit")
+		}
+	})
+
+	t.Run("RULE-STATE-12_seam_restored_after_test_lets_subsequent_writes_pass", func(t *testing.T) {
+		// Sanity: after the cleanup-restored seam, a fresh KV write
+		// against the test root (which has gigabytes free) succeeds.
+		// Catches any test that forgets to restore the seam and
+		// poisons subsequent tests in the same package.
+		dir := t.TempDir()
+		db, err := openKV(filepath.Join(dir, "state.yaml"), discardLogger())
+		if err != nil {
+			t.Fatalf("openKV: %v", err)
+		}
+		if err := db.Set("ns", "key", "post-cleanup"); err != nil {
+			t.Errorf("Set on healthy fs after seam cleanup failed: %v", err)
+		}
+	})
 }
