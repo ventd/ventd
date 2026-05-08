@@ -66,6 +66,14 @@ var (
 	buildDate = "unknown"
 )
 
+// nvmlInitTimeout caps NVML library load + nvmlInit_v2 at startup so
+// a partial NVIDIA driver install (mismatched DKMS, stale .so symbols,
+// kernel module wedge) cannot hang daemon startup past systemd's
+// TimeoutStartSec. Per RULE-GPU-PR2D-09. 2 s is well above the typical
+// cold-load wall time (~50-200 ms) and tight enough that a hung dlopen
+// surfaces a recoverable failure rather than a wedged daemon.
+const nvmlInitTimeout = 2 * time.Second
+
 func main() {
 	if err := run(); err != nil {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -433,7 +441,15 @@ func run() error {
 	// logs the outcome. Never fatal: hwmon fan control must keep working
 	// either way. Shutdown is only scheduled when Init succeeded so we
 	// don't release a refcount we didn't acquire.
-	if err := nvidia.Init(logger); err == nil {
+	//
+	// InitWithDeadline guards against a hung purego.Dlopen on partial
+	// driver installs (mismatched DKMS, stale libnvidia-ml.so.1 symbols,
+	// kernel module wedge). Without the deadline, daemon startup can
+	// hang past systemd's TimeoutStartSec with no diagnostic the
+	// operator can act on. Per RULE-GPU-PR2D-09: timeout fire returns
+	// wrapped ErrLibraryUnavailable; the orphaned dlopen goroutine
+	// leaks for process lifetime, by design.
+	if err := nvidia.InitWithDeadline(context.Background(), logger, nvmlInitTimeout); err == nil {
 		defer nvidia.Shutdown()
 	}
 

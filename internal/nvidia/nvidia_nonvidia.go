@@ -11,8 +11,10 @@
 package nvidia
 
 import (
+	"context"
 	"errors"
 	"log/slog"
+	"time"
 )
 
 var (
@@ -31,6 +33,15 @@ func Init(logger *slog.Logger) error {
 		logger.Info("nvidia: compiled out (nonvidia build tag); GPU features disabled")
 	}
 	return ErrLibraryUnavailable
+}
+
+// InitWithDeadline mirrors the !nonvidia signature so callers can use
+// the same call site under both build tags. Returns ErrLibraryUnavailable
+// immediately because NVML is compiled out. ctx and timeout are unused.
+func InitWithDeadline(ctx context.Context, logger *slog.Logger, timeout time.Duration) error {
+	_ = ctx
+	_ = timeout
+	return Init(logger)
 }
 
 func Shutdown()                                                     {}
