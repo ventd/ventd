@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.29] - 2026-05-08
+
+### Headline
+
+The in-UI updater actually works. v0.5.x had a latent two-stage bug — the staged install.sh was unreachable from the spawned transient unit, AND when that unit failed the API still replied 202 "scheduled" — so operators clicking "Update" in the dashboard saw a green ack and watched nothing happen. Both halves are closed in this release; the upgrade path from any prior v0.5.x to v0.5.29+ is now end-to-end functional and an upgrade failure surfaces an actionable message in the next /api/v1/update/check response.
+
+### Fixed (operator-visible)
+
+- **`writeInstallShBytes` stages install.sh under `/run/ventd`, not `/tmp`** (#1006). ventd.service ships `PrivateTmp=yes`, so the daemon's view of `/tmp` is a per-unit kernel namespace. The transient `ventd-update.service` spawned via `systemd-run` runs in the host namespace; a script staged in the daemon's PrivateTmp `/tmp` is not at that path on the host, and bash returns `exit 127` / ENOENT. systemd journal records `ventd-update.service: Main process exited, code=exited, status=127/n/a` but the API caller saw a successful 202 because `realUpdateRun`'s `cmd.Run()` observed a successful systemd-run *queue*, not the unit's runtime exit. Diagnosed end-to-end on the MSI Z690-A desktop on 2026-05-08; latent since the systemd-run pattern landed. Fix stages under `/run/ventd` (host-shared, not namespaced under PrivateTmp, already in the unit's `ReadWritePaths`, ephemeral so no orphan litter). Falls back to `os.CreateTemp("", ...)` when `/run/ventd` is unavailable (dev-tree invocation, non-systemd hosts) so existing dev workflows keep working. Bound to new `RULE-WEB-UPDATE-STAGE-PATH-OUTSIDE-PRIVATETMP` with four subtests.
+
+- **Failed transient unit surfaces via `/api/v1/update/check.last_apply_error`** (#1007). Even with the staging path fixed, `POST /api/v1/update/apply` previously replied 202 regardless of whether the spawned unit would actually succeed at startup. New bounded watcher goroutine (`watchUpdateApplyOutcome` in `internal/web/update_outcome.go`) polls the transient unit for up to 60 s at 1 s intervals; on `Result != "success"` and `SubState ∈ {exited, dead, failed}`, captures the result + last 30 journal lines into a package-level `atomic.Pointer[LastApplyOutcome]`. The next `GET /update/check` includes `last_apply_error: {at, version, status, detail, journal_tail}` so the operator sees the actionable failure cause without leaving the dashboard. Success is silent (the daemon's restart is the success surface; recording success would persist a stale "last failed" indicator after the next successful install). Timeout is silent (operator can re-poll). The `omitempty` tag preserves backward compatibility — older UIs that don't know about the field see no behaviour change. Bound to new `RULE-WEB-UPDATE-STATUS-FIDELITY` with six subtests.
+
+### Internals
+
+- New package-level seams in `internal/web/update.go` and `internal/web/update_outcome.go`: `installStagingDir`, `systemctlIsFailedFn`, `journalctlTailFn`, `updateOutcomeWatchTimeout`, `updateOutcomePollInterval`. All overridable from tests so the test suite is hermetic and doesn't sleep for real.
+- `LastApplyOutcome` struct is JSON-shaped via standard tags (no manual marshal); `omitempty` drives the back-compat shim.
+- Watcher only fires when `systemd-run` was the spawn primitive; the nohup fallback path is unaffected.
+
+### Senior review pass
+
+The two fixes were diagnosed live during a "test it, validate it works, not what doesn't" run on Phoenix's desktop (Ubuntu 24.04, kernel 6.8.0-111, MSI Z690-A, nct6687, ventd v0.5.26). Smart-mode validation on that same run confirmed Layer B coupling shards persist for all 8 fans (`/var/lib/ventd/smart/shard-B/_sys_class_hwmon_hwmon5_pwm{1..8}.cbor`), 718,815 observation records over 5 days, ControllerState=COLD_START throughout (Layer B in warmup pending sustained Δpwm excitation per RULE-CMB-OAT-01) — all consistent with documented behaviour. The smart-mode invariants are real; only the update-feature plumbing was broken.
+
 ## [v0.5.28] - 2026-05-08
 
 ### Headline
