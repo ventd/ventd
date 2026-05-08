@@ -1,18 +1,37 @@
 package watchdog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"path/filepath"
+	"sort"
 	"sync"
+	"time"
 
 	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwmon"
 )
+
+// DefaultRestoreBudget caps the total wall-clock time RestoreCtx
+// spends completing per-channel restore goroutines. Per
+// RULE-WD-RESTORE-BUDGET. 1.8 s leaves 200 ms of headroom under
+// systemd's typical 2 s WatchdogSec / TimeoutStopSec, so the
+// daemon's own restore path is the load-bearing safety primitive
+// rather than systemd's belt-and-braces SIGKILL + ventd-recover.
+const DefaultRestoreBudget = 1800 * time.Millisecond
+
+// restoreOneImpl is the swappable seam used by restoreOneCtx so
+// tests can inject a stub that simulates a hung backend, exercising
+// the deadline-exceeded branch of RestoreCtx without needing a
+// real /sys driver wedge. Production always points at the
+// (*Watchdog).restoreOne method (the existing per-entry restore +
+// panic-recover envelope, unchanged in behaviour).
+var restoreOneImpl = func(w *Watchdog, e entry) { w.restoreOne(e) }
 
 // Safety envelope — what this watchdog actually covers.
 //
@@ -147,18 +166,122 @@ func (w *Watchdog) Deregister(pwmPath string) {
 	}
 }
 
+// Restore wraps RestoreCtx with the default budget. Preserves the
+// pre-RULE-WD-RESTORE-BUDGET API for existing call sites + tests.
+// Callers who want a custom budget (or to honour an existing
+// shutdown ctx) should call RestoreCtx directly.
 func (w *Watchdog) Restore() {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultRestoreBudget)
+	defer cancel()
+	w.RestoreCtx(ctx)
+}
+
+// RestoreCtx is the budget-aware restore. Per-channel restores run
+// in parallel goroutines so a single hung sysfs write on one fan
+// doesn't stall the others. RestoreCtx returns when either every
+// goroutine has completed OR ctx is cancelled (typically by
+// DefaultRestoreBudget timing out). On deadline exceeded, channels
+// whose goroutines are still in-flight are logged by name; their
+// goroutines continue running because the underlying sysfs ioctl /
+// NVML call is uncancellable from goroutine cancellation alone, but
+// the daemon proceeds with its exit regardless. Per
+// RULE-WD-RESTORE-BUDGET.
+//
+// Per-entry panic recovery (RULE-WD-RESTORE-PANIC) and the
+// every-entry-touched contract (RULE-WD-RESTORE-EXIT) continue to
+// hold: panics in any one goroutine are caught by restoreOne's
+// existing defer/recover; entries whose goroutine completes within
+// the budget receive their full restore write.
+func (w *Watchdog) RestoreCtx(ctx context.Context) {
 	w.mu.Lock()
 	entries := make([]entry, len(w.entries))
 	copy(entries, w.entries)
 	w.mu.Unlock()
-
-	for _, e := range entries {
-		// Restore is the daemon's last-line safety net. A panic inside any one
-		// entry must not abort the loop — remaining fans would be left at
-		// whatever PWM the daemon last wrote, potentially unsafe.
-		w.restoreOne(e)
+	if len(entries) == 0 {
+		return
 	}
+
+	var imu sync.Mutex
+	incomplete := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		incomplete[e.pwmPath] = struct{}{}
+	}
+
+	var wg sync.WaitGroup
+	for _, e := range entries {
+		e := e // capture by value for the goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.restoreOneCtx(ctx, e)
+			imu.Lock()
+			delete(incomplete, e.pwmPath)
+			imu.Unlock()
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+		// Give in-flight goroutines a short grace to complete any
+		// remaining log writes / fast-returning syscalls before we
+		// snapshot the abandoned set. Without this grace the
+		// abandoned list races against goroutines that are
+		// microseconds away from finishing, AND any logger backed
+		// by a non-thread-safe writer (most test buffers, some
+		// journald shims) sees concurrent writes after the function
+		// returns. The grace is bounded so a truly hung goroutine
+		// can't extend the daemon's exit indefinitely.
+		grace := time.NewTimer(restoreGracePeriod)
+		defer grace.Stop()
+		select {
+		case <-done:
+		case <-grace.C:
+		}
+		imu.Lock()
+		abandoned := make([]string, 0, len(incomplete))
+		for p := range incomplete {
+			abandoned = append(abandoned, p)
+		}
+		imu.Unlock()
+		sort.Strings(abandoned)
+		if len(abandoned) > 0 {
+			w.logger.Warn("watchdog: restore budget exceeded; abandoning in-flight goroutines",
+				"deadline_cause", ctx.Err(),
+				"abandoned_channels", abandoned,
+				"abandoned_count", len(abandoned))
+		}
+		return
+	}
+}
+
+// restoreGracePeriod caps the wait for in-flight goroutines after
+// the budget has fired. 100 ms is generous for the goroutine to
+// either return from a microsecond-scale syscall OR emit its
+// per-entry skip-WARN; tight enough that a truly hung backend
+// cannot extend the daemon's exit beyond budget + grace.
+const restoreGracePeriod = 100 * time.Millisecond
+
+// restoreOneCtx wraps the per-entry restore in a ctx pre-check. If
+// ctx is already cancelled before we'd dispatch to the backend, we
+// log + skip to avoid wasting time on a syscall we can't honour.
+// The seam restoreOneImpl lets tests inject a stub that blocks past
+// the budget so RestoreCtx's deadline-exceeded branch is reachable.
+func (w *Watchdog) restoreOneCtx(ctx context.Context, e entry) {
+	if err := ctx.Err(); err != nil {
+		w.logger.Warn("watchdog: restore skipped — ctx cancelled before backend call",
+			"path", e.pwmPath,
+			"err", err)
+		return
+	}
+	restoreOneImpl(w, e)
 }
 
 // restoreOne dispatches a single entry's restore to the appropriate

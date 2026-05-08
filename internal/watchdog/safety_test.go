@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ventd/ventd/internal/testfixture/fakehwmon"
 )
@@ -406,6 +407,195 @@ func TestWDSafety_Invariants(t *testing.T) {
 		w.Restore()
 		if got := readTrimmed(t, enablePath); got != "2" {
 			t.Errorf("pwm_enable after daemon-exit Restore = %q, want %q (startup value preserved)", got, "2")
+		}
+	})
+
+	// ─── RULE-WD-RESTORE-BUDGET ────────────────────────────────────────
+
+	t.Run("wd_restore_completes_within_budget", func(t *testing.T) {
+		// Per-channel restores run in parallel goroutines. With three
+		// fast-write channels (fakehwmon writes are microseconds) and
+		// a generous 500 ms budget, every entry's _enable file MUST
+		// be back at its origEnable value within the budget, no
+		// abandoned-channels WARN must fire, and total wall clock
+		// MUST be under the budget — proves that the parallel
+		// dispatch landed and the deadline-exceeded branch is NOT
+		// firing on the happy path.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 128, Enable: 1},
+					{Index: 2, PWM: 128, Enable: 1},
+					{Index: 3, PWM: 128, Enable: 1},
+				},
+			}},
+		})
+		paths := []string{
+			filepath.Join(fake.Root, "hwmon0", "pwm1"),
+			filepath.Join(fake.Root, "hwmon0", "pwm2"),
+			filepath.Join(fake.Root, "hwmon0", "pwm3"),
+		}
+
+		var buf bytes.Buffer
+		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		for _, p := range paths {
+			w.Register(p, "hwmon")
+			// Move to non-original state so the post-Restore read
+			// proves a write actually happened on this entry.
+			if err := os.WriteFile(p+"_enable", []byte("2\n"), 0o600); err != nil {
+				t.Fatalf("perturb %s_enable: %v", p, err)
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		w.RestoreCtx(ctx)
+		elapsed := time.Since(start)
+
+		if elapsed > 400*time.Millisecond {
+			t.Errorf("RestoreCtx took %v on the happy path; deadline-exceeded branch should not have fired", elapsed)
+		}
+		for _, p := range paths {
+			if got := readTrimmed(t, p+"_enable"); got != "1" {
+				t.Errorf("%s_enable after RestoreCtx = %q, want %q", p, got, "1")
+			}
+		}
+		if strings.Contains(buf.String(), "abandoning in-flight goroutines") {
+			t.Errorf("happy path emitted abandoned-channels WARN; logs:\n%s", buf.String())
+		}
+	})
+
+	t.Run("wd_restore_budget_exceeded_logs_abandoned_continues_others", func(t *testing.T) {
+		// Inject a stub that hangs for one channel and runs the real
+		// restore for the others. With a 100 ms budget the hung
+		// channel's goroutine is abandoned (it keeps sleeping until
+		// the test exits) but the function MUST return within the
+		// budget + a small grace, the other channels MUST be
+		// restored, and the abandoned-channels WARN MUST name the
+		// hung path so operators can correlate the journal entry
+		// to the specific fan that didn't complete.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 128, Enable: 1},
+					{Index: 2, PWM: 128, Enable: 1},
+					{Index: 3, PWM: 128, Enable: 1},
+				},
+			}},
+		})
+		hungPath := filepath.Join(fake.Root, "hwmon0", "pwm2")
+		fastPaths := []string{
+			filepath.Join(fake.Root, "hwmon0", "pwm1"),
+			filepath.Join(fake.Root, "hwmon0", "pwm3"),
+		}
+
+		// Swap restoreOneImpl to simulate a hung backend on one path.
+		stop := make(chan struct{})
+		t.Cleanup(func() { close(stop) })
+		orig := restoreOneImpl
+		restoreOneImpl = func(w *Watchdog, e entry) {
+			if e.pwmPath == hungPath {
+				select {
+				case <-stop:
+				case <-time.After(5 * time.Second):
+				}
+				return
+			}
+			orig(w, e)
+		}
+		t.Cleanup(func() { restoreOneImpl = orig })
+
+		var buf bytes.Buffer
+		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		w.Register(fastPaths[0], "hwmon")
+		w.Register(hungPath, "hwmon")
+		w.Register(fastPaths[1], "hwmon")
+		for _, p := range append(fastPaths, hungPath) {
+			if err := os.WriteFile(p+"_enable", []byte("2\n"), 0o600); err != nil {
+				t.Fatalf("perturb %s_enable: %v", p, err)
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		w.RestoreCtx(ctx)
+		elapsed := time.Since(start)
+
+		if elapsed > 300*time.Millisecond {
+			t.Errorf("RestoreCtx returned after %v despite a 100 ms budget; the deadline-exceeded branch did not unblock the caller", elapsed)
+		}
+		for _, p := range fastPaths {
+			if got := readTrimmed(t, p+"_enable"); got != "1" {
+				t.Errorf("%s_enable after RestoreCtx = %q, want %q (parallel restore must have completed despite the hung peer)", p, got, "1")
+			}
+		}
+		// The hung path's _enable file is still at the perturbed value
+		// because its goroutine never reached the backend write.
+		if got := readTrimmed(t, hungPath+"_enable"); got != "2" {
+			t.Errorf("hung path %s_enable = %q, want %q (its goroutine must still be running, not a successful write)", hungPath, got, "2")
+		}
+		// The WARN log must name the abandoned channel so an operator
+		// reading the journal can correlate the budget overrun to the
+		// specific fan path.
+		logOut := buf.String()
+		if !strings.Contains(logOut, "abandoning in-flight goroutines") {
+			t.Errorf("expected abandoned-channels WARN, got:\n%s", logOut)
+		}
+		if !strings.Contains(logOut, hungPath) {
+			t.Errorf("expected hung path %q named in WARN, got:\n%s", hungPath, logOut)
+		}
+		if !strings.Contains(logOut, `"abandoned_count":1`) && !strings.Contains(logOut, "abandoned_count=1") {
+			t.Errorf("expected abandoned_count=1 in WARN, got:\n%s", logOut)
+		}
+	})
+
+	t.Run("wd_restore_pre_cancelled_ctx_skips_backend", func(t *testing.T) {
+		// A ctx that's already cancelled at the moment RestoreCtx
+		// reaches restoreOneCtx for an entry must skip the backend
+		// dispatch entirely. The _enable file stays at its perturbed
+		// value (proof we did NOT call into the backend) and a WARN
+		// MUST be emitted naming the skip + the cancellation cause.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 128, Enable: 1},
+				},
+			}},
+		})
+		pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
+
+		var buf bytes.Buffer
+		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		w.Register(pwm, "hwmon")
+		if err := os.WriteFile(pwm+"_enable", []byte("2\n"), 0o600); err != nil {
+			t.Fatalf("perturb pwm_enable: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // cancel before RestoreCtx is even called
+
+		w.RestoreCtx(ctx)
+
+		// _enable file must still read 2 — restoreOneCtx returned
+		// without dispatching to the backend.
+		if got := readTrimmed(t, pwm+"_enable"); got != "2" {
+			t.Errorf("pwm_enable after pre-cancelled RestoreCtx = %q, want %q (backend MUST be skipped)", got, "2")
+		}
+		// The skip path may emit either the per-entry "ctx cancelled
+		// before backend call" WARN OR the budget-exceeded
+		// "abandoning in-flight goroutines" WARN depending on whether
+		// the goroutine reached its ctx pre-check before the
+		// RestoreCtx outer select fired. Either is acceptable; both
+		// communicate "we did not dispatch the backend on this run."
+		logOut := buf.String()
+		if !strings.Contains(logOut, "ctx cancelled before backend call") &&
+			!strings.Contains(logOut, "abandoning in-flight goroutines") {
+			t.Errorf("expected a ctx-skip or budget-exceeded WARN, got:\n%s", logOut)
 		}
 	})
 }
