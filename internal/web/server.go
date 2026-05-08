@@ -1340,8 +1340,8 @@ type smartStatusResponse struct {
 	Preset      string `json:"preset"`
 	GlobalState string `json:"global_state"` // worst per-channel UI state across the fleet
 	Channels    int    `json:"channels"`
-	WarmingUp   int    `json:"warming_up"`     // count of channels still warming Layer B/C
-	Converged   int    `json:"converged"`      // count fully converged
+	WarmingUp   int    `json:"warming_up"` // count of channels still warming Layer B/C
+	Converged   int    `json:"converged"`  // count fully converged
 	// ConfidenceMin/Max are nullable: emit JSON null when no channel
 	// has positive Wpred yet (pre-warmup, monitor-only, or all
 	// channels refused). The UI's smart-mode globals card handles
