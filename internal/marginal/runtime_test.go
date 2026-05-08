@@ -171,9 +171,19 @@ func TestRuntime_OneGoroutinePerShard(t *testing.T) {
 
 // TestRuntime_OnObservationNonBlocking — RULE-CMB-RUNTIME-02.
 //
-// OnObservation must return well within a tick budget (1 ms here).
-// Synchronous direct-update model means it's bounded by Update's
-// pure-CPU cost.
+// OnObservation must be non-blocking — its intrinsic cost (CPU time
+// to update the synchronous direct-update RLS state) must fit well
+// within the controller's tick budget. Spec quotes ~50 µs at d=2;
+// the test asserts the minimum-over-N samples is < 1 ms.
+//
+// Why min-over-N instead of single-sample wall-clock: one sample is
+// dominated by environmental noise on shared CI runners — GC pauses
+// (~ms with race detector active), scheduler jitter, arm64 emulation
+// overhead, syscall latency. Issue #1012 caught the flake on
+// `build-and-test-ubuntu-arm64`. Taking the minimum over N≥50 samples
+// keeps the spec's "non-blocking" assertion honest: if even ONE call
+// lands under 1 ms, the operation is intrinsically fast and slow
+// tail latencies are environmental, not architectural.
 func TestRuntime_OnObservationNonBlocking(t *testing.T) {
 	rt := NewRuntime("", "fp", nil, nil, silentLogger())
 	// Stabilise OAT.
@@ -183,13 +193,23 @@ func TestRuntime_OnObservationNonBlocking(t *testing.T) {
 			PWMWritten: 100, DeltaT: -1.0, Load: 0.5,
 		})
 	}
-	start := time.Now()
-	rt.OnObservation(ObservationInput{
-		Now: time.Now(), ChannelID: "ch", SignatureLabel: "sig",
-		PWMWritten: 100, DeltaT: -1.0, Load: 0.5,
-	})
-	if elapsed := time.Since(start); elapsed > time.Millisecond {
-		t.Errorf("OnObservation took %v; want < 1ms", elapsed)
+
+	// Take N samples; minimum is robust to scheduler / GC jitter.
+	const samples = 50
+	minDur := time.Hour
+	for i := 0; i < samples; i++ {
+		start := time.Now()
+		rt.OnObservation(ObservationInput{
+			Now: time.Now(), ChannelID: "ch", SignatureLabel: "sig",
+			PWMWritten: 100, DeltaT: -1.0, Load: 0.5,
+		})
+		if d := time.Since(start); d < minDur {
+			minDur = d
+		}
+	}
+	if minDur > time.Millisecond {
+		t.Errorf("OnObservation minimum over %d samples = %v; want < 1ms — the operation is intrinsically slow, not just environmentally affected",
+			samples, minDur)
 	}
 }
 
