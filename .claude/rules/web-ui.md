@@ -58,3 +58,57 @@ Bound: internal/web/update_staging_test.go:staging_dir_default_is_run_ventd
 Bound: internal/web/update_staging_test.go:happy_path_stages_under_configured_dir
 Bound: internal/web/update_staging_test.go:falls_back_to_default_tmp_when_staging_dir_unwritable
 Bound: internal/web/update_staging_test.go:empty_staging_dir_seam_uses_default_tmp
+
+## RULE-WEB-UPDATE-STATUS-FIDELITY: failed transient unit surfaces via /api/v1/update/check.last_apply_error.
+
+When `POST /api/v1/update/apply` spawns the transient
+`ventd-update.service` via systemd-run AND that unit subsequently
+fails (script ENOENT, exec error, install.sh exit non-zero before
+binary swap), the daemon MUST surface that failure to the in-UI
+operator on the next `GET /api/v1/update/check`.
+
+The mechanism: a bounded watcher goroutine (`watchUpdateApplyOutcome`
+in `update_outcome.go`) polls the transient unit for up to
+`updateOutcomeWatchTimeout` (60s default) at
+`updateOutcomePollInterval` (1s default). When systemd reports the
+unit `Result != "success"` and `SubState ∈ {exited, dead, failed}`,
+the watcher captures the result + last 30 journal lines into
+`lastApplyOutcomePtr` (an `atomic.Pointer[LastApplyOutcome]`). The
+next `/update/check` includes the captured state under the
+`last_apply_error` JSON field.
+
+Three locked behaviours:
+
+- **Failure capture**: a unit that finishes with non-success result
+  produces a non-nil `LastApplyOutcome` containing the version, RFC3339Nano
+  timestamp, status string ("failed"), Detail naming the unit + result +
+  script path, and the journal tail. The same daemon's subsequent
+  /update/check responses include `last_apply_error` until the daemon
+  restarts.
+- **Success silence**: a unit that finishes with `Result=success`
+  records NO outcome. The success surface is the daemon's own restart
+  (operator polls /update/check, sees `current` updated to the new
+  version). Storing a success outcome would persist a stale "last
+  attempt failed" indicator after a successful subsequent install.
+- **Timeout silence**: a unit that never finishes within
+  updateOutcomeWatchTimeout records NO outcome. The watcher returns;
+  the operator can re-poll /update/check after the next state change.
+
+The `omitempty` tag on `LastApplyError` is load-bearing: when no
+failure has been observed in the daemon's lifetime, the JSON response
+MUST NOT include the field so older UIs that don't know about it see
+no behaviour change.
+
+The watcher is only spawned when `systemd-run` is the spawn primitive
+(systemd available + systemd-run on PATH). The nohup fallback path
+has no transient unit to watch.
+
+Transient query errors (systemd reloading, dbus busy) on a single
+poll MUST NOT terminate the watcher — the next tick re-queries.
+
+Bound: internal/web/update_outcome_test.go:failed_unit_captures_outcome_with_journal_tail
+Bound: internal/web/update_outcome_test.go:successful_unit_records_no_outcome
+Bound: internal/web/update_outcome_test.go:never_finished_within_timeout_records_no_outcome
+Bound: internal/web/update_outcome_test.go:transient_query_error_does_not_terminate_watcher
+Bound: internal/web/update_outcome_test.go:update_check_surfaces_captured_outcome_via_json_response
+Bound: internal/web/update_outcome_test.go:update_check_omits_field_when_outcome_unset

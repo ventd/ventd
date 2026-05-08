@@ -55,13 +55,21 @@ var installShEmbedded []byte
 // either is empty or unparseable, available falls back to a simple
 // string-mismatch test. The daemon never auto-applies updates — every
 // transition requires an explicit POST to /apply.
+//
+// LastApplyError is populated when the most recent in-UI /update/apply
+// produced an in-process failure visible to the daemon — the watcher
+// (see update_outcome.go) populates it asynchronously after the spawn.
+// Empty when no failure has been observed in this daemon's lifetime;
+// the field is omitted from the JSON response in that case so older
+// UIs see no behaviour change.
 type updateCheckResponse struct {
-	Current   string `json:"current"`
-	Latest    string `json:"latest"`
-	Available bool   `json:"available"`
-	Published string `json:"published_at,omitempty"` // RFC3339 from GitHub
-	URL       string `json:"url,omitempty"`          // release page URL
-	Error     string `json:"error,omitempty"`        // surface fetch errors honestly
+	Current        string            `json:"current"`
+	Latest         string            `json:"latest"`
+	Available      bool              `json:"available"`
+	Published      string            `json:"published_at,omitempty"` // RFC3339 from GitHub
+	URL            string            `json:"url,omitempty"`          // release page URL
+	Error          string            `json:"error,omitempty"`        // surface fetch errors honestly
+	LastApplyError *LastApplyOutcome `json:"last_apply_error,omitempty"`
 }
 
 // updateRepoSlug points at the canonical ventd repo. Override-able for
@@ -217,6 +225,9 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	resp.Published = published
 	resp.URL = htmlURL
 	resp.Available = versionAvailable(resp.Current, tag)
+	if outcome := lastApplyOutcomePtr.Load(); outcome != nil {
+		resp.LastApplyError = outcome
+	}
 	s.writeJSON(r, w, resp)
 }
 
@@ -580,6 +591,14 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("update: install scheduled", "version", req.Version, "script", scriptPath)
+	// Watch the spawned transient unit for up-to-watch-timeout
+	// seconds and capture failure outcomes for /update/check to
+	// surface. Only relevant when systemd-run was the spawn
+	// primitive — the nohup fallback has no transient unit and
+	// the watcher would observe nothing useful.
+	if systemdRunPath() != "" && systemdAvailable() {
+		go watchUpdateApplyOutcome(req.Version, "ventd-update.service", scriptPath, s.logger)
+	}
 	w.WriteHeader(http.StatusAccepted)
 	s.writeJSON(r, w, updateApplyResponse{
 		Status:  "scheduled",
