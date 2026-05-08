@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.32] - 2026-05-08
+
+### Headline
+
+Item A4 of the v0.6.0 ship plan — the test-fixture infrastructure the senior review flagged as the highest-leverage test improvement available. `internal/testfixture/fakehwmon` gains four canonical chip-quirk helpers (`InjectSentinelRPM`, `SimulateBIOSRevert`, `SimulateFanResponse` with normal/inverted polarity, `ReassertPWMEnable`) plus four matching opt-in `PWMOptions` fields documenting the firing cadence. Tests can now exercise rules end-to-end through synthetic chips that misbehave like the real ones (nct6687 sentinel, it8689e BIOS-revert, inverted-polarity fans, Gigabyte Q-Fan reassertion).
+
+### Internals
+
+- **`Fake.InjectSentinelRPM(chipIndex, fanIndex)`** writes the new `SentinelRPMValue=65535` constant (the 0xFFFF nct6687 sentinel) to `fan*_input`. Exercises `RULE-HWMON-SENTINEL-FAN`, `RULE-SENTINEL-FAN-IMPLAUSIBLE`, `RULE-HWMON-INVALID-CURVE-SKIP`, `RULE-HWMON-PROLONGED-INVALID-RESTORE` end-to-end through `controller.tick` rather than just the backend boundary.
+- **`Fake.SimulateBIOSRevert(chipIndex, pwmIndex, originalValue)`** writes `originalValue` back to `pwm*`, modelling the it8689e accept-then-revert pattern. Tests sequence: backend-write → first-readback → SimulateBIOSRevert → second-readback. Exercises `RULE-CALIB-PR2B-06`, `RULE-ENVELOPE-14` against a real read-write-readback path.
+- **`Fake.SimulateFanResponse(chipIndex, pwmIndex, fanIndex, maxRPM, inverted)`** reads `pwm*` and writes the corresponding RPM (linear when `inverted=false`, inverse-mapped when `inverted=true`). Lets closed-loop tests exercise `RULE-POLARITY-02`, `RULE-CALIB-PR2B-02`, `RULE-OPP-PROBE-04` against synthetic chips whose fan reading actually responds to the daemon's PWM writes.
+- **`Fake.ReassertPWMEnable(chipIndex, pwmIndex, value)`** writes `value` to `pwm*_enable`, modelling Gigabyte Q-Fan / Smart Fan Control reassertion. Tests pair with their own EBUSY-injecting stub on `writePWMFn` to exercise `RULE-HWMON-MODE-REACQUIRE`'s single-retry contract against a stateful fixture.
+- **Four matching `PWMOptions` fields** (`EmitSentinelRPMEvery`, `BIOSRevertAfter`, `InvertedPolarity`, `EBUSYReassertEvery`) document the intended firing cadence so v0.6+ wiring can drive helpers automatically.
+
+Helpers are explicit (test calls them between backend operations) because the fake is file-backed and the production hwmon backend reads/writes via `os.ReadFile`/`os.WriteFile` directly — there is no interception point on the read or write path.
+
+Bound to new `RULE-FAKEHWMON-QUIRK-HELPERS` in `.claude/rules/hwmon-sentinel.md` with 8 leaf subtests in `internal/testfixture/fakehwmon/quirks_test.go`.
+
+### Fixed
+
+- **`TestManager_StartTransitionsToRunningThenDone` race fix (#1015 follow-up).** The test asserted `Running=true` immediately after `Start()` returned, which is racy on fast GHA runners — the wizard's goroutine can complete before the test observes Progress. Caught on `build-and-test-ubuntu-22-04` per the user's "no more ignoring CIs if they fail we fix" directive. The test now accepts `Running=true OR Done=true` as valid post-Start states; the contract is "Start scheduled the work" and both observable states satisfy that.
+
+### Senior review pass
+
+The follow-up "migrate ~40 existing rule subtests to consume the helpers" deliverable (the senior review's "exercises lines → exercises behaviour" step) and the systematic `goleak.VerifyTestMain` rollout to `internal/web` / `controller` / `observation` / `marginal` / `coupling` are deferred to subsequent patches. v0.5.32 ships the FOUNDATION; the migration is mechanical but voluminous and benefits from being a separate review. The goleak rollout will surface real leaks in long-running goroutine packages (web server, schedulers, runtimes) and needs separate cleanup work.
+
 ## [v0.5.31] - 2026-05-08
 
 ### Headline
