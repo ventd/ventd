@@ -195,6 +195,35 @@ func TestSafety_SentinelInvariants(t *testing.T) {
 		}
 	})
 
+	t.Run("sentinel/temp_low_flagged_as_disconnected", func(t *testing.T) {
+		// RULE-SENTINEL-TEMP-DISCONNECT: temps in (PlausibleTempMin,
+		// LowTempAmbientFloor) are flagged but NOT rejected. The
+		// IsSentinelSensorVal hard reject covers ≤ −273.15°C and
+		// ≥ 150°C; THIS helper covers the suspicious-but-plausible
+		// band where a disconnected hwmon temp pin reads the chip's
+		// analog default. Phoenix's NCT6687 "PCIe x1" 8.5°C is the
+		// canonical case (#923 / B2).
+		cases := []struct {
+			val  float64
+			want bool
+			why  string
+		}{
+			{8.5, true, "Phoenix NCT6687 PCIe x1 disconnected"},
+			{5.0, true, "below ambient floor"},
+			{10.0, false, "exactly at ambient floor (exclusive)"},
+			{-17.0, true, "Framework 13 AMD I2C underflow (still above absolute-zero)"},
+			{PlausibleTempMinCelsius, false, "absolute-zero floor handled elsewhere"},
+			{25.0, false, "normal idle CPU"},
+			{45.0, false, "normal warm CPU"},
+		}
+		for _, c := range cases {
+			got := IsLowTempLikelyDisconnected(c.val)
+			if got != c.want {
+				t.Errorf("IsLowTempLikelyDisconnected(%.2f) = %v; want %v (%s)", c.val, got, c.want, c.why)
+			}
+		}
+	})
+
 	// ---------- RULE-HWMON-SENTINEL-VOLTAGE (IsSentinelSensorVal, in* prefix) ----------
 
 	t.Run("sentinel/voltage_rejects_implausible", func(t *testing.T) {

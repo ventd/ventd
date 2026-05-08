@@ -435,6 +435,27 @@
         var alias = el('span', { cls: 'alias', text: '→ ' + s.alias });
         name.appendChild(alias);
       }
+      // Surface the "no sensor connected" badge next to the name so
+      // the operator immediately sees the cell's value isn't real
+      // telemetry. Triggered by /api/v1/hardware/inventory's
+      // likely_disconnected flag — set in monitor.go for temp pins
+      // reading below LowTempAmbientFloorCelsius (10 °C) AND for
+      // fan tachs reading 0 RPM (an empty header) (#923 / B2 / B7).
+      if (s.likely_disconnected) {
+        var lbl = el('span', {
+          cls: 'pill warn hw-sensor-disconnected',
+          text: 'no sensor connected'
+        });
+        lbl.title = 'Reading is below normal sensor range — header probably has no sensor wired up.';
+        name.appendChild(lbl);
+      } else if (s.kind === 'fan' && (s.value || 0) === 0) {
+        var lbl2 = el('span', {
+          cls: 'pill muted hw-sensor-disconnected',
+          text: 'no fan connected'
+        });
+        lbl2.title = 'Header is exposed by the chip but reads 0 RPM — no fan plugged in, or fan stopped.';
+        name.appendChild(lbl2);
+      }
       row.appendChild(name);
 
       row.appendChild(makeSparkline(s.history || []));
