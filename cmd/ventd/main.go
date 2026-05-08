@@ -120,6 +120,23 @@ func run() error {
 		return runCalibrateAcoustic(os.Args[2:], logger)
 	}
 
+	// `ventd version` mirrors the --version flag for operators who
+	// type the subcommand instinctively. Both forms must short-circuit
+	// before any subsystem init — they MUST NOT load /etc/ventd/config.yaml
+	// (which is mode 0600 since v0.5.8.1's User=root flip; an unprivileged
+	// invocation would fatal-error with "permission denied" on a command
+	// that should just print the version and exit). Accepts an optional
+	// `--json` arg to mirror `--version --json`.
+	if len(os.Args) >= 2 && os.Args[1] == "version" {
+		emitJSON := false
+		for _, a := range os.Args[2:] {
+			if a == "--json" || a == "-json" {
+				emitJSON = true
+			}
+		}
+		return printVersion(os.Stdout, emitJSON)
+	}
+
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
 	logLevel := flag.String("log-level", "info", "log level: debug, info, warn, error")
 	doSetup := flag.Bool("setup", false, "run interactive setup wizard, write initial config, then exit")
