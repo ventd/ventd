@@ -26,11 +26,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/ventd/ventd/internal/nvidia"
 )
@@ -73,7 +75,10 @@ func main() {
 	// Suppress NVML init logs unless something goes wrong; the helper's
 	// stderr is parsed by the caller for error propagation.
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if err := nvidia.Init(logger); err != nil {
+	// Bound NVML init at 2 s so a hung dlopen on a partial driver install
+	// (mismatched DKMS / stale .so symbols / kernel module wedge) cannot
+	// hang the helper subprocess. RULE-GPU-PR2D-09.
+	if err := nvidia.InitWithDeadline(context.Background(), logger, 2*time.Second); err != nil {
 		fmt.Fprintf(os.Stderr, "ventd-nvml-helper: init NVML: %v\n", err)
 		os.Exit(exitInit)
 	}
