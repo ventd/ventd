@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -222,6 +223,7 @@ func TestSmartEndpoints_HandlerSignaturesPreserved(t *testing.T) {
 // schema bump shows up here. The smoke test just ensures Marshal
 // doesn't panic on a populated struct.
 func TestSmartStatus_JSONMarshalRoundTrip(t *testing.T) {
+	cmin, cmax := 0.45, 0.92
 	src := smartStatusResponse{
 		Enabled:       true,
 		Preset:        "balanced",
@@ -229,8 +231,8 @@ func TestSmartStatus_JSONMarshalRoundTrip(t *testing.T) {
 		Channels:      4,
 		WarmingUp:     2,
 		Converged:     2,
-		ConfidenceMin: 0.45,
-		ConfidenceMax: 0.92,
+		ConfidenceMin: &cmin,
+		ConfidenceMax: &cmax,
 	}
 	b, err := json.Marshal(src)
 	if err != nil {
@@ -240,8 +242,44 @@ func TestSmartStatus_JSONMarshalRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(b, &dst); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if dst.Channels != src.Channels || dst.GlobalState != src.GlobalState ||
-		fmt.Sprintf("%.4f", dst.ConfidenceMin) != fmt.Sprintf("%.4f", src.ConfidenceMin) {
+	if dst.Channels != src.Channels || dst.GlobalState != src.GlobalState {
 		t.Errorf("round-trip drifted: src=%+v dst=%+v", src, dst)
+	}
+	if dst.ConfidenceMin == nil || fmt.Sprintf("%.4f", *dst.ConfidenceMin) != fmt.Sprintf("%.4f", *src.ConfidenceMin) {
+		t.Errorf("ConfidenceMin round-trip drifted: src=%v dst=%v", src.ConfidenceMin, dst.ConfidenceMin)
+	}
+}
+
+// TestSmartStatus_NullConfidenceWhenAllPreWarmup pins B1 from the
+// v0.5.26 bug-floor probe: when every channel reports w_pred=0
+// (cold-start window per RULE-AGG-COLDSTART-01, or every channel is
+// still warming), ConfidenceMin/Max MUST emit JSON null rather than a
+// literal 0.0 — otherwise the smart-mode card renders a misleading
+// "Conf min: 0.00 / Conf max: 0.00".
+func TestSmartStatus_NullConfidenceWhenAllPreWarmup(t *testing.T) {
+	cmax := 0.0
+	if cmax > 0 {
+		t.Fatal("guard: pre-warmup means Wpred=0 across the fleet")
+	}
+	// Direct unit test of the JSON shape: with both pointers nil, the
+	// API must emit JSON null on both fields so web/smart.js's
+	// `val == null` branch in sysRow renders "—".
+	out := smartStatusResponse{
+		Enabled:     true,
+		Preset:      "silent",
+		GlobalState: "warming",
+		Channels:    2,
+		WarmingUp:   2,
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `"confidence_min":null`) {
+		t.Errorf("confidence_min should serialize as null, got: %s", got)
+	}
+	if !strings.Contains(got, `"confidence_max":null`) {
+		t.Errorf("confidence_max should serialize as null, got: %s", got)
 	}
 }

@@ -1336,14 +1336,21 @@ func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) 
 // global state, the active preset, and channel counts. UI shows it as
 // a single status pill or banner.
 type smartStatusResponse struct {
-	Enabled       bool    `json:"enabled"`
-	Preset        string  `json:"preset"`
-	GlobalState   string  `json:"global_state"` // worst per-channel UI state across the fleet
-	Channels      int     `json:"channels"`
-	WarmingUp     int     `json:"warming_up"`     // count of channels still warming Layer B/C
-	Converged     int     `json:"converged"`      // count fully converged
-	ConfidenceMin float64 `json:"confidence_min"` // min w_pred across channels (0..1)
-	ConfidenceMax float64 `json:"confidence_max"`
+	Enabled     bool   `json:"enabled"`
+	Preset      string `json:"preset"`
+	GlobalState string `json:"global_state"` // worst per-channel UI state across the fleet
+	Channels    int    `json:"channels"`
+	WarmingUp   int    `json:"warming_up"`     // count of channels still warming Layer B/C
+	Converged   int    `json:"converged"`      // count fully converged
+	// ConfidenceMin/Max are nullable: emit JSON null when no channel
+	// has positive Wpred yet (pre-warmup, monitor-only, or all
+	// channels refused). The UI's smart-mode globals card handles
+	// null as "—". Pre-fix, the handler emitted 0.0 here during the
+	// 5-min cold-start window (RULE-AGG-COLDSTART-01), turning the
+	// page into a literal "Conf min: 0.00 / Conf max: 0.00" — B1
+	// from the v0.5.26 bug-floor probe.
+	ConfidenceMin *float64 `json:"confidence_min"` // min w_pred across channels (0..1); null pre-warmup
+	ConfidenceMax *float64 `json:"confidence_max"` // max w_pred across channels; null pre-warmup
 }
 
 // smartChannelEntry is the deep per-channel snapshot for
@@ -1438,17 +1445,17 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 
 	aggSnaps := s.aggregator.SnapshotAll()
 	out := smartStatusResponse{
-		Enabled:       true,
-		Preset:        preset,
-		Channels:      len(aggSnaps),
-		ConfidenceMin: 1.0, // gets minned over the loop
-		ConfidenceMax: 0.0,
+		Enabled:  true,
+		Preset:   preset,
+		Channels: len(aggSnaps),
 	}
 	priority := map[string]int{
 		"refused": 0, "drifting": 1, "cold-start": 2,
 		"warming": 3, "converged": 4,
 	}
 	worst := "converged"
+	cmin := 1.0
+	cmax := 0.0
 	for _, a := range aggSnaps {
 		if a.UIState == "warming" || a.UIState == "cold-start" {
 			out.WarmingUp++
@@ -1456,23 +1463,29 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 		if a.UIState == "converged" {
 			out.Converged++
 		}
-		if a.Wpred < out.ConfidenceMin {
-			out.ConfidenceMin = a.Wpred
+		if a.Wpred < cmin {
+			cmin = a.Wpred
 		}
-		if a.Wpred > out.ConfidenceMax {
-			out.ConfidenceMax = a.Wpred
+		if a.Wpred > cmax {
+			cmax = a.Wpred
 		}
 		if priority[a.UIState] < priority[worst] {
 			worst = a.UIState
 		}
 	}
 	if len(aggSnaps) == 0 {
-		// No channels → no meaningful min/max; clamp to zeros.
-		out.ConfidenceMin = 0
-		out.ConfidenceMax = 0
+		// No channels at all: ConfidenceMin/Max stay nil (UI shows "—").
 		out.GlobalState = "converged"
 	} else {
 		out.GlobalState = worst
+		// Only emit numeric confidence_min/max when at least one
+		// channel has positive Wpred — i.e. someone has emerged from
+		// the cold-start / warming window. Otherwise leave them nil
+		// so the UI shows "—" rather than a literal "0.00".
+		if cmax > 0 {
+			out.ConfidenceMin = &cmin
+			out.ConfidenceMax = &cmax
+		}
 	}
 	s.writeJSON(r, w, out)
 }
