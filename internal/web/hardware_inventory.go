@@ -142,12 +142,41 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 	// Build alias-by-path indices for fast lookup. Sensors and fans
 	// are keyed by their sysfs path, which is also the
 	// monitor.Reading.SensorPath / config.Fan.PWMPath.
+	// Two alias maps:
+	//   sensorAliasByPath     — bare path. Used for hwmon, where each
+	//                            sysfs path is already unique per metric
+	//                            (.../temp1_input vs .../fan1_input).
+	//   sensorAliasByPathMetric — composite "<path>|<metric>". Used for
+	//                              NVML, where every metric on a GPU
+	//                              shares the gpuIdx path ("0", "1", …).
+	//                              Without it, a config entry like
+	//                                {name: gpu_temp, type: nvidia,
+	//                                 path: "0", metric: temp}
+	//                              would have its alias inherited by
+	//                              every other metric on gpu0 (fan_pct,
+	//                              power, util, clocks) — making the
+	//                              Hardware page's GPU section a wall of
+	//                              cells all labelled "gpu_temp"
+	//                              (#923 follow-up).
 	sensorAliasByPath := make(map[string]string, len(cfg.Sensors))
+	sensorAliasByPathMetric := make(map[string]string, len(cfg.Sensors))
 	sensorPosByAlias := make(map[string]*config.Position, len(cfg.Sensors))
 	for i := range cfg.Sensors {
-		sensorAliasByPath[cfg.Sensors[i].Path] = cfg.Sensors[i].Name
-		if cfg.Sensors[i].Position != nil {
-			sensorPosByAlias[cfg.Sensors[i].Name] = cfg.Sensors[i].Position
+		s := cfg.Sensors[i]
+		sensorAliasByPath[s.Path] = s.Name
+		if strings.EqualFold(s.Type, "nvidia") {
+			// NVML config without an explicit metric defaults to "temp"
+			// per the Sensor struct doc — preserve that here so a v1
+			// config of {type: nvidia, path: "0"} still resolves the
+			// gpu0:temp reading to its alias.
+			metric := s.Metric
+			if metric == "" {
+				metric = "temp"
+			}
+			sensorAliasByPathMetric[s.Path+"|"+metric] = s.Name
+		}
+		if s.Position != nil {
+			sensorPosByAlias[s.Name] = s.Position
 		}
 	}
 	fanAliasByPath := make(map[string]string, len(cfg.Fans))
@@ -209,7 +238,21 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 				}
 			}
 
-			alias := sensorAliasByPath[rd.SensorPath]
+			// Alias lookup — NVML readings MUST go through the composite
+			// (path, metric) map; the bare path map would resolve every
+			// metric on the GPU to whichever sensor was configured first
+			// (typically "gpu_temp"). Hwmon readings use the path-only
+			// map because hwmon paths are already unique per metric.
+			var alias string
+			if rd.SensorType == "nvidia" {
+				metric := rd.Metric
+				if metric == "" {
+					metric = "temp"
+				}
+				alias = sensorAliasByPathMetric[rd.SensorPath+"|"+metric]
+			} else {
+				alias = sensorAliasByPath[rd.SensorPath]
+			}
 			// Fans use PWMPath as alias key, which differs from the
 			// fan's monitor SensorPath (which is fan*_input). Try
 			// the fan-alias map by walking config.Fans for any whose
