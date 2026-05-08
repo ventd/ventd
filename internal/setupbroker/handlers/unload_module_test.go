@@ -151,7 +151,11 @@ func TestUnloadModuleHandler_PersistAlreadyAbsent_StillSucceeds(t *testing.T) {
 }
 
 func TestUnloadModuleHandler_RejectsInvalidModuleName(t *testing.T) {
-	bad := []string{"", "../../etc/foo", "foo;bar", "foo bar"}
+	bad := []string{"", "../../etc/foo", "foo;bar", "foo bar",
+		"-rfdkms", // leading hyphen — modprobe flag injection (#973)
+		"-r",
+		"_priv", // leading underscore
+	}
 	for _, name := range bad {
 		t.Run("name="+name, func(t *testing.T) {
 			f := newUnloadFake(t)
