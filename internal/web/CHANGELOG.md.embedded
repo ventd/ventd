@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.33] - 2026-05-08
+
+### Headline
+
+First slice of the v0.6.0 ship plan's A5 file-split refactor (#1017). Pure mechanical move with zero behaviour change; the route table in `server.go`'s `registerAPIRoutes()` still points at the same methods on the same Server struct.
+
+### Changed
+
+- **`internal/web/server.go` reduced from 2488 → 2064 LOC (−17%, #1017).** Smart-mode HTTP handlers extracted into new `internal/web/smart_handlers.go` (446 LOC): the `confidenceChannel` + `confidenceStatus` JSON wire types, `handleConfidenceStatus` (GET /api/v1/confidence/status), `handleConfidencePreset` (GET/PUT /api/v1/confidence/preset), `handleSmartStatus` (GET /api/v1/smart/status), `handleSmartChannels` (GET /api/v1/smart/channels). Imports trimmed to what the new file needs: `encoding/json`, `net/http`, `internal/config`, `internal/coupling`, `internal/marginal`. Aggregator + controller imports stay in server.go where the Server struct fields live.
+
+### Senior review pass
+
+The remaining A5 work — further server.go splits (calibrate / setup / status / config handler clusters) and `cmd/ventd/main.go` split (daemon body + smart-mode builders) — is deferred to v0.5.34. Per the user's "no more ignoring CIs if they fail we fix" directive, shipping smaller well-bounded slices reduces the risk surface vs one big mechanical refactor that could surface subtle test regressions.
+
 ## [v0.5.32] - 2026-05-08
 
 ### Headline
