@@ -25,7 +25,7 @@ func postLoadModule(t *testing.T, srv *Server, tok, body string) *httptest.Respo
 	req := httptest.NewRequest("POST", "/api/setup/load-module", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if tok != "" {
-		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+		authAndCSRF(t, req, srv, tok)
 	}
 	rr := httptest.NewRecorder()
 	srv.mux.ServeHTTP(rr, req)

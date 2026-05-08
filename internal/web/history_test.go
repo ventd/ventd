@@ -183,7 +183,7 @@ func asNaN() float64 {
 }
 
 func TestHandleHistoryEndpoint(t *testing.T) {
-	srv, cookie := newHistoryTestServer(t)
+	srv, cookie, csrfTok := newHistoryTestServer(t)
 	defer srv.Close()
 
 	client := &http.Client{}
@@ -265,6 +265,11 @@ func TestHandleHistoryEndpoint(t *testing.T) {
 		req.AddCookie(cookie)
 		// origin check requires matching Origin on non-GET requests.
 		req.Header.Set("Origin", srv.URL)
+		// CSRF middleware (RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE)
+		// rejects POST without X-CSRF-Token before the handler's
+		// method-not-allowed branch can fire. Pass the token so we
+		// reach the handler and the assertion exercises 405-on-POST.
+		req.Header.Set("X-CSRF-Token", csrfTok)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("POST: %v", err)
@@ -289,7 +294,7 @@ func TestHandleHistoryEndpoint(t *testing.T) {
 }
 
 func TestHandleHistoryWindowClamped(t *testing.T) {
-	srv, cookie := newHistoryTestServer(t)
+	srv, cookie, _ := newHistoryTestServer(t)
 	defer srv.Close()
 	underlying := historyStoreFromURL(t, srv.URL)
 	now := time.Unix(1_700_000_000, 0)
@@ -370,7 +375,7 @@ func TestHistorySamplerRunsOnTick(t *testing.T) {
 
 // ── test helpers ────────────────────────────────────────────────
 
-func newHistoryTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
+func newHistoryTestServer(t *testing.T) (*httptest.Server, *http.Cookie, string) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	password := "historypass123!"
@@ -406,16 +411,22 @@ func newHistoryTestServer(t *testing.T) (*httptest.Server, *http.Cookie) {
 		t.Fatalf("login status = %d", resp.StatusCode)
 	}
 	var cookie *http.Cookie
+	var csrfTok string
 	for _, c := range resp.Cookies() {
 		if c.Name == sessionCookie {
 			cookie = c
-			break
+		}
+		if c.Name == csrfCookie {
+			csrfTok = c.Value
 		}
 	}
 	if cookie == nil {
 		t.Fatalf("no session cookie after login")
 	}
-	return ts, cookie
+	if csrfTok == "" {
+		t.Fatalf("no CSRF cookie after login (RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE expects ventd_csrf to be set on login)")
+	}
+	return ts, cookie, csrfTok
 }
 
 // historyTestServers is a registry so test helpers can recover the

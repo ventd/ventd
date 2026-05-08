@@ -422,14 +422,36 @@ type apiRoute struct {
 }
 
 // registerAPIRoutes wires each route under both "/api/" and "/api/v1/"
-// prefixes from a single slice. Auth middleware is applied once per route;
-// the v1 alias shares the wrapped handler so a single request never pays
-// the session check twice, and adding a new endpoint requires exactly one
-// new slice entry rather than two HandleFunc calls.
+// prefixes from a single slice. Middleware is applied once per route;
+// the v1 alias shares the wrapped handler so a single request never
+// pays the session check twice, and adding a new endpoint requires
+// exactly one new slice entry rather than two HandleFunc calls.
+//
+// Middleware composition (outermost → innermost; runs in this order):
+//
+//  1. requireAuth (auth-only routes) — rejects unauthenticated requests
+//     with 401 before any state-changing work happens. Public routes
+//     (auth:false) skip this step entirely.
+//  2. requireCSRF (auth-only routes) — rejects state-changing
+//     requests without a valid X-CSRF-Token header (RULE-WEB-CSRF-
+//     TOKEN-REQUIRED-ON-STATE-CHANGE). Safe methods (GET / HEAD /
+//     OPTIONS) bypass the check inside the middleware so read-only
+//     handlers aren't affected.
+//  3. requireMaxBody (every route) — caps the request body at
+//     defaultMaxBody (1 MiB) on POST / PUT / PATCH / DELETE so an
+//     oversized payload surfaces as MaxBytesError on first read
+//     rather than exhausting memory.
 func (s *Server) registerAPIRoutes(routes []apiRoute) {
 	for _, r := range routes {
 		h := r.handler
+		// Body cap applies to every route — the middleware no-ops
+		// on safe methods, so wrapping public GETs costs nothing.
+		h = requireMaxBody(defaultMaxBody, h)
 		if r.auth {
+			// CSRF check before the auth check: the auth check
+			// reads the session cookie, the CSRF check reads the
+			// session's bound CSRF token. Either fails-fast.
+			h = s.requireCSRF(h)
 			h = s.requireAuth(h)
 		}
 		s.mux.HandleFunc("/api/"+r.name, h)
@@ -681,9 +703,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		csrf, _ := s.sessions.csrfFor(tok)
 		setSessionCookie(w, tok, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
+		setCSRFCookie(w, csrf, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
 		s.logger.Info("web: login successful", "remote", r.RemoteAddr)
-		s.writeJSON(r, w, map[string]string{"status": "ok"})
+		// `csrf_token` is also exposed in the response JSON so a
+		// frontend that doesn't read cookies (curl-based tooling,
+		// E2E test harness) can pick it up directly. Production JS
+		// reads from the `ventd_csrf` cookie via the fetch monkey-
+		// patch in web/shared/brand.js.
+		s.writeJSON(r, w, map[string]string{"status": "ok", "csrf_token": csrf})
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -750,8 +779,10 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	csrf, _ := s.sessions.csrfFor(tok)
 	setSessionCookie(w, tok, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
-	s.writeJSON(r, w, map[string]string{"status": "ok"})
+	setCSRFCookie(w, csrf, live.Web.SessionTTL.Duration, live.Web.UseSecureCookies())
+	s.writeJSON(r, w, map[string]string{"status": "ok", "csrf_token": csrf})
 }
 
 // writePasswordHash writes a minimal config file containing just the password
@@ -800,6 +831,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.sessions.delete(tok)
 	}
 	clearSessionCookie(w)
+	clearCSRFCookie(w)
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 

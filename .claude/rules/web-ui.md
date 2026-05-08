@@ -112,3 +112,115 @@ Bound: internal/web/update_outcome_test.go:never_finished_within_timeout_records
 Bound: internal/web/update_outcome_test.go:transient_query_error_does_not_terminate_watcher
 Bound: internal/web/update_outcome_test.go:update_check_surfaces_captured_outcome_via_json_response
 Bound: internal/web/update_outcome_test.go:update_check_omits_field_when_outcome_unset
+
+## RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE: every state-changing API request requires a valid X-CSRF-Token header.
+
+Authenticated POST / PUT / PATCH / DELETE requests through any
+`/api/` or `/api/v1/` route MUST carry an `X-CSRF-Token` header
+matching the session's bound CSRF token. The `requireCSRF` middleware
+in `internal/web/csrf.go`:
+
+- Bypasses the check on safe methods (GET / HEAD / OPTIONS) — those
+  don't mutate state and don't need CSRF.
+- Reads the session token from the `ventd_session` cookie, looks up
+  the session's bound CSRF token via `sessionStore.csrfFor`. Missing
+  or expired session → 401 (auth gate fires before CSRF gate).
+- Reads the `X-CSRF-Token` header. Missing → 403 with body
+  `"X-CSRF-Token header required"`.
+- Constant-time compares the header against the session's bound
+  token via `subtle.ConstantTimeCompare`. Mismatch → 403 with body
+  `"CSRF token mismatch"`.
+- On success, calls the wrapped handler.
+
+Token lifecycle:
+
+- Generated alongside the session token in `sessionStore.create`.
+- Returned to the JS layer in two places: the login response JSON
+  (`csrf_token` field) and a non-HttpOnly `ventd_csrf` cookie. The
+  cookie is set with `SameSite=Strict` to match the session cookie's
+  posture (RULE-WEB-COOKIE-SAMESITE-STRICT) and is read by the JS
+  layer via `document.cookie`.
+- Cleared on logout via `clearCSRFCookie` paired with the existing
+  `clearSessionCookie`.
+
+JS layer wiring lives in `web/shared/brand.js` (loaded by every
+HTML page): a fetch monkey-patch reads the `ventd_csrf` cookie and
+injects `X-CSRF-Token` on every `POST` / `PUT` / `PATCH` / `DELETE`
+fetch. Pages don't need per-request changes; existing `fetch()`
+calls work transparently.
+
+Cross-origin attackers cannot construct a valid request because they
+cannot read the per-session CSRF token (cookies are SOP-isolated +
+SameSite=Strict refuses to attach the cookie to cross-site
+navigations). The Origin allow-list (existing `originAllowed`) is
+the third layer of CSRF defence; SameSite=Strict is the first;
+the per-request token is the second.
+
+Tests construct authenticated POST requests via the `authAndCSRF`
+helper in `csrf_test_helpers_test.go` — sets the session cookie +
+the X-CSRF-Token header in one call.
+
+Bound: internal/web/csrf_test.go:post_without_csrf_header_is_rejected_403
+Bound: internal/web/csrf_test.go:post_with_wrong_csrf_token_is_rejected_403
+Bound: internal/web/csrf_test.go:post_with_correct_csrf_token_passes_csrf_gate
+Bound: internal/web/csrf_test.go:get_request_bypasses_csrf_check_entirely
+Bound: internal/web/csrf_test.go:post_without_session_cookie_is_rejected_401_before_csrf_check
+
+## RULE-WEB-COOKIE-SAMESITE-STRICT: session and CSRF cookies are SameSite=Strict; session is HttpOnly, CSRF is not.
+
+`setSessionCookie` writes the `ventd_session` cookie with
+`SameSite=http.SameSiteStrictMode` and `HttpOnly=true`.
+`setCSRFCookie` writes the `ventd_csrf` cookie with
+`SameSite=http.SameSiteStrictMode` and `HttpOnly=false`.
+
+The flip from `SameSiteLaxMode` (pre-v0.5.31) closes the residual
+cross-site form-POST vector that Lax permitted. Strict refuses to
+attach the cookie to ANY cross-site navigation — including
+top-level link clicks, form submits from another tab, and
+`window.open` redirects. Combined with the per-request CSRF token
+(RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE) and the Origin
+allow-list, a forged cross-origin request cannot:
+
+1. Carry the session cookie (SameSite=Strict refusal), AND
+2. Carry the CSRF token (cross-origin script can't read it), AND
+3. Pass the Origin allow-list check.
+
+All three layers must fail for a CSRF attack to succeed; v0.5.31
+ships all three.
+
+The CSRF cookie's `HttpOnly=false` is load-bearing — the JS layer
+reads it via `document.cookie` to inject the X-CSRF-Token header.
+A regression that flips it to HttpOnly silently breaks every
+authenticated state-changing fetch in the UI; the bound subtest
+catches that flip.
+
+Bound: internal/web/csrf_test.go:session_cookie_samesite_strict
+Bound: internal/web/csrf_test.go:csrf_cookie_samesite_strict_and_not_httponly
+
+## RULE-WEB-BODY-SIZE-CAP-1MIB: every authed state-changing request body is capped at 1 MiB.
+
+`registerAPIRoutes` wraps every entry in the route table with
+`requireMaxBody(defaultMaxBody, ...)` where
+`defaultMaxBody = 1 << 20` (1 MiB). The middleware sets
+`r.Body = http.MaxBytesReader(w, r.Body, max)` on POST / PUT /
+PATCH / DELETE requests; safe methods bypass.
+
+Oversized payloads surface as `*http.MaxBytesError` on the next
+read. Handlers that decode JSON via `json.Decoder.Decode`, parse
+forms via `r.ParseForm`, or read raw bytes see the error and emit
+413 Request Entity Too Large via the `isMaxBytesErr` check that
+already lives in `internal/web/security.go` and is reused by every
+JSON-accepting handler.
+
+The 1 MiB cap dwarfs every realistic state-change payload (config
+push: ~10 KiB; password set: ~200 bytes; version string: <100
+bytes; setup wizard apply: ~50 KiB worst case) and still blocks
+trivial OOM attempts on an authenticated upload.
+
+The `/login` endpoint applies its own narrower 64 KiB cap directly
+in the handler (`limitBody(w, r, 64<<10)`) before form parsing
+because the login form arrives unauthenticated and a smaller cap
+is appropriate for that surface.
+
+Bound: internal/web/csrf_test.go:oversized_post_to_authed_route_returns_413
+Bound: internal/web/csrf_test.go:undersized_post_passes_body_cap
