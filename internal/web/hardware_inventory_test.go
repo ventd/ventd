@@ -233,3 +233,101 @@ func TestHardwareInventory_PositionPropagated(t *testing.T) {
 func pinCfg(srv *Server, cfg *config.Config) {
 	(*atomic.Pointer[config.Config])(srv.cfg).Store(cfg)
 }
+
+// TestHardwareInventory_NVMLAliasKeyedByMetric pins the regression on
+// Phoenix's RTX 4090: when the only configured GPU sensor is
+// {name: gpu_temp, type: nvidia, path: "0", metric: temp}, ONLY the
+// temp reading should resolve to alias "gpu_temp"; fan_pct, power, util
+// and clock readings on the same gpu0 must NOT inherit it. Pre-fix,
+// every metric on a GPU shared the gpuIdx path and hit the same
+// sensorAliasByPath["0"] entry, producing a wall of cells all labelled
+// "gpu_temp" on the Hardware page (B8 from the v0.5.26 bug-floor probe).
+func TestHardwareInventory_NVMLAliasKeyedByMetric(t *testing.T) {
+	resetInventoryFixtures(t)
+	scanFn = stubScan([]monitor.Device{{
+		Name: "NVIDIA GeForce RTX 4090", Path: "gpu0",
+		Readings: []monitor.Reading{
+			{Label: "Temperature", Value: 29, Unit: "°C", SensorType: "nvidia", SensorPath: "0", Metric: "temp"},
+			{Label: "Fan Speed", Value: 30, Unit: "%", SensorType: "nvidia", SensorPath: "0", Metric: "fan_pct"},
+			{Label: "Power", Value: 26.5, Unit: "W", SensorType: "nvidia", SensorPath: "0", Metric: "power"},
+			{Label: "GPU Clock", Value: 210, Unit: "MHz", SensorType: "nvidia", SensorPath: "0", Metric: "clock_gpu"},
+		},
+	}})
+
+	srv := newVersionTestServer(t)
+	cfg := config.Empty()
+	cfg.Sensors = []config.Sensor{{
+		Name: "gpu_temp", Type: "nvidia",
+		Path: "0", Metric: "temp",
+	}}
+	pinCfg(srv, cfg)
+
+	w := httptest.NewRecorder()
+	srv.handleHardwareInventory(w, httptest.NewRequest(http.MethodGet, "/api/v1/hardware/inventory", nil))
+	var got InventoryResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Chips) != 1 || len(got.Chips[0].Sensors) != 4 {
+		t.Fatalf("got %d chips %d sensors, want 1/4", len(got.Chips), len(got.Chips[0].Sensors))
+	}
+	want := map[string]string{
+		"gpu0:temp":      "gpu_temp", // the configured one — alias matches
+		"gpu0:fan_pct":   "",         // NOT inherited
+		"gpu0:power":     "",
+		"gpu0:clock_gpu": "",
+	}
+	for _, s := range got.Chips[0].Sensors {
+		w, ok := want[s.ID]
+		if !ok {
+			t.Errorf("unexpected sensor id %q", s.ID)
+			continue
+		}
+		if s.Alias != w {
+			t.Errorf("sensor %s: alias = %q, want %q", s.ID, s.Alias, w)
+		}
+	}
+}
+
+// TestHardwareInventory_NVMLAliasDefaultMetricIsTemp pins the legacy
+// behaviour: an NVML config without an explicit metric defaults to
+// "temp" (per the Sensor struct doc). A v1 config like
+// {name: gpu_temp, type: nvidia, path: "0"} (no metric field) must still
+// resolve the gpu0:temp reading. Fan/power/etc. must still NOT inherit.
+func TestHardwareInventory_NVMLAliasDefaultMetricIsTemp(t *testing.T) {
+	resetInventoryFixtures(t)
+	scanFn = stubScan([]monitor.Device{{
+		Name: "NVIDIA GeForce RTX 4090", Path: "gpu0",
+		Readings: []monitor.Reading{
+			{Label: "Temperature", Value: 29, Unit: "°C", SensorType: "nvidia", SensorPath: "0", Metric: "temp"},
+			{Label: "Fan Speed", Value: 30, Unit: "%", SensorType: "nvidia", SensorPath: "0", Metric: "fan_pct"},
+		},
+	}})
+
+	srv := newVersionTestServer(t)
+	cfg := config.Empty()
+	cfg.Sensors = []config.Sensor{{
+		Name: "gpu_temp", Type: "nvidia", Path: "0", // Metric omitted
+	}}
+	pinCfg(srv, cfg)
+
+	w := httptest.NewRecorder()
+	srv.handleHardwareInventory(w, httptest.NewRequest(http.MethodGet, "/api/v1/hardware/inventory", nil))
+	var got InventoryResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Chips) != 1 || len(got.Chips[0].Sensors) != 2 {
+		t.Fatalf("got %d chips %d sensors, want 1/2", len(got.Chips), len(got.Chips[0].Sensors))
+	}
+	for _, s := range got.Chips[0].Sensors {
+		switch s.ID {
+		case "gpu0:temp":
+			if s.Alias != "gpu_temp" {
+				t.Errorf("gpu0:temp alias = %q, want gpu_temp (default-metric resolves)", s.Alias)
+			}
+		case "gpu0:fan_pct":
+			if s.Alias != "" {
+				t.Errorf("gpu0:fan_pct alias = %q, want empty (different metric, must not inherit)", s.Alias)
+			}
+		}
+	}
+}
