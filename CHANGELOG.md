@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.31] - 2026-05-08
+
+### Headline
+
+Web-security hardening item A3 of the v0.6.0 ship plan. Three layered CSRF defences land together — per-request CSRF token, `SameSite=Strict` on the session cookie, and a uniform 1 MiB body cap on every authenticated state-changing route. A forged cross-origin request now needs all three layers to fail simultaneously to succeed.
+
+### Fixed (security)
+
+- **Per-session CSRF token (#1011, RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE).** `sessionStore.create` now generates a random 32-byte CSRF token alongside the session token and pairs them under a new `sessionData` struct. `requireCSRF` middleware in `internal/web/csrf.go` constant-time compares the `X-CSRF-Token` header against the session's bound token via `subtle.ConstantTimeCompare`. Safe methods (GET / HEAD / OPTIONS) bypass; POST / PUT / PATCH / DELETE without a valid header → 403. `handleLogin` and `handleFirstBootLogin` set the `ventd_csrf` cookie (non-HttpOnly so JS can read it) AND return `csrf_token` in the response JSON; `handleLogout` clears both cookies. The fetch monkey-patch in `web/shared/brand.js` (loaded by every HTML page) reads the cookie and injects the header automatically — zero per-page JS changes.
+- **`SameSite=Strict` on session + CSRF cookies (#1011, RULE-WEB-COOKIE-SAMESITE-STRICT).** Pre-v0.5.31 the session cookie was `SameSiteLaxMode`, which permitted cross-site form-POST navigations to carry the session. Strict refuses to attach the cookie to any cross-site navigation — including top-level link clicks, form submits from another tab, and `window.open` redirects. The CSRF cookie matches.
+- **1 MiB body cap on every authed state-changing route (#1011, RULE-WEB-BODY-SIZE-CAP-1MIB).** New `requireMaxBody(defaultMaxBody, h)` middleware wraps every `apiRoute` in `registerAPIRoutes` so oversized POST / PUT / PATCH / DELETE bodies surface as `MaxBytesError` → handler emits 413 via the existing `isMaxBytesErr` check. Today only `/api/v1/config` and `/login` had body caps applied directly in the handler; now every state-changing endpoint has the cap uniformly via the route table.
+
+### Internals
+
+- New `internal/web/csrf.go` with `csrfCookie`, `setCSRFCookie`, `clearCSRFCookie`, `requireCSRF`, `requireMaxBody`.
+- `sessionStore` API: `csrfFor(token)` returns the session's bound CSRF token; `valid()` and `reap()` updated to read from the new `sessionData` struct.
+- Middleware composition in `registerAPIRoutes`: `requireMaxBody → requireAuth → requireCSRF → handler`. CSRF check fires before the auth check looks up the session — the auth gate is the outer wrapper so the session cookie is read first; CSRF then compares the header against the bound token.
+- Client wiring (`web/shared/brand.js`): a fetch monkey-patch at the top of the file reads the `ventd_csrf` cookie and injects `X-CSRF-Token` on every state-changing fetch. Existing `fetch()` calls in 12+ page-specific JS files work transparently.
+- Test-side helper `authAndCSRF(t, req, srv, sessionTok)` in `internal/web/csrf_test_helpers_test.go` sets both the session cookie and the X-CSRF-Token header in one call so impacted tests (8 across 6 files) change a single line each.
+
+### CI
+
+- `internal/marginal:TestRuntime_OnObservationNonBlocking` flaked on `build-and-test-ubuntu-arm64` under race detector + arm64 GHA runner pressure — a 1 ms timing assertion in RULE-CMB-RUNTIME-02. Tracked at #1012; not gating per `feedback_surgical_merge.md` (canonical 5 lanes green).
+
 ## [v0.5.30] - 2026-05-08
 
 ### Headline
