@@ -28,8 +28,10 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -80,10 +82,44 @@ var updateInstallScriptCandidates = []string{
 // rate-limits or 503s we surface the error rather than hang the page.
 var updateHTTPClient = &http.Client{Timeout: 8 * time.Second}
 
-// fetchLatestRelease hits GitHub's releases-latest endpoint. Returns
-// the release tag, the published_at, and the html_url so the UI can
-// link out for manual download as a fallback.
+// fetchRetryAttempts caps how many times fetchLatestRelease retries on
+// a transient failure. 3 attempts × backoff 1s/2s = 3s total wait
+// before the operator sees a fatal error in the in-UI Update modal.
+const fetchRetryAttempts = 3
+
+// fetchRetryBaseBackoff is the initial backoff between attempts.
+// Doubles per attempt (1s → 2s → ...). Overridable from tests so the
+// retry-loop unit tests don't sleep for real.
+var fetchRetryBaseBackoff = time.Second
+
+// fetchRetrySleep is the sleep primitive for the retry loop, exposed as
+// a var so tests can swap to a no-op rather than wall-time waiting.
+var fetchRetrySleep = time.Sleep
+
+// fetchLatestRelease hits GitHub's releases-latest endpoint with bounded
+// retry on transient failures (#974). Network errors and HTTP 5xx /
+// 429 rate-limit responses are retried; 4xx client errors are
+// terminal. Returns the release tag, the published_at, and the
+// html_url so the UI can link out for manual download as a fallback.
 func fetchLatestRelease(repoSlug string) (tag, publishedAt, htmlURL string, err error) {
+	backoff := fetchRetryBaseBackoff
+	for attempt := 0; attempt < fetchRetryAttempts; attempt++ {
+		tag, publishedAt, htmlURL, err = fetchLatestReleaseOnce(repoSlug)
+		if err == nil {
+			return tag, publishedAt, htmlURL, nil
+		}
+		if !isTransientFetchErr(err) || attempt == fetchRetryAttempts-1 {
+			return "", "", "", err
+		}
+		fetchRetrySleep(backoff)
+		backoff *= 2
+	}
+	return "", "", "", err
+}
+
+// fetchLatestReleaseOnce is the single-attempt implementation. Wrapped
+// by fetchLatestRelease for retry semantics.
+func fetchLatestReleaseOnce(repoSlug string) (tag, publishedAt, htmlURL string, err error) {
 	url := "https://api.github.com/repos/" + repoSlug + "/releases/latest"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -104,6 +140,40 @@ func fetchLatestRelease(repoSlug string) (tag, publishedAt, htmlURL string, err 
 		return "", "", "", fmt.Errorf("decode release: %w", err)
 	}
 	return body.TagName, body.PublishedAt, body.HTMLURL, nil
+}
+
+// isTransientFetchErr classifies whether an error from
+// fetchLatestReleaseOnce is worth retrying. Network errors (DNS,
+// connect, TLS, deadline) are transient. HTTP 5xx responses are
+// transient. HTTP 429 (rate-limited) is transient. Everything else
+// is terminal — 404 release-missing, 403 token issue, etc.
+func isTransientFetchErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "HTTP 5") {
+		return true
+	}
+	if strings.Contains(msg, "HTTP 429") {
+		return true
+	}
+	// Generic network errors wrap as %w and net.Error.
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	// Last resort: connect / EOF / reset / timeout substrings the
+	// stdlib stamps in unwrapped error messages.
+	if strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "Client.Timeout") ||
+		strings.Contains(msg, "no such host") {
+		return true
+	}
+	return false
 }
 
 // versionAvailable returns true when latest is a strictly newer version
@@ -258,6 +328,14 @@ func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
 			"--description=ventd in-UI update",
 			"--service-type=oneshot",
 			"--property=KillMode=process",
+			// RuntimeMaxSec caps install.sh at 10 min — a wedged
+			// install (DNS hang, dpkg lock, kernel build runaway)
+			// would otherwise leave the daemon offline indefinitely
+			// while the orphaned unit holds /usr/local/bin under
+			// install. systemd kills the unit if it overruns; the
+			// operator can re-run the in-UI update once they fix
+			// whatever wedged the previous attempt (#975).
+			"--property=RuntimeMaxSec=600",
 			"--setenv=VENTD_VERSION="+version,
 			"--setenv=VENTD_SKIP_PREFLIGHT_CHECKS="+inUIUpdateSkipChecks,
 			"bash", scriptPath,
@@ -266,8 +344,14 @@ func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
 	// Fallback for non-systemd hosts (OpenRC, runit). The nohup +
 	// detached-bash + log-redirect pattern works on these hosts
 	// because they don't impose a service-unit sandbox.
+	//
+	// `timeout 600` (coreutils, universally available) caps the
+	// install script's runtime at 10 min. After that timeout fires,
+	// install.sh is killed (SIGTERM, then SIGKILL after grace);
+	// without this, a wedged install would leave the daemon
+	// permanently offline on non-systemd hosts (#975).
 	return exec.Command("nohup", "bash", "-c",
-		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s bash %s >/var/log/ventd-update.log 2>&1 &",
+		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s timeout 600 bash %s >/var/log/ventd-update.log 2>&1 &",
 			shellQuote(version), shellQuote(inUIUpdateSkipChecks), shellQuote(scriptPath)))
 }
 

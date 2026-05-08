@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fetchTestServer is a tiny httptest harness: when the fetcher
@@ -175,4 +176,138 @@ func TestRealUpdateRun_PassesSkipChecksEnv(t *testing.T) {
 func silentLogger(t *testing.T) *slog.Logger {
 	t.Helper()
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError + 1}))
+}
+
+// TestFetchLatestRelease_RetriesTransient5xx — first 2 attempts
+// return 503; third returns 200 with a valid body. fetchLatestRelease
+// must retry and eventually succeed, exercising the #974 hardening.
+func TestFetchLatestRelease_RetriesTransient5xx(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"tag_name":"v0.5.27","published_at":"2026-05-08T00:00:00Z","html_url":"https://example/r"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	parsed, _ := url.Parse(srv.URL)
+	prevClient := updateHTTPClient
+	updateHTTPClient = &http.Client{Transport: &rewriteTransport{rt: http.DefaultTransport, target: parsed}}
+	t.Cleanup(func() { updateHTTPClient = prevClient })
+	prevSlug := updateRepoSlug
+	updateRepoSlug = "test/repo"
+	t.Cleanup(func() { updateRepoSlug = prevSlug })
+	prevSleep := fetchRetrySleep
+	fetchRetrySleep = func(time.Duration) {} // no-op so the test runs fast
+	t.Cleanup(func() { fetchRetrySleep = prevSleep })
+
+	tag, _, _, err := fetchLatestRelease("test/repo")
+	if err != nil {
+		t.Fatalf("expected success after 3 attempts, got err: %v", err)
+	}
+	if tag != "v0.5.27" {
+		t.Errorf("tag = %q, want v0.5.27", tag)
+	}
+	if attempts != 3 {
+		t.Errorf("attempts = %d, want 3 (2 transient + 1 success)", attempts)
+	}
+}
+
+// TestFetchLatestRelease_DoesNotRetryOn4xx — a 404 (release missing)
+// is terminal; the retry loop must NOT spin on it. Catches the
+// regression where a recent enough release.yml hasn't been published
+// and we'd otherwise hammer GitHub for nothing.
+func TestFetchLatestRelease_DoesNotRetryOn4xx(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	parsed, _ := url.Parse(srv.URL)
+	prevClient := updateHTTPClient
+	updateHTTPClient = &http.Client{Transport: &rewriteTransport{rt: http.DefaultTransport, target: parsed}}
+	t.Cleanup(func() { updateHTTPClient = prevClient })
+	prevSlug := updateRepoSlug
+	updateRepoSlug = "test/repo"
+	t.Cleanup(func() { updateRepoSlug = prevSlug })
+	prevSleep := fetchRetrySleep
+	fetchRetrySleep = func(time.Duration) {}
+	t.Cleanup(func() { fetchRetrySleep = prevSleep })
+
+	_, _, _, err := fetchLatestRelease("test/repo")
+	if err == nil {
+		t.Fatal("expected error for 404, got nil")
+	}
+	if attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (4xx is terminal, no retry)", attempts)
+	}
+}
+
+// TestFetchLatestRelease_ExhaustsAttemptsOnPersistentTransient — all
+// 3 attempts return 503; we surface the last error after exhausting
+// the budget.
+func TestFetchLatestRelease_ExhaustsAttemptsOnPersistentTransient(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	parsed, _ := url.Parse(srv.URL)
+	prevClient := updateHTTPClient
+	updateHTTPClient = &http.Client{Transport: &rewriteTransport{rt: http.DefaultTransport, target: parsed}}
+	t.Cleanup(func() { updateHTTPClient = prevClient })
+	prevSleep := fetchRetrySleep
+	fetchRetrySleep = func(time.Duration) {}
+	t.Cleanup(func() { fetchRetrySleep = prevSleep })
+
+	_, _, _, err := fetchLatestRelease("test/repo")
+	if err == nil {
+		t.Fatal("expected error after 3 transient failures, got nil")
+	}
+	if attempts != fetchRetryAttempts {
+		t.Errorf("attempts = %d, want %d", attempts, fetchRetryAttempts)
+	}
+}
+
+// TestBuildUpdateCmd_SystemdRun_IncludesRuntimeMaxSec pins the #975
+// hardening: when systemd-run is the spawn shape, the unit must
+// declare RuntimeMaxSec=600 so a wedged install.sh is killed by
+// systemd rather than holding /usr/local/bin under install
+// indefinitely.
+func TestBuildUpdateCmd_SystemdRun_IncludesRuntimeMaxSec(t *testing.T) {
+	prev := systemdRunPath
+	systemdRunPath = func() string { return "/usr/bin/systemd-run" }
+	t.Cleanup(func() { systemdRunPath = prev })
+	prevAvail := systemdAvailable
+	systemdAvailable = func() bool { return true }
+	t.Cleanup(func() { systemdAvailable = prevAvail })
+
+	cmd := buildUpdateCmd("v0.5.99", "/tmp/install.sh")
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "--property=RuntimeMaxSec=600") {
+		t.Errorf("systemd-run args missing --property=RuntimeMaxSec=600: %s", args)
+	}
+}
+
+// TestBuildUpdateCmd_NohupFallback_IncludesTimeout pins that the
+// non-systemd fallback wraps install.sh in `timeout 600` so a
+// wedged update doesn't leave the daemon offline forever on OpenRC
+// / runit hosts (#975 mirror).
+func TestBuildUpdateCmd_NohupFallback_IncludesTimeout(t *testing.T) {
+	prev := systemdRunPath
+	systemdRunPath = func() string { return "" } // forces fallback
+	t.Cleanup(func() { systemdRunPath = prev })
+
+	cmd := buildUpdateCmd("v0.5.99", "/tmp/install.sh")
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "timeout 600 bash") {
+		t.Errorf("nohup fallback missing 'timeout 600 bash' wrap: %s", args)
+	}
 }
