@@ -753,3 +753,92 @@ func TestRULE_STATE_12_FreeSpaceGuard(t *testing.T) {
 		}
 	})
 }
+
+// TestRULE_STATE_MIGRATION_V1_V2_NOOP pins the registered no-op v1→v2
+// migrator. A registered no-op is structurally distinct from a missing
+// migrator: missing causes RULE-STATE-05's upgrade loop to break and
+// the caller's state is effectively wiped on next access. Registered
+// no-op keeps existing calibration / polarity / smart-mode shards
+// intact across the version bump while exercising the migration
+// mechanism end-to-end so any future real migration drops in cleanly.
+//
+// The bound rule lives in .claude/rules/RULE-STATE-MIGRATION-V1-V2-NOOP.md.
+func TestRULE_STATE_MIGRATION_V1_V2_NOOP(t *testing.T) {
+	t.Run("v1_to_v2_migrator_is_registered", func(t *testing.T) {
+		// Pin that the v1→v2 entry exists in the migrations map.
+		// A regression that drops the entry — or registers it under
+		// a different key — silently re-introduces the "treat as
+		// missing" path the next time someone bumps currentVersion
+		// without re-registering, wiping calibration / polarity /
+		// smart-mode shards on first access.
+		fn, ok := migrations[[2]int{1, 2}]
+		if !ok {
+			t.Fatal("migrations[[2]int{1,2}] not registered; v1→v2 must be a registered no-op")
+		}
+		if fn == nil {
+			t.Fatal("migrations[[2]int{1,2}] is nil; want a callable no-op")
+		}
+		// And it must succeed on a tempdir without touching anything.
+		if err := fn(t.TempDir()); err != nil {
+			t.Errorf("registered no-op migrator returned error: %v", err)
+		}
+	})
+
+	t.Run("upgrade_v1_to_currentVersion_runs_migrator_and_bumps_sentinel", func(t *testing.T) {
+		// Set up a state dir as if a v1-vintage daemon wrote it.
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, versionFileName),
+			[]byte("1\n"), 0o640); err != nil {
+			t.Fatalf("write version: %v", err)
+		}
+		// CheckVersion must run the registered no-op AND bump the
+		// sentinel to currentVersion. Neither alone is sufficient.
+		if err := CheckVersion(dir); err != nil {
+			t.Fatalf("CheckVersion v1→%d: %v", currentVersion, err)
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, versionFileName))
+		if err != nil {
+			t.Fatalf("read version after migrate: %v", err)
+		}
+		v, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+		if v != currentVersion {
+			t.Errorf("version after migrate: got %d, want %d (currentVersion)", v, currentVersion)
+		}
+	})
+
+	t.Run("noop_migrator_does_not_mutate_sibling_files_in_state_dir", func(t *testing.T) {
+		// The no-op migration MUST NOT touch any file other than
+		// what CheckVersion's writeVersion bumps at the end. Seed
+		// a sibling file representing existing calibration data,
+		// run the migration, verify the sibling is byte-identical.
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, versionFileName),
+			[]byte("1\n"), 0o640); err != nil {
+			t.Fatalf("write version: %v", err)
+		}
+		sibling := filepath.Join(dir, "calibration-data.bin")
+		want := "calibration data that must survive the no-op migration intact"
+		if err := os.WriteFile(sibling, []byte(want), 0o640); err != nil {
+			t.Fatalf("write sibling: %v", err)
+		}
+		if err := CheckVersion(dir); err != nil {
+			t.Fatalf("CheckVersion: %v", err)
+		}
+		got, err := os.ReadFile(sibling)
+		if err != nil {
+			t.Fatalf("sibling disappeared after no-op migration: %v", err)
+		}
+		if string(got) != want {
+			t.Errorf("sibling mutated by no-op migration: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("currentVersion_is_at_least_2", func(t *testing.T) {
+		// Pin that currentVersion was bumped. A regression that
+		// reverts currentVersion to 1 makes the v1→v2 migrator
+		// dead code and undoes the v0.6 broker-namespace reservation.
+		if currentVersion < 2 {
+			t.Errorf("currentVersion = %d; want >= 2 (v0.5.30 reserved v2 for v0.6 broker-namespace migration)", currentVersion)
+		}
+	})
+}

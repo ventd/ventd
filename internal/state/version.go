@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	currentVersion  = 1
+	currentVersion  = 2
 	versionFileName = "version"
 )
 
@@ -21,7 +21,26 @@ var ErrDowngrade = errors.New("state: on-disk version is newer than this binary 
 type MigrateFn func(dir string) error
 
 // migrations maps (from, to) version pairs to their migration function.
-var migrations = map[[2]int]MigrateFn{}
+//
+// The v1→v2 entry is a registered no-op. Both versions share the same
+// on-disk schema; the bump exists to reserve the v2 slot for the
+// v0.6.0 broker-namespace migration (and any other v0.6 breaking
+// shape change) without triggering RULE-STATE-05's "treat as missing"
+// path. A registered no-op is structurally distinct from a missing
+// migrator: missing causes the upgrade loop to break out and the
+// caller's state is effectively wiped on next access. Registered no-op
+// keeps existing calibration / polarity / smart-mode shards intact
+// across the version bump while exercising the migration mechanism
+// end-to-end so any future real migration drops in cleanly.
+var migrations = map[[2]int]MigrateFn{
+	{1, 2}: noopV1ToV2,
+}
+
+// noopV1ToV2 is the no-op v1→v2 migration. See the doc comment on
+// `migrations` above for the rationale. Calling this MUST NOT touch
+// any file in the state directory; the version sentinel is bumped by
+// CheckVersion's writeVersion call after every migrator returns.
+func noopV1ToV2(dir string) error { return nil }
 
 // RegisterMigration registers a migration function for the (from, to) pair.
 // Called at init time by future packages that introduce schema changes.
