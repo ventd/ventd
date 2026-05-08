@@ -491,6 +491,14 @@
   // returns running=false when the scheduler is not wired (monitor-
   // only mode) or when no probe is currently in flight; the pill
   // stays hidden in either case.
+  //
+  // Pill text shows the gap PWM the probe is holding plus an
+  // elapsed/total counter ("probing PWM 100 · 12s of 30s") so
+  // operators can tell at a glance how far through the 30 s probe
+  // window we are. ProbeDuration is locked at 30 s ± 5 s by
+  // RULE-OPP-PROBE-02; client-side clock skew is tolerable on a LAN.
+  // Pre-fix the pill just said "probing PWM 100" with no timing
+  // context — operators couldn't tell hung from progressing (#980).
   function pollOpportunisticStatus() {
     fetch('/api/v1/probe/opportunistic/status', { credentials: 'same-origin' })
       .then(function (r) {
@@ -501,13 +509,31 @@
         var pill = document.getElementById('dash-opp-pill');
         var text = document.getElementById('dash-opp-pill-text');
         if (!pill || !text) return;
-        if (s && s.running) {
-          var pwm = s.gap_pwm != null ? s.gap_pwm : '?';
-          text.textContent = 'probing PWM ' + pwm;
-          pill.hidden = false;
-        } else {
+        if (!s || !s.running) {
           pill.hidden = true;
+          return;
         }
+        var pwm = s.gap_pwm != null ? s.gap_pwm : '?';
+        var label = 'probing PWM ' + pwm;
+        // started_at is RFC3339; epoch-zero ("0001-01-01T00:00:00Z")
+        // means the daemon hasn't recorded a start time even though
+        // running=true (shouldn't happen in practice — guard anyway).
+        if (s.started_at) {
+          var startMs = Date.parse(s.started_at);
+          if (isFinite(startMs) && startMs > 0) {
+            var elapsedS = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+            // Cap displayed elapsed at 30 s so the pill doesn't tick
+            // past the probe's stated budget mid-cycle. RULE-OPP-PROBE-02
+            // pins the duration at 30 s ± 5 s.
+            if (elapsedS > 30) elapsedS = 30;
+            label += ' · ' + elapsedS + 's of 30s';
+          }
+        }
+        text.textContent = label;
+        pill.title = 'Opportunistic probe in flight at PWM ' + pwm +
+          ' — gap-fill sample for the response curve. Auto-aborts if ' +
+          'the host becomes busy.';
+        pill.hidden = false;
       })
       .catch(function () {
         var pill = document.getElementById('dash-opp-pill');
