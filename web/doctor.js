@@ -146,7 +146,12 @@
     // are on. Info now has its own section + blue tag.
     var groups = { blocker: [], warning: [], error: [], ok: [], info: [] };
     facts.forEach(function (f) {
-      var s = (f.severity || 'ok').toLowerCase();
+      // String() coercion mirrors the rollup-pill path below: a daemon
+      // older than v0.5.27 marshalled Severity as a uint8 (0/1/2),
+      // crashing toLowerCase() and taking the whole page down. New
+      // daemons send the string form per RULE-DOCTOR-08; this stays
+      // defensive across the upgrade window.
+      var s = String(f.severity || 'ok').toLowerCase();
       if (!groups[s]) s = 'ok';
       groups[s].push(f);
     });
