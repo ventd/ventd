@@ -10,4 +10,4 @@ bundle and any future migration tool depend on it being present. A round-trip fa
 the on-disk format diverges from the in-memory struct, silently discarding calibration data
 on next load.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/calibration_result_json_roundtrip
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/calibration_result_json_roundtrip

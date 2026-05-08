@@ -7,4 +7,4 @@ calibration data is present, preventing writes below the observed spin threshold
 `MinResponsivePWM` of 0 is valid and means the fan spins at the minimum sweep step; a NULL
 means phantom or the sweep never found a transition.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/min_responsive_pwm_detected
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/min_responsive_pwm_detected

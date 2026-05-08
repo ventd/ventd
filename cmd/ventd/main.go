@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
-	calibstore "github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -52,6 +51,7 @@ import (
 	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/state"
 	"github.com/ventd/ventd/internal/sysclass"
+	"github.com/ventd/ventd/internal/validity"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -389,7 +389,7 @@ func run() error {
 		logger.Warn("capture: hook disabled (DMI or catalog unavailable)",
 			"dmi_err", capDMIErr, "cat_err", capCatErr)
 	} else {
-		calibstore.SetCaptureHook(func(run *hwdb.CalibrationRun) {
+		validity.SetCaptureHook(func(run *hwdb.CalibrationRun) {
 			path, err := hwdb.Capture(run, captureDMI, captureCat, pendingDir)
 			if err != nil {
 				logger.Warn("capture: failed to write pending profile", "err", err)
@@ -1463,7 +1463,7 @@ func loadCalibrationByChannel(logger *slog.Logger) map[hwdb.ChannelKey]*hwdb.Cha
 	}
 	biosVersion := strings.TrimRight(string(biosData), "\n\r")
 
-	store := calibstore.NewStore("/var/lib/ventd/calibration")
+	store := validity.NewStore("/var/lib/ventd/calibration")
 	run, loadErr := store.Load(fingerprint, biosVersion)
 	if loadErr != nil {
 		logger.Warn("calibration: store load failed, skipping calibration data", "err", loadErr)

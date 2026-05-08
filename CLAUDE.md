@@ -39,6 +39,31 @@ See `.claude/RULE-INDEX.md` for the full rule map (use ventd-rulelint skill to e
 ## See also (loaded on demand)
 - `@specs/` — feature specs (use ventd-specs skill)
 - `.claude/RULE-INDEX.md` — rule map; open specific rule files on demand (use ventd-rulelint skill)
+- `docs/research/r-bundle/smart-mode-handoff.md` — architectural lens for the v0.5.x cycle (Fork D smart-mode pivot; v0.6.0 ships only when smart-mode "works flawlessly for the very first user no matter who they are")
+
+## Architectural Lens — Smart-Mode Pivot (Fork D)
+
+v0.3–v0.5 built the substrate (HAL, control loop, calibration, watchdog,
+state, web UI). v0.5.x is incrementally adding smart-mode: Layer A
+response curves (`internal/confidence/layer_a/`), Layer B coupling RLS
+(`internal/coupling/`), Layer C marginal-benefit RLS (`internal/marginal/`),
+confidence-gated controller (`internal/controller/blended.go` +
+`internal/confidence/aggregator/`), continuous calibration via
+opportunistic probing (`internal/probe/opportunistic/`).
+
+The three-package taxonomy on the calibration-adjacent boundary:
+
+- `internal/calibrate/` — legacy V-model PWM sweep + RPM recording +
+  curve fitting. Pre-smart-mode pipeline, kept for backwards compat.
+- `internal/validity/` — PR-2b channel-validity probe (polarity, stall,
+  BIOS-override). Renamed from `internal/calibration/` in v0.5.35
+  (RULE-PKG-VALIDITY-PROBE-BOUNDARY) so the boundary with `calibrate/`
+  is self-documenting.
+- `internal/probe/` — catalog-less primary path (channel discovery,
+  thermal source detection, three-state outcome). The smart-mode
+  primary path; v0.6.x will deprecate `calibrate/` in favour of
+  signature-driven adaptive control once HIL field-validation
+  (Phase C of the v0.6.0 ship plan) confirms convergence.
 
 ## Current roadmap
 Phase 4 order: SLEEP → PI → HYST → LATCH+STEP → PI-autotune → HWCURVE →

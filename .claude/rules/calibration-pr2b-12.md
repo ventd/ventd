@@ -8,4 +8,4 @@ filenames on any Linux filesystem. The test fixture verifies that "ASUS 0805 (04
 produces "ASUS-0805-04-26-2026" as the safe component. A consistent, predictable filename
 format lets `Store.Load` reconstruct the path from the same inputs without a directory scan.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/store_filename_format
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/store_filename_format

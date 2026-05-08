@@ -8,4 +8,4 @@ is registered as monitor-only; `CheckWrite` returns `ErrBIOSOverridden`. A fan w
 override whose `v1 != targetPWM` (write silently fails) is NOT a BIOS-override case; it is
 a driver capability issue.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/bios_override_detected
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/bios_override_detected

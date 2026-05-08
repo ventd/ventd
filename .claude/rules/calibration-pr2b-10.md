@@ -9,4 +9,4 @@ thinkpad_acpi (levels 0..7), dell-smm-hwmon (cooling_level 0..N), and steamdeck-
 (0..255 discrete). The test verifies binary search for a 7-step fan produces the correct
 stall=0, min_responsive=1 result in ≤ 6 samples.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/step_0N_stall_binary_search
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/step_0N_stall_binary_search
