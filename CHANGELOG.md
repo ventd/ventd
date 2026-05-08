@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.28] - 2026-05-08
+
+### Headline
+
+A senior-review pass on the v0.5.26 codebase surfaced five real safety/correctness gaps, all closed in this release. Headline change: the README's "every exit path restores firmware control within two seconds" promise is now upheld by ventd's own restore path, not just by systemd's `WatchdogSec=2s` SIGKILL + `OnFailure=ventd-recover` belt-and-braces. Plus the Go toolchain catches up to 1.25.10 to clear two stdlib CVEs that landed in the vuln database mid-cycle and started failing govulncheck on every PR.
+
+### Fixed (safety)
+
+- **Watchdog Restore is now budget-bounded and parallelised** (#1002). `Restore()` previously walked entries sequentially with no per-write deadline; a hung sysfs ioctl on one fan blocked every subsequent fan's restore, while the heartbeat goroutine kept pinging systemd happily — defeating the SIGKILL backstop. New `RestoreCtx(ctx)` launches one goroutine per registered entry via the swappable `restoreOneImpl` seam, selects on WaitGroup-drain vs `ctx.Done()`. On deadline-exceeded a `restoreGracePeriod` (100 ms) lets in-flight goroutines finish their log emit, then snapshots the abandoned set, sorts deterministically, emits one WARN naming the abandoned channels + cancellation cause, and returns. The legacy `Restore()` now wraps `RestoreCtx(context.WithTimeout(_, DefaultRestoreBudget))` (1.8 s — 200 ms headroom under typical systemd `TimeoutStopSec=2s`); existing call sites in `cmd/ventd/main.go`, `cmd/ventd/runsetup.go`, and `internal/controller/controller.go` pick up the budget without per-caller code changes. Per-entry panic recovery (`RULE-WD-RESTORE-PANIC`) and every-entry-touched (`RULE-WD-RESTORE-EXIT`) contracts hold verbatim. Bound to new `RULE-WD-RESTORE-BUDGET`.
+
+- **NVML init bounded at 2 s to prevent startup hang on partial driver installs** (#1000). A wedged `purego.Dlopen` on `libnvidia-ml.so.1` — caused by mismatched DKMS, stale `.so` symbols, or a hung kernel module — would block daemon startup indefinitely past systemd's `TimeoutStartSec`, leaving the operator with "ventd failed to start" and no actionable diagnostic. New `nvidia.InitWithDeadline(ctx, logger, timeout)` wraps `Init` in a goroutine with a select on done-channel, `time.After(timeout)`, and `ctx.Done()`. On timeout fire: returns wrapped `ErrLibraryUnavailable` with `"timed out"` in the message; emits one WARN. The orphan dlopen goroutine continues running because `purego.Dlopen` is uncancellable — once a timeout fires, NVML is permanently disabled for this process lifetime, by design. `cmd/ventd` and `cmd/ventd-nvml-helper` use the deadline-bounded variant with a 2 s budget; `nonvidia` build tag gets a matching stub. Bound to new `RULE-GPU-PR2D-09`.
+
+### Fixed (correctness)
+
+- **KV writes refuse before mutating in-memory state when the state directory is critically low on disk** (#1003). Prior behaviour: `KVDB.Set` mutated `db.data[ns][key] = value` first (`kv.go:100`) and called `persist()` second (`kv.go:101`). On a full `/var/lib/ventd`, `persist` returned ENOSPC to the caller but the in-memory map was already advanced. `Get` returned the new value while a daemon restart loaded the OLD on-disk value back — silent in-memory/on-disk divergence for `wizard.initial_outcome`, calibration state, polarity records, and the smart-mode shard root. New `iox.EnsureFreeSpace(path, minBytes)` is a `statfs(2)`-based pre-flight gate; `iox.MinFreeBytesForState` (1 MiB) is the canonical state-class threshold. Plumbed into `KVDB.Set` / `KVDB.Delete` / `KVDB.WithTransaction` via the `ensureFreeSpaceFn` package-level seam (production points at `iox.EnsureFreeSpace`; tests inject a refusing stub). The gate fires before the mutex acquire and before any in-memory mutation, so refusal never advances the in-memory state ahead of the on-disk file. `WithTransaction`'s gate fires before the caller's `fn` closure even runs. Bound to new `RULE-IOX-02` and `RULE-STATE-12`.
+
+### Fixed (supply chain)
+
+- **Go toolchain bumped 1.25.9 → 1.25.10 to clear two stdlib CVEs** (#1001). govulncheck on `pre-release-check.yml` started failing on every PR after the vuln database picked up two Go 1.25.9 fixes:
+  - `GO-2026-4971` — Panic in `net.Dial` / `LookupPort` on NUL byte (Windows). Reachable via `sdnotify.Notify`, `hwdb.refreshFromURL`, `web.Server.ListenAndServe`, `redactor.NewP1HostnameFrom` (`LookupAddr`/`LookupHost`).
+  - `GO-2026-4918` — Infinite loop in HTTP/2 transport on bad `SETTINGS_MAX_FRAME_SIZE`. Reachable via `hwdb.refreshFromURL` → `http.Client.Do`.
+
+  Both fixed in `net@go1.25.10` and `net/http@go1.25.10`. Updated all twelve `go-version:` pins across `.github/workflows/*.yml` to exact `1.25.10` (the floating `1.25.x` form was resolving to 1.25.9 on runners with cached `setup-go` manifests, conflicting with go.mod's `1.25.10` minimum under `GOTOOLCHAIN=local`).
+
+### CI / hygiene
+
+- **`.golangci.yml` pins golangci-lint v2.1.6's standard linter set explicitly** (#1004). CI's lint job (`ci.yml:347`) installs golangci-lint v2.1.6 from source and runs `golangci-lint run --timeout=5m` against the implicit default linter set: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`. With no `.golangci.yml` checked in, a future v2.x release that adds or removes a default-on linter would silently widen or narrow CI's coverage without a code-review trail. Pin the linter set explicitly via `linters.default: none` + `enable:` list. Same effective behaviour against current main (`0 issues`). Test files get an errcheck carve-out — `defer file.Close()` in tests is the canonical Go pattern; flagging it is noise. `scripts/ci-local.sh` already runs `golangci-lint` when installed; the new config is picked up automatically — local↔CI parity is now documented rather than implicit.
+
+### Internals
+
+- New `internal/iox/freespace.go` with `EnsureFreeSpace` + `MinFreeBytesForState` + `ErrInsufficientFreeSpace` sentinel.
+- New `internal/watchdog.DefaultRestoreBudget` exported constant for callers with non-default systemd `TimeoutStopSec`.
+- New `restoreOneImpl` and `ensureFreeSpaceFn` package-level seams in `internal/watchdog` and `internal/state` for unit-test injection.
+- `nvidia.InitWithDeadline` is the operator-facing API; `initWithDeadline` is the testable inner core that accepts an arbitrary loader function so tests cover every branch (timeout, fast path, ctx cancel, zero-timeout disable, nil logger) without touching the package-level `loadOnce` state.
+- Three new bound rules: `RULE-WD-RESTORE-BUDGET` (watchdog), `RULE-GPU-PR2D-09` (NVML deadline), `RULE-IOX-02` + `RULE-STATE-12` (free-space gate).
+
+### Senior review pass
+
+A 12-item senior-review plan was assembled and verified against the actual code; 5 items shipped (above), 7 items withdrawn after careful spot-checks revealed they were either already-correct code, already-shipped fixes (C4 errCh buffering landed in v0.5.27), or stylistic refinements rather than safety. Final false-positive rate on the original review: ~50% — useful calibration data for the next senior-review pass on v0.6.0. The 5 items that were genuinely real got shipped here.
+
+### Deferred
+
+- **B9 from v0.5.27** — NVML controllable `channel_id` is bare `"0"` on the wire (#998). Still cosmetic; deferred again.
+- Same long-running CI lane gaps still tracked: #812 (scheduler race on ubuntu-arm64), #815 (SLSA provenance flake on release.yml), #901 (opensuse-tumbleweed CI lane), #978 (config hot-reload race audit).
+
 ## [v0.5.27] - 2026-05-08
 
 ### Headline
