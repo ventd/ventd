@@ -179,9 +179,13 @@ func scanInputs(dir, prefix, unit string, divisor float64) []Reading {
 			continue
 		}
 		val := float64(raw) / divisor
-		if prefix == "fan" && val == 0 {
-			continue
-		}
+		// fan*_input == 0 used to be skipped here on the theory that
+		// "0 RPM means dead fan, hide it". That hid 7 of 8 fan headers on
+		// Phoenix's MSI Z690-A NCT6687 (#923) where the headers exist and
+		// the daemon is writing PWM but no fan is plugged in to drive a
+		// tach. Operators need to see every header — empty or not — to
+		// map the board correctly. Surface all fan readings; "0 RPM" is
+		// honest signal, not noise.
 		// Reject sentinel / implausible values before they appear in the API.
 		// nct6687 and similar super-I/O chips return 0xFFFF from registers that
 		// are in mid-latch; after scaling these map to 255.5°C (temp), 65535 RPM
