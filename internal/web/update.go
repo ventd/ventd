@@ -390,11 +390,55 @@ func writeEmbeddedInstallSh() (string, error) {
 	return writeInstallShBytes(installShEmbedded, "ventd-install-*.sh")
 }
 
+// installStagingDir is where writeInstallShBytes lands the install.sh
+// it stages for systemd-run to execute. The default is /run/ventd —
+// a host-visible (non-namespaced) directory that is in ventd.service's
+// ReadWritePaths and is therefore writable by the daemon under
+// PrivateTmp=yes / ProtectSystem=strict.
+//
+// Why NOT $TMPDIR / /tmp: ventd.service ships PrivateTmp=yes, so the
+// daemon's view of /tmp is a per-unit namespace. A script staged under
+// /tmp from the daemon's view does not exist at that path on the host,
+// and the transient `ventd-update.service` spawned via systemd-run
+// runs in the host namespace. The transient unit fails with exit 127
+// (ENOENT on the script) — silently from the API caller's perspective,
+// because realUpdateRun's cmd.Run() observed a successful queue, not
+// the unit's runtime exit. Diagnosed end-to-end on Phoenix's MSI Z690-A
+// desktop on 2026-05-08; latent since the systemd-run pattern landed.
+//
+// /run is the standard "host-shared, ephemeral, world-fs" location
+// that systemd's PrivateTmp explicitly does NOT namespace; the script
+// is reachable from the transient unit without further plumbing.
+//
+// Overridable for tests via the package-level seam.
+var installStagingDir = "/run/ventd"
+
 // writeInstallShBytes is the shared temp-file writer used by both
 // writeEmbeddedInstallSh and fetchInstallScriptForVersion. Returns
 // the temp file's path with mode 0755 set.
+//
+// Stages under installStagingDir (default /run/ventd) — see the doc
+// comment on installStagingDir for why /tmp is wrong under
+// PrivateTmp=yes. If installStagingDir cannot be created or written
+// (e.g. running outside systemd, dev-tree invocation, sandbox-hardened
+// env that doesn't grant /run/ventd), the function falls back to the
+// default temp dir so existing dev workflows + non-systemd hosts keep
+// working.
 func writeInstallShBytes(body []byte, namePattern string) (string, error) {
-	f, err := os.CreateTemp("", namePattern)
+	dir := ""
+	if installStagingDir != "" {
+		if err := os.MkdirAll(installStagingDir, 0o700); err == nil {
+			// Probe writability — MkdirAll succeeds against a
+			// pre-existing read-only dir on some filesystems;
+			// only an actual write proves we can stage there.
+			if probe, perr := os.CreateTemp(installStagingDir, ".probe-*"); perr == nil {
+				_ = probe.Close()
+				_ = os.Remove(probe.Name())
+				dir = installStagingDir
+			}
+		}
+	}
+	f, err := os.CreateTemp(dir, namePattern)
 	if err != nil {
 		return "", fmt.Errorf("create temp install.sh: %w", err)
 	}
