@@ -12,10 +12,19 @@ import (
 	"github.com/ventd/ventd/internal/sysclass"
 )
 
-// TestScheduler_FirstProbeDelayedBy24h asserts that with a marker
-// file aged less than FirstInstallDelay, the scheduler does not fire
-// (RULE-OPP-PROBE-07).
-func TestScheduler_FirstProbeDelayedBy24h(t *testing.T) {
+// TestScheduler_FreshInstallGateDropped pins the v0.5.30 behaviour
+// change for RULE-OPP-PROBE-07. With `FirstInstallDelay = 0`, the
+// scheduler MUST NOT refuse a tick with `ReasonOpportunisticBootWindow`
+// based on marker age — even on a marker that is seconds old, the
+// gate is satisfied immediately.
+//
+// The hard idle preconditions (RULE-OPP-IDLE-04) remain the
+// load-bearing protection against probing during real workload; this
+// test uses `openOpportunisticGate(t)` which holds those open so the
+// only refusal that could fire is the boot-window one being tested.
+// A regression that re-introduces the 24 h delay would resurface
+// here as `LastReason` containing `opportunistic_boot_window`.
+func TestScheduler_FreshInstallGateDropped(t *testing.T) {
 	dir := t.TempDir()
 	markerPath := dir + "/.first-install-ts"
 	now := time.Now()
@@ -34,24 +43,45 @@ func TestScheduler_FirstProbeDelayedBy24h(t *testing.T) {
 		Channels:               []*probe.ControllableChannel{ch},
 		Detector:               det,
 		FirstInstallMarkerPath: markerPath,
-		Now:                    func() time.Time { return now.Add(2 * time.Hour) }, // < 24h
-		ProbeDeps:              testProbeDeps(&fired),
-		IdleCfg:                openOpportunisticGate(t),
+		// Marker is seconds old. Pre-v0.5.30 this refused with
+		// ReasonOpportunisticBootWindow because age < 24 h. Post-
+		// v0.5.30 the gate is dropped — this clock would NOT
+		// trigger the refusal regardless of marker age.
+		Now:       func() time.Time { return now.Add(2 * time.Second) },
+		ProbeDeps: testProbeDeps(&fired),
+		IdleCfg:   openOpportunisticGate(t),
 	}
 	s, err := NewScheduler(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	s.tick(stubContext())
+	// With the boot-window gate dropped, the scheduler proceeds into
+	// FireOne — which RULE-OPP-PROBE-02 holds at the gap PWM for 30 s.
+	// We don't want a 30 s probe inside a unit test; we just want to
+	// assert that the boot-window refusal does NOT fire. A short-
+	// deadline context cancels FireOne quickly so the tick returns
+	// without holding the test for 30 s. RULE-OPP-PROBE-10 guarantees
+	// ctx-cancel restores the controller-managed PWM, so this is a
+	// safe early-exit pattern.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	s.tick(ctx)
 
-	if fired.Load() != 0 {
-		t.Fatal("scheduler fired before first-install delay elapsed")
-	}
-	if got := string(idle.ReasonOpportunisticBootWindow); !contains(s.Status().LastReason, got) {
-		t.Errorf("LastReason: got %q, want substring %q", s.Status().LastReason, got)
+	// Boot-window refusal MUST NOT fire — the gate is dropped.
+	// LastReason may be empty (probe started but got ctx-cancelled),
+	// or contain a ctx-cancel-flavoured reason. Either is acceptable.
+	// The hard assertion is that the post-install boot-window
+	// refusal is NOT what blocked the tick.
+	if got := s.Status().LastReason; contains(got, string(idle.ReasonOpportunisticBootWindow)) {
+		t.Errorf("LastReason = %q; must NOT contain %q (v0.5.30 dropped RULE-OPP-PROBE-07's 24 h gate)",
+			got, idle.ReasonOpportunisticBootWindow)
 	}
 	_ = chID
+	// `fired` (declared above as atomic.Int32) is intentionally not
+	// inspected — it's passed by pointer to testProbeDeps so the
+	// compiler considers it used, but its value depends on detector
+	// gaps + ctx timing and is not load-bearing for this test.
 }
 
 // TestScheduler_HonoursToggleOff asserts that with the

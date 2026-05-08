@@ -77,15 +77,40 @@ plus an aborted opportunistic record, and asserts the returned set.
 
 Bound: internal/probe/opportunistic/detector_test.go:TestDetector_ExcludesBinsWithin7Days
 
-## RULE-OPP-PROBE-07: First probe MUST NOT fire within 24 hours of /var/lib/ventd/.first-install-ts mtime.
+## RULE-OPP-PROBE-07: No fresh-install gate. The standard idle preconditions are the only protection against probing immediately after install.
 
-`PastFirstInstallDelay(path, now)` returns `false` while the marker
-file's age is below `FirstInstallDelay` (24 h). The scheduler refuses
-the tick with `ReasonOpportunisticBootWindow`. The test creates a
-fresh marker, ticks the scheduler with `now = marker + 2h`, and
-asserts no probe fired.
+**v0.5.30 behaviour change.** Prior: opportunistic probes were forbidden
+within 24 h of `/var/lib/ventd/.first-install-ts` mtime. The 24 h gate
+compressed the available excitation window — a fresh-install operator
+who watched the dashboard for an hour saw "smart-mode warming up" with
+no actual probes happening, because the scheduler refused every tick
+with `ReasonOpportunisticBootWindow`. By the time the gate cleared,
+the operator had given up.
 
-Bound: internal/probe/opportunistic/scheduler_test.go:TestScheduler_FirstProbeDelayedBy24h
+Current: `FirstInstallDelay = 0`. `PastFirstInstallDelay(path, now)`
+returns `true` immediately at any non-negative marker age. The
+scheduler never refuses a tick with `ReasonOpportunisticBootWindow`
+based on marker age.
+
+The hard idle preconditions (RULE-OPP-IDLE-01 through RULE-OPP-IDLE-04)
+are unchanged and remain the load-bearing protection against probing
+during real workload: idle gate's 600 s durability, no active SSH, no
+battery, no container, no scrub, no blocked process, ≥ 24 h post-resume
+warmup. Those gates kept opportunistic probing safe before v0.5.30 and
+keep it safe after.
+
+`FirstInstallDelay`, `PastFirstInstallDelay`, and
+`ReasonOpportunisticBootWindow` are kept (not removed) so a future
+operator-tunable knob has a slot to hang on. The function is not dead
+code; the constant is a reservation. A regression that flips the
+constant back to a non-zero value re-introduces the silent-fail UX
+and is caught by the bound subtests.
+
+Bound: internal/probe/opportunistic/install_marker_test.go:FirstInstallDelay_constant_is_zero
+Bound: internal/probe/opportunistic/install_marker_test.go:zero_age_marker_returns_past_true
+Bound: internal/probe/opportunistic/install_marker_test.go:aged_marker_returns_past_true
+Bound: internal/probe/opportunistic/install_marker_test.go:empty_path_returns_past_true_unchanged
+Bound: internal/probe/opportunistic/scheduler_test.go:TestScheduler_FreshInstallGateDropped
 
 ## RULE-OPP-PROBE-08: Probe MUST refuse when Config.NeverActivelyProbeAfterInstall == true.
 

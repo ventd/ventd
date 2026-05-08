@@ -9,14 +9,30 @@ import (
 
 // DefaultFirstInstallMarkerPath is the production location of the
 // first-install timestamp file. v0.5.5 writes the file on first
-// daemon start if absent; the first opportunistic probe may not
-// fire until at least 24 hours after the file's mtime
+// daemon start if absent. The marker is retained as a forensic
+// breadcrumb (operators can correlate first-probe activity with
+// install time) even after v0.5.30 dropped the 24h post-install gate
 // (RULE-OPP-PROBE-07).
 const DefaultFirstInstallMarkerPath = "/var/lib/ventd/.first-install-ts"
 
 // FirstInstallDelay is the minimum age of the first-install marker
 // before the scheduler may fire a probe.
-const FirstInstallDelay = 24 * time.Hour
+//
+// v0.5.30: dropped from 24 h to 0. The 24 h gate compressed the
+// available excitation window for first-time users — operators
+// watched their dashboard for an hour and saw "smart-mode warming
+// up" with no actual probes happening, because RULE-OPP-PROBE-07
+// refused every tick. The hard idle preconditions (idle gate's
+// 600 s durability, no active SSH, no battery, no container, no
+// scrub, no blocked process, ≥ 24 h post-resume warmup) remain the
+// load-bearing protection against probing during real workload —
+// only the post-install delay was redundant on top of those.
+//
+// Kept as a constant (not removed) so a future operator-tunable
+// knob has a slot to hang on. `PastFirstInstallDelay` returns true
+// immediately when this is 0; the function isn't dead code, it's a
+// reservation for the v0.6+ tunable.
+const FirstInstallDelay = 0
 
 // EnsureMarker creates the marker file at path with the current mtime
 // if it does not exist. Returns the marker's mtime (existing or just-
