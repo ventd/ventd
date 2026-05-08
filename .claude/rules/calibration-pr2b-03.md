@@ -6,4 +6,4 @@ manual PWM, and driver sysfs channels that map to no physical fan (phantom chann
 Super I/O chips). The probe orchestrator MUST mark `ChannelCalibration.Phantom = true` for
 an ambiguous result so the apply path registers the channel as monitor-only.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/phantom_marked_from_ambiguous_polarity
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/phantom_marked_from_ambiguous_polarity

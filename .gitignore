@@ -67,3 +67,7 @@ release-notes/*-dryrun.txt
 # Git worktrees (local dev isolation)
 /.worktrees/
 .claude/RULE-INDEX.md
+
+# Local screenshots dir — populated by render-screenshots tooling,
+# uploaded to README by Phoenix manually. Not tracked.
+/screenshots/

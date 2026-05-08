@@ -6,4 +6,4 @@ on MSI boards exhibit this. The apply path MUST invert duty-cycle values via `In
 before writing them to the sysfs PWM file. Failing to invert produces the opposite of the
 requested speed: asking for minimum speed drives the fan to maximum and vice versa.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/polarity_inverted_detected
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/polarity_inverted_detected

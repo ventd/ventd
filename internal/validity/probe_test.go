@@ -1,4 +1,4 @@
-package calibration_test
+package validity_test
 
 import (
 	"context"
@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ventd/ventd/internal/calibration"
 	"github.com/ventd/ventd/internal/hwdb"
+	"github.com/ventd/ventd/internal/validity"
 )
 
 // ---- synthetic fixture helpers ----
@@ -30,7 +30,7 @@ type pwmRPMPair struct {
 	RPM int `yaml:"rpm"`
 }
 
-// syntheticChannel implements calibration.ChannelProber using fixture data.
+// syntheticChannel implements validity.ChannelProber using fixture data.
 type syntheticChannel struct {
 	fixture      syntheticFixture
 	lastWritten  int
@@ -100,7 +100,7 @@ func loadSyntheticChannel(t *testing.T, name string) *syntheticChannel {
 // parseFixtureYAML unmarshals the YAML fixture using the gopkg.in/yaml.v3 package.
 // Called from tests only; uses the same YAML decoder as the rest of the package.
 func parseFixtureYAML(data []byte, out *syntheticFixture) error {
-	return calibration.ParseFixtureYAML(data, out)
+	return validity.ParseFixtureYAML(data, out)
 }
 
 // ---- RULE-CALIB-PR2B-01: Polarity probe detects normal polarity ----
@@ -138,11 +138,11 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("polarity_normal_detected", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "responsive_fan.yaml")
-		polarity, rpmLow, rpmHigh, err := calibration.ProbePolarity(ctx, ch, 255, time.Millisecond)
+		polarity, rpmLow, rpmHigh, err := validity.ProbePolarity(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbePolarity error: %v", err)
 		}
-		if polarity != calibration.PolarityNormal {
+		if polarity != validity.PolarityNormal {
 			t.Errorf("expected PolarityNormal, got %v (rpmLow=%d rpmHigh=%d)", polarity, rpmLow, rpmHigh)
 		}
 		if rpmHigh-rpmLow < 200 {
@@ -152,11 +152,11 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("polarity_inverted_detected", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "inverted_fan.yaml")
-		polarity, rpmLow, rpmHigh, err := calibration.ProbePolarity(ctx, ch, 255, time.Millisecond)
+		polarity, rpmLow, rpmHigh, err := validity.ProbePolarity(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbePolarity error: %v", err)
 		}
-		if polarity != calibration.PolarityInverted {
+		if polarity != validity.PolarityInverted {
 			t.Errorf("expected PolarityInverted, got %v (rpmLow=%d rpmHigh=%d)", polarity, rpmLow, rpmHigh)
 		}
 		if rpmLow-rpmHigh < 200 {
@@ -166,18 +166,18 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("phantom_marked_from_ambiguous_polarity", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "phantom_channel.yaml")
-		polarity, _, _, err := calibration.ProbePolarity(ctx, ch, 255, time.Millisecond)
+		polarity, _, _, err := validity.ProbePolarity(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbePolarity error: %v", err)
 		}
-		if polarity != calibration.PolarityAmbiguous {
+		if polarity != validity.PolarityAmbiguous {
 			t.Errorf("expected PolarityAmbiguous (phantom), got %v", polarity)
 		}
 	})
 
 	t.Run("stall_pwm_detected_duty_0_255", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "responsive_fan.yaml")
-		stallPWM, _, _, _, err := calibration.ProbeStall(ctx, ch, 255, time.Millisecond)
+		stallPWM, _, _, _, err := validity.ProbeStall(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbeStall error: %v", err)
 		}
@@ -192,7 +192,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("min_responsive_pwm_detected", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "responsive_fan.yaml")
-		_, minResp, _, _, err := calibration.ProbeStall(ctx, ch, 255, time.Millisecond)
+		_, minResp, _, _, err := validity.ProbeStall(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbeStall error: %v", err)
 		}
@@ -207,7 +207,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("bios_override_detected", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "bios_overridden_fan.yaml")
-		overridden, err := calibration.ProbeBIOSOverride(ctx, ch, 200)
+		overridden, err := validity.ProbeBIOSOverride(ctx, ch, 200)
 		if err != nil {
 			t.Fatalf("ProbeBIOSOverride error: %v", err)
 		}
@@ -218,7 +218,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("bios_override_not_detected_for_normal_fan", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "responsive_fan.yaml")
-		overridden, err := calibration.ProbeBIOSOverride(ctx, ch, 200)
+		overridden, err := validity.ProbeBIOSOverride(ctx, ch, 200)
 		if err != nil {
 			t.Fatalf("ProbeBIOSOverride error: %v", err)
 		}
@@ -270,7 +270,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("step_0N_stall_binary_search", func(t *testing.T) {
 		ch := loadSyntheticChannel(t, "step_0_N_fan.yaml")
-		stallPWM, minResp, _, samples, err := calibration.ProbeStallStep(ctx, ch, 7, time.Millisecond)
+		stallPWM, minResp, _, samples, err := validity.ProbeStallStep(ctx, ch, 7, time.Millisecond)
 		if err != nil {
 			t.Fatalf("ProbeStallStep error: %v", err)
 		}
@@ -353,7 +353,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("store_filename_format", func(t *testing.T) {
 		dir := t.TempDir()
-		s := calibration.NewStore(dir)
+		s := validity.NewStore(dir)
 		// Bios version with special chars must be sanitised.
 		name := s.Filename("abcdef1234567890", "ASUS 0805 (04/26/2026)")
 		want := "abcdef1234567890-ASUS-0805-04-26-2026.json"
@@ -364,7 +364,7 @@ func TestPR2B_Rules(t *testing.T) {
 
 	t.Run("store_write_then_load", func(t *testing.T) {
 		dir := t.TempDir()
-		s := calibration.NewStore(dir)
+		s := validity.NewStore(dir)
 		stallPWM := 30
 		run := hwdb.CalibrationRun{
 			SchemaVersion:  1,
@@ -399,7 +399,7 @@ func TestPR2B_Rules(t *testing.T) {
 func TestPR2B_Deterministic(t *testing.T) {
 	ctx := context.Background()
 	type runResult struct {
-		polarity calibration.Polarity
+		polarity validity.Polarity
 		stall    *int
 		minResp  *int
 		phantom  bool
@@ -407,15 +407,15 @@ func TestPR2B_Deterministic(t *testing.T) {
 	var first runResult
 	for i := range 5 {
 		ch := loadSyntheticChannel(t, "responsive_fan.yaml")
-		pol, _, _, err := calibration.ProbePolarity(ctx, ch, 255, time.Millisecond)
+		pol, _, _, err := validity.ProbePolarity(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("run %d: ProbePolarity: %v", i, err)
 		}
-		stall, minR, _, _, err := calibration.ProbeStall(ctx, ch, 255, time.Millisecond)
+		stall, minR, _, _, err := validity.ProbeStall(ctx, ch, 255, time.Millisecond)
 		if err != nil {
 			t.Fatalf("run %d: ProbeStall: %v", i, err)
 		}
-		r := runResult{polarity: pol, stall: stall, minResp: minR, phantom: pol == calibration.PolarityAmbiguous}
+		r := runResult{polarity: pol, stall: stall, minResp: minR, phantom: pol == validity.PolarityAmbiguous}
 		if i == 0 {
 			first = r
 			continue

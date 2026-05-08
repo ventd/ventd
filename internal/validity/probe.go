@@ -2,7 +2,7 @@
 // detection, stall_pwm / min_responsive_pwm sweep, phantom detection, and
 // BIOS-override detection. Results are written as layer-4 CalibrationResult
 // JSON files consumed by the apply path.
-package calibration
+package validity
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type ChannelProber interface {
 }
 
 // ParseFixtureYAML unmarshals YAML fixture data into out.
-// Exported so the external _test package can call it via calibration.ParseFixtureYAML.
+// Exported so the external _test package can call it via validity.ParseFixtureYAML.
 func ParseFixtureYAML(data []byte, out any) error {
 	return yaml.Unmarshal(data, out)
 }

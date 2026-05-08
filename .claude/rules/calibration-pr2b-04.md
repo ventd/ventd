@@ -8,4 +8,4 @@ accuracy; a sweep step of 1 would take 256 writes and 128 settle-waits on a 50ms
 A NULL `StallPWM` indicates that the fan never stalled across the full sweep (fan-always-on
 hardware) or that the channel is phantom.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/stall_pwm_detected_duty_0_255
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/stall_pwm_detected_duty_0_255

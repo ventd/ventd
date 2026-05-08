@@ -7,4 +7,4 @@ write PWM values without inversion. A delta below the threshold is not a valid n
 classification — rounding errors, slow motor response, or BIOS intervention can all produce a
 small delta on a physically-normal fan.
 
-Bound: internal/calibration/probe_test.go:TestPR2B_Rules/polarity_normal_detected
+Bound: internal/validity/probe_test.go:TestPR2B_Rules/polarity_normal_detected
