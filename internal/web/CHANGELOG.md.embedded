@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.27] - 2026-05-08
+
+### Headline
+
+A live read-only probe of Phoenix's Desktop on v0.5.26 surfaced a thirteen-item bug floor (B1–B12 + a deferred B9). v0.5.27 ships the user-visible nine of those plus three pre-existing issues: the `/doctor` page stops crashing, the patch-notes modal stops being silently empty on tarball installs, and the in-UI updater stops being able to wedge the daemon. Every fix carries its own regression test; every UI change is honest about what it's surfacing (see #931's no-theatre rule).
+
+### Fixed (operator-visible)
+
+- **Hardware page surfaces every fan header on Phoenix's MSI Z690-A NCT6687** instead of dropping seven of eight (#988). `internal/monitor/monitor.go::scanInputs` was silently filtering `fan*_input == 0` readings on the theory that "0 RPM means dead fan, hide it" — but on Phoenix's rig only the CPU Fan was physically connected; the other seven were valid kernel-exposed headers reading 0. Operators couldn't tell from the inventory which headers existed. The new behaviour surfaces every header; the UI badges any fan reading 0 RPM as "no fan connected".
+- **GPU sensors on the Hardware page no longer all label themselves "gpu_temp"** (#990). `internal/web/hardware_inventory.go` keyed the alias map by `SensorPath` alone — for NVML, that's the bare `gpuIdx` (`"0"`) for every metric. With Phoenix's typical config (`{name: gpu_temp, type: nvidia, path: "0", metric: temp}`), every reading on gpu0 (fan_pct, power, util, clock_gpu, clock_mem, mem_util) inherited the temp sensor's alias. Now the alias map is keyed by `(path, metric)` for NVML; hwmon paths still use bare-path keys.
+- **Smart-mode card stops rendering "Conf min: 0.00 / Conf max: 0.00" during pre-warmup** (#991). `/api/v1/smart/status` now emits JSON null for `confidence_min` / `confidence_max` whenever no channel has positive `Wpred` (the cold-start window per RULE-AGG-COLDSTART-01, monitor-only mode, or all channels refused). The UI's existing `val == null` branch in `sysRow` renders the dim "—" automatically.
+- **Topbar smart-mode pill counts runtime control state, not config flags** (#992 / closes #979). `web/dashboard.js::pollSmartMode` was reading `/api/v1/config` and counting boolean toggles (`acoustic_optimisation`, `!signature_learning_disabled`, etc.) — saying "smart · 4 active" even on monitor-only systems writing zero PWMs. Now reads `/api/v1/smart/status`: `enabled=false → "smart · monitor-only"`, `channels=0 → "smart · idle"`, otherwise `"smart · {converged}/{channels} converged"` with the dot colour following `global_state`.
+- **Opportunistic-probe pill shows elapsed/total seconds while in flight** (#993 / closes #980). Pre-fix the pill said only "probing PWM 100" — operators couldn't tell hung from progressing through the locked 30 s window. Now reads "probing PWM 100 · 12s of 30s" computed client-side from `started_at`. Tooltip clarifies what the probe does and that it auto-aborts on busy host.
+- **Disconnected sensors get a "no sensor connected" badge instead of rendering 8.5°C as if real** (#997 / closes the last #923 minor item). NCT6687 reports 8.5°C on Phoenix's "PCIe x1" temp6_input — a header the chip exposes but no sensor is wired to. Real degraded readings (Framework 13 AMD 7040 EC's −17°C I2C underflow) still pass through, just flagged. Sub-absolute-zero stays a hard reject. Bound to a new `RULE-SENTINEL-TEMP-DISCONNECT` invariant.
+- **`ventd version` (positional, not flag) now works for unprivileged operators** (#994). Pre-fix the subcommand fell through to daemon-startup which tried to load `/etc/ventd/config.yaml` (mode 0600 since the v0.5.8.1 root-flip), so `ventd version` as the `phoenix` user fataled with `permission denied`. Now short-circuits before any subsystem init — works regardless of config permissions, hwmon access, or NVML availability.
+
+### Fixed (security / hygiene)
+
+- **Setupbroker rejects leading-hyphen module names** (#995 / closes #973). Previous regex `^[A-Za-z0-9_-]{1,64}$` allowed any character — including hyphen — as the leading character. A request with `module: "-rfdkms"` would pass validation, then `modprobe -rfdkms` would interpret the entire string as flags. Tightened to `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` so the first character must be alphanumeric.
+- **In-UI updater retries transient GitHub fetches** (#996 / closes #974). `fetchLatestRelease` was a single-shot HTTP call; a 503/502 or transient network blip surfaced immediately as a fatal error in the Update modal. Now wraps in a 3-attempt retry loop with exponential backoff (1s → 2s). Network errors and HTTP 5xx / 429 are retried; HTTP 4xx is terminal so we don't spin on permanent failures.
+- **In-UI updater caps install.sh runtime at 10 minutes** (#996 / closes #975). `buildUpdateCmd`'s systemd-run path had no `RuntimeMaxSec`, so a wedged install.sh (DNS hang, dpkg lock) would leave the daemon offline indefinitely. Adds `--property=RuntimeMaxSec=600`. The nohup fallback path on OpenRC/runit hosts wraps install.sh in `timeout 600 bash …` for parity.
+
+### Fixed (regression test gates)
+
+- **Patch-notes modal stops being silently empty on tarball installs** (#989). `internal/web/CHANGELOG.md.embedded` had drifted from `CHANGELOG.md`: the v0.5.25 + v0.5.26 entries existed in the canonical but not the embed. Every install path with no on-disk `/usr/share/doc/ventd/CHANGELOG.md` (curl-pipe-bash, container, custom install) was silently rendering an empty modal. The pre-existing `TestChangelogEmbedded_SyncedWithRepoCopy` gate caught this; refreshed via `cp CHANGELOG.md internal/web/CHANGELOG.md.embedded`. Worth a follow-up to make the gate block the merge queue.
+
+### Pre-existing fix
+
+- **`/doctor` page no longer crashes on Severity-as-int** (#985). `internal/doctor/severity.go` Severity now marshals as a string (`"ok"|"warning"|"blocker"|"error"`) rather than an int — `web/doctor.js` was calling `.toLowerCase()` on what was actually `0|1|2|3`. Operators on the doctor page saw a runtime error in the browser console and a blank panel.
+
+### Deferred
+
+- **B9** — NVML controllable `channel_id` is bare `"0"` on the wire (`#998` filed). Cosmetic; the GPU still works under control. Deferred to v0.5.28.
+- **#812** scheduler race flake on ubuntu-arm64.
+- **#815** SLSA provenance flake on release.yml.
+- **#901** opensuse-tumbleweed CI lane PATH corruption.
+- **#978** config hot-reload race audit.
+
+### Internals
+
+- New `internal/hal/hwmon.LowTempAmbientFloorCelsius` constant (10 °C) + `IsLowTempLikelyDisconnected` helper, bound to `RULE-SENTINEL-TEMP-DISCONNECT`.
+- `monitor.Reading` gains a `LikelyDisconnected bool` field (omitempty) propagated through `InventorySensor`.
+- `smartStatusResponse.ConfidenceMin/Max` are now `*float64` (omitempty-on-nil → JSON null on the wire).
+- `cmd/ventd/main.go` adds a positional `version` subcommand alongside `diag`, `doctor`, `preflight`, `calibrate`.
+- `internal/web/update.go` factors retry behaviour into `fetchLatestReleaseOnce` + `fetchLatestRelease` with `fetchRetryAttempts = 3`, `fetchRetryBaseBackoff = 1s`, and an `isTransientFetchErr` classifier.
+
 ## [v0.5.26] - 2026-05-05
 
 ### Headline
