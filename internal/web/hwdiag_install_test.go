@@ -44,7 +44,7 @@ func TestMOKEnrollReturnsInstructions(t *testing.T) {
 	srv, tok := newTestServer(t)
 
 	req := httptest.NewRequest("POST", "/api/hwdiag/mok-enroll", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.mux.ServeHTTP(rr, req)
 
@@ -112,7 +112,7 @@ func TestModprobeOptionsWrite_AllowlistEnforced(t *testing.T) {
 				req = httptest.NewRequest("POST", "/api/hwdiag/modprobe-options-write", strings.NewReader(tc.body))
 				req.Header.Set("Content-Type", "application/json")
 			}
-			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+			authAndCSRF(t, req, srv, tok)
 			rr := httptest.NewRecorder()
 			srv.mux.ServeHTTP(rr, req)
 			if rr.Code != http.StatusBadRequest {

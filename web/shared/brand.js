@@ -1,7 +1,54 @@
 // shared/brand.js — injects the spinning propeller logo into every .brand-mark
-// (kept tiny + pure DOM so it works under strict CSP)
+// (kept tiny + pure DOM so it works under strict CSP) AND installs the CSRF
+// fetch wrapper that echoes the `ventd_csrf` cookie value into an
+// X-CSRF-Token header on every state-changing fetch (RULE-WEB-CSRF-TOKEN-
+// REQUIRED-ON-STATE-CHANGE, v0.5.31).
 (function () {
   'use strict';
+
+  // ---------------------------------------------------------------
+  // CSRF fetch wrapper — runs first so every subsequent fetch in the
+  // page picks up the X-CSRF-Token header automatically. Pages don't
+  // need to be touched; existing fetch() calls work transparently.
+  //
+  // The CSRF cookie (ventd_csrf) is set by the server on login as
+  // non-HttpOnly so this script can read it. The session cookie
+  // (ventd_session) remains HttpOnly. Server-side requireCSRF
+  // middleware constant-time compares the X-CSRF-Token header
+  // against the session's bound CSRF token; the cookie is only
+  // the read-side of the synchroniser-token pattern.
+  // ---------------------------------------------------------------
+  function getCSRFToken() {
+    var name = 'ventd_csrf=';
+    var parts = (document.cookie || '').split(';');
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].replace(/^\s+/, '');
+      if (p.indexOf(name) === 0) {
+        return decodeURIComponent(p.substring(name.length));
+      }
+    }
+    return '';
+  }
+
+  if (typeof window !== 'undefined' && typeof window.fetch === 'function' && !window.__ventdCSRFWrapped) {
+    var nativeFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      init = init || {};
+      var method = ((init.method || (input && input.method) || 'GET') + '').toUpperCase();
+      if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+        var token = getCSRFToken();
+        if (token) {
+          var headers = new Headers(init.headers || (input && input.headers) || {});
+          if (!headers.has('X-CSRF-Token')) {
+            headers.set('X-CSRF-Token', token);
+          }
+          init.headers = headers;
+        }
+      }
+      return nativeFetch(input, init);
+    };
+    window.__ventdCSRFWrapped = true;
+  }
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
 

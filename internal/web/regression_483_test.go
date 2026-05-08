@@ -83,7 +83,7 @@ func patchReq(t *testing.T, srv *Server, tok string, body []byte) *httptest.Resp
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
 	return rr

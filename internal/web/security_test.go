@@ -63,7 +63,7 @@ func TestOriginMismatchRejected(t *testing.T) {
 			if tc.origin != "" {
 				req.Header.Set("Origin", tc.origin)
 			}
-			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+			authAndCSRF(t, req, srv, tok)
 			rr := httptest.NewRecorder()
 			srv.handler.ServeHTTP(rr, req)
 			if rr.Code != tc.want {
@@ -381,7 +381,7 @@ func TestConfigPutRejectsOversizedBody(t *testing.T) {
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge {
@@ -399,7 +399,7 @@ func TestSetPasswordRejectsOversizedBody(t *testing.T) {
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge {

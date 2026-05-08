@@ -140,7 +140,7 @@ func TestRegression_Issue463_CalibrationSaveDoesNotWipeAuth(t *testing.T) {
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -252,7 +252,7 @@ func changePasswordViaAPI(t *testing.T, srv *Server, tok, current, newPW string)
 	req.Host = "ventd.local:9999"
 	req.Header.Set("Origin", "http://ventd.local:9999")
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+	authAndCSRF(t, req, srv, tok)
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
 	return rr.Code
@@ -297,7 +297,7 @@ func PropAuthSurvivesConfigWrite(t *testing.T) {
 			req.Host = "ventd.local:9999"
 			req.Header.Set("Origin", "http://ventd.local:9999")
 			req.Header.Set("Content-Type", "application/json")
-			req.AddCookie(&http.Cookie{Name: sessionCookie, Value: tok})
+			authAndCSRF(t, req, srv, tok)
 			rr := httptest.NewRecorder()
 			srv.handler.ServeHTTP(rr, req)
 			if rr.Code != http.StatusOK {
