@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.34] - 2026-05-08
+
+### Headline
+
+Second slice of the v0.6.0 ship plan's A5 file-split refactor (#1019). Pure mechanical move with zero behaviour change; the call sites in `main.go`'s `run()` / `runDaemonInternal()` still invoke these functions directly (same package).
+
+### Changed
+
+- **`cmd/ventd/main.go` reduced from 2072 → 1640 LOC (−21%, #1019).** Smart-mode builders extracted into new `cmd/ventd/smart_builders.go` (472 LOC): `buildOpportunisticScheduler` (v0.5.5 Layer-A gap-fill probe), `buildCouplingRuntime` (v0.5.7 Layer-B coupling RLS), `buildMarginalRuntime` (v0.5.8 Layer-C marginal RLS), `buildLayerAEstimator` (v0.5.9 conf_A four-term), `buildAggregator` (v0.5.9 R12-locked confidence aggregator), `buildBlendedController` (v0.5.9 IMC-PI blended), `buildBlendFn` (v0.5.9 BlendFn closure), and `captureLoadFraction` (`/proc/loadavg` → load fraction bridge). Imports trimmed to just what the new file needs: `slog`, `atomic`, `time`, plus the smart-mode subsystem packages (aggregator, layer_a, controller, coupling, signguard, fallback, idle, marginal, observation, probe, opportunistic, state, sysclass, config). main.go drops the now-unused `internal/fallback` import.
+
+### Senior review pass
+
+Remaining A5 work — further server.go splits (calibrate / setup / status / config handler clusters) — and B1 (internal/calibration → internal/validity rename + RULE-CALIB-PR2B-* binding-path rewrites) deferred to v0.5.35. Per the user's "no more ignoring CIs if they fail we fix" directive, smaller well-bounded slices keep the risk surface low.
+
 ## [v0.5.33] - 2026-05-08
 
 ### Headline
