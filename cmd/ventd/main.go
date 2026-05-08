@@ -66,6 +66,14 @@ var (
 	buildDate = "unknown"
 )
 
+// nvmlInitTimeout caps NVML library load + nvmlInit_v2 at startup so
+// a partial NVIDIA driver install (mismatched DKMS, stale .so symbols,
+// kernel module wedge) cannot hang daemon startup past systemd's
+// TimeoutStartSec. Per RULE-GPU-PR2D-09. 2 s is well above the typical
+// cold-load wall time (~50-200 ms) and tight enough that a hung dlopen
+// surfaces a recoverable failure rather than a wedged daemon.
+const nvmlInitTimeout = 2 * time.Second
+
 func main() {
 	if err := run(); err != nil {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -118,6 +126,23 @@ func run() error {
 	if len(os.Args) >= 2 && os.Args[1] == "calibrate" {
 		logger := buildLogger("info")
 		return runCalibrateAcoustic(os.Args[2:], logger)
+	}
+
+	// `ventd version` mirrors the --version flag for operators who
+	// type the subcommand instinctively. Both forms must short-circuit
+	// before any subsystem init — they MUST NOT load /etc/ventd/config.yaml
+	// (which is mode 0600 since v0.5.8.1's User=root flip; an unprivileged
+	// invocation would fatal-error with "permission denied" on a command
+	// that should just print the version and exit). Accepts an optional
+	// `--json` arg to mirror `--version --json`.
+	if len(os.Args) >= 2 && os.Args[1] == "version" {
+		emitJSON := false
+		for _, a := range os.Args[2:] {
+			if a == "--json" || a == "-json" {
+				emitJSON = true
+			}
+		}
+		return printVersion(os.Stdout, emitJSON)
 	}
 
 	configPath := flag.String("config", "/etc/ventd/config.yaml", "path to YAML config file")
@@ -416,7 +441,15 @@ func run() error {
 	// logs the outcome. Never fatal: hwmon fan control must keep working
 	// either way. Shutdown is only scheduled when Init succeeded so we
 	// don't release a refcount we didn't acquire.
-	if err := nvidia.Init(logger); err == nil {
+	//
+	// InitWithDeadline guards against a hung purego.Dlopen on partial
+	// driver installs (mismatched DKMS, stale libnvidia-ml.so.1 symbols,
+	// kernel module wedge). Without the deadline, daemon startup can
+	// hang past systemd's TimeoutStartSec with no diagnostic the
+	// operator can act on. Per RULE-GPU-PR2D-09: timeout fire returns
+	// wrapped ErrLibraryUnavailable; the orphaned dlopen goroutine
+	// leaks for process lifetime, by design.
+	if err := nvidia.InitWithDeadline(context.Background(), logger, nvmlInitTimeout); err == nil {
 		defer nvidia.Shutdown()
 	}
 

@@ -411,6 +411,40 @@ func TestScanHwmon_NCT6687_Z690A_AllEightHeaders(t *testing.T) {
 	}
 }
 
+// TestScanHwmon_LowTempFlagsAsDisconnected pins B2 from the v0.5.26
+// bug-floor probe: temp readings below LowTempAmbientFloorCelsius
+// (10°C) but above absolute-zero are surfaced WITH a
+// LikelyDisconnected=true flag. Normal readings keep the flag false.
+func TestScanHwmon_LowTempFlagsAsDisconnected(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d := mkHwmonDir(t, root, "hwmon0", "Nuvoton NCT6687")
+	writeFile(t, filepath.Join(d, "temp1_input"), "38000\n") // 38°C — normal CPU
+	writeFile(t, filepath.Join(d, "temp2_input"), "8500\n")  // 8.5°C — Phoenix's PCIe x1 disconnected
+	writeFile(t, filepath.Join(d, "temp3_input"), "9999\n")  // 9.999°C — just below floor
+	writeFile(t, filepath.Join(d, "temp4_input"), "10000\n") // 10.0°C — at floor (NOT flagged)
+
+	devs := scanHwmon()
+	if len(devs) != 1 || len(devs[0].Readings) != 4 {
+		t.Fatalf("scan: %d devices, %d readings; want 1/4", len(devs), len(devs[0].Readings))
+	}
+	want := map[string]bool{
+		"temp1": false, "temp2": true, "temp3": true, "temp4": false,
+	}
+	for _, r := range devs[0].Readings {
+		w, ok := want[r.Label]
+		if !ok {
+			t.Errorf("unexpected label %q", r.Label)
+			continue
+		}
+		if r.LikelyDisconnected != w {
+			t.Errorf("%s @ %.2f°C: LikelyDisconnected=%v, want %v",
+				r.Label, r.Value, r.LikelyDisconnected, w)
+		}
+	}
+}
+
 // TestScanHwmon_MirrorFansDeduped — #796: known EC firmware chips
 // (thinkpad_acpi, dell-smm-hwmon, asus-ec-sensors, hp-wmi-sensors,
 // surface_fan, applesmc, macsmc-hwmon) expose the same physical

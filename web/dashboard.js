@@ -578,38 +578,73 @@
   }
 
   // pollSmartMode populates the topbar smart-mode pill from the live
-  // config — surfaces which smart-mode subsystems are active so users
-  // get visible at-a-glance evidence that ventd is being intelligent
-  // rather than running a dumb curve. Updates every 10s.
+  // controller-side runtime status — NOT from the operator's config
+  // toggles. Pre-fix this read /api/v1/config and counted CONFIG flags
+  // (acoustic_optimisation, signature_learning_disabled, etc.), which
+  // surfaced "smart · 4 active" even on a monitor-only system writing
+  // zero PWMs (#979 / B3 from the v0.5.26 bug-floor probe).
+  //
+  // /api/v1/smart/status is the runtime-state endpoint:
+  //   - enabled=false  → daemon is in monitor-only mode (no aggregator)
+  //   - channels=N     → number of controllable channels under smart-mode
+  //   - converged/warming_up → per-channel state counts
+  //   - global_state   → worst per-channel UI state across the fleet
+  //
+  // Pill class follows global_state so the dot colour matches what the
+  // smart-mode globals card already shows. Updates every 10s.
   function pollSmartMode() {
-    fetch('/api/v1/config', { credentials: 'same-origin' })
+    fetch('/api/v1/smart/status', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (c) {
-        if (!c) return;
+      .then(function (s) {
         var pill = document.getElementById('dash-smart-pill');
         var text = document.getElementById('dash-smart-pill-text');
         if (!pill || !text) return;
-        var states = [];
-        if (c.acoustic_optimisation === undefined ||
-            c.acoustic_optimisation === null ||
-            c.acoustic_optimisation === true) {
-          states.push('acoustic');
+        if (!s) { pill.hidden = true; return; }
+
+        var label, title, cls;
+        if (!s.enabled) {
+          label = 'smart · monitor-only';
+          title = 'No controllable channels — smart mode disabled';
+          cls = 'warn';
+        } else if (!s.channels || s.channels === 0) {
+          label = 'smart · idle';
+          title = 'Smart mode armed but no controllable channels';
+          cls = 'warn';
+        } else {
+          var conv = s.converged || 0;
+          var n = s.channels;
+          label = 'smart · ' + conv + '/' + n + ' converged';
+          title = 'preset=' + (s.preset || '?') +
+            ' · global_state=' + (s.global_state || '?') +
+            ' · ' + conv + '/' + n + ' channels converged' +
+            (s.warming_up ? ' · ' + s.warming_up + ' warming' : '');
+          cls = stateToPillClass(s.global_state);
         }
-        if (!c.signature_learning_disabled) states.push('learning');
-        if (!c.never_actively_probe_after_install) states.push('probing-ok');
-        if (!c.smart_marginal_benefit_disabled) states.push('marginal');
-        if (states.length === 0) {
-          pill.hidden = true;
-          return;
-        }
-        text.textContent = 'smart · ' + states.length + ' active';
-        pill.title = 'smart-mode subsystems active: ' + states.join(', ');
+        text.textContent = label;
+        pill.title = title;
+        // Reset pill class hooks (ok/warm/warn/refused) without
+        // touching dash-smart-pill / status-pill / hidden.
+        pill.classList.remove('ok', 'warm', 'warn', 'refused');
+        pill.classList.add(cls);
         pill.hidden = false;
       })
       .catch(function () {
         var pill = document.getElementById('dash-smart-pill');
         if (pill) pill.hidden = true;
       });
+  }
+
+  // stateToPillClass maps the smart-mode global_state enum to the
+  // existing topbar pill colour classes used elsewhere in the shell.
+  function stateToPillClass(state) {
+    switch (state) {
+      case 'converged': return 'ok';
+      case 'warming':
+      case 'cold-start': return 'warm';
+      case 'drifting': return 'warn';
+      case 'refused': return 'refused';
+      default: return 'warn';
+    }
   }
 
   // pollConfidence drives the v0.5.9 5-state confidence pill +

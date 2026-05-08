@@ -64,7 +64,41 @@ const (
 	// the controller treats as valid. The 0xFFFF sentinel maps to ~65.5 V;
 	// no standard PSU rail exceeds 20 V.
 	PlausibleVoltageMaxVolts = 20.0
+
+	// LowTempAmbientFloorCelsius is the temperature below which a
+	// temp*_input reading is FLAGGED as likely-disconnected — surfaced
+	// to the UI with a "no sensor connected" badge but NOT rejected
+	// from the inventory. Most disconnected hwmon temp pins read
+	// somewhere between 0 and 15 °C depending on the chip's analog
+	// default for an unconnected input. NCT6687's 8.5 °C reading on
+	// Phoenix's "PCIe x1" header is the canonical example (#923).
+	// Real sensors in normal operation never read below this floor:
+	// idle CPUs are at least 25 °C from baseline silicon current,
+	// modern NVMe sits 25-50 °C even at idle, and only cold-storage
+	// HDDs in chilly server rooms occasionally dip below 15 °C — and
+	// those typically run 30-50 °C in modern enclosures.
+	//
+	// Use 10 °C as a conservative middle ground. Readings below this
+	// are not necessarily wrong (the Framework 13 AMD 7040 EC's
+	// −17 °C I2C bus underflow is a real-world example of a degraded
+	// reading we still surface); they're just flagged so operators
+	// know not to trust them at face value (B2 from the v0.5.26
+	// bug-floor probe).
+	LowTempAmbientFloorCelsius = 10.0
 )
+
+// IsLowTempLikelyDisconnected reports whether a scaled temperature
+// reading is suspiciously low — below LowTempAmbientFloorCelsius and
+// above the absolute-zero floor — i.e. plausibly real numerically but
+// outside the range a connected sensor produces in normal operation.
+//
+// Use as an annotation flag, NOT a rejection filter: drop the hard
+// reject only on PlausibleTempMinCelsius / PlausibleTempMaxCelsius;
+// surface the suspicious-but-plausible band to operators so they can
+// decide.
+func IsLowTempLikelyDisconnected(celsius float64) bool {
+	return celsius > PlausibleTempMinCelsius && celsius < LowTempAmbientFloorCelsius
+}
 
 // IsSentinelRPM reports whether raw is a known driver sentinel or exceeds
 // the plausibility cap for RPM readings. Used by the hwmon backend's Read()

@@ -118,6 +118,12 @@ type InventorySensor struct {
 	History  []float64        `json:"history"`            // chronological, ≤ historyCap entries, oldest first
 	Position *config.Position `json:"position,omitempty"` // operator-supplied (x,y) for heatmap; nil → not on heatmap
 	UsedBy   []string         `json:"used_by"`            // curve IDs that consume this sensor
+	// LikelyDisconnected propagates the monitor.Reading flag for temp
+	// sensors landing in the suspicious-low band — surfaces a "no
+	// sensor connected" badge in the UI without dropping the value
+	// itself. NCT6687's "PCIe x1" reading 8.5 °C on Phoenix's Z690-A
+	// is the canonical case (B2 / #923).
+	LikelyDisconnected bool `json:"likely_disconnected,omitempty"`
 }
 
 type InventoryCurve struct {
@@ -281,15 +287,16 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 			}
 			history := recordHistory(id, rd.Value)
 			sensorsOut = append(sensorsOut, InventorySensor{
-				ID:       id,
-				Label:    rd.Label,
-				Alias:    alias,
-				Kind:     kind,
-				Value:    rd.Value,
-				Unit:     rd.Unit,
-				History:  history,
-				Position: pos,
-				UsedBy:   usedBy,
+				ID:                 id,
+				Label:              rd.Label,
+				Alias:              alias,
+				Kind:               kind,
+				Value:              rd.Value,
+				Unit:               rd.Unit,
+				History:            history,
+				Position:           pos,
+				UsedBy:             usedBy,
+				LikelyDisconnected: rd.LikelyDisconnected,
 			})
 		}
 		chipsOut = append(chipsOut, InventoryChip{

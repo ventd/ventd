@@ -4,10 +4,23 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ventd/ventd/internal/iox"
 )
+
+// ensureFreeSpaceFn is the swappable seam KV writes consult before
+// mutating in-memory state. Production points at iox.EnsureFreeSpace
+// with iox.MinFreeBytesForState as the threshold. Tests swap this
+// to a stub returning iox.ErrInsufficientFreeSpace to exercise the
+// refusal path without needing an actually-full filesystem. Per
+// RULE-STATE-12.
+var ensureFreeSpaceFn = func(dir string) error {
+	return iox.EnsureFreeSpace(dir, iox.MinFreeBytesForState)
+}
 
 const kvSchemaVersion = 1
 
@@ -90,8 +103,15 @@ func (db *KVDB) Get(namespace, key string) (any, bool, error) {
 	return v, ok, nil
 }
 
-// Set stores namespace/key=value and persists atomically.
+// Set stores namespace/key=value and persists atomically. Refuses
+// before mutating in-memory state when the state directory has less
+// than iox.MinFreeBytesForState bytes free, so a doomed disk-write
+// cannot cause the daemon's in-memory view to drift ahead of the
+// on-disk file. Per RULE-STATE-12.
 func (db *KVDB) Set(namespace, key string, value any) error {
+	if err := ensureFreeSpaceFn(filepath.Dir(db.path)); err != nil {
+		return err
+	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if db.data[namespace] == nil {
@@ -101,8 +121,13 @@ func (db *KVDB) Set(namespace, key string, value any) error {
 	return db.persist()
 }
 
-// Delete removes namespace/key and persists atomically.
+// Delete removes namespace/key and persists atomically. Same
+// pre-flight free-space gate as Set so the refusal happens before
+// in-memory mutation. Per RULE-STATE-12.
 func (db *KVDB) Delete(namespace, key string) error {
+	if err := ensureFreeSpaceFn(filepath.Dir(db.path)); err != nil {
+		return err
+	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if ns, ok := db.data[namespace]; ok {
@@ -165,7 +190,19 @@ func (tx *KVTx) Delete(namespace, key string) {
 // WithTransaction executes fn in a transaction and commits all changes with a
 // single atomic write (RULE-STATE-07). If fn returns an error no changes are
 // committed — the in-memory state and the on-disk file are unchanged.
+//
+// The free-space pre-flight (RULE-STATE-12) fires before fn is even
+// called: if the state directory is critically low, the whole
+// transaction is refused without invoking the caller's mutation
+// closure. This preserves WithTransaction's contract that fn-returns-
+// error leaves the world untouched, AND extends it with "low-disk
+// returns iox.ErrInsufficientFreeSpace before fn ever runs", so a
+// caller that does expensive work inside fn doesn't burn the cycles
+// only to discover the commit can't land.
 func (db *KVDB) WithTransaction(fn func(tx *KVTx) error) error {
+	if err := ensureFreeSpaceFn(filepath.Dir(db.path)); err != nil {
+		return err
+	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	snap := kvDeepCopy(db.data)
