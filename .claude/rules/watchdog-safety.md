@@ -73,6 +73,49 @@ cross-talk.
 
 Bound: internal/watchdog/safety_test.go:wd_deregister_unknown_and_double_is_noop
 
+## RULE-WD-RESTORE-BUDGET: RestoreCtx parallelizes per-channel restore and honours a context deadline
+
+`Restore()` calls `RestoreCtx(ctx)` with `context.WithTimeout(_,
+DefaultRestoreBudget)` (1.8 s). `RestoreCtx` launches one goroutine per
+registered entry, each calling `restoreOneCtx(ctx, e)` which pre-checks
+`ctx.Err()` then dispatches to the backend via the `restoreOneImpl`
+package-level seam (production: `(*Watchdog).restoreOne` — the existing
+panic-recovery + per-entry restore wrapper, unchanged in behaviour).
+
+Two return paths:
+
+- **All goroutines complete within budget**: function returns as soon as
+  the WaitGroup drains. Per-entry restores ran in parallel — a slow sysfs
+  write on one fan does not stall the others. RULE-WD-RESTORE-EXIT and
+  RULE-WD-RESTORE-PANIC continue to hold (every entry's goroutine reached
+  its backend dispatch; per-entry panic-recover is unchanged).
+- **Budget fires before all goroutines complete**: function applies a
+  bounded `restoreGracePeriod` (100 ms) so abandoned goroutines have a
+  chance to finish their log emit / microsecond-scale syscall returns,
+  then snapshots the still-incomplete set, sorts it deterministically,
+  emits one WARN ("watchdog: restore budget exceeded; abandoning in-flight
+  goroutines") naming the abandoned channels + the cancellation cause,
+  and returns. The abandoned goroutines continue to run until the kernel
+  returns from the underlying syscall — but the daemon proceeds with its
+  exit regardless. systemd's `KillMode=process` reaps them on shutdown.
+
+This pattern means the daemon's own restore path is the load-bearing
+2-second-promise primitive in the README's "every exit path restores
+firmware control within two seconds" guarantee, rather than the daemon
+relying on systemd's `WatchdogSec=2s` SIGKILL + `OnFailure=ventd-recover`
+belt-and-braces. A hung sysfs write on one fan no longer blocks the
+restore loop indefinitely — that was the failure mode where the heartbeat
+goroutine would keep pinging while the restore goroutine was wedged,
+defeating the SIGKILL backstop.
+
+`DefaultRestoreBudget = 1800 ms` leaves 200 ms of headroom under typical
+systemd `TimeoutStopSec=2s`; the budget is exposed as a public constant
+so callers can tighten or relax it if their unit configuration differs.
+
+Bound: internal/watchdog/safety_test.go:wd_restore_completes_within_budget
+Bound: internal/watchdog/safety_test.go:wd_restore_budget_exceeded_logs_abandoned_continues_others
+Bound: internal/watchdog/safety_test.go:wd_restore_pre_cancelled_ctx_skips_backend
+
 ## RULE-WD-REGISTER-IDEMPOTENT: startup origEnable survives re-registration
 
 A Register call stacks on top of the startup registration for the same
