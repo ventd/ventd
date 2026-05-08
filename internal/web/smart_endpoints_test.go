@@ -257,10 +257,6 @@ func TestSmartStatus_JSONMarshalRoundTrip(t *testing.T) {
 // literal 0.0 — otherwise the smart-mode card renders a misleading
 // "Conf min: 0.00 / Conf max: 0.00".
 func TestSmartStatus_NullConfidenceWhenAllPreWarmup(t *testing.T) {
-	cmax := 0.0
-	if cmax > 0 {
-		t.Fatal("guard: pre-warmup means Wpred=0 across the fleet")
-	}
 	// Direct unit test of the JSON shape: with both pointers nil, the
 	// API must emit JSON null on both fields so web/smart.js's
 	// `val == null` branch in sysRow renders "—".
