@@ -60,10 +60,16 @@ func TestManager_StartTransitionsToRunningThenDone(t *testing.T) {
 	if err := m.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// Immediately after Start, Running must be true.
+	// Immediately after Start, the wizard MUST be in one of two
+	// expected states: Running (typical case — work is in flight)
+	// or Done (a sufficiently fast runner can land the run body's
+	// exit before we observe Progress; happens on fast GHA
+	// ubuntu-22-04 lanes per #1015 CI-fail diagnosis). Either is
+	// the contract; what's NOT acceptable is NEITHER — that would
+	// mean Start returned without scheduling the work.
 	p := m.Progress()
-	if !p.Running {
-		t.Errorf("Progress just after Start: Running=false, want true")
+	if !p.Running && !p.Done {
+		t.Errorf("Progress just after Start: Running=%v Done=%v; want one of them true (run must be in-flight or already complete)", p.Running, p.Done)
 	}
 
 	final := waitDone(t, m, 5*time.Second)
