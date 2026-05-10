@@ -186,14 +186,61 @@ between failed admissions.
 
 Bound: internal/marginal/runtime_test.go:TestRuntime_DeferActivation_OnParentKappaBad
 
-## RULE-CMB-OAT-01: Layer-C update samples admitted only when Δpwm_j = 0 for all j ≠ i over the previous 5 ticks.
+## RULE-CMB-OAT-01: Layer-C update samples admitted only when Δpwm_j = 0 for all j NOT IN i's PWM group over the previous 5 ticks.
 
 Spec §2.6. Mitigates R28 multi-channel aerodynamic interference
-contamination of per-channel β_0 estimates. Costs convergence
-speed in highly-coupled chassis; full R17 INTERFERENCE work
-remains v0.6.0.
+contamination of per-channel β_0 estimates.
+
+**v0.6.0 amendment (group-aware)**. The pre-v0.6 form of this rule
+read "Δpwm_j = 0 for all j ≠ i" — every other channel had to be
+static. Phase C5 HIL evidence (RFC #1024, Phoenix's MSI Z690-A
+verdict) revealed a structural failure mode: on boards where
+multiple PWM sysfs channels are firmware-mirrored (or physically
+driven by a single PWM register that fans out to multiple headers),
+intra-mirror movement appears as cross-channel interference to the
+strict j ≠ i form. Every Layer-C admission attempt on a mirrored
+channel was rejected because the firmware-mirrored siblings ALSO
+changed PWM — even though they're operationally the same actuator.
+Phoenix's Z690-A drove CPU_Fan + Pump_Fan + Sys_Fan_1 + Sys_Fan_2
+with identical PWM values across 2479 captured samples (per the
+RULE-HWDB-PR2-15 motivating note); the v0.5.x OAT rejected every
+admission, Layer-C never advanced.
+
+`Runtime.SetPWMGroups([][]string)` declares the operationally-
+co-moving channel sets. The OAT gate `oatGate(channelID)` now
+exits early when the candidate other-channel's group key matches
+the admitting channel's group key — intra-group movement is
+excluded from the quiet-window check. Channels outside the
+group still gate normally; the cross-channel-interference
+protection is preserved for genuinely-independent channels.
+
+Ungrouped channels (absent from any SetPWMGroups input) act as
+size-1 groups via the `groupKey()` fallback: `groupKey(ch)` returns
+`groupOf[ch]` when present, else `ch` itself. The
+empty-map default preserves exact v0.5.x semantics — every
+ungrouped channel still gates every other ungrouped channel.
+
+`SetPWMGroups` is idempotent (repeated calls replace, don't
+accumulate) and silently drops single-member entries (a "group of
+one" is functionally the same as no group at all). Production
+callers obtain the groups from `hwdb.BoardProfile.PWMGroups` via
+the catalog match; in catalog-data-absent deployments (the common
+case for v0.6.0 first ship — only Phoenix's Z690-A and similar
+boards need group data) the runtime continues to behave exactly as
+v0.5.x.
+
+Costs convergence speed in highly-coupled chassis; full R17
+INTERFERENCE work remains v0.7+. Group declarations are not a
+substitute for R17 — they're a targeted relaxation for the
+firmware-mirroring failure mode, scoped to known-mirrored
+topologies via the catalog overlay.
 
 Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_RejectsCrossChannelSamples
+Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_IntraGroupCoMovementAdmits
+Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_ExtraGroupMovementStillRejects
+Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_UngroupedChannelsBehaveAsSizeOneGroups
+Bound: internal/marginal/runtime_test.go:TestRuntime_SetPWMGroups_SkipsSizeOneGroups
+Bound: internal/marginal/runtime_test.go:TestRuntime_SetPWMGroups_IsIdempotentAndReplaces
 
 ## RULE-CMB-CONF-01: Snapshot.Confidence is a ConfidenceComponents struct exposing R12 §Q1 input terms; the aggregated conf_C float is NOT computed in v0.5.8.
 

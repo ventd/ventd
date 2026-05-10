@@ -94,6 +94,15 @@ type Runtime struct {
 	// (RULE-CMB-OAT-01). Index 0 is the most recent.
 	recentPWM map[string]*ringBuffer
 
+	// groupOf maps channelID → group identifier for the group-aware
+	// OAT gate (RULE-CMB-OAT-01 v0.6.0 amendment). Ungrouped
+	// channels (absent from the map) act as size-1 groups via the
+	// groupKey helper; the empty-map default preserves exact v0.5.x
+	// OAT semantics. Populated by SetPWMGroups at construction time
+	// from the catalog match's BoardProfile.PWMGroups data, when
+	// such data exists.
+	groupOf map[string]string
+
 	runStarted bool
 }
 
@@ -161,7 +170,98 @@ func NewRuntime(
 		channelCounts:        make(map[string]int),
 		lastFailedActivation: make(map[shardKey]time.Time),
 		recentPWM:            make(map[string]*ringBuffer),
+		groupOf:              map[string]string{},
 	}
+}
+
+// SetPWMGroups declares which channels move together for the OAT
+// gate (RULE-CMB-OAT-01 group-aware amendment). Each inner slice is
+// a set of channel IDs (sysfs PWMPaths) that are firmware-mirrored
+// or physically driven by a single PWM register — i.e. their PWM
+// values change in lockstep. The OAT gate excludes intra-group
+// movement from the "every other channel must be static" check, so
+// admissions don't get rejected because firmware-mirrored siblings
+// also moved.
+//
+// Empty or nil input is a no-op — ungrouped channels behave as
+// size-1 groups (the v0.5.x default), and OAT semantics are
+// preserved exactly. Production callers obtain the groups from
+// `hwdb.BoardProfile.PWMGroups` after live-channel resolution
+// (catalog leaf names → live PWMPaths); when no catalog match
+// supplies group data, callers pass nil and the runtime continues
+// to treat every channel as its own group.
+//
+// Idempotent — repeated calls replace the prior mapping. Safe to
+// call at any time relative to OnObservation; the next OAT
+// evaluation picks up the new mapping. Channels not present in any
+// group's slice retain their default behaviour.
+//
+// Each membership map entry maps `channelID → groupID`. The
+// groupID is opaque — any string that uniquely identifies the
+// group (e.g. the sorted joined channel IDs); ungrouped channels
+// implicitly use their own channelID as their groupID via
+// groupKey().
+func (r *Runtime) SetPWMGroups(groups [][]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.groupOf = map[string]string{}
+	for _, g := range groups {
+		if len(g) < 2 {
+			// A group of one is functionally identical to no group
+			// at all (the channel acts as its own group via the
+			// fallback in groupKey()), so skip the single-member
+			// entry to keep the map sparse and the diagnostic
+			// log accurate.
+			continue
+		}
+		// Build a stable groupID from the members. The exact
+		// representation doesn't matter — only that every member
+		// produces the same ID — so the join of the inputs is
+		// sufficient.
+		gid := joinGroupID(g)
+		for _, ch := range g {
+			r.groupOf[ch] = gid
+		}
+	}
+}
+
+// joinGroupID produces a stable identifier from the group members.
+// The members are sorted lexicographically + joined with a separator
+// no PWMPath can contain. Callers don't see the format; equality of
+// produced IDs is the only contract.
+func joinGroupID(members []string) string {
+	// O(n²) sort is fine for the group sizes catalogs realistically
+	// declare (4-8 members max).
+	cp := append([]string(nil), members...)
+	for i := 0; i < len(cp); i++ {
+		for j := i + 1; j < len(cp); j++ {
+			if cp[j] < cp[i] {
+				cp[i], cp[j] = cp[j], cp[i]
+			}
+		}
+	}
+	out := ""
+	for i, m := range cp {
+		if i > 0 {
+			out += "\x00"
+		}
+		out += m
+	}
+	return out
+}
+
+// groupKey returns the group identifier for a channel: the
+// catalog-declared group ID when the channel is in a multi-channel
+// group, or the channelID itself (size-1 group) otherwise. Used by
+// the OAT gate so channels in the same group don't fail each
+// other's quiet-window check.
+func (r *Runtime) groupKey(channelID string) string {
+	if r.groupOf != nil {
+		if g, ok := r.groupOf[channelID]; ok {
+			return g
+		}
+	}
+	return channelID
 }
 
 // SetPWMUnitMax overrides the default 255 for non-duty_0_255
@@ -382,9 +482,26 @@ func (r *Runtime) evictLRUForChannelLocked(channel string) string {
 	return victim.signature
 }
 
+// oatGate enforces the cross-channel quiet-window admission per
+// RULE-CMB-OAT-01. With no group data declared (ungrouped default),
+// the check is the v0.5.x form: "every channel other than this one
+// must have been static over the last 5 ticks." When groups are
+// declared via SetPWMGroups, channels in the SAME group as channelID
+// are excluded from the check — firmware-mirrored siblings move
+// together by definition, so requiring them to be static would
+// reject every admission attempt on grouped topologies (the v0.6.0
+// RFC #1024 / Phoenix's Z690-A failure mode).
+//
+// Ungrouped channels remain size-1 groups via groupKey's fallback;
+// they still gate each other's admissions exactly as before.
 func (r *Runtime) oatGate(channelID string) bool {
+	myGroup := r.groupKey(channelID)
 	for ch, rb := range r.recentPWM {
-		if ch == channelID {
+		if r.groupKey(ch) == myGroup {
+			// Same group (including the channel itself). Excluded
+			// from the quiet-window check — intra-group movement
+			// is expected and does not represent cross-channel
+			// interference.
 			continue
 		}
 		if !rb.allEqual() {
