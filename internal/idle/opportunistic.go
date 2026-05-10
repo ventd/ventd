@@ -5,9 +5,11 @@ import (
 	"time"
 )
 
-// opportunisticDurability is the durability window for OpportunisticGate.
-// 600 s (10 minutes) is 2× the StartupGate window; rationale lives in
+// opportunisticDurability is the durability window for OpportunisticGate
+// when running in ModeStrictIdle. 600 s (10 minutes) is 2× the
+// StartupGate window; rationale lives in
 // spec-v0_5_5-opportunistic-probing.md §2.1 and RULE-OPP-IDLE-01.
+// ModeSoftIdle (v0.6.0+ default) does NOT use a durability loop.
 const opportunisticDurability = 600 * time.Second
 
 // sshIdleThresholdSeconds is the loginctl IdleSinceHint threshold above
@@ -26,10 +28,33 @@ const (
 	ReasonOpportunisticBootWindow Reason = "opportunistic_boot_window"
 )
 
+// IdleGateMode selects between the v0.6.0+ soft-default OpportunisticGate
+// evaluator and the legacy v0.5.x strict evaluator. Strict was the only
+// mode through v0.5.x (600 s durability + tight PSI thresholds tuned for
+// calibration-grade quiescence). v0.6.0 defaults to soft so smart-mode
+// can learn under realistic workload (RULE-OPP-IDLE-SOFT-MODE); the
+// strict path is preserved behind `--strict-idle-gate` for operators on
+// hosts where the soft thresholds prove too permissive.
+type IdleGateMode uint8
+
+const (
+	// ModeSoftIdle is the v0.6.0+ default: single-shot evaluation,
+	// soft PSI thresholds, soft loadavg fallback. Cross-call IRQ
+	// delta state is owned by the caller via IRQBaseline.
+	ModeSoftIdle IdleGateMode = 0
+	// ModeStrictIdle is the legacy v0.5.x evaluator: 600 s
+	// durability loop + tight PSI thresholds. Operator escape hatch
+	// via `--strict-idle-gate`.
+	ModeStrictIdle IdleGateMode = 1
+)
+
 // OpportunisticGateConfig extends GateConfig with the v0.5.5 input-IRQ
 // and SSH session sources. Fields are injectable for tests.
 type OpportunisticGateConfig struct {
 	GateConfig
+	// Mode selects soft (default, v0.6.0+) vs strict (legacy v0.5.x)
+	// evaluation. Zero value = ModeSoftIdle.
+	Mode IdleGateMode
 	// LoginctlOutput, when non-empty, is parsed in place of running
 	// loginctl. Empty string means run the real binary.
 	LoginctlOutput string
@@ -40,20 +65,116 @@ type OpportunisticGateConfig struct {
 	// IsInputIRQOverride, when non-nil, classifies IRQs without
 	// touching /sys. Tests only.
 	IsInputIRQOverride func(id string) bool
+	// IRQBaseline is the caller-owned IRQ-counter snapshot used by
+	// the soft evaluator for cross-call delta detection. The
+	// scheduler initialises one zero-valued IRQCounters per
+	// scheduler-lifetime and passes the same pointer on every tick,
+	// so "any classified input IRQ has activity since the previous
+	// gate evaluation" reads naturally across the ~60 s scheduler
+	// tick interval. The strict evaluator manages its own
+	// loop-scoped prev and ignores this field. Nil means "no
+	// baseline" — soft mode seeds it from the current read and
+	// admits the first call without enforcing the IRQ check.
+	IRQBaseline *IRQCounters
 }
 
-// OpportunisticGate blocks until the system has been idle continuously
-// for opportunisticDurability (default 600 s) AND no input IRQ has shown
-// activity since the previous tick AND no remote loginctl session has
-// been active within sshIdleThresholdSeconds. Hard preconditions
-// inherited from StartupGate are checked unchanged (RULE-OPP-IDLE-04).
+// OpportunisticGate evaluates the opportunistic-probe idle gate.
+// Mode dispatch:
 //
-// Returns (true, ReasonOK, snapshot) on success; (false, reason, nil)
-// on refusal or context cancel. Unlike StartupGate, there is no
-// backoff scheduler — opportunistic probing is fire-and-forget at the
-// scheduler tick cadence (default 60 s); refusing is cheap and the
-// caller is expected to retry on the next tick.
+//   - ModeSoftIdle (default, RULE-OPP-IDLE-SOFT-MODE): single-shot
+//     evaluation against soft PSI thresholds + hard preconditions +
+//     IRQ delta + SSH check. Returns (true, ReasonOK, snapshot) when
+//     all checks pass at this instant. The scheduler's 60 s tick
+//     cadence supplies the temporal envelope; no durability loop.
+//
+//   - ModeStrictIdle (legacy v0.5.x, --strict-idle-gate): blocks
+//     until the strict predicate has been continuously TRUE for
+//     opportunisticDurability (default 600 s) AND no input IRQ has
+//     shown activity since the previous tick AND no remote loginctl
+//     session has been active within sshIdleThresholdSeconds.
+//
+// In both modes the hard preconditions inherited from StartupGate
+// (battery, container, scrub, blocked-process, post-resume warmup)
+// are checked unchanged (RULE-OPP-IDLE-04). The input-IRQ check
+// (RULE-OPP-IDLE-02) and the active-SSH check (RULE-OPP-IDLE-03) are
+// also enforced in both modes; only the workload pressure
+// thresholds + durability change.
+//
+// Returns (false, reason, nil) on refusal or context cancel.
+// Refusing is cheap and the caller is expected to retry on the next
+// scheduler tick.
 func OpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bool, Reason, *Snapshot) {
+	if cfg.Mode == ModeStrictIdle {
+		return strictOpportunisticGate(ctx, cfg)
+	}
+	return softOpportunisticGate(ctx, cfg)
+}
+
+// softOpportunisticGate is the v0.6.0+ default evaluator. Single-shot:
+// captures one snapshot, runs the relaxed PSI predicate plus the
+// inherited hard preconditions + IRQ + SSH checks, and returns.
+func softOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bool, Reason, *Snapshot) {
+	if ctx.Err() != nil {
+		return false, ReasonOK, nil
+	}
+
+	gateCfg := cfg.GateConfig
+	clk := gateCfg.clock()
+	deps := snapshotDeps{procRoot: gateCfg.ProcRoot, sysRoot: gateCfg.SysRoot, clock: clk}
+
+	// Hard preconditions are evaluated first because they're the
+	// cheapest-to-observe refusal reason (RULE-OPP-IDLE-04
+	// inheritance).
+	pre := CheckHardPreconditions(gateCfg.ProcRoot, gateCfg.SysRoot, gateCfg.AllowOverride)
+	if r := pre.Reason(); r != ReasonOK {
+		return false, r, nil
+	}
+
+	snap := Capture(deps)
+
+	// Process blocklist (RULE-IDLE-06).
+	for name := range snap.Processes {
+		return false, ReasonBlockedProcess.WithDetail(name), nil
+	}
+
+	// Soft PSI / loadavg (RULE-OPP-IDLE-SOFT-MODE relaxed thresholds).
+	if PSIAvailable(gateCfg.ProcRoot) {
+		if ok, r := evalSoftPSIPredicate(snap.PSI); !ok {
+			return false, r, nil
+		}
+	} else {
+		if ok, r := evalSoftLoadAvgPredicate(snap.LoadAvg); !ok {
+			return false, r, nil
+		}
+	}
+
+	// Input-IRQ delta (RULE-OPP-IDLE-02). When IRQBaseline is nil,
+	// the first call admits without enforcement (no prior reading);
+	// the scheduler's persistent baseline pointer means every
+	// subsequent tick computes the delta vs the previous read.
+	if cfg.IRQBaseline != nil {
+		if active, irq := evalInputIRQActivity(cfg, cfg.IRQBaseline); active {
+			return false, ReasonRecentInputIRQ.WithDetail("irq=" + irq), nil
+		}
+	} else {
+		// Caller didn't wire a baseline — seed a local one and skip
+		// the delta check. Used by tests that don't exercise IRQ
+		// behaviour; production always supplies IRQBaseline.
+		var local IRQCounters
+		_, _ = evalInputIRQActivity(cfg, &local)
+	}
+
+	// Active SSH session (RULE-OPP-IDLE-03).
+	if active, sid := evalSSHActivity(cfg); active {
+		return false, ReasonActiveSSHSession.WithDetail("session=" + sid), nil
+	}
+
+	return true, ReasonOK, snap
+}
+
+// strictOpportunisticGate is the legacy v0.5.x evaluator preserved
+// behind `--strict-idle-gate`. Identical to v0.5.x OpportunisticGate.
+func strictOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bool, Reason, *Snapshot) {
 	gateCfg := cfg.GateConfig
 	if gateCfg.Durability == 0 {
 		gateCfg.Durability = opportunisticDurability

@@ -50,6 +50,7 @@ func buildOpportunisticScheduler(
 	liveCfg *atomic.Pointer[config.Config],
 	sguDet *signguard.Detector,
 	logger *slog.Logger,
+	strictIdleGate bool,
 ) *opportunistic.Scheduler {
 	if len(channels) == 0 {
 		logger.Info("opportunistic: no controllable channels; scheduler not started")
@@ -122,12 +123,27 @@ func buildOpportunisticScheduler(
 		}
 		return false
 	}
+	// IRQ baseline lives on the scheduler heap so soft-mode delta
+	// detection works across the 60 s tick interval. The first soft
+	// tick seeds it from the current IRQ counters and admits without
+	// enforcing the IRQ check (no prior reading to delta against);
+	// every subsequent tick computes the delta vs the prior tick's
+	// counters per RULE-OPP-IDLE-02.
+	irqBaseline := idle.IRQCounters{}
 	idleCfg := idle.OpportunisticGateConfig{
 		GateConfig: idle.GateConfig{
 			ProcRoot:      "/proc",
 			SysRoot:       "/sys",
 			AllowOverride: false,
 		},
+		IRQBaseline: &irqBaseline,
+	}
+	if strictIdleGate {
+		idleCfg.Mode = idle.ModeStrictIdle
+		logger.Info("opportunistic: strict idle gate active (--strict-idle-gate); 600s durability + tight PSI thresholds")
+	} else {
+		idleCfg.Mode = idle.ModeSoftIdle
+		logger.Info("opportunistic: soft idle gate active (default v0.6.0+); single-shot eval + relaxed PSI thresholds (RULE-OPP-IDLE-SOFT-MODE)")
 	}
 	cfg := opportunistic.SchedulerConfig{
 		Channels:               channels,
