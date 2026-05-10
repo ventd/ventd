@@ -889,6 +889,14 @@ func runDaemonInternal(
 	// Setup wizard manager: handles first-boot fan discovery and calibration via web UI.
 	setupMgr := setupmgr.New(cal, logger)
 	setupMgr.SetDiagnosticStore(diagStore)
+	// Wire the polarity prober so the wizard's Phase 5b polarity probe
+	// actually runs. Without this, the prober is nil and the entire
+	// `if prober != nil { ... }` block at internal/setup/setup.go:1097
+	// is dead code — RULE-POLARITY-03's |delta| < 150 RPM phantom cap
+	// never fires, and phantom channels (RPM=0 at every PWM) flow
+	// through to Phase 6 calibration on Phase 5a's RPM-correlation
+	// alone. Issue #1026.
+	setupMgr.SetPolarityProber(&polarity.HwmonProber{})
 	// Persistent applied-marker so a host that opted into monitor-only
 	// mode (handleSetupApply's empty-fanset escape) stays out of the
 	// /calibration redirect on every subsequent daemon restart even

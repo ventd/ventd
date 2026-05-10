@@ -8,6 +8,7 @@ import (
 	"github.com/ventd/ventd/internal/acoustic/runner"
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/watchdog"
 )
@@ -77,6 +78,11 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
 	mgr := setup.New(cal, logger)
 	mgr.SetAppliedMarkerPath(setup.DefaultAppliedMarkerPath)
+	// Wire the polarity prober so the wizard's Phase 5b polarity probe
+	// actually runs (RULE-POLARITY-03 |delta| < 150 RPM phantom cap).
+	// Without it, phantom channels slip through to `controls:` —
+	// issue #1026.
+	mgr.SetPolarityProber(&polarity.HwmonProber{})
 
 	// v0.5.12: opt-in R30 mic calibration. When MicDevice is empty
 	// the gate is a clean no-op (RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01);
