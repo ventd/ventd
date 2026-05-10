@@ -151,6 +151,7 @@ func run() error {
 	enableNVIDIACoolbits := flag.Bool("enable-nvidia-coolbits", false, "enable NVIDIA Coolbits fan control (experimental; requires nvidia_coolbits precondition)")
 	enableILO4Unlocked := flag.Bool("enable-ilo4-unlocked", false, "enable HPE iLO4 unlocked fan control (experimental; requires ilo4_unlocked precondition)")
 	enableIDRAC9LegacyRaw := flag.Bool("enable-idrac9-legacy-raw", false, "enable Dell iDRAC9 legacy raw IPMI fan commands (experimental; requires idrac9_legacy_raw precondition)")
+	strictIdleGate := flag.Bool("strict-idle-gate", false, "revert OpportunisticGate to the v0.5.x strict evaluator (600s durability + tight PSI thresholds); default v0.6.0+ is the soft-idle gate so smart-mode can learn under realistic workload (RULE-OPP-IDLE-SOFT-MODE)")
 	micDevice := flag.String("mic", "", "with --setup: ALSA mic device for opt-in R30 acoustic calibration (e.g. hw:CARD=USB,DEV=0). Empty = skip the calibrate_acoustic phase.")
 	micRefSPL := flag.Float64("mic-ref-spl", 94.0, "with --setup --mic: reference-tone SPL at the mic in dB (default 94, the standard pistonphone)")
 	micSeconds := flag.Int("mic-seconds", 30, "with --setup --mic: mic capture duration in seconds (5..60)")
@@ -524,7 +525,7 @@ func run() error {
 	// every tick — a flip in /api/config takes effect on the next
 	// scheduler tick without a daemon restart.
 	oppFactory := func(liveCfg *atomic.Pointer[config.Config]) *opportunistic.Scheduler {
-		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, sguDet, logger)
+		return buildOpportunisticScheduler(channels, sysDet, st, obsWriter, liveCfg, sguDet, logger, *strictIdleGate)
 	}
 
 	// v0.5.6: bundle the runtime dependencies for signature learning

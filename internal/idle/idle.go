@@ -10,15 +10,42 @@ const (
 	defaultDurability   = 300 * time.Second
 	defaultTickInterval = 10 * time.Second
 
-	// PSI thresholds (spec §4.3).
+	// PSI thresholds (spec §4.3). These are the calibration-grade
+	// strict thresholds — StartupGate uses these unconditionally so
+	// Envelope-C sweeps only start under genuine quiescence.
 	psiCPUSomeAvg60  = 1.0
 	psiCPUSomeAvg300 = 0.8
 	psiIOSomeAvg60   = 5.0
 	psiIOSomeAvg300  = 3.0
 	psiMemFullAvg60  = 0.5
 
-	// Loadavg fallback: ≤ 0.10 × ncpus.
+	// Loadavg fallback for the strict predicate: ≤ 0.10 × ncpus.
 	loadAvgThresholdPerCPU = 0.10
+
+	// Soft-idle thresholds (RULE-OPP-IDLE-SOFT-MODE, v0.6.0+ default
+	// for OpportunisticGate). The motivating constraint: the strict
+	// StartupGate predicate is calibrated for "system has been idle
+	// for 5+ minutes and is ready to safely run a 30 s Envelope-C
+	// calibration sweep". The opportunistic-probe primitive only
+	// needs "system load is below a workload-noise floor at this
+	// instant". The soft thresholds admit probes during realistic
+	// workload lulls without dropping workload detection sensitivity.
+	//
+	// 10 % avg60 PSI on CPU is operationally meaningful: a system
+	// where 10 % of tasks spent some time stalled on CPU in the
+	// last 60 s is genuinely busy, but a system at 5–8 % is the
+	// "between transcoding tasks" window v0.6 RFC #1024 targets.
+	// IO at 10 % matches: brief filesystem-cache misses don't push
+	// avg60 above the soft ceiling, sustained IO (rsync, dd) does.
+	// Memory stays at the strict 0.5 % threshold; memory pressure
+	// is a physical signal that workload lulls don't change.
+	//
+	// Loadavg fallback is 0.5 × ncpus — "half a CPU doing meaningful
+	// work" — vs the strict 0.1 × ncpus calibration threshold.
+	softPSICpuCeiling = 10.0
+	softPSIIoCeiling  = 10.0
+	softPSIMemCeiling = 0.5
+	softLoadAvgPerCPU = 0.5
 )
 
 // GateConfig holds injectable parameters for StartupGate and RuntimeCheck.
@@ -189,6 +216,38 @@ func evalLoadAvgPredicate(la [3]float64) (bool, Reason) {
 		ncpus = 1
 	}
 	threshold := loadAvgThresholdPerCPU * float64(ncpus)
+	if la[0] > threshold {
+		return false, ReasonCPUIdle
+	}
+	return true, ReasonOK
+}
+
+// evalSoftPSIPredicate checks the relaxed PSI thresholds for
+// OpportunisticGate's soft mode (RULE-OPP-IDLE-SOFT-MODE). Only the
+// avg60 windows are consulted — avg300's relevance disappears once
+// the 600 s durability requirement is dropped (a 300 s pressure
+// average never matched the workload-lull window anyway).
+func evalSoftPSIPredicate(psi PSIReadings) (bool, Reason) {
+	if psi.CPUSomeAvg60 > softPSICpuCeiling {
+		return false, ReasonPSIPressure
+	}
+	if psi.IOSomeAvg60 > softPSIIoCeiling {
+		return false, ReasonPSIPressure
+	}
+	if psi.MemFullAvg60 > softPSIMemCeiling {
+		return false, ReasonPSIPressure
+	}
+	return true, ReasonOK
+}
+
+// evalSoftLoadAvgPredicate is the loadavg fallback for soft mode on
+// kernels without PSI (< 4.20).
+func evalSoftLoadAvgPredicate(la [3]float64) (bool, Reason) {
+	ncpus := runtime.NumCPU()
+	if ncpus < 1 {
+		ncpus = 1
+	}
+	threshold := softLoadAvgPerCPU * float64(ncpus)
 	if la[0] > threshold {
 		return false, ReasonCPUIdle
 	}
