@@ -126,6 +126,58 @@ missing fan tachometer files.
 
 Bound: internal/calibrate/detect_test.go:TestDetectRPMSensor_NoFanInputFiles
 
+## RULE-CAL-DETECT-STABILITY: pre-ramp baseline takes 3 samples spaced 200ms apart; sweep refuses if any tach's stddev exceeds 50 RPM
+
+Before writing the test PWM, `DetectRPMSensor` MUST take three baseline
+samples of every `fan*_input` file in the chip directory, spaced 200 ms
+apart, and refuse the sweep if any tach's population standard deviation
+exceeds `detectStabilityThreshold` (50 RPM, matching the existing
+`minDelta` noise floor).
+
+The motivating failure: the wizard's Phase 5a ran on Phoenix's IT8688
+host (issue #1026) immediately after a path-2 reset that left the chip
+in a chaotic pwm_enable state. The first post-mode-change tach read on
+phantom channels pwm2 + pwm4 returned a transient nonzero value; the
+second post-mode-change read landed at the real RPM=0. The single-read
+baseline-then-ramp pattern saw `0 → 1500 RPM` and inferred correlation,
+giving phantom channels a false-positive "found" result. With the
+polarity probe (Phase 5b, RULE-POLARITY-03) wired in #1026 layer 1 the
+phantom is caught downstream — but this stability gate is the
+defense-in-depth that catches the upstream root cause: an unsteady
+tach-read window.
+
+The 200 ms inter-sample interval is the load-bearing knob: short enough
+that the gate adds < 1 s to the wizard's per-channel detection cost,
+long enough that a chip mode-transition glitch (typically completing
+within 50-150 ms) doesn't span all three samples. The 50 RPM stddev
+threshold matches the existing `minDelta` constant — a tach whose
+baseline jitters more than the post-ramp delta threshold can never
+produce a clean correlation signal.
+
+Phantom channels with stable RPM=0 across all three samples have
+stddev=0 → admit → the existing `minDelta` check downstream classifies
+them as "no winner". The gate is specifically scoped to the unsteady-
+tach failure mode, not the quiet-phantom mode. RULE-POLARITY-03's
+|delta| < 150 RPM threshold is the canonical phantom classifier;
+RULE-CAL-DETECT-STABILITY is upstream protection against the
+pre-ramp glitch class.
+
+The post-stability-gate baseline read uses the *last* of the three
+samples as the canonical baseline (it's already known stable; saves
+one extra syscall round). The gate runs unconditionally — there is no
+operator override — because a falsely-admitted phantom channel under
+real workload silently writes to dead headers forever, and the gate's
+1 s detection-time cost is negligible vs that maintenance burden.
+
+`stdDevInt([]int) float64` is the helper that drives the gate. Empty /
+single-element slices return 0 so accidental misuse passes the gate
+trivially; production calls always pass a fixed-size 3-element window
+so this branch only protects against test scaffolding errors.
+
+Bound: internal/calibrate/stddev_test.go:TestStdDevInt_KnownValues
+Bound: internal/calibrate/stddev_test.go:TestStdDevInt_BelowThresholdAdmits
+Bound: internal/calibrate/stddev_test.go:TestStdDevInt_AboveThresholdRefuses
+
 ## RULE-CAL-DETECT-CONCURRENT: a second concurrent DetectRPMSensor on the same PWM path returns "already running"
 
 Only one `DetectRPMSensor` sweep may run per PWM path at a time. A second

@@ -1220,6 +1220,41 @@ func (m *Manager) run(ctx context.Context) {
 	}
 	wg.Wait()
 
+	// --- Phase 6b: post-calibration phantom-verification (RULE-SETUP-PHANTOM-VERIFY) ---
+	// Even when calibration reports non-zero MaxRPM, a chip mode-transition
+	// glitch during the sweep can produce false-positive RPM readings on
+	// phantom channels (issue #1026). The line 1206 filter requires BOTH
+	// StartPWM and MaxRPM to be zero for the channel to be skipped, so a
+	// single glitch-spike during calibration is enough to land a phantom
+	// channel in `controls:`.
+	//
+	// Catch that class with one final write-and-read after calibration
+	// completes: drive PWM=255 (full speed) for 3s, take three RPM samples
+	// spaced 200ms apart, and re-classify the channel as phantom if every
+	// sample reads 0. Real fans always spin at PWM=255 within 3s; phantom
+	// channels stay at 0 RPM regardless. Adds ~3s per fan to wizard time;
+	// acceptable for the once-per-install run.
+	for i := range fans {
+		if ctx.Err() != nil {
+			break
+		}
+		f := fans[i]
+		if f.CalPhase != "done" || f.Type != "hwmon" || f.RPMPath == "" {
+			continue
+		}
+		if !verifyHwmonChannelSpins(ctx, f.PWMPath, f.RPMPath, m.logger) {
+			m.logger.Info("setup: post-calibration phantom-verify failed; re-classifying",
+				"pwm_path", f.PWMPath, "fan_name", f.Name)
+			m.mu.Lock()
+			fans[i].CalPhase = "skipped"
+			fans[i].PolarityPhase = "phantom"
+			snapshot := make([]FanState, len(fans))
+			copy(snapshot, fans)
+			m.fans = snapshot
+			m.mu.Unlock()
+		}
+	}
+
 	// v0.5.12: optional R30 mic-calibration gate runs after thermal
 	// calibration completes and before finalising. No-op when the
 	// operator hasn't supplied a mic device (acousticGateOpts.MicDevice
@@ -1423,6 +1458,97 @@ type fanDiscovery struct {
 	maxRPM      int
 	isPump      bool
 	controlKind string // "rpm_target" for fan*_target channels; "" means pwm
+}
+
+// verifyHwmonChannelSpins drives a hwmon channel to PWM=255 (full
+// speed), waits 3s, then takes three RPM samples 200ms apart. Returns
+// true when at least one sample reads > 0 (a real fan spinning under
+// full power). Returns false when every sample reads 0 — the channel
+// has no physical fan.
+//
+// Implements RULE-SETUP-PHANTOM-VERIFY (issue #1026 layer 3). The
+// wizard's calibration loop classifies a channel as `done` whenever
+// either StartPWM or MaxRPM is non-zero, which a chip mode-transition
+// glitch during the sweep can satisfy on phantom channels. This
+// helper is the post-calibration sanity check that catches the
+// false-positive class — phantom channels never spin at PWM=255 no
+// matter what the chip transitions did during the sweep.
+//
+// Production-path errors (file open / write / read) are logged at
+// WARN and treated as "could not verify" → return true (admit). The
+// existing CalPhase classification was reached via the calibration
+// sweep, so a verify-IO failure is NOT a downgrade signal — the
+// caller continues with the original classification rather than
+// risk excluding a real fan because of transient sysfs trouble.
+//
+// The captured original PWM value is restored before return on every
+// path to mirror the calibration-sweep restore pattern. The wizard's
+// downstream restoreExcludedChannels handles the pwm_enable handback
+// for channels that fail this verification.
+func verifyHwmonChannelSpins(ctx context.Context, pwmPath, rpmPath string, logger *slog.Logger) bool {
+	const (
+		fullPWM        = uint8(255)
+		settleDuration = 3 * time.Second
+		sampleInterval = 200 * time.Millisecond
+		sampleCount    = 3
+	)
+	origPWM, err := readSysfsUint8(pwmPath)
+	if err != nil {
+		logger.Warn("phantom-verify: read origPWM failed; admitting", "pwm_path", pwmPath, "err", err)
+		return true
+	}
+	defer func() {
+		// Best-effort restore on every exit path.
+		_ = writeSysfsUint8(pwmPath, origPWM)
+	}()
+	if err := writeSysfsUint8(pwmPath, fullPWM); err != nil {
+		logger.Warn("phantom-verify: write PWM=255 failed; admitting", "pwm_path", pwmPath, "err", err)
+		return true
+	}
+	select {
+	case <-time.After(settleDuration):
+	case <-ctx.Done():
+		return true
+	}
+	for i := 0; i < sampleCount; i++ {
+		if i > 0 {
+			select {
+			case <-time.After(sampleInterval):
+			case <-ctx.Done():
+				return true
+			}
+		}
+		v, err := readSysfsInt(rpmPath)
+		if err != nil {
+			logger.Warn("phantom-verify: read RPM failed; admitting", "rpm_path", rpmPath, "err", err)
+			return true
+		}
+		if v > 0 {
+			return true
+		}
+	}
+	logger.Info("phantom-verify: all samples read 0 RPM at PWM=255; channel is phantom",
+		"pwm_path", pwmPath, "rpm_path", rpmPath)
+	return false
+}
+
+// readSysfsUint8 / writeSysfsUint8 wrap the existing readSysfsInt
+// helper for the uint8-clamped sysfs paths verifyHwmonChannelSpins
+// reads and writes. Kept local to setup so this package doesn't take
+// a transitive dep on internal/calibrate just for two file accesses.
+func readSysfsUint8(path string) (uint8, error) {
+	v, err := readSysfsInt(path)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 || v > 255 {
+		return 0, fmt.Errorf("setup: value %d at %s out of uint8 range", v, path)
+	}
+	return uint8(v), nil
+}
+
+func writeSysfsUint8(path string, v uint8) error {
+	return os.WriteFile(path, []byte(strconv.Itoa(int(v))), 0o644)
 }
 
 // restoreExcludedChannels enforces RULE-SETUP-NO-ORPHANED-CHANNELS.

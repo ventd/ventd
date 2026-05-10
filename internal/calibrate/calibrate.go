@@ -1043,11 +1043,48 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 		return DetectResult{}, fmt.Errorf("detect: no fan*_input files in %s", dir)
 	}
 
-	// Baseline read.
+	// Pre-ramp stability gate (RULE-CAL-DETECT-STABILITY): take three baseline
+	// samples spaced 200 ms apart and refuse the sweep if any tach's stddev
+	// exceeds the noise floor. Catches the chip-residue / pwm_enable-transition
+	// failure mode where a tach's first-read after a chip mode change returns
+	// a transient value that fools the post-ramp delta check (issue #1026).
+	//
+	// Phantom channels (RPM=0,0,0) have stddev=0 → pass the gate; the existing
+	// minDelta check downstream catches them via "no winner". The gate is
+	// specifically scoped to the unsteady-tach case, not the phantom case.
+	const (
+		detectStabilitySamples   = 3
+		detectStabilityInterval  = 200 * time.Millisecond
+		detectStabilityThreshold = 50.0 // RPM stddev cap; matches the minDelta noise floor
+	)
+	preReads := make(map[string][]int, len(matches))
+	for s := 0; s < detectStabilitySamples; s++ {
+		if s > 0 {
+			time.Sleep(detectStabilityInterval)
+		}
+		for _, p := range matches {
+			v, _ := readSysfsInt(p)
+			preReads[p] = append(preReads[p], v)
+		}
+	}
+	for _, p := range matches {
+		samples := preReads[p]
+		sd := stdDevInt(samples)
+		if sd > detectStabilityThreshold {
+			m.logger.Info("detect: tach unstable, refusing sweep",
+				"pwm_path", pwmPath, "tach_path", p,
+				"stddev", sd, "threshold", detectStabilityThreshold,
+				"samples", samples)
+			return DetectResult{}, fmt.Errorf("detect: tach unstable for %s: stddev=%.1f exceeds noise floor %.0f (samples=%v)", p, sd, detectStabilityThreshold, samples)
+		}
+	}
+
+	// Baseline read: use the last stability sample as the canonical baseline
+	// (it's already known stable; saves one extra syscall round).
 	baseline := make(map[string]int, len(matches))
 	for _, p := range matches {
-		v, _ := readSysfsInt(p)
-		baseline[p] = v
+		samples := preReads[p]
+		baseline[p] = samples[len(samples)-1]
 	}
 
 	// Write test PWM and wait for the fan to settle.
@@ -1317,6 +1354,30 @@ func readSysfsInt(path string) (int, error) {
 		return 0, fmt.Errorf("calibrate: sysfs parse %s: %w", path, err)
 	}
 	return v, nil
+}
+
+// stdDevInt computes the population standard deviation of an int slice as
+// float64. Used by the DetectRPMSensor pre-ramp stability gate
+// (RULE-CAL-DETECT-STABILITY). Empty / single-element slices return 0 so
+// the gate's "stddev > threshold" check passes trivially when the sample
+// set is too small to be meaningful — the gate operates on a fixed
+// detectStabilitySamples-element window so this branch only protects
+// against accidental misuse.
+func stdDevInt(xs []int) float64 {
+	if len(xs) < 2 {
+		return 0
+	}
+	var sum float64
+	for _, x := range xs {
+		sum += float64(x)
+	}
+	mean := sum / float64(len(xs))
+	var sqsum float64
+	for _, x := range xs {
+		d := float64(x) - mean
+		sqsum += d * d
+	}
+	return math.Sqrt(sqsum / float64(len(xs)))
 }
 
 // readSysfsUint8 reads a 0-255 integer from a sysfs file. Preserves the error
