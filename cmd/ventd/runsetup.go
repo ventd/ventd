@@ -74,7 +74,21 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// (matches the daemon's main-loop semantics).
 	wd := watchdog.New(logger)
 	defer wd.Restore()
+
+	// Register HAL backends + wire the channel resolver — without this
+	// the wizard's RPM-detection step fails with "no channel resolver
+	// set for <pwm_path>" on every channel, "no fans detected" aborts
+	// the run, and a CLI-driven first-boot is impossible. The daemon
+	// path does this in runDaemon at the controller setup site; the
+	// standalone setup wizard previously skipped it. Issue #1025.
+	//
+	// enableGPUWrite=false: the setup wizard discovers and calibrates
+	// fans by reading hwmon/NVML; it never writes GPU fan curves. The
+	// production --enable-gpu-write flag only gates daemon-time GPU
+	// writes (RULE-GPU-PR2D-01).
+	registerHALBackends(logger, false)
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
+	cal.SetChannelResolver(newChannelResolver())
 	mgr := setup.New(cal, logger)
 	mgr.SetAppliedMarkerPath(setup.DefaultAppliedMarkerPath)
 

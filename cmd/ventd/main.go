@@ -27,14 +27,6 @@ import (
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
-	halasahi "github.com/ventd/ventd/internal/hal/asahi"
-	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
-	halgpu "github.com/ventd/ventd/internal/hal/gpu"
-	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
-	halipmi "github.com/ventd/ventd/internal/hal/ipmi"
-	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
-	halnvml "github.com/ventd/ventd/internal/hal/nvml"
-	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
@@ -458,14 +450,7 @@ func run() error {
 	// hal.Resolve can drive Phase 2 features (IPMI / liquidctl / cros_ec
 	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
 	// a single source of truth.
-	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
-	halcorsair.RegisterAll(logger, halcorsair.ProbeOptions{})
-	halgpu.RegisterAll(logger, halgpu.ProbeOptions{EnableGPUWrite: *enableGPUWrite})
-	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
-	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
-	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))
-	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
-	hal.Register(halpwmsys.BackendName, halpwmsys.NewBackend(logger))
+	registerHALBackends(logger, *enableGPUWrite)
 	if channels, err := hal.Enumerate(context.Background()); err != nil {
 		logger.Warn("hal: initial enumerate failed", "err", err)
 	} else {
@@ -855,13 +840,8 @@ func runDaemonInternal(
 	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
 	// Wire the HAL channel resolver so calibration sweeps drive fans via the
 	// backend abstraction instead of direct hwmon/NVML imports (P1-HAL-02).
-	cal.SetChannelResolver(func(ctx context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error) {
-		backendName := fan.Type
-		if backendName == "nvidia" {
-			backendName = halnvml.BackendName
-		}
-		return hal.Resolve(backendName + ":" + fan.PWMPath)
-	})
+	// Shared with runSetup via newChannelResolver — issue #1025 fix.
+	cal.SetChannelResolver(newChannelResolver())
 
 	// Process-wide hardware-diagnostics store. Tier 5: every subsystem that
 	// detects a non-fatal condition (future calibration schema, missing
