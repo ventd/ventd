@@ -275,3 +275,156 @@ func itoa(n int) string {
 	}
 	return string(b[pos:])
 }
+
+// TestRuntime_OAT_IntraGroupCoMovementAdmits — RULE-CMB-OAT-01
+// v0.6.0 group-aware amendment.
+//
+// When channels A and B are declared as a PWM group via SetPWMGroups,
+// B's PWM movement does NOT block A's admission attempt because
+// they're the same physical actuator (firmware-mirrored siblings).
+// Channel C remains independent — its movement still blocks admission.
+//
+// The motivating failure (issue #1024): Phoenix's MSI Z690-A drives
+// CPU_FAN + Pump_Fan + Sys_Fan_1 + Sys_Fan_2 with identical PWM
+// values, so the v0.5.x OAT filter rejected every Layer-C admission
+// attempt on every channel of this board.
+func TestRuntime_OAT_IntraGroupCoMovementAdmits(t *testing.T) {
+	rt := NewRuntime("", "fp", nil, stubSignguard{ok: false}, silentLogger())
+	rt.SetPWMGroups([][]string{{"chA", "chB"}})
+
+	// Channel B's PWM varies (5 distinct values) — the v0.5.x OAT
+	// gate would reject A's admission on this. With the group
+	// declaration, B's movement is intra-group and excluded from
+	// the cross-channel quiet-window check.
+	for i := uint8(0); i < 5; i++ {
+		rt.OnObservation(ObservationInput{
+			Now: time.Now(), ChannelID: "chB", SignatureLabel: "sig",
+			PWMWritten: 100 + i, DeltaT: -1.0, Load: 0.5,
+		})
+	}
+
+	// A's first observation should be ADMITTED — B's movement is
+	// in-group, so it's not "cross-channel interference".
+	rt.OnObservation(ObservationInput{
+		Now: time.Now(), ChannelID: "chA", SignatureLabel: "sig",
+		PWMWritten: 200, DeltaT: -1.0, Load: 0.5,
+	})
+	if rt.Shard("chA", "sig") == nil {
+		t.Fatal("OAT gate should ADMIT A's sample when B is in the same PWM group as A")
+	}
+}
+
+// TestRuntime_OAT_ExtraGroupMovementStillRejects — RULE-CMB-OAT-01
+// v0.6.0 group-aware amendment.
+//
+// Declaring {A, B} as a group MUST NOT relax OAT against channel C
+// (a different group). When C's PWM moves while A attempts admission,
+// the gate still refuses — channels outside A's group represent real
+// cross-channel thermal interference.
+func TestRuntime_OAT_ExtraGroupMovementStillRejects(t *testing.T) {
+	rt := NewRuntime("", "fp", nil, stubSignguard{ok: false}, silentLogger())
+	rt.SetPWMGroups([][]string{{"chA", "chB"}})
+
+	// Channel C (ungrouped) moves through 5 distinct PWM values.
+	for i := uint8(0); i < 5; i++ {
+		rt.OnObservation(ObservationInput{
+			Now: time.Now(), ChannelID: "chC", SignatureLabel: "sig",
+			PWMWritten: 100 + i, DeltaT: -1.0, Load: 0.5,
+		})
+	}
+
+	// A's observation must be REJECTED — C is outside A's group,
+	// so its movement constitutes cross-channel interference.
+	rt.OnObservation(ObservationInput{
+		Now: time.Now(), ChannelID: "chA", SignatureLabel: "sig",
+		PWMWritten: 200, DeltaT: -1.0, Load: 0.5,
+	})
+	if rt.Shard("chA", "sig") != nil {
+		t.Fatal("OAT gate should REJECT A's sample when an out-of-group channel C is moving")
+	}
+}
+
+// TestRuntime_OAT_UngroupedChannelsBehaveAsSizeOneGroups — RULE-CMB-OAT-01
+// v0.6.0 group-aware amendment.
+//
+// Ungrouped channels (absent from the SetPWMGroups input) MUST gate
+// each other exactly as they did in v0.5.x. The group-aware code path
+// returns the channelID itself as the "group key" for ungrouped
+// channels, so the cross-channel quiet-window check fires whenever
+// any OTHER channel (which has its own size-1 group key) is moving.
+// This pins the no-op-without-data contract.
+func TestRuntime_OAT_UngroupedChannelsBehaveAsSizeOneGroups(t *testing.T) {
+	rt := NewRuntime("", "fp", nil, stubSignguard{ok: false}, silentLogger())
+	// No groups declared — runtime should behave exactly as v0.5.x.
+
+	// Channel B moves; A's admission must be rejected (the existing
+	// v0.5.x semantics).
+	for i := uint8(0); i < 5; i++ {
+		rt.OnObservation(ObservationInput{
+			Now: time.Now(), ChannelID: "chB", SignatureLabel: "sig",
+			PWMWritten: 100 + i, DeltaT: -1.0, Load: 0.5,
+		})
+	}
+	rt.OnObservation(ObservationInput{
+		Now: time.Now(), ChannelID: "chA", SignatureLabel: "sig",
+		PWMWritten: 200, DeltaT: -1.0, Load: 0.5,
+	})
+	if rt.Shard("chA", "sig") != nil {
+		t.Fatal("ungrouped: OAT gate must still reject A when B is moving (v0.5.x semantics preserved)")
+	}
+}
+
+// TestRuntime_SetPWMGroups_SkipsSizeOneGroups asserts that a group
+// declaration with fewer than 2 members is silently dropped — a
+// "group of one" is functionally identical to no group at all, and
+// the runtime's empty-map default already handles that case via the
+// groupKey fallback. The behaviour is pinned so a future refactor
+// that admits size-1 entries can't accidentally change OAT semantics
+// for empty / single-channel groups.
+func TestRuntime_SetPWMGroups_SkipsSizeOneGroups(t *testing.T) {
+	rt := NewRuntime("", "fp", nil, stubSignguard{ok: false}, silentLogger())
+	rt.SetPWMGroups([][]string{
+		{"chA"},        // size-1 — dropped
+		{},             // empty — dropped
+		{"chB", "chC"}, // size-2 — admitted
+	})
+
+	// chA must NOT appear in groupOf (size-1 dropped).
+	if _, ok := rt.groupOf["chA"]; ok {
+		t.Errorf("groupOf[chA] should not be set (size-1 group dropped)")
+	}
+	// chB and chC must share a group ID.
+	gB, okB := rt.groupOf["chB"]
+	gC, okC := rt.groupOf["chC"]
+	if !okB || !okC {
+		t.Fatalf("groupOf: chB ok=%v chC ok=%v; both must be set", okB, okC)
+	}
+	if gB != gC {
+		t.Errorf("groupOf: chB and chC must share group ID; got %q vs %q", gB, gC)
+	}
+}
+
+// TestRuntime_SetPWMGroups_IsIdempotentAndReplaces asserts that
+// repeated SetPWMGroups calls replace the prior mapping rather than
+// accumulating. The contract is "replace, not append" so an operator
+// reconfiguring the catalog at runtime can revoke obsolete groups.
+func TestRuntime_SetPWMGroups_IsIdempotentAndReplaces(t *testing.T) {
+	rt := NewRuntime("", "fp", nil, stubSignguard{ok: false}, silentLogger())
+	rt.SetPWMGroups([][]string{{"chA", "chB"}})
+	if _, ok := rt.groupOf["chA"]; !ok {
+		t.Fatal("first call: chA should be grouped")
+	}
+	// Second call drops chA/chB, sets chC/chD.
+	rt.SetPWMGroups([][]string{{"chC", "chD"}})
+	if _, ok := rt.groupOf["chA"]; ok {
+		t.Errorf("after replace: chA should not be grouped")
+	}
+	if _, ok := rt.groupOf["chC"]; !ok {
+		t.Errorf("after replace: chC should be grouped")
+	}
+	// Third call with empty input clears everything.
+	rt.SetPWMGroups(nil)
+	if len(rt.groupOf) != 0 {
+		t.Errorf("after nil: groupOf should be empty; got %d entries", len(rt.groupOf))
+	}
+}
