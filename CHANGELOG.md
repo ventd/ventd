@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.36] - 2026-05-10
+
+### Headline
+
+Setup-wizard hardening pass — closes two HIL-discovered bugs that landed phantom channels in `controls:` on Phoenix's IT8688 host (#1025, #1026). The CLI standalone wizard (`ventd -setup`) now actually works (it never did since the calibrate.Manager refactor); the web wizard now classifies phantom channels correctly (RULE-POLARITY-03 was structurally dead code).
+
+### Fixed
+
+- **`ventd -setup` CLI fails with "no fans detected" — wizard wiring missing on the standalone setup path (#1025, #1027).** `runSetup` constructed a `calibrate.Manager` but never called `SetChannelResolver`, and never registered any HAL backends with the package-level registry. Every channel-resolution attempt returned `"detect: no channel resolver set for <pwm_path>"`, the wizard logged five rpm-detect failures, classified all five channels as `detect_failed`, handed them back to BIOS auto, and aborted with the no-fans-detected fatal. Surfaced on Phoenix's Proxmox host (192.168.7.10, IT8688, 5 hwmon3 channels) during a path-2 reset; the web UI wizard worked correctly on the same host because it goes through a different code path. The fix extracts the wiring into two shared helpers in a new `cmd/ventd/calresolver.go` (`newChannelResolver()` + `registerHALBackends(logger, enableGPUWrite)`); `runDaemon` and `runSetup` both call them now. Tests pin the `nvidia → nvml` dispatch remap and the hwmon pass-through; a regression that drops the remap silently breaks NVIDIA GPU calibration on the daemon path AND the CLI path simultaneously.
+
+- **Wizard includes phantom channels in `controls:` even though polarity probe should classify them phantom (#1026, #1028).** Three-layer defense-in-depth fix:
+  - **Layer 1: wire `SetPolarityProber` in runDaemon + runSetup.** `SetPolarityProber` was never called by any production code path; the wizard's Phase 5b polarity-probe block (`internal/setup/setup.go:1097-1161`) was `if prober != nil { ... }` and prober was always nil. RULE-POLARITY-03's |delta| < 150 RPM phantom-classification rule was dead code in production. `polarity.HwmonProber{}` zero-valued is production-ready; one-line wiring in `cmd/ventd/main.go` (covers daemon-spawned web wizard since `web.New` is constructed with the daemon's `setupMgr`) and `cmd/ventd/runsetup.go` (covers CLI standalone).
+  - **Layer 2: pre-ramp stability gate fronting `DetectRPMSensor` (RULE-CAL-DETECT-STABILITY).** Three baseline samples per `fan*_input` spaced 200 ms apart; refuse the sweep if any tach's stddev exceeds 50 RPM. Catches the chip-residue / pwm_enable-transition case where a tach's first read after a chip mode change returns a transient nonzero value, fooling the post-ramp delta check on phantom channels. New `stdDevInt([]int) float64` helper kept local to `internal/calibrate`.
+  - **Layer 3: post-calibration phantom-verification pass (RULE-SETUP-PHANTOM-VERIFY).** New `verifyHwmonChannelSpins` helper drives PWM=255 (full speed) for 3 s, takes three RPM samples spaced 200 ms apart, and re-classifies the channel as phantom (`CalPhase = "skipped"`, `PolarityPhase = "phantom"`) if every sample reads 0. The deferred restore writes the captured `origPWM` byte back on every exit path. Sysfs IO errors → admit (graceful degrade per RULE-DOCTOR-04 pattern). Cost: +3 s per `done` hwmon channel; +15 s on a typical 5-fan host's once-per-install wizard runtime.
+
+### Internals
+
+- New `RULE-CAL-DETECT-STABILITY` in `.claude/rules/calibration-safety.md` — bound to `internal/calibrate/stddev_test.go` (3 subtests: known-values, below-threshold-admits, above-threshold-refuses).
+- New `RULE-SETUP-PHANTOM-VERIFY` in `.claude/rules/setup.md` — bound to `internal/setup/phantom_verify_test.go` (2 subtests: full coverage of admit/refuse/error/ctx-cancel + origPWM-restored-on-all-exit-paths).
+
+### Senior review pass
+
+These two issues were surfaced during Phase C5 HIL field-validation on Phoenix's Proxmox host (the parallel-soak run from issue #1024) — the kind of "discoverable only with real hardware in real conditions" bug class that was the load-bearing reason Phase C exists in the v0.6.0 ship plan. Both are fixed in v0.5.36; v0.6.0 stays gated on the smart-mode convergence question (issue #1024).
+
 ## [v0.5.35] - 2026-05-08
 
 ### Headline
