@@ -111,3 +111,54 @@ Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_EINVA
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_ProbeFindsNothingFallsBackToSafePWM
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_NonEINVALSkipsProbe
 Bound: internal/setup/restore_excluded_test.go:TestRestoreExcludedChannels_ProbeResultIsCached
+
+## RULE-SETUP-PHANTOM-VERIFY: post-calibration sanity check writes PWM=255 + 3s + 3 RPM samples; channels with all-zero readings re-classify as phantom.
+
+Even with the polarity probe wired (RULE-POLARITY-03 via #1026 layer 1)
+and the pre-ramp stability gate fronting `DetectRPMSensor`
+(RULE-CAL-DETECT-STABILITY via #1026 layer 2), the wizard's `CalPhase`
+filter at `internal/setup/setup.go:1206` admits a channel as `done`
+when EITHER `result.StartPWM` or `result.MaxRPM` is non-zero. A single
+chip mode-transition glitch during the calibration sweep can satisfy
+that condition on phantom channels, landing them in `controls:`
+despite being physically dead.
+
+Layer 3 catches the false-positive class with one final write-and-read
+after calibration completes:
+
+1. For every channel with `CalPhase == "done"` and `Type == "hwmon"`:
+2. Write PWM=255 (full speed) to `PWMPath`.
+3. Sleep 3 seconds for the fan to settle.
+4. Take three RPM samples from `RPMPath`, spaced 200 ms apart.
+5. If at least one sample reads > 0, admit (real fan).
+6. If every sample reads 0, re-classify: set `CalPhase = "skipped"`
+   and `PolarityPhase = "phantom"`. The downstream `doneFans`
+   collection skips this channel; `restoreExcludedChannels` hands
+   it back to BIOS auto.
+
+The deferred restore in `verifyHwmonChannelSpins` writes the captured
+`origPWM` byte back on every exit path (admit, refuse, ctx-cancel,
+sysfs error). Failure to restore would leave the channel running at
+PWM=255 indefinitely after the wizard exits — louder than any
+calibration-sweep residue.
+
+Production-path errors (file open / write / read) are logged at WARN
+and treated as "could not verify" → admit. The original `CalPhase`
+classification was reached via the calibration sweep itself, so a
+verify-IO failure is NOT a downgrade signal — better to risk admitting
+a real fan that lost a tach read than to drop a real fan because
+sysfs glitched. The asymmetry mirrors RULE-DOCTOR-04 graceful-degrade
+semantics.
+
+Cost: ~3 s per "done" hwmon channel — for a typical 5-fan host that's
++15 s on the wizard's once-per-install runtime. Negligible vs the
+operator burden of tracking down "why is ventd writing PWM to a
+header that has no fan plugged in" months later.
+
+The verification runs unconditionally (no operator override). A
+falsely-admitted phantom channel under real workload silently writes
+to dead headers forever; the verification's runtime cost is bounded
+and one-shot.
+
+Bound: internal/setup/phantom_verify_test.go:TestVerifyHwmonChannelSpins
+Bound: internal/setup/phantom_verify_test.go:TestVerifyHwmonChannelSpins_OrigPWMRestoredOnAllExitPaths
