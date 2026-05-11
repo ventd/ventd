@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/ventd/ventd/internal/iox"
 )
 
 const pidFileName = "ventd.pid"
@@ -42,8 +44,13 @@ func AcquirePID(dir string) (release func(), err error) {
 		_ = os.Remove(path)
 	}
 
+	// Atomic write via iox.WriteFile (tempfile + fsync + rename +
+	// dir-fsync). A concurrent reader of a half-written PID file would
+	// get a parse failure and wrongly classify the file as stale,
+	// racing a still-alive daemon over the same state directory.
+	// Audit pass-6 finding C2 (#1051); RULE-IOX-01.
 	content := strconv.Itoa(os.Getpid()) + "\n"
-	if err := os.WriteFile(path, []byte(content), fileMode); err != nil {
+	if err := iox.WriteFile(path, []byte(content), fileMode); err != nil {
 		return nil, fmt.Errorf("state: write pid file: %w", err)
 	}
 

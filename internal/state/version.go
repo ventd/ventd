@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/ventd/ventd/internal/iox"
 )
 
 const (
@@ -94,6 +96,14 @@ func CheckVersion(dir string) error {
 	return nil
 }
 
+// writeVersion writes the version sentinel via iox.WriteFile so the
+// tempfile + fsync + rename + dir-fsync sequence covers the version
+// file the same way it covers state.yaml. RULE-IOX-01 mandates that
+// every persistent write in ventd goes through this helper; the
+// pre-fix `os.WriteFile` skipped the post-rename parent-directory
+// fsync, leaving the sentinel vulnerable to power-loss-after-rename
+// loss on consumer SSDs that batch metadata writes. Audit pass-6
+// finding C1 (#1050).
 func writeVersion(path string, v int) error {
-	return os.WriteFile(path, []byte(strconv.Itoa(v)+"\n"), fileMode)
+	return iox.WriteFile(path, []byte(strconv.Itoa(v)+"\n"), fileMode)
 }

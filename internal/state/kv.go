@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,32 @@ import (
 
 	"github.com/ventd/ventd/internal/iox"
 )
+
+// ErrCorruptState is returned by load() when state.yaml's YAML
+// payload fails to unmarshal. The pre-fix behaviour silently
+// downgraded "corrupt state" to "empty state, first-boot semantics"
+// — silently destroying wizard / polarity / smart-mode records that
+// drive operator-visible decisions. Returning a sentinel error lets
+// the daemon's startup path surface the corruption to the operator
+// rather than re-running the setup wizard with no warning. Audit
+// pass-6 finding H4 (#1055).
+//
+// The blob store's "found=false → re-initialise" pattern
+// (RULE-STATE-02) is intentionally tolerant of partial writes
+// because every blob is checksummed and small. The KV store has no
+// per-key checksum and lives behind the YAML format's grammar, so
+// the conservative behaviour is to refuse rather than silently lose.
+var ErrCorruptState = errors.New("state: kv: state.yaml failed to parse")
+
+// ErrTransactionPersistFailed wraps the persist-time error
+// returned by WithTransaction so callers can distinguish a failed
+// commit (caller's mutation reached fn but the disk write failed)
+// from a failed fn (the caller's closure returned an error and no
+// commit was attempted). On a failed commit the in-memory KV state
+// is rolled back to its pre-transaction snapshot so the in-memory
+// view and the on-disk file stay consistent. Audit pass-6 finding
+// H3 (#1054).
+var ErrTransactionPersistFailed = errors.New("state: kv: transaction persist failed; in-memory state rolled back")
 
 // ensureFreeSpaceFn is the swappable seam KV writes consult before
 // mutating in-memory state. Production points at iox.EnsureFreeSpace
@@ -77,8 +104,14 @@ func (db *KVDB) load() error {
 	}
 	var top map[string]any
 	if err := yaml.Unmarshal(raw, &top); err != nil {
-		db.logger.Warn("state: kv: corrupt state.yaml, treating as empty", "path", db.path, "err", err)
-		return nil
+		// Surface corruption explicitly so the daemon's startup
+		// path can refuse-start rather than silently re-initialise
+		// the wizard / polarity / smart-mode records that drive
+		// operator-visible decisions. Pre-fix behaviour: WARN +
+		// return nil. Audit pass-6 finding H4 (#1055).
+		db.logger.Warn("state: kv: corrupt state.yaml",
+			"path", db.path, "err", err)
+		return fmt.Errorf("%w: %v", ErrCorruptState, err)
 	}
 	for k, v := range top {
 		if k == "schema_version" {
@@ -205,13 +238,32 @@ func (db *KVDB) WithTransaction(fn func(tx *KVTx) error) error {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	// Snapshot for fn to mutate.
 	snap := kvDeepCopy(db.data)
 	tx := &KVTx{data: snap}
 	if err := fn(tx); err != nil {
+		// fn-returns-error: snap is discarded; db.data untouched.
 		return err
 	}
+	// Preserve the pre-transaction state in case persist fails — the
+	// pre-fix code mutated db.data BEFORE attempting persist, so a
+	// failed persist left the in-memory view advanced while the on-
+	// disk file was stale. On daemon restart the runtime quietly
+	// loaded the OLD on-disk value, having spent the prior lifetime
+	// reading and writing against the NEW (now-orphaned) in-memory
+	// state. Audit pass-6 finding H3 (#1054).
+	prev := db.data
 	db.data = tx.data
-	return db.persist()
+	if err := db.persist(); err != nil {
+		// Roll back so the in-memory and on-disk views stay
+		// consistent, and wrap so the caller can distinguish a
+		// "fn-failed" rollback (no commit attempted) from a
+		// "persist-failed" rollback (commit attempted, write
+		// failed) via errors.Is(err, ErrTransactionPersistFailed).
+		db.data = prev
+		return fmt.Errorf("%w: %v", ErrTransactionPersistFailed, err)
+	}
+	return nil
 }
 
 // persist serialises in-memory state to state.yaml via atomicWrite.
