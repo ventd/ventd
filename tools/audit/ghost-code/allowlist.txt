@@ -1,0 +1,68 @@
+# Ghost-code audit allowlist.
+#
+# Format: one "Receiver.Method" per line, # comments, blank lines OK.
+#
+# Each entry is a method with zero non-test call sites that the audit
+# team has verified is NOT a ghost-code class bug. The two valid
+# reasons to allowlist:
+#
+#   1. Test fixture — the type itself is test scaffolding and the
+#      method is called from _test.go files only. The regex grep
+#      can't see test callers because it filters by filename.
+#
+#   2. Interface dispatch — the method satisfies an interface that
+#      the production code calls via the interface type. The regex
+#      grep doesn't traverse interface dispatch.
+#
+# DO NOT add a method here just because it's "probably called
+# somewhere." If you're not sure, leave it flagged. The whole point
+# of the tool is to surface ambiguity for review. The allowlist is
+# narrow on purpose.
+#
+# When you add an entry, include a comment with the verification:
+# "(test fixture in faketime/)" or "(satisfies hal.FanBackend)".
+#
+# When you REMOVE an entry, it's because that method is now reached
+# from production. Run the tool to confirm the count went down by 1.
+
+# ── Test fixtures ────────────────────────────────────────────────
+
+Clock.Advance                   # faketime fake clock
+DTFake.SetCompatible            # hwdb/dtfake test helper
+DTFake.SetModel                 # hwdb/dtfake test helper
+Roots.WriteAC                   # idle test fixture for /sys/power_supply
+Roots.WriteBattery              # idle test fixture
+Roots.WriteCgroup               # idle test fixture for container detection
+Roots.WriteDockerEnv            # idle test fixture
+Roots.WriteHypervisor           # idle test fixture
+Roots.WriteLoadavg              # idle test fixture
+Roots.WriteMdstat               # idle test fixture
+Roots.RemovePSI                 # idle test fixture
+Layer.AddDevice                 # fakehid test layer
+Server.SetNowFn                 # web test seam (faketime injection)
+Server.SetSchedulerInterval     # web test seam
+
+# Test-fixture method-name collisions on real types
+# (the receivers are real but the specific Method variants below
+# are test-time setters/getters with no production callers)
+
+FakeHwmon.CurrentPWM            # hwmon test fixture
+FakeHwmon.SetTachReadFail       # hwmon test fixture
+FakeHwmon.SetWriteFail          # hwmon test fixture
+FakeHwmon.Writes                # hwmon test fixture
+FakeNVML.SetPolicyCalls         # nvml test fixture
+FakeNVML.SetSetSpeedFail        # nvml test fixture
+Fake.ChipPath                   # generic hwmon fake helper
+Fake.CompatPath                 # generic hwmon fake helper
+Fake.InjectSentinelRPM          # quirks helper per RULE-FAKEHWMON-QUIRK-HELPERS
+
+# ── Interface dispatch — production reaches via interface type ─
+
+# polarity.IPMIVendorProbe interface: these three concrete types
+# implement ProbeIPMIPolarity but pass-1 found ZERO production callers.
+# Issue #1037 is filed for the wiring gap; allowlisting these would
+# silently mask the regression. KEEP THEM FLAGGED.
+#
+# DellIPMIProbe.ProbeIPMIPolarity        # NOT allowlisted — #1037
+# HPEIPMIProbe.ProbeIPMIPolarity         # NOT allowlisted — #1037
+# SupermicroIPMIProbe.ProbeIPMIPolarity  # NOT allowlisted — #1037
