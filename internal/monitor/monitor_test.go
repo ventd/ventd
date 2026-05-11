@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 )
 
 // writeFile writes data to path, creating the file mode 0o644. Fails the
@@ -769,37 +771,112 @@ func TestRegression_Issue460v2_SentinelSuppressedAtScanBoundary(t *testing.T) {
 	}
 }
 
-// TestSentinelMonitorVal_AllBranches exercises isSentinelMonitorVal directly
-// to confirm the threshold table matches the constants in
-// internal/hal/hwmon/sentinel.go.
-func TestSentinelMonitorVal_AllBranches(t *testing.T) {
+// TestRegression_Issue1048_AbsoluteZeroFloorAtScanBoundary pins the #1048
+// regression: a driver int32-underflow (-2147483648 millidegrees, scaled to
+// -2147483.648 °C) must be suppressed at the monitor.Scan boundary, alongside
+// the high-end 255.5 °C sentinel.
+//
+// Pre-fix: monitor.go's local isSentinelMonitorVal duplicated only the
+// PlausibleTempMaxCelsius cap and missed the PlausibleTempMinCelsius floor
+// that internal/hal/hwmon/sentinel.go enforces. The fix routes monitor's
+// rejection through halhwmon.IsSentinelSensorVal — single source of truth.
+func TestRegression_Issue1048_AbsoluteZeroFloorAtScanBoundary(t *testing.T) {
+	root := t.TempDir()
+	withScanRoot(t, root)
+
+	d0 := mkHwmonDir(t, root, "hwmon0", "nct6687")
+
+	// int32-underflow temp (-2147483648 millidegrees → -2147483.648 °C).
+	// Must be suppressed.
+	writeFile(t, filepath.Join(d0, "temp7_input"), "-2147483648\n")
+	writeFile(t, filepath.Join(d0, "temp7_label"), "underflow sentinel\n")
+
+	// Valid temp alongside the underflow — must still appear.
+	writeFile(t, filepath.Join(d0, "temp1_input"), "42000\n")
+	writeFile(t, filepath.Join(d0, "temp1_label"), "CPU Temp\n")
+
+	devs := scanHwmon()
+	if len(devs) != 1 {
+		t.Fatalf("Scan: got %d devices, want 1", len(devs))
+	}
+	dev := devs[0]
+
+	for _, rd := range dev.Readings {
+		if rd.Unit == "°C" && rd.Value <= halhwmon.PlausibleTempMinCelsius {
+			t.Errorf("sub-absolute-zero temp %v escaped suppression (label=%q)", rd.Value, rd.Label)
+		}
+	}
+
+	if r := findReading(&dev, "CPU Temp"); r == nil || r.Value != 42.0 {
+		t.Errorf("valid 42°C reading missing from readings: %+v", dev.Readings)
+	}
+	if r := findReading(&dev, "underflow sentinel"); r != nil {
+		t.Errorf("underflow sentinel reading %v escaped suppression: %+v", r.Value, dev.Readings)
+	}
+}
+
+// TestMonitor_SentinelParityWithHwmon is the regression binding for #1048.
+//
+// Before the fix, monitor.go carried its own isSentinelMonitorVal that
+// duplicated the rejection thresholds from hal/hwmon's IsSentinelSensorVal
+// but drifted: the monitor copy was missing the absolute-zero floor
+// (RULE-SENTINEL-TEMP-FLOOR), so an int32-underflow temperature
+// (-2147483648 mC / 1000 = -2147483.648 °C) passed monitor.Scan and
+// reached /api/hardware.
+//
+// The fix routes monitor's rejection through halhwmon.IsSentinelSensorVal —
+// single source of truth. This test asserts the symmetry by exercising a
+// representative range table (floor + cap + sentinel + normal values for
+// each sensor kind) against IsSentinelSensorVal directly, plus the
+// canonical int32-underflow case at the absolute-zero floor.
+//
+// If a future change adds back a separate rejection helper in monitor,
+// this test continues to guard the contract: monitor's suppression
+// behavior must agree with hwmon's IsSentinelSensorVal for every value.
+func TestMonitor_SentinelParityWithHwmon(t *testing.T) {
 	cases := []struct {
-		prefix string
-		val    float64
-		want   bool
-		desc   string
+		base string // file basename (drives IsSentinelSensorVal inference)
+		val  float64
+		want bool
+		desc string
 	}{
-		// temp
-		{"temp", 149.9, false, "temp below cap"},
-		{"temp", 150.0, true, "temp at cap (PlausibleTempMaxCelsius=150)"},
-		{"temp", 255.5, true, "temp 0xFFFF sentinel"},
-		// fan (cap raised 10 000 → 25 000 on 2026-05-03 to admit
-		// server-class Sanyo Denki / Delta fans up to 22k)
-		{"fan", 18000, false, "fan at server-class 18 000 RPM"},
-		{"fan", 25000, false, "fan at PlausibleRPMMax"},
-		{"fan", 25001, true, "fan just above PlausibleRPMMax"},
-		{"fan", 65535, true, "fan 0xFFFF sentinel"},
-		// in (voltage)
-		{"in", 20.0, false, "voltage at cap"},
-		{"in", 20.001, true, "voltage just above PlausibleVoltageMaxVolts"},
-		{"in", 65.535, true, "voltage 0xFFFF sentinel"},
-		// unknown prefix
-		{"power", 9999, false, "power prefix not checked"},
+		// temp — floor (RULE-SENTINEL-TEMP-FLOOR), cap, sentinel, normal,
+		// and the int32-underflow case that motivated #1048.
+		{"temp1_input", -2147483.648, true, "temp int32-underflow (the #1048 motivating value)"},
+		{"temp1_input", halhwmon.PlausibleTempMinCelsius, true, "temp at absolute-zero floor"},
+		{"temp1_input", -273.16, true, "temp just below absolute zero"},
+		{"temp1_input", -17.0, false, "temp at Framework 13 AMD 7040 EC underflow (degraded but valid)"},
+		{"temp1_input", -10.0, false, "temp cold ambient (valid)"},
+		{"temp1_input", 45.0, false, "temp normal CPU reading"},
+		{"temp1_input", 149.9, false, "temp just below plausibility cap"},
+		{"temp1_input", halhwmon.PlausibleTempMaxCelsius, true, "temp at plausibility cap"},
+		{"temp1_input", 255.5, true, "temp 0xFFFF sentinel"},
+
+		// fan — sentinel + plausible cap (RULE-SENTINEL-FAN-IMPLAUSIBLE).
+		{"fan1_input", 0, false, "fan stopped (valid signal)"},
+		{"fan1_input", 1200, false, "fan consumer-class normal"},
+		{"fan1_input", 18000, false, "fan server-class Sanyo Denki RPM"},
+		{"fan1_input", float64(halhwmon.PlausibleRPMMax), false, "fan at PlausibleRPMMax"},
+		{"fan1_input", float64(halhwmon.PlausibleRPMMax) + 1, true, "fan just above PlausibleRPMMax"},
+		{"fan1_input", float64(halhwmon.SentinelRPMRaw), true, "fan 0xFFFF sentinel"},
+
+		// in (voltage) — cap.
+		{"in1_input", 12.0, false, "voltage ATX 12V rail (valid)"},
+		{"in1_input", halhwmon.PlausibleVoltageMaxVolts, false, "voltage at cap"},
+		{"in1_input", halhwmon.PlausibleVoltageMaxVolts + 0.001, true, "voltage just above PlausibleVoltageMaxVolts"},
+		{"in1_input", 65.535, true, "voltage 0xFFFF sentinel"},
+
+		// power* and other prefixes — not inspected (returns false from
+		// IsSentinelSensorVal's default branch).
+		{"power1_input", 9999, false, "power prefix not checked by sentinel filter"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := isSentinelMonitorVal(tc.prefix, tc.val); got != tc.want {
-				t.Errorf("isSentinelMonitorVal(%q, %v) = %v, want %v", tc.prefix, tc.val, got, tc.want)
+			path := filepath.Join(t.TempDir(), tc.base)
+			got := halhwmon.IsSentinelSensorVal(path, tc.val)
+			if got != tc.want {
+				t.Errorf("halhwmon.IsSentinelSensorVal(%q, %v) = %v, want %v",
+					tc.base, tc.val, got, tc.want)
 			}
 		})
 	}

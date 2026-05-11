@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -167,6 +168,46 @@ func TestWrite_PersistentEBUSY_FailsAfterOneRetry(t *testing.T) {
 	}
 	if got := dutyCount.Load(); got != 2 {
 		t.Errorf("writeDuty call count = %d, want 2 (initial + one retry only — never spin)", got)
+	}
+}
+
+// TestRead_OKFalseZeroesOtherFields is the regression binding for #1049.
+//
+// Pre-fix, Backend.Read returned Reading{OK: false, RPM: <valid>} when the
+// PWM-read leg failed but the RPM-read leg succeeded — consumers that
+// ignored OK saw a partial reading with a "valid" RPM that did not
+// correspond to a controllable PWM value. The invariant on hal.Reading
+// (see backend.go doc-comment) requires OK=false carry no sub-state.
+//
+// This test sets up a tempdir with a valid fan*_input file (RPM read
+// succeeds) and NO pwm* file (PWM read fails with ENOENT) and asserts
+// that Read returns Reading{OK: false} with every other field zero.
+func TestRead_OKFalseZeroesOtherFields(t *testing.T) {
+	dir := t.TempDir()
+	// Lay down a valid fan1_input — the RPM read leg will succeed at
+	// 1500 RPM. No pwm1 file exists, so the PWM read leg returns ENOENT
+	// and the OK flag gets cleared. Pre-fix, the partial Reading would
+	// have carried RPM=1500 alongside OK=false; the post-fix invariant
+	// zeroes it.
+	pwmPath := filepath.Join(dir, "pwm1")
+	rpmPath := filepath.Join(dir, "fan1_input")
+	if err := os.WriteFile(rpmPath, []byte("1500\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", rpmPath, err)
+	}
+
+	b := hwmon.NewBackend(slog.Default())
+	ch := hwmon.MakeTestChannel(pwmPath, false)
+
+	got, err := b.Read(ch)
+	if err != nil {
+		t.Fatalf("Read: unexpected error %v", err)
+	}
+	if got.OK {
+		t.Fatalf("Read: OK = true, want false (pwm read should have failed)")
+	}
+	want := hal.Reading{OK: false}
+	if got != want {
+		t.Errorf("Read returned %+v with OK=false; want %+v (#1049 invariant: empty-by-construction)", got, want)
 	}
 }
 
