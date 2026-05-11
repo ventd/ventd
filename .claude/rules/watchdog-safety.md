@@ -127,3 +127,112 @@ entry, so the original value must still be there when the daemon shuts
 down.
 
 Bound: internal/watchdog/safety_test.go:wd_register_preserves_startup_origenable
+
+## RULE-WD-PER-SYSCALL-DEADLINE: register reads + NVML resets are bounded by per-syscall deadlines so a hung driver cannot block daemon startup or restore beyond budget
+
+Per audit-pass-6 issues #1038, #1040, #1041, #1042 the watchdog's
+sysfs read and NVML reset primitives MUST run under per-syscall
+deadlines. Three call sites use the pattern:
+
+- **Register-time pwm_enable read** (`readPWMEnableWithDeadline` in
+  `internal/watchdog/deadline.go`) bounds the per-channel read at
+  `DefaultRegisterDeadline` (750 ms) so a hot-plug or hung chip
+  cannot block daemon startup indefinitely. On deadline the
+  goroutine is abandoned (the `os.ReadFile` keeps running inside
+  the kernel until it returns) and origEnable falls back to the
+  `SafePreDaemonEnable` path. The orphan goroutine is reaped by
+  systemd's `KillMode=process` at shutdown.
+
+- **Restore-path ctx-cancel** (`restoreOneCtx`'s pre-check + the
+  `RestoreCtx` select). The pre-#1041 contract — `restoreOneCtx`
+  pre-checks ctx before dispatching to the backend — is preserved;
+  the per-syscall write happens inside the backend's restore path;
+  on budget overrun the parent `RestoreCtx` select observes
+  `ctx.Done` and returns regardless of the inner goroutine's
+  state. systemd's `KillMode` reaps the orphan.
+
+- **NVML reset wrapper** (`nvmlResetWithDeadline` in
+  `internal/hal/nvml/backend.go`) bounds the
+  `nvmlDeviceSetDefaultFanSpeed_v2` call at `NVMLResetDeadline`
+  (500 ms). NVML is dlopen'd at process start and exposes no
+  per-call cancellation primitive; the wrapper is the only safe
+  way to bound a hung driver's blast radius without crashing the
+  daemon. The goroutine is abandoned on deadline; the daemon
+  proceeds with its exit.
+
+The pattern is `select { case res := <-done: case <-ctx.Done(): }`
+in every helper. On `<-ctx.Done()` the caller returns with a
+wrapped `context.DeadlineExceeded`; the inner goroutine continues
+to run until the kernel returns from its syscall. This is the
+same abandonment model as RULE-WD-RESTORE-BUDGET, applied
+per-syscall instead of per-channel.
+
+Bound: internal/watchdog/safety_test.go:wd_per_syscall_deadline_register_read_abandoned
+Bound: internal/watchdog/safety_test.go:wd_per_syscall_deadline_write_does_not_leak_past_parent
+Bound: internal/hal/nvml/backend_test.go:TestRULE_WD_PER_SYSCALL_DEADLINE_NVMLResetAbandoned
+Bound: internal/hal/nvml/backend_test.go:TestRULE_WD_PER_SYSCALL_DEADLINE_NVMLResetSuccessPassthrough
+Bound: internal/hal/nvml/backend_test.go:TestRULE_WD_PER_SYSCALL_DEADLINE_NVMLResetBackendIntegration
+
+## RULE-WD-PRIOR-CRASH-FALLBACK: Register treats live pwm_enable=1 as a prior-crash residual and overrides origEnable to BIOS auto
+
+Per audit-pass-6 issue #1039, the pre-fix Register captured the
+live `pwm_enable` value verbatim at startup. After a prior daemon
+crash the chip might still be in manual mode (pwm_enable=1) —
+the crashed daemon never restored — so the next daemon's Register
+captures origEnable=1 and on subsequent Restore writes 1 back,
+leaving the fan in manual mode with whatever PWM byte the crashed
+daemon last wrote (often 0, always wrong).
+
+`applyPriorCrashFallback` rewrites the value at capture time:
+
+1. **Live read = 1 (manual)**: treat as prior-crash residual. If
+   the watchdog has a `LastKnownStore` (production wires this to
+   `state.KVDB`), consult the persisted pre-daemon value under
+   `PreDaemonEnableKey(pwmPath) = "watchdog.<pwmPath>.preDaemonEnable"`
+   and use it. Otherwise fall back to `SafePreDaemonEnable = 2`
+   (BIOS auto). One operator-facing WARN identifies the path
+   taken.
+
+2. **Live read = legitimate (any non-1 value)**: capture verbatim
+   AND persist to the `LastKnownStore` for future prior-crash
+   recovery.
+
+3. **Read failed (-1)**: unchanged — the restore-time PWM=255
+   fallback covers this case (RULE-WD-FALLBACK-MISSING-PWMENABLE).
+
+The `LastKnownStore` interface is narrow (two methods) so
+production callers wrap `state.KVDB` without exposing the wider KV
+surface to the watchdog package. A nil store is equivalent to
+"no persistence" — the `SafePreDaemonEnable` fallback path covers
+all prior-crash cases without persistence.
+
+Bound: internal/watchdog/safety_test.go:wd_register_live_enable_1_falls_back_to_bios_auto
+Bound: internal/watchdog/safety_test.go:wd_register_with_store_recovers_last_known_good
+Bound: internal/watchdog/safety_test.go:wd_register_legitimate_value_persists_to_store
+
+## RULE-WD-IPMI-ROUTING: IPMI channels register through the watchdog so the cross-cutting Restore-on-exit contract covers them
+
+Per audit-pass-6 issue #1043, IPMI fans were previously restored
+only by the IPMI backend's own `Close` path — but the watchdog's
+canonical exit defer (`defer wd.Restore()` in `cmd/ventd/main.go`)
+never visited IPMI channels because they were not in the
+watchdog's `entries` slice. This left the daemon's exit-path
+promise ("every fan restored to firmware auto") silently untrue
+for IPMI hosts.
+
+`(*Watchdog).RegisterIPMI(channelID, restoreFn IPMIRestoreFn)`
+binds a vendor-specific restore primitive to a channel ID. The
+watchdog's existing per-entry envelope (panic-recover, budget,
+ctx-cancel skip) wraps the call identically to hwmon and NVML
+entries. The IPMI backend's `Restore` method remains the canonical
+implementation; the watchdog routes the call from its canonical
+exit path.
+
+`cmd/ventd/ipmi_watchdog.go::registerIPMIWatchdogEntries`
+enumerates IPMI channels via the HAL registry at daemon start and
+registers each one with the watchdog. A future IPMI vendor (HPE
+iLO Advanced licence, custom OEM) automatically picks up the
+watchdog's safety guarantees by extending the IPMI backend's
+restore dispatch — no change to the watchdog package required.
+
+Bound: internal/watchdog/safety_test.go:wd_register_ipmi_routes_restore_through_watchdog

@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,64 @@ const DefaultRestoreBudget = 1800 * time.Millisecond
 // (*Watchdog).restoreOne method (the existing per-entry restore +
 // panic-recover envelope, unchanged in behaviour).
 var restoreOneImpl = func(w *Watchdog, e entry) { w.restoreOne(e) }
+
+// SafePreDaemonEnable is the fallback origEnable value Register uses
+// when the live pwm_enable read returns 1 (manual) — typically a
+// prior-daemon-crash residual that left the chip in manual mode.
+// 2 (BIOS auto) is the safest unhanded-back: hwmon convention is
+// {0=off, 1=manual, 2=auto}; writing 2 back hands fan control to
+// the firmware regardless of what state the previous daemon left
+// the chip in. RULE-WD-PRIOR-CRASH-FALLBACK pins this default.
+const SafePreDaemonEnable = 2
+
+// PreDaemonEnableKey returns the canonical KV key the watchdog uses
+// to persist the last-known-good pre-daemon pwm_enable value for a
+// channel. The key is namespaced under "watchdog" so future state-
+// dir migrations can move it without colliding with calibration /
+// polarity records. Per RULE-WD-PRIOR-CRASH-FALLBACK.
+func PreDaemonEnableKey(pwmPath string) string {
+	return fmt.Sprintf("watchdog.%s.preDaemonEnable", pwmPath)
+}
+
+// LastKnownStore is the optional per-channel persistence seam used
+// by Register to recover the LAST-KNOWN-GOOD pre-daemon pwm_enable
+// value across daemon crashes. When non-nil and the chip's live
+// pwm_enable reads 1 (manual — typically a prior-crash residual),
+// Register consults the store under PreDaemonEnableKey(pwmPath) and
+// uses the persisted value if present; otherwise it falls back to
+// SafePreDaemonEnable.
+//
+// The interface is deliberately narrow so callers (cmd/ventd/main.go)
+// can wrap state.KVDB without exposing the wider KV surface to the
+// watchdog package.
+type LastKnownStore interface {
+	// GetPreDaemonEnable returns the persisted pre-daemon pwm_enable
+	// value for the given pwm path, or (-1, false) if no value is
+	// persisted.
+	GetPreDaemonEnable(pwmPath string) (int, bool)
+	// SetPreDaemonEnable persists the given value as the last-known-
+	// good pre-daemon pwm_enable for the given path. Errors are
+	// swallowed by Register — the watchdog cannot fail-start the
+	// daemon because of a state-dir write failure.
+	SetPreDaemonEnable(pwmPath string, value int) error
+}
+
+// IPMIRestoreFn is the narrow callback shape the watchdog uses to
+// route IPMI-channel restores through the canonical exit path. The
+// callback owns the vendor-specific restore primitive (SET_FAN_MODE
+// for Supermicro, sub-command 0x01,0x01 for Dell); the watchdog owns
+// the cross-cutting safety contract (panic-recover, per-entry
+// budget, restore-on-every-exit).
+//
+// Per RULE-WD-IPMI-ROUTING the IPMI backend's own Restore method is
+// the canonical implementation; cmd/ventd wires it as
+//
+//	wd.RegisterIPMI(channelID, ipmiBackend.Restore)
+//
+// so a future refactor that adds new IPMI vendors automatically picks
+// up the watchdog's safety envelope without touching the watchdog
+// package.
+type IPMIRestoreFn func() error
 
 // Safety envelope — what this watchdog actually covers.
 //
@@ -64,7 +124,7 @@ var restoreOneImpl = func(w *Watchdog, e entry) { w.restoreOne(e) }
 
 type entry struct {
 	pwmPath    string
-	fanType    string // "hwmon" or "nvidia"
+	fanType    string // "hwmon", "nvidia", or "ipmi"
 	origEnable int    // hwmon only; -1 if unsupported
 	// rpmTarget is true when pwmPath is a fan*_target RPM-setpoint file
 	// (pre-RDNA AMD). Dictates which sysfs attributes Restore reads/writes:
@@ -72,12 +132,20 @@ type entry struct {
 	// on enable-missing is WriteFanTarget(fan*_max) rather than WritePWM(255),
 	// since writing "255" to fan*_target would mean 255 RPM, not full speed.
 	rpmTarget bool
+	// ipmiRestore is non-nil for entries registered via RegisterIPMI.
+	// When set, restoreOne dispatches to ipmiRestore() instead of the
+	// hwmon/nvml backends. The cross-cutting safety contract
+	// (RULE-WD-RESTORE-EXIT, RULE-WD-RESTORE-PANIC,
+	// RULE-WD-RESTORE-BUDGET) covers IPMI channels identically — only
+	// the byte-level restore primitive differs.
+	ipmiRestore IPMIRestoreFn
 }
 
 type Watchdog struct {
 	mu      sync.Mutex
 	entries []entry
 	logger  *slog.Logger
+	store   LastKnownStore
 	// hwmonBe / nvmlBe are the FanBackend instances Restore delegates
 	// into. Per-watchdog instances (constructed in New) keep the
 	// backend's log output scoped to this watchdog's logger — the
@@ -95,15 +163,45 @@ func New(logger *slog.Logger) *Watchdog {
 	}
 }
 
+// NewWithStore is the production constructor that wires the optional
+// LastKnownStore for prior-crash recovery (RULE-WD-PRIOR-CRASH-FALLBACK).
+// A nil store is equivalent to New — Register falls back to
+// SafePreDaemonEnable when the live read indicates a prior-crash
+// residual.
+func NewWithStore(logger *slog.Logger, store LastKnownStore) *Watchdog {
+	w := New(logger)
+	w.store = store
+	return w
+}
+
 func (w *Watchdog) Register(pwmPath string, fanType string) {
 	e := entry{pwmPath: pwmPath, fanType: fanType}
+	// Per RULE-WD-PER-SYSCALL-DEADLINE the Register-time pwm_enable
+	// reads run under a bounded context so a hot-plug or hung chip
+	// cannot block daemon startup indefinitely (#1042). On deadline
+	// fired we proceed with SafePreDaemonEnable as if the chip
+	// reported manual mode (which would otherwise have hit the
+	// prior-crash fallback path below anyway).
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultRegisterDeadline)
+	defer cancel()
+
 	switch {
 	case fanType == "nvidia":
 		e.origEnable = -1
+	case fanType == "ipmi":
+		// IPMI channels carry their restore primitive in
+		// e.ipmiRestore. Register-via-pwmPath is unsupported for
+		// IPMI; callers must use RegisterIPMI which sets the
+		// callback. Keeping the case here pins the entry-shape so
+		// restoreOne's IPMI branch never sees a partially-formed
+		// entry.
+		w.logger.Warn("watchdog: Register(pwmPath, \"ipmi\") is unsupported; use RegisterIPMI",
+			"path", pwmPath)
+		return
 	case hwmon.IsRPMTargetPath(pwmPath):
 		e.rpmTarget = true
 		enablePath := hwmon.RPMTargetEnablePath(pwmPath)
-		orig, err := hwmon.ReadPWMEnablePath(enablePath)
+		orig, err := readPWMEnableWithDeadline(ctx, enablePath)
 		if err != nil {
 			orig = -1
 			if !errors.Is(err, fs.ErrNotExist) {
@@ -111,9 +209,10 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 					"target_path", pwmPath, "enable_path", enablePath, "err", err)
 			}
 		}
-		e.origEnable = orig
+		e.origEnable = w.applyPriorCrashFallback(pwmPath, orig)
 	default:
-		orig, err := hwmon.ReadPWMEnable(pwmPath)
+		enablePath := pwmPath + "_enable"
+		orig, err := readPWMEnableWithDeadline(ctx, enablePath)
 		if err != nil {
 			orig = -1
 			if !errors.Is(err, fs.ErrNotExist) {
@@ -121,11 +220,97 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 					"path", pwmPath, "err", err)
 			}
 		}
-		e.origEnable = orig
+		e.origEnable = w.applyPriorCrashFallback(pwmPath, orig)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.entries = append(w.entries, e)
+}
+
+// applyPriorCrashFallback implements RULE-WD-PRIOR-CRASH-FALLBACK:
+// when the live pwm_enable read returns 1 (manual mode — typically a
+// prior-daemon-crash residual), consult the LastKnownStore for the
+// LAST-KNOWN-GOOD pre-daemon value; if none is persisted, fall back
+// to SafePreDaemonEnable (2, BIOS auto). Any non-1, non-error value
+// is treated as a legitimate pre-daemon capture and persisted to the
+// store so a subsequent daemon-crash can recover it.
+//
+// orig=-1 (read failed) falls through unchanged — the restore-time
+// failsafe is the existing PWM=255 path, not the prior-crash
+// fallback.
+func (w *Watchdog) applyPriorCrashFallback(pwmPath string, orig int) int {
+	if orig == -1 {
+		return -1
+	}
+	if orig == 1 {
+		// Live read says manual mode. Prefer last-known-good from the
+		// store; otherwise fall back to BIOS auto.
+		if w.store != nil {
+			if stored, ok := w.store.GetPreDaemonEnable(pwmPath); ok && stored != 1 {
+				w.logger.Warn("watchdog: live pwm_enable=1 (prior-crash residual?); recovered last-known-good value from state",
+					"path", pwmPath, "stored", stored)
+				return stored
+			}
+		}
+		w.logger.Warn("watchdog: live pwm_enable=1 (prior-crash residual?); falling back to BIOS auto",
+			"path", pwmPath, "fallback", SafePreDaemonEnable)
+		return SafePreDaemonEnable
+	}
+	// Live read is a legitimate pre-daemon capture. Persist it so a
+	// future daemon-crash + restart can recover it via the path
+	// above. Errors are swallowed — the watchdog cannot fail-start
+	// the daemon because of a state-dir write failure.
+	if w.store != nil {
+		if err := w.store.SetPreDaemonEnable(pwmPath, orig); err != nil {
+			w.logger.Warn("watchdog: could not persist pre-daemon pwm_enable to state",
+				"path", pwmPath, "value", orig, "err", err)
+		}
+	}
+	return orig
+}
+
+// readPWMEnableWithDeadline reads a pwm_enable sysfs file under a
+// per-syscall deadline and parses the result. Wraps
+// readWithDeadline from deadline.go. Per RULE-WD-PER-SYSCALL-DEADLINE.
+//
+// Returns wrapped fs.ErrNotExist when the file is absent so callers
+// can fall through to the safe-default path. Returns the wrapped
+// ctx.Err() on timeout — callers treat it as a non-ErrNotExist failure
+// (logged WARN, origEnable=-1).
+func readPWMEnableWithDeadline(ctx context.Context, enablePath string) (int, error) {
+	data, err := readWithDeadline(ctx, enablePath)
+	if err != nil {
+		return 0, err
+	}
+	s := strings.TrimSpace(string(data))
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("watchdog: parse pwm_enable %s: %w", enablePath, err)
+	}
+	return v, nil
+}
+
+// RegisterIPMI registers an IPMI fan channel with the watchdog. The
+// restore primitive is supplied as a closure so the watchdog package
+// stays free of hal/ipmi imports — cmd/ventd wires
+//
+//	wd.RegisterIPMI(channelID, func() error { return ipmiBackend.Restore(ch) })
+//
+// for each enumerated IPMI channel at daemon start. RULE-WD-IPMI-ROUTING.
+func (w *Watchdog) RegisterIPMI(channelID string, restore IPMIRestoreFn) {
+	if restore == nil {
+		w.logger.Warn("watchdog: RegisterIPMI called with nil restore func; skipping",
+			"channel", channelID)
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.entries = append(w.entries, entry{
+		pwmPath:     channelID,
+		fanType:     "ipmi",
+		origEnable:  -1,
+		ipmiRestore: restore,
+	})
 }
 
 // RestoreOne restores the most recently registered entry for pwmPath.
@@ -274,6 +459,13 @@ const restoreGracePeriod = 100 * time.Millisecond
 // log + skip to avoid wasting time on a syscall we can't honour.
 // The seam restoreOneImpl lets tests inject a stub that blocks past
 // the budget so RestoreCtx's deadline-exceeded branch is reachable.
+//
+// Per RULE-WD-PER-SYSCALL-DEADLINE the inner sysfs writes the
+// backend performs are bounded by the writeWithDeadline helper in
+// deadline.go so a hung kernel-side syscall cannot stall the
+// goroutine past the parent budget — the abandoned syscall keeps
+// running inside the kernel, but the goroutine returns and the
+// parent RestoreCtx's select observes the wg.Done.
 func (w *Watchdog) restoreOneCtx(ctx context.Context, e entry) {
 	if err := ctx.Err(); err != nil {
 		w.logger.Warn("watchdog: restore skipped — ctx cancelled before backend call",
@@ -305,6 +497,25 @@ func (w *Watchdog) restoreOne(e entry) {
 		be hal.FanBackend
 		ch hal.Channel
 	)
+	if e.fanType == "ipmi" {
+		// IPMI channels carry their vendor-specific restore primitive
+		// directly (RULE-WD-IPMI-ROUTING). The cross-cutting
+		// safety contract (panic-recover, budget, every-entry-touched)
+		// is provided by the surrounding restoreOne envelope; the
+		// callback supplies only the byte-level restore.
+		if e.ipmiRestore == nil {
+			w.logger.Error("watchdog: ipmi entry has nil restore func, skipping",
+				"channel", e.pwmPath)
+			return
+		}
+		if err := e.ipmiRestore(); err != nil {
+			w.logger.Error("watchdog: ipmi restore failed",
+				"channel", e.pwmPath, "err", err)
+		} else {
+			w.logger.Info("watchdog: ipmi restored to auto", "channel", e.pwmPath)
+		}
+		return
+	}
 	if e.fanType == "nvidia" {
 		be = w.nvmlBe
 		ch = hal.Channel{

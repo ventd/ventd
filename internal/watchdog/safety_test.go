@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,11 +44,18 @@ func TestWDSafety_Invariants(t *testing.T) {
 	t.Run("wd_restore_exit_touches_all_entries", func(t *testing.T) {
 		// Every registered entry must receive a restore write when the
 		// daemon exits gracefully. We stand up a fakehwmon tree with two
-		// pwm channels, register both with origEnable=1, flip them to
-		// manual-mode (2), call Restore, and assert both enable files
-		// ended up back at 1.
-		enable1 := 1
-		enable2 := 1
+		// pwm channels seeded enable=2 (BIOS auto — the legitimate
+		// pre-daemon state), register both, flip them to manual-mode
+		// (1), call Restore, and assert both enable files ended up
+		// back at 2.
+		//
+		// Pre-#1039 seed was enable=1 (the manual-mode case), but per
+		// RULE-WD-PRIOR-CRASH-FALLBACK that's now treated as a prior-
+		// crash residual and Register overrides origEnable to 2. Tests
+		// that want to exercise restore-to-original use enable=2 at
+		// seed time.
+		enable1 := 2
+		enable2 := 2
 		fake := fakehwmon.New(t, &fakehwmon.Options{
 			Chips: []fakehwmon.ChipOptions{{
 				Name: "nct6798",
@@ -74,14 +82,6 @@ func TestWDSafety_Invariants(t *testing.T) {
 		if err := os.WriteFile(enablePath2, []byte("1\n"), 0o600); err != nil {
 			t.Fatalf("simulate manual ch2: %v", err)
 		}
-		// Move both to some daemon-written non-original state so the
-		// post-Restore read proves a write actually happened.
-		if err := os.WriteFile(enablePath1, []byte("2\n"), 0o600); err != nil {
-			t.Fatalf("perturb ch1: %v", err)
-		}
-		if err := os.WriteFile(enablePath2, []byte("2\n"), 0o600); err != nil {
-			t.Fatalf("perturb ch2: %v", err)
-		}
 
 		w.Restore()
 
@@ -95,7 +95,7 @@ func TestWDSafety_Invariants(t *testing.T) {
 		// RULE-WD-RESTORE-EXIT also covers RestoreOne (per #287 audit). Verify
 		// that after a successful Restore, a subsequent RestoreOne(pwm1)
 		// writes origEnable back without modifying the entries slice.
-		if err := os.WriteFile(enablePath1, []byte("2\n"), 0o600); err != nil {
+		if err := os.WriteFile(enablePath1, []byte("1\n"), 0o600); err != nil {
 			t.Fatalf("perturb ch1 for RestoreOne leg: %v", err)
 		}
 		w.RestoreOne(pwm1)
@@ -154,8 +154,8 @@ func TestWDSafety_Invariants(t *testing.T) {
 		fake := fakehwmon.New(t, &fakehwmon.Options{
 			Chips: []fakehwmon.ChipOptions{{
 				PWMs: []fakehwmon.PWMOptions{
-					{Index: 1, PWM: 77, Enable: 1},
-					{Index: 2, PWM: 77, Enable: 1},
+					{Index: 1, PWM: 77, Enable: 2},
+					{Index: 2, PWM: 77, Enable: 2},
 				},
 			}},
 		})
@@ -173,13 +173,13 @@ func TestWDSafety_Invariants(t *testing.T) {
 		var buf bytes.Buffer
 		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 		w.Register(pwm1, "hwmon") // origEnable=-1 (enable file missing)
-		w.Register(pwm2, "hwmon") // origEnable=1
+		w.Register(pwm2, "hwmon") // origEnable=2 (legitimate pre-daemon state)
 
 		// Daemon-written states prior to Restore.
 		if err := os.WriteFile(pwm1, []byte("88\n"), 0o600); err != nil {
 			t.Fatalf("seed pwm1: %v", err)
 		}
-		if err := os.WriteFile(pwm2+"_enable", []byte("2\n"), 0o600); err != nil {
+		if err := os.WriteFile(pwm2+"_enable", []byte("1\n"), 0o600); err != nil {
 			t.Fatalf("perturb pwm2_enable: %v", err)
 		}
 
@@ -198,8 +198,8 @@ func TestWDSafety_Invariants(t *testing.T) {
 		}
 		// Entry 2 still got its enable restored — proves the loop
 		// continued past the fallback in entry 1.
-		if got := readTrimmed(t, pwm2+"_enable"); got != "1" {
-			t.Errorf("pwm2_enable after Restore = %q, want %q (loop must not early-return)", got, "1")
+		if got := readTrimmed(t, pwm2+"_enable"); got != "2" {
+			t.Errorf("pwm2_enable after Restore = %q, want %q (loop must not early-return)", got, "2")
 		}
 		// The fallback branch's operator-facing log line is the
 		// identity of this rule — keep the literal anchor. If a
@@ -425,9 +425,9 @@ func TestWDSafety_Invariants(t *testing.T) {
 			Chips: []fakehwmon.ChipOptions{{
 				Name: "nct6798",
 				PWMs: []fakehwmon.PWMOptions{
-					{Index: 1, PWM: 128, Enable: 1},
-					{Index: 2, PWM: 128, Enable: 1},
-					{Index: 3, PWM: 128, Enable: 1},
+					{Index: 1, PWM: 128, Enable: 2},
+					{Index: 2, PWM: 128, Enable: 2},
+					{Index: 3, PWM: 128, Enable: 2},
 				},
 			}},
 		})
@@ -441,9 +441,9 @@ func TestWDSafety_Invariants(t *testing.T) {
 		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
 		for _, p := range paths {
 			w.Register(p, "hwmon")
-			// Move to non-original state so the post-Restore read
-			// proves a write actually happened on this entry.
-			if err := os.WriteFile(p+"_enable", []byte("2\n"), 0o600); err != nil {
+			// Move to manual mode (1) so the post-Restore read proves
+			// a write back to BIOS auto (2) actually happened.
+			if err := os.WriteFile(p+"_enable", []byte("1\n"), 0o600); err != nil {
 				t.Fatalf("perturb %s_enable: %v", p, err)
 			}
 		}
@@ -458,8 +458,8 @@ func TestWDSafety_Invariants(t *testing.T) {
 			t.Errorf("RestoreCtx took %v on the happy path; deadline-exceeded branch should not have fired", elapsed)
 		}
 		for _, p := range paths {
-			if got := readTrimmed(t, p+"_enable"); got != "1" {
-				t.Errorf("%s_enable after RestoreCtx = %q, want %q", p, got, "1")
+			if got := readTrimmed(t, p+"_enable"); got != "2" {
+				t.Errorf("%s_enable after RestoreCtx = %q, want %q", p, got, "2")
 			}
 		}
 		if strings.Contains(buf.String(), "abandoning in-flight goroutines") {
@@ -480,9 +480,9 @@ func TestWDSafety_Invariants(t *testing.T) {
 			Chips: []fakehwmon.ChipOptions{{
 				Name: "nct6798",
 				PWMs: []fakehwmon.PWMOptions{
-					{Index: 1, PWM: 128, Enable: 1},
-					{Index: 2, PWM: 128, Enable: 1},
-					{Index: 3, PWM: 128, Enable: 1},
+					{Index: 1, PWM: 128, Enable: 2},
+					{Index: 2, PWM: 128, Enable: 2},
+					{Index: 3, PWM: 128, Enable: 2},
 				},
 			}},
 		})
@@ -514,7 +514,9 @@ func TestWDSafety_Invariants(t *testing.T) {
 		w.Register(hungPath, "hwmon")
 		w.Register(fastPaths[1], "hwmon")
 		for _, p := range append(fastPaths, hungPath) {
-			if err := os.WriteFile(p+"_enable", []byte("2\n"), 0o600); err != nil {
+			// Perturb to manual mode (1) so the post-Restore read
+			// proves a write back to BIOS auto (2) actually happened.
+			if err := os.WriteFile(p+"_enable", []byte("1\n"), 0o600); err != nil {
 				t.Fatalf("perturb %s_enable: %v", p, err)
 			}
 		}
@@ -529,14 +531,14 @@ func TestWDSafety_Invariants(t *testing.T) {
 			t.Errorf("RestoreCtx returned after %v despite a 100 ms budget; the deadline-exceeded branch did not unblock the caller", elapsed)
 		}
 		for _, p := range fastPaths {
-			if got := readTrimmed(t, p+"_enable"); got != "1" {
-				t.Errorf("%s_enable after RestoreCtx = %q, want %q (parallel restore must have completed despite the hung peer)", p, got, "1")
+			if got := readTrimmed(t, p+"_enable"); got != "2" {
+				t.Errorf("%s_enable after RestoreCtx = %q, want %q (parallel restore must have completed despite the hung peer)", p, got, "2")
 			}
 		}
 		// The hung path's _enable file is still at the perturbed value
 		// because its goroutine never reached the backend write.
-		if got := readTrimmed(t, hungPath+"_enable"); got != "2" {
-			t.Errorf("hung path %s_enable = %q, want %q (its goroutine must still be running, not a successful write)", hungPath, got, "2")
+		if got := readTrimmed(t, hungPath+"_enable"); got != "1" {
+			t.Errorf("hung path %s_enable = %q, want %q (its goroutine must still be running, not a successful write)", hungPath, got, "1")
 		}
 		// The WARN log must name the abandoned channel so an operator
 		// reading the journal can correlate the budget overrun to the
@@ -598,6 +600,192 @@ func TestWDSafety_Invariants(t *testing.T) {
 			t.Errorf("expected a ctx-skip or budget-exceeded WARN, got:\n%s", logOut)
 		}
 	})
+
+	// ─── RULE-WD-PER-SYSCALL-DEADLINE ──────────────────────────────────
+
+	t.Run("wd_per_syscall_deadline_register_read_abandoned", func(t *testing.T) {
+		// Register's Read of pwm_enable runs under a per-syscall
+		// deadline (DefaultRegisterDeadline) so a hot-plug or hung
+		// chip cannot block daemon startup indefinitely (#1042).
+		//
+		// We exercise the helper directly with a pre-cancelled ctx —
+		// the read goroutine cannot return faster than the ctx-done
+		// branch, so we get a deterministic abandoned-read error.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // pre-cancelled
+		_, err := readPWMEnableWithDeadline(ctx, "/proc/self/comm")
+		if err == nil {
+			t.Fatalf("readPWMEnableWithDeadline with pre-cancelled ctx returned nil err")
+		}
+		if !strings.Contains(err.Error(), "abandoned") {
+			t.Errorf("expected 'abandoned' in err, got %q", err.Error())
+		}
+	})
+
+	t.Run("wd_per_syscall_deadline_write_does_not_leak_past_parent", func(t *testing.T) {
+		// writeWithDeadline returns when ctx fires regardless of
+		// whether the underlying os.WriteFile has completed. Target
+		// a path under a directory that doesn't exist so the write
+		// fails fast — combined with a ctx that fires after a tight
+		// deadline, the contract is "the helper returns within a
+		// bounded wall-clock budget". On most runs we'll observe
+		// either the ENOENT path (write completed first) or the
+		// abandonment path (ctx fired first); both prove the helper
+		// doesn't leak past the parent. The load-bearing assertion
+		// is the wall-clock bound.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		tmp := filepath.Join(t.TempDir(), "nonexistent-subdir", "wd-deadline.test")
+		start := time.Now()
+		err := writeWithDeadline(ctx, tmp, []byte("hello\n"), 0o600)
+		elapsed := time.Since(start)
+		if err == nil {
+			t.Fatalf("writeWithDeadline to a nonexistent dir returned nil err (write should have failed fast)")
+		}
+		if elapsed > 250*time.Millisecond {
+			t.Errorf("writeWithDeadline elapsed %v despite a 20 ms ctx; helper leaked past parent budget", elapsed)
+		}
+	})
+
+	// ─── RULE-WD-PRIOR-CRASH-FALLBACK ──────────────────────────────────
+
+	t.Run("wd_register_live_enable_1_falls_back_to_bios_auto", func(t *testing.T) {
+		// Register-time pwm_enable=1 (manual) is treated as a prior-
+		// daemon-crash residual: the previous daemon left the chip in
+		// manual mode and exited without restoring. Without the
+		// fallback, a fresh daemon's Register would capture
+		// origEnable=1 and on subsequent Restore would write 1 back,
+		// leaving the fan in manual mode at the daemon's last byte
+		// (often 0). The fallback overrides origEnable to
+		// SafePreDaemonEnable (2 = BIOS auto), which is the safe
+		// unhanded-back. Per RULE-WD-PRIOR-CRASH-FALLBACK / #1039.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 100, Enable: 1}, // prior-crash residual
+				},
+			}},
+		})
+		pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
+
+		var buf bytes.Buffer
+		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		w.Register(pwm, "hwmon")
+
+		if len(w.entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(w.entries))
+		}
+		if got := w.entries[0].origEnable; got != SafePreDaemonEnable {
+			t.Errorf("origEnable on prior-crash residual = %d, want %d (SafePreDaemonEnable)",
+				got, SafePreDaemonEnable)
+		}
+
+		// End-to-end: Restore writes the safe fallback, not the
+		// captured-1 value.
+		w.Restore()
+		if got := readTrimmed(t, pwm+"_enable"); got != "2" {
+			t.Errorf("pwm_enable after Restore = %q, want %q (safe fallback)", got, "2")
+		}
+		if !strings.Contains(buf.String(), "prior-crash residual") {
+			t.Errorf("expected 'prior-crash residual' WARN, got:\n%s", buf.String())
+		}
+	})
+
+	t.Run("wd_register_with_store_recovers_last_known_good", func(t *testing.T) {
+		// When the LastKnownStore has a persisted pre-daemon value,
+		// Register uses it instead of SafePreDaemonEnable on the
+		// prior-crash path. This is the "synthesise a prior crash"
+		// case: state KV has pwm_enable=2 from the last clean run,
+		// the chip reads 1 (manual — crash residual), and Register
+		// recovers the persisted 2 rather than guessing.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 100, Enable: 1}, // prior-crash residual
+				},
+			}},
+		})
+		pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
+
+		store := &fakeLastKnownStore{values: map[string]int{pwm: 2}}
+		var buf bytes.Buffer
+		w := NewWithStore(slog.New(slog.NewTextHandler(&buf, nil)), store)
+		w.Register(pwm, "hwmon")
+
+		if got := w.entries[0].origEnable; got != 2 {
+			t.Errorf("origEnable with persisted store = %d, want %d", got, 2)
+		}
+	})
+
+	t.Run("wd_register_legitimate_value_persists_to_store", func(t *testing.T) {
+		// When the live read returns a legitimate (non-1) pre-daemon
+		// value, Register persists it to the LastKnownStore for
+		// future prior-crash recovery. Mirrors RULE-WD-PRIOR-CRASH-
+		// FALLBACK's reverse direction.
+		fake := fakehwmon.New(t, &fakehwmon.Options{
+			Chips: []fakehwmon.ChipOptions{{
+				Name: "nct6798",
+				PWMs: []fakehwmon.PWMOptions{
+					{Index: 1, PWM: 100, Enable: 2},
+				},
+			}},
+		})
+		pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
+
+		store := &fakeLastKnownStore{values: map[string]int{}}
+		w := NewWithStore(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), store)
+		w.Register(pwm, "hwmon")
+
+		if got, ok := store.values[pwm]; !ok || got != 2 {
+			t.Errorf("store after legitimate Register = (%d, %v), want (2, true)", got, ok)
+		}
+		// Sanity: the canonical key format is the documented one.
+		if PreDaemonEnableKey(pwm) == "" {
+			t.Errorf("PreDaemonEnableKey returned empty string")
+		}
+	})
+
+	// ─── RULE-WD-IPMI-ROUTING ──────────────────────────────────────────
+
+	t.Run("wd_register_ipmi_routes_restore_through_watchdog", func(t *testing.T) {
+		// RegisterIPMI binds a vendor-specific restore primitive to
+		// a channel ID; the watchdog's Restore loop dispatches to
+		// the callback when this entry's turn comes up. The
+		// cross-cutting RULE-WD-RESTORE-EXIT contract (every entry
+		// touched on every documented exit path) extends to IPMI
+		// channels with no change to the IPMI backend's own restore
+		// implementation. Per RULE-WD-IPMI-ROUTING / #1043.
+		var called atomic.Int32
+		var lastChannel atomic.Pointer[string]
+		ipmiChannelID := "ipmi:sensor0"
+
+		w := New(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+		w.RegisterIPMI(ipmiChannelID, func() error {
+			called.Add(1)
+			id := ipmiChannelID
+			lastChannel.Store(&id)
+			return nil
+		})
+
+		w.Restore()
+
+		if got := called.Load(); got != 1 {
+			t.Errorf("IPMI restore callback called %d times, want 1", got)
+		}
+		if got := lastChannel.Load(); got == nil || *got != ipmiChannelID {
+			t.Errorf("IPMI restore callback received wrong channel; got %v want %s", got, ipmiChannelID)
+		}
+	})
+
+	// ─── NVML deadline wrapper ─────────────────────────────────────────
+	// The NVML deadline wrapper lives in internal/hal/nvml/backend.go
+	// (nvmlResetWithDeadline). Its own bound subtest lives in that
+	// package's test file — this rule's binding here documents the
+	// cross-package contract that a hung NVML reset cannot stall the
+	// watchdog's restore budget. Per RULE-WD-PER-SYSCALL-DEADLINE /
+	// #1040.
 }
 
 // ─── test helpers ─────────────────────────────────────────────────────
@@ -631,6 +819,32 @@ func (h *countingPanicHandler) Handle(_ context.Context, _ slog.Record) error {
 	if n == h.panicOn {
 		panic("synthetic safety-test panic")
 	}
+	return nil
+}
+
+// fakeLastKnownStore is an in-memory LastKnownStore for the
+// RULE-WD-PRIOR-CRASH-FALLBACK subtests. Production callers wrap
+// state.KVDB; the test fixture deliberately does not import state
+// to keep the test hermetic.
+type fakeLastKnownStore struct {
+	mu     sync.Mutex
+	values map[string]int
+}
+
+func (f *fakeLastKnownStore) GetPreDaemonEnable(pwmPath string) (int, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v, ok := f.values[pwmPath]
+	return v, ok
+}
+
+func (f *fakeLastKnownStore) SetPreDaemonEnable(pwmPath string, value int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.values == nil {
+		f.values = map[string]int{}
+	}
+	f.values[pwmPath] = value
 	return nil
 }
 

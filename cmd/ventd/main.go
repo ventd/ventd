@@ -795,6 +795,12 @@ func runDaemonInternal(
 	for _, fan := range cfg.Fans {
 		wd.Register(fan.PWMPath, fan.Type)
 	}
+	// Route every enumerated IPMI channel through the watchdog so the
+	// cross-cutting RULE-WD-RESTORE-EXIT safety contract covers IPMI
+	// too (issue #1043). The actual SET_FAN_MODE / Dell auto-enable
+	// command stays in the IPMI backend; the watchdog only routes the
+	// call from its canonical exit path.
+	registerIPMIWatchdogEntries(wd, logger)
 	// Always restore pwm_enable=2 when runDaemon exits — covers graceful shutdown.
 	// Controller panic recovery also calls wd.Restore() before returning an error.
 	defer wd.Restore()

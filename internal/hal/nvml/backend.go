@@ -9,10 +9,30 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/nvidia"
 )
+
+// NVMLResetDeadline bounds the NVML fan-reset call from the watchdog
+// restore path. NVML is dlopen'd at process start and exposes no
+// per-call timeout; the wrapper here runs the reset in a goroutine
+// and abandons it on deadline so a hung driver does not block the
+// daemon's exit past the watchdog's restore budget. Per
+// RULE-WD-PER-SYSCALL-DEADLINE / issue #1040.
+//
+// 500 ms is loose relative to typical NVML reset latency (10-50 ms)
+// but tight enough to fail-fast on a wedged driver. The constant is
+// exported so a future operator-tunable knob can adjust it without
+// re-wiring every call site.
+var NVMLResetDeadline = 500 * time.Millisecond
+
+// nvmlResetFn is the swappable seam used by Restore so tests can
+// inject a fake reset that blocks past the deadline, exercising the
+// abandonment branch without needing real NVML. Production falls
+// through to nvidia.ResetFanSpeed.
+var nvmlResetFn func(idx uint) error = nvidia.ResetFanSpeed
 
 // BackendName is the registry tag applied to channels produced by
 // this backend.
@@ -113,8 +133,14 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 }
 
 // Restore hands fan control back to the NVIDIA driver's autonomous
-// curve. Preserves the pre-refactor watchdog log line so operator
-// diagnostics don't shift.
+// curve. The actual reset is dispatched via nvmlResetWithDeadline so
+// a hung NVML driver cannot block the watchdog's restore budget
+// (RULE-WD-PER-SYSCALL-DEADLINE / issue #1040). On deadline the
+// underlying goroutine is abandoned and a non-nil error is returned;
+// the watchdog logs + proceeds to the next channel.
+//
+// Pre-refactor log lines are preserved so operator diagnostics don't
+// shift.
 func (b *Backend) Restore(ch hal.Channel) error {
 	st, err := stateFrom(ch)
 	if err != nil {
@@ -126,7 +152,7 @@ func (b *Backend) Restore(ch hal.Channel) error {
 			"gpu_index", st.Index, "err", err)
 		return err
 	}
-	if err := nvidia.ResetFanSpeed(idx); err != nil {
+	if err := nvmlResetWithDeadline(idx, NVMLResetDeadline); err != nil {
 		b.logger.Error("watchdog: nvidia fan reset failed",
 			"gpu_index", st.Index, "err", err)
 		return err
@@ -134,6 +160,31 @@ func (b *Backend) Restore(ch hal.Channel) error {
 	b.logger.Info("watchdog: nvidia fan restored to auto",
 		"gpu_index", st.Index)
 	return nil
+}
+
+// nvmlResetWithDeadline wraps the NVML reset call (typically
+// nvidia.ResetFanSpeed → nvmlDeviceSetDefaultFanSpeed_v2) in a
+// goroutine + deadline pattern. NVML is dlopen'd and exposes no
+// per-call cancellation; the wrapper is the only safe way to bound
+// the call without crashing the daemon. On deadline the goroutine
+// is abandoned (the call keeps running inside the kernel) and the
+// caller sees a wrapped context.DeadlineExceeded.
+//
+// nvmlResetFn is the package-level seam tests inject — production
+// resolves to nvidia.ResetFanSpeed at package init.
+func nvmlResetWithDeadline(idx uint, deadline time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- nvmlResetFn(idx)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("hal/nvml: reset gpu=%d abandoned: %w", idx, ctx.Err())
+	}
 }
 
 func stateFrom(ch hal.Channel) (State, error) {

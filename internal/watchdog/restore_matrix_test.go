@@ -103,8 +103,11 @@ func quietLogger(buf *bytes.Buffer) *slog.Logger {
 // ─── Case 1 ───────────────────────────────────────────────────────────────
 
 func TestRestore_HwmonPWM_ValidEnable_WritesOrig(t *testing.T) {
+	// Seed enable=2 (BIOS auto) so Register captures a legitimate
+	// pre-daemon value rather than the prior-crash residual case
+	// (live=1) which RULE-WD-PRIOR-CRASH-FALLBACK overrides to 2.
 	_, pwm, enable := newFakeHwmon(t, 1)
-	if err := os.WriteFile(enable, []byte("1\n"), 0o600); err != nil {
+	if err := os.WriteFile(enable, []byte("2\n"), 0o600); err != nil {
 		t.Fatalf("seed enable: %v", err)
 	}
 
@@ -117,18 +120,11 @@ func TestRestore_HwmonPWM_ValidEnable_WritesOrig(t *testing.T) {
 		t.Fatalf("simulate manual: %v", err)
 	}
 
-	// Pretend an operator had BIOS control (mode 2) originally by stubbing
-	// Register's recorded orig — but since Register already captured "1",
-	// test from that premise: Restore writes 1 back regardless of current.
-	if err := os.WriteFile(enable, []byte("2\n"), 0o600); err != nil {
-		t.Fatalf("simulate daemon-write: %v", err)
-	}
-
 	w.Restore()
 
 	got, _ := os.ReadFile(enable)
-	if s := strings.TrimSpace(string(got)); s != "1" {
-		t.Fatalf("pwm_enable after Restore = %q, want %q", s, "1")
+	if s := strings.TrimSpace(string(got)); s != "2" {
+		t.Fatalf("pwm_enable after Restore = %q, want %q (original captured value)", s, "2")
 	}
 }
 
