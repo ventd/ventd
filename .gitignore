@@ -71,3 +71,4 @@ release-notes/*-dryrun.txt
 # Local screenshots dir — populated by render-screenshots tooling,
 # uploaded to README by Phoenix manually. Not tracked.
 /screenshots/
+/ghost-code
