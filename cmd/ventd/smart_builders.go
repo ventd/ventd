@@ -19,7 +19,9 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +32,7 @@ import (
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/coupling/signguard"
 	"github.com/ventd/ventd/internal/fallback"
+	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/observation"
@@ -576,4 +579,60 @@ func captureLoadFraction() float64 {
 		frac = 1
 	}
 	return frac
+}
+
+// startHwmonSwapMonitor wires the daemon's controllable-channel
+// slice into the hwmon swap-monitor goroutine. Spawns one
+// goroutine via wg that watches for hwmonN renumbering during
+// daemon runtime (USB GPU hotplug, modprobe -r/-i, etc.) — the
+// startup-time resolution captured stable-device anchors via
+// hwmon.StableDevice, and this loop calls hwmon.MonitorSwap to
+// re-resolve them periodically. RULE-HWMON-SWAP-MONITOR.
+//
+// Channels whose PWMPath doesn't resolve to a stable device (e.g.
+// NVML, IPMI, virtual /sys/devices/virtual entries that don't
+// expose a chip parent) are silently filtered out — the monitor's
+// scope is the hwmon sysfs surface where renumbering can happen.
+//
+// Returns immediately when no eligible channels exist; the caller
+// (daemon-startup) treats the absence of a goroutine as benign.
+//
+// v0.5.41 ships observability-only: onSwap is nil, so detections
+// are surfaced via WARN log lines but no remap dispatch happens.
+// The remap dispatch needs a coordinated update across the
+// controller's per-channel cache, watchdog entries, and the
+// calibration manager — that's a separate refactor scoped to a
+// follow-up PR. The seam (onSwap callback) is in place so the
+// follow-up only wires the dispatch, not the detection.
+func startHwmonSwapMonitor(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) {
+	inputs := make([]hwmon.ChannelInput, 0, len(channels))
+	for _, ch := range channels {
+		if ch == nil || ch.PWMPath == "" {
+			continue
+		}
+		stable := hwmon.StableDevice(ch.PWMPath)
+		if stable == "" {
+			continue
+		}
+		inputs = append(inputs, hwmon.ChannelInput{
+			StoredPath:   ch.PWMPath,
+			StableDevice: stable,
+		})
+	}
+	if len(inputs) == 0 {
+		if logger != nil {
+			logger.Info("hwmon: swap monitor not started (no eligible channels)")
+		}
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		hwmon.MonitorSwap(ctx, inputs, hwmon.DefaultSwapMonitorInterval, logger, nil)
+	}()
 }

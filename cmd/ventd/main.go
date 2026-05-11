@@ -1004,6 +1004,16 @@ func runDaemonInternal(
 		}
 	}()
 
+	// RULE-HWMON-SWAP-MONITOR: spawn a goroutine that periodically
+	// re-resolves every controllable channel's PWMPath against its
+	// stable-device anchor. The doctor surface's hwmon-swap detector
+	// catches index swaps on the next sweep; this goroutine surfaces
+	// the same condition in real time at WARN level. No-op when
+	// there are no eligible hwmon channels.
+	if smartMode != nil {
+		startHwmonSwapMonitor(ctx, &wg, smartMode.Channels, logger)
+	}
+
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
