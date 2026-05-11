@@ -276,3 +276,52 @@ ships the Run loop and persistence ticker only (per spec §6.2
 "wiring-only, no UI").
 
 Bound: cmd/ventd/main_marginal_test.go:TestBuildMarginalRuntime_RunOnce
+
+## RULE-CMB-WIRING-04: marginal.Runtime.OnObservation MUST be called once per controller tick per channel with DeltaT = T_now - T_prev; the first tick of a channel's lifetime is skipped.
+
+**v0.6.0 wiring closure**. v0.5.8 PR-B (#742) wired the marginal
+runtime's *lifecycle* (NewRuntime, Run loop, persistence ticker)
+and v0.5.9 was supposed to wire the data feed per RULE-CMB-WIRING-03
+("v0.5.9 wires the OnObservation feed to the controller's per-tick
+path"). That data-feed wiring never landed — `marginal.Runtime.OnObservation`
+had zero production callers from v0.5.8 through v0.5.37. RFC #1024 +
+issue #1033 surface this; v0.6.0's buildSmartObsBridge closes the gap.
+
+`buildSmartObsBridge` in `cmd/ventd/smart_obs_bridge.go` calls
+`marginalRT.OnObservation(marginal.ObservationInput{...})` after
+the Layer-B Update on every tick where a per-channel `T_prev` is
+available (i.e., not the first tick). The ObservationInput fields
+map from `controller.ObsRecord`:
+
+- `Now`: `time.UnixMicro(rec.Ts)` — load-bearing micros conversion.
+- `ChannelID`: `rec.PWMPath` (sysfs path, R24-stable identity).
+- `SignatureLabel`: pass-through from `rec.SignatureLabel`; fallback
+  labels (RULE-CMB-LIB-02) are filtered inside OnObservation.
+- `PWMWritten`: pass-through (the byte the controller just wrote).
+- `DeltaT`: `T_now - T_prev` where T_now is the maxTempReading proxy
+  (v0.6.0 first-cut, RULE-CPL-WIRING-04 caveat) and T_prev is the
+  same proxy from the previous tick on this channel.
+- `Load`: `0.0` for v0.6.0 first-cut. Layer-C's d=2 form
+  `φ=[1, load]` learns `θ[0]` as the intrinsic ΔT-per-PWM and
+  `θ[1]≈0` when load is constant; saturation predictions stay
+  accurate for the load-independent case. v0.6.x plumbs PSI
+  cpu.some avg10 from `idle.Capture` (same source the soft-idle
+  gate uses).
+
+The first-tick-skip is mandatory: ΔT requires T_prev which only
+exists after the lifetime baseline tick has been registered. The
+existing RULE-CMB-WIRING-03 "shards are admitted lazily on first
+observation" semantics still hold — the "first observation"
+reaching OnObservation is now what arrives on tick 2, not tick 1
+(tick 1 of a channel's lifetime is consumed by the bridge's
+internal lastTemp baseline capture).
+
+When `marginalRT == nil` (R1 Tier-2 BLOCK, R3 hardware-refused,
+or operator toggle disabling smart-mode), the bridge skips the
+OnObservation feed without erroring. Existing
+`marginal.Runtime`-side disable inheritance (RULE-CMB-DISABLE-01)
+continues to filter shards out at admission.
+
+Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_FirstTickSkipsUpdate
+Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_SecondTickFeedsLayerC
+Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_NilRuntimesAreNoOp
