@@ -14,7 +14,22 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/polarity"
+	"github.com/ventd/ventd/internal/probe"
 )
+
+// findPolarityChannelForFan returns the live ControllableChannel whose
+// PWMPath matches the fan's PWMPath. nil when no match exists or when
+// SetPolarityChannels was never wired — callers fall back to the raw
+// byte write.
+func (s *Server) findPolarityChannelForFan(pwmPath string) *probe.ControllableChannel {
+	for _, ch := range s.loadPolarityChannels() {
+		if ch != nil && ch.PWMPath == pwmPath {
+			return ch
+		}
+	}
+	return nil
+}
 
 // Panic button (Session C 2e) — "pin every fan to its configured
 // MaxPWM NOW, don't wait for the curve to decide". Intended for the
@@ -227,11 +242,47 @@ func (s *Server) writeMaxPWMToAllFans(cfg *config.Config) {
 			}
 			err = nvidia.WriteFanSpeed(uint(idx), pwm)
 		default:
+			// Route hwmon writes through polarity.WritePWM so an
+			// inverted-polarity fan receives 255-pwm (which is the
+			// max-cooling byte on that fan) rather than the raw
+			// MaxPWM byte that would spin it DOWN to minimum speed.
+			// RULE-POLARITY-05 / Issue #1037 / pass-6-web.md M4.
+			pch := s.findPolarityChannelForFan(fan.PWMPath)
 			if fan.ControlKind == "rpm_target" {
 				maxRPM := hwmon.ReadFanMaxRPM(fan.PWMPath)
 				rpm := int(math.Round(float64(pwm) / 255.0 * float64(maxRPM)))
+				// rpm_target writes are RPM values, not PWM bytes —
+				// polarity inversion does not apply (driving a fan
+				// to N RPM is direction-agnostic). Skip the polarity
+				// helper and write directly; this branch is unaffected
+				// by the #1037 root cause.
 				err = hwmon.WriteFanTarget(fan.PWMPath, rpm)
+			} else if pch != nil {
+				werr := polarity.WritePWM(pch, pwm, func(adjusted uint8) error {
+					return hwmon.WritePWM(fan.PWMPath, adjusted)
+				})
+				switch {
+				case errors.Is(werr, polarity.ErrChannelNotControllable),
+					errors.Is(werr, polarity.ErrPolarityNotResolved):
+					// Phantom / unknown polarity — polarity.WritePWM
+					// refused the write. Fall back to the raw byte
+					// so the panic surface still drives the fan to
+					// max-byte; an inverted-polarity fan with
+					// unresolved classification is rare in production
+					// (the wizard always classifies) and the safer
+					// default in the panic surface is "still write
+					// something" rather than "do nothing".
+					s.logger.Warn("panic: polarity refused, falling back to raw write",
+						"fan", fan.Name, "path", fan.PWMPath, "err", werr)
+					err = hwmon.WritePWM(fan.PWMPath, pwm)
+				default:
+					err = werr
+				}
 			} else {
+				// No polarity channel known for this PWM path —
+				// happens when SetPolarityChannels was not wired
+				// (tests, or panic invoked before probe completes).
+				// Fall back to the raw write rather than skipping.
 				err = hwmon.WritePWM(fan.PWMPath, pwm)
 			}
 		}

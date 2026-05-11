@@ -3,6 +3,7 @@ package polarity
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ventd/ventd/internal/probe"
@@ -21,12 +22,27 @@ type PolarityStore struct {
 	Channels      []ChannelResult `json:"channels"`
 }
 
+// persistMu serialises Persist + Load against each other so a wizard
+// re-run that calls Persist mid-flight cannot tear a concurrent
+// daemon-start ApplyOnStart's Load. The on-disk KV is already
+// transactional via state.KVDB.WithTransaction; this mutex covers the
+// JSON marshal/unmarshal boundary + the in-memory Channels slice the
+// daemon aliases across goroutines (issue #1057). RWMutex because
+// Load is the read-heavy path (every daemon start) and Persist is
+// the read-rare path (wizard re-run only).
+var persistMu sync.RWMutex
+
 // Persist writes all channel results to the calibration KV namespace
-// (spec §4.1 / RULE-POLARITY-08).
+// (spec §4.1 / RULE-POLARITY-08). Concurrent wizard re-runs and
+// daemon-start ApplyOnStart are serialised via persistMu so the KV
+// write and the in-memory Channels slice exposed by Load observe a
+// consistent order. Issue #1057.
 func Persist(db *state.KVDB, results []ChannelResult) error {
 	if db == nil {
 		return fmt.Errorf("polarity persist: nil KVDB")
 	}
+	persistMu.Lock()
+	defer persistMu.Unlock()
 	store := PolarityStore{
 		SchemaVersion: schemaVersion,
 		Channels:      results,
@@ -42,11 +58,15 @@ func Persist(db *state.KVDB, results []ChannelResult) error {
 }
 
 // Load reads persisted polarity results from the calibration namespace.
-// Returns (nil, nil) when no persisted state exists.
+// Returns (nil, nil) when no persisted state exists. Guarded by
+// persistMu (RLock) so a concurrent Persist cannot tear the
+// returned slice. Issue #1057.
 func Load(db *state.KVDB) (*PolarityStore, error) {
 	if db == nil {
 		return nil, nil
 	}
+	persistMu.RLock()
+	defer persistMu.RUnlock()
 	v, ok, err := db.Get(nsCalib, keyPolarity)
 	if err != nil {
 		return nil, fmt.Errorf("polarity load: %w", err)

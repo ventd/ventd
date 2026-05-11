@@ -347,6 +347,51 @@ func TestPolarityRules(t *testing.T) {
 			_ = res
 		})
 
+		// Issue #1056 / pass-6-polarity.md H3: ctx-cancel mid-hold MUST
+		// still issue the SET_FAN_MODE=auto restore via deferred recovery.
+		// Pre-#1056 the Supermicro probe returned ctx.Err() at line 70/78
+		// without writing the restore command, leaving the BMC in
+		// OEM-50% mode indefinitely after a ctx cancel.
+		t.Run("supermicro_ctx_cancel_mid_hold_issues_restore", func(t *testing.T) {
+			var cmds [][]byte
+			cancelCtx, cancel := context.WithCancel(context.Background())
+			smProbe := &polarity.SupermicroIPMIProbe{
+				// Cancel ctx during the hold so the next ctx.Done()
+				// check returns ctx.Err() — exercising the
+				// previously-broken early-return path.
+				Clock: func(d time.Duration) {
+					cancel()
+				},
+				SendRecv: func(req, resp []byte) error {
+					cmds = append(cmds, append([]byte(nil), req...))
+					if len(req) == 3 && req[0] == 0x04 {
+						resp[0] = 0x00
+						resp[1] = 8
+						return nil
+					}
+					resp[0] = 0x00
+					return nil
+				},
+			}
+			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
+			_, err := smProbe.ProbeIPMIPolarity(cancelCtx, ch)
+			// ctx-cancel returns ctx.Err() but the restore must
+			// still have fired via defer.
+			if err == nil {
+				t.Errorf("expected ctx-cancel error, got nil")
+			}
+			if len(cmds) == 0 {
+				t.Fatal("no commands issued")
+			}
+			// The deferred restore is the LAST IPMI command sent —
+			// SET_FAN_MODE (netFn=0x30 cmd=0x45 data=[0x00]). Pre-#1056
+			// the function exited without ever sending this.
+			last := cmds[len(cmds)-1]
+			if len(last) < 3 || last[0] != 0x30 || last[1] != 0x45 || last[2] != 0x00 {
+				t.Errorf("last command = %v; want SET_FAN_MODE=auto [0x30, 0x45, 0x00]", last)
+			}
+		})
+
 		t.Run("dell_firmware_locked_permanent_phantom", func(t *testing.T) {
 			dellProbe := &polarity.DellIPMIProbe{
 				SendRecv: func(req, resp []byte) error {

@@ -31,6 +31,7 @@ import (
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/recovery"
+	"github.com/ventd/ventd/internal/state"
 )
 
 // FanState describes a single fan during/after the setup process.
@@ -153,6 +154,13 @@ type Manager struct {
 	polarityProber polarity.Prober    // nil = skip polarity probe (tests); set by SetPolarityProber
 	reprobeFn      ReProber           // nil = skip post-install re-probe; set by SetReProber
 
+	// stateKV is the calibration-namespace KVDB used by the polarity
+	// persistence call after Phase 5b (RULE-POLARITY-08). nil = skip
+	// persistence (tests; the polarity probe result still lives on the
+	// FanState slice for the wizard's own flow). Set by SetStateKV from
+	// cmd/ventd/main.go.
+	stateKV *state.KVDB
+
 	// vendorDaemonProbe overrides the production vendor-daemon detection
 	// for tests. nil = use recovery.DetectVendorDaemon with the live
 	// systemctl probe (production). Tests inject a stub via
@@ -244,6 +252,20 @@ func (m *Manager) SetDiagnosticStore(s *hwdiag.Store) {
 func (m *Manager) SetPolarityProber(p polarity.Prober) {
 	m.mu.Lock()
 	m.polarityProber = p
+	m.mu.Unlock()
+}
+
+// SetStateKV wires the calibration-namespace KV store used by Phase 5b
+// to persist polarity results via polarity.Persist (RULE-POLARITY-08).
+// Without this, the wizard classifies polarity correctly on its local
+// FanState slice but the classification is lost on the next daemon
+// restart — the controller path then runs every channel as "unknown"
+// and polarity.WritePWM refuses every write on inverted-polarity hardware.
+// Issue #1037. A nil db is a no-op; tests that don't care about
+// persistence leave it unset.
+func (m *Manager) SetStateKV(db *state.KVDB) {
+	m.mu.Lock()
+	m.stateKV = db
 	m.mu.Unlock()
 }
 
@@ -1139,6 +1161,53 @@ func (m *Manager) run(ctx context.Context) {
 				fans[i].PolarityPhase = res.Polarity
 			}
 			m.syncFans(fans)
+		}
+
+		// Persist polarity results to the calibration KV namespace so the
+		// next daemon start can restore them via polarity.ApplyOnStart
+		// (RULE-POLARITY-08). Without this the classification we just
+		// computed is lost on the next restart; the controller's
+		// polarity.WritePWM path then refuses every write on
+		// inverted-polarity hardware. Issue #1037.
+		m.mu.Lock()
+		kv := m.stateKV
+		m.mu.Unlock()
+		if kv != nil {
+			results := make([]polarity.ChannelResult, 0, len(fans))
+			for _, f := range fans {
+				if f.Type != "hwmon" {
+					continue
+				}
+				if f.PolarityPhase == "" || f.PolarityPhase == "pending" || f.PolarityPhase == "testing" {
+					continue
+				}
+				cr := polarity.ChannelResult{
+					Backend:  "hwmon",
+					Identity: polarity.Identity{PWMPath: f.PWMPath, TachPath: f.RPMPath},
+					Polarity: f.PolarityPhase,
+					Unit:     "rpm",
+					ProbedAt: time.Now(),
+				}
+				if f.PolarityPhase == "phantom" {
+					// Best-effort phantom-reason hint: the wizard's local
+					// PolarityPhase doesn't carry the precise reason
+					// (no_tach / no_response / write_failed), so we use
+					// the most common one matching the wizard's checks.
+					if f.RPMPath == "" {
+						cr.PhantomReason = polarity.PhantomReasonNoTach
+					} else {
+						cr.PhantomReason = polarity.PhantomReasonNoResponse
+					}
+				}
+				results = append(results, cr)
+			}
+			if len(results) > 0 {
+				if err := polarity.Persist(kv, results); err != nil {
+					m.logger.Warn("polarity: persist failed; results will be re-probed on next restart", "err", err)
+				} else {
+					m.logger.Info("polarity: persisted classifications", "count", len(results))
+				}
+			}
 		}
 
 		// Demote to monitor-only when every controllable channel is phantom

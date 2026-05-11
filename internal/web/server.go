@@ -30,6 +30,7 @@ import (
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -162,6 +163,21 @@ type Server struct {
 	// installed (RULE-PROBE-09). Nil in tests that don't need KV teardown;
 	// set via SetKVWiper in main.go after Server construction.
 	kvWiper func() error
+
+	// polarityChannels carries the live probe.ControllableChannel slice
+	// used by handlePanic's writeMaxPWMToAllFans so the PANIC, MAX
+	// COOLING write routes through polarity.WritePWM (RULE-POLARITY-05).
+	// Without this, an inverted-polarity fan flipped MaxPWM→MinPWM
+	// (effectively turning the fan OFF) when the operator clicked the
+	// panic button — the opposite of the safety intent. Issue #1037.
+	//
+	// Stored via atomic.Pointer so the daemon-startup SetPolarityChannels
+	// call cannot race the SSE / handler goroutines that loop the slice
+	// during panic handling. nil-load (no panicked write site has been
+	// wired) returns an empty slice via the load-helper; tests that
+	// don't supply channels read empty and skip the polarity-aware
+	// branch in handlePanic.
+	polarityChannels atomic.Pointer[[]*probe.ControllableChannel]
 }
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
@@ -515,6 +531,39 @@ func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 // wizard and probe KV namespaces on "Reset to initial setup" (RULE-PROBE-09).
 // Pass probe.WipeNamespaces(st.KV) from main.go.
 func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
+
+// SetPolarityChannels wires the live probe.ControllableChannel slice
+// so handlePanic's MaxPWM writes route through polarity.WritePWM
+// (RULE-POLARITY-05). Without this, an inverted-polarity fan flipped
+// MaxPWM→MinPWM (effectively turning OFF) when the operator clicked
+// the PANIC, MAX COOLING button — the opposite of the safety intent.
+// nil-safe for tests. Issue #1037.
+//
+// atomic.Pointer store; safe to call from any goroutine and at any
+// point in the server lifecycle. Production callers wire this once at
+// daemon-startup; the API exists for future post-wizard re-probe
+// reconfiguration so the lock-free reads are right by construction.
+func (s *Server) SetPolarityChannels(channels []*probe.ControllableChannel) {
+	if channels == nil {
+		// Store an empty slice so the load helper never returns a
+		// nil pointer; readers iterate the empty slice with no
+		// special-case branch.
+		empty := []*probe.ControllableChannel{}
+		s.polarityChannels.Store(&empty)
+		return
+	}
+	s.polarityChannels.Store(&channels)
+}
+
+// loadPolarityChannels is the lock-free read side. Returns an empty
+// slice when SetPolarityChannels hasn't fired yet (tests, pre-wizard
+// daemon-startup window).
+func (s *Server) loadPolarityChannels() []*probe.ControllableChannel {
+	if p := s.polarityChannels.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that

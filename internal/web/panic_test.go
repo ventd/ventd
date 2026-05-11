@@ -5,8 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/probe"
 )
 
 func TestPanic_MethodNotAllowed(t *testing.T) {
@@ -179,4 +186,104 @@ func TestPanic_RemainingSDecreases(t *testing.T) {
 		t.Errorf("RemainingS = %d, want 1..5", snap.RemainingS)
 	}
 	srv.restorePanic("test-cleanup")
+}
+
+// TestPanic_InvertedPolarityWritesZero binds the RULE-POLARITY-05 contract
+// at the web panic-handler boundary (pass-6-web.md M4): an inverted-polarity
+// fan flipped MaxPWM→MinPWM (effectively OFF) when handlePanic wrote
+// MaxPWM direct via hwmon.WritePWM. Issue #1037. After the wiring through
+// polarity.WritePWM, an inverted fan with MaxPWM=255 must see the
+// underlying sysfs file land at 0 (max cooling under inverted polarity).
+func TestPanic_InvertedPolarityWritesZero(t *testing.T) {
+	srv := newVersionTestServer(t)
+
+	// Seed a writable pwm sysfs file under a temp dir; pwm_enable=1
+	// so hwmon.WritePWM can proceed.
+	dir := t.TempDir()
+	pwmPath := filepath.Join(dir, "pwm1")
+	if err := os.WriteFile(pwmPath, []byte("0\n"), 0o600); err != nil {
+		t.Fatalf("seed pwm file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pwm1_enable"), []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("seed pwm_enable: %v", err)
+	}
+
+	// Wire the live config with a single inverted-polarity hwmon fan.
+	cfg := config.Empty()
+	cfg.Fans = []config.Fan{{
+		Name: "cpu", Type: "hwmon", PWMPath: pwmPath,
+		MinPWM: 0, MaxPWM: 255,
+	}}
+	// Store cfg through srv.cfg.Store rather than re-assigning the
+	// atomic.Pointer field — field is concurrently read by background
+	// goroutines started inside newVersionTestServer.
+	srv.cfg.Store(cfg)
+
+	// Polarity channel: inverted.
+	srv.SetPolarityChannels([]*probe.ControllableChannel{{
+		PWMPath:  pwmPath,
+		Polarity: "inverted",
+	}})
+
+	// Direct call to the helper (avoids panic-state plumbing).
+	srv.writeMaxPWMToAllFans(cfg)
+
+	// Inverted polarity: MaxPWM=255 → write 0.
+	got := readUintFile(t, pwmPath)
+	if got != 0 {
+		t.Errorf("inverted-polarity panic write: pwm1 = %d, want 0 (255-255)", got)
+	}
+}
+
+// TestPanic_NormalPolarityWritesMaxPWM pins the symmetric case: a
+// normal-polarity fan must see MaxPWM=255 verbatim. Without this the
+// inverted-fix could regress to "always write 0" which would silence
+// the panic surface on every fan.
+func TestPanic_NormalPolarityWritesMaxPWM(t *testing.T) {
+	srv := newVersionTestServer(t)
+
+	dir := t.TempDir()
+	pwmPath := filepath.Join(dir, "pwm1")
+	if err := os.WriteFile(pwmPath, []byte("0\n"), 0o600); err != nil {
+		t.Fatalf("seed pwm file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pwm1_enable"), []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("seed pwm_enable: %v", err)
+	}
+
+	cfg := config.Empty()
+	cfg.Fans = []config.Fan{{
+		Name: "cpu", Type: "hwmon", PWMPath: pwmPath,
+		MinPWM: 0, MaxPWM: 255,
+	}}
+	// Store cfg through srv.cfg.Store rather than re-assigning the
+	// atomic.Pointer field — field is concurrently read by background
+	// goroutines started inside newVersionTestServer.
+	srv.cfg.Store(cfg)
+	srv.SetPolarityChannels([]*probe.ControllableChannel{{
+		PWMPath:  pwmPath,
+		Polarity: "normal",
+	}})
+
+	srv.writeMaxPWMToAllFans(cfg)
+
+	got := readUintFile(t, pwmPath)
+	if got != 255 {
+		t.Errorf("normal-polarity panic write: pwm1 = %d, want 255", got)
+	}
+}
+
+// readUintFile reads a single integer from a sysfs-style file and
+// returns it as uint64. Test helper for the panic polarity tests.
+func readUintFile(t *testing.T, path string) uint64 {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	v, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		t.Fatalf("parse %s = %q: %v", path, data, err)
+	}
+	return v
 }

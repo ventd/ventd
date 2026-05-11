@@ -483,6 +483,14 @@ func run() error {
 	for i := range sysProbeResult.ControllableChannels {
 		channels[i] = &sysProbeResult.ControllableChannels[i]
 	}
+	// Restore persisted polarity classifications onto live channels
+	// (RULE-POLARITY-08). Without this, every restart re-classifies
+	// polarity from "unknown" — the wizard's classification is wasted
+	// and the controller's polarity.WritePWM path refuses every write
+	// on inverted-polarity hardware until the wizard re-runs. Issue #1037.
+	if _, _, applyErr := polarity.ApplyOnStart(st.KV, channels, logger, time.Now()); applyErr != nil {
+		logger.Warn("polarity: apply-on-start failed; channels remain unknown", "err", applyErr)
+	}
 	var dmiFingerprint string
 	if dmi, dmiErr := hwdb.ReadDMI(os.DirFS("/")); dmiErr == nil {
 		dmiFingerprint = hwdb.Fingerprint(dmi)
@@ -542,6 +550,7 @@ func run() error {
 		Aggregator: buildAggregator(channels, logger),
 		Blended:    buildBlendedController(channels, cfg, logger),
 		Decisions:  controller.NewDecisionCache(),
+		Channels:   channels,
 	}
 	if obsWriter != nil {
 		// Wire the per-tick controller observation feed into Layer-B
@@ -760,6 +769,14 @@ type SmartModeBundle struct {
 	// safe (atomic per-channel pointer-swap). Updated by the BlendFn
 	// closure in runDaemonInternal after every Compute call.
 	Decisions *controller.DecisionCache
+
+	// Channels is the live probe.ControllableChannel slice built once
+	// in run() and consulted by runDaemonInternal when constructing
+	// each controller's WithPolarityChannel option. The wiring closes
+	// the v0.5.2 polarity-helper gap on the controller hot path so
+	// inverted-polarity fans (NCT6683 on MSI, IT87 on some Gigabyte)
+	// receive the correctly-flipped PWM byte. Issue #1037.
+	Channels []*probe.ControllableChannel
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -891,6 +908,16 @@ func runDaemonInternal(
 	// through to Phase 6 calibration on Phase 5a's RPM-correlation
 	// alone. Issue #1026.
 	setupMgr.SetPolarityProber(&polarity.HwmonProber{})
+	// Wire the calibration-namespace KV store so Phase 5b persists
+	// polarity results via polarity.Persist (RULE-POLARITY-08).
+	// Without this the wizard's classification is lost across daemon
+	// restarts and inverted-polarity hardware runs in the wrong
+	// direction on every reboot. Issue #1037. State access goes via
+	// the SmartModeBundle since `st` is owned by run() — same indirection
+	// used by SetReProber below.
+	if smartMode != nil && smartMode.State != nil {
+		setupMgr.SetStateKV(smartMode.State.KV)
+	}
 	// Persistent applied-marker so a host that opted into monitor-only
 	// mode (handleSetupApply's empty-fanset escape) stays out of the
 	// /calibration redirect on every subsequent daemon restart even
@@ -969,6 +996,13 @@ func runDaemonInternal(
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
+	// Wire polarity channels so the panic handler routes MaxPWM writes
+	// through polarity.WritePWM (RULE-POLARITY-05). Without this, an
+	// inverted-polarity fan flipped MaxPWM→MinPWM (the opposite of the
+	// safety intent) on PANIC, MAX COOLING. Issue #1037 / pass-6-web.md M4.
+	if smartMode != nil && len(smartMode.Channels) > 0 {
+		webSrv.SetPolarityChannels(smartMode.Channels)
+	}
 
 	// v0.5.9: expose the aggregator + LayerA estimator to the web
 	// layer so the dashboard's 5-state confidence pill has a data
@@ -1101,6 +1135,14 @@ func runDaemonInternal(
 					readyState.MarkSensorRead(time.Now())
 				}),
 				controller.WithPanicChecker(webSrv),
+			}
+			// Wire the polarity channel reference so the controller's
+			// hot PWM-write path routes through polarity.WritePWM
+			// (RULE-POLARITY-05 / RULE-POLARITY-11). Issue #1037.
+			if smartMode != nil {
+				if pch := findPolarityChannel(smartMode.Channels, fanCfg.PWMPath); pch != nil {
+					opts = append(opts, controller.WithPolarityChannel(pch))
+				}
 			}
 			if fanCfg.Type == "hwmon" {
 				if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
@@ -1259,6 +1301,14 @@ func runDaemonInternal(
 							readyState.MarkSensorRead(time.Now())
 						}),
 						controller.WithPanicChecker(webSrv),
+					}
+					// Wire polarity channel on the reload-path too so the
+					// route-via-polarity contract holds across SIGHUP +
+					// fresh-config controller spawns (issue #1037).
+					if smartMode != nil {
+						if pch := findPolarityChannel(smartMode.Channels, fanCfg.PWMPath); pch != nil {
+							reloadOpts = append(reloadOpts, controller.WithPolarityChannel(pch))
+						}
 					}
 					if fanCfg.Type == "hwmon" {
 						if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
@@ -1487,6 +1537,19 @@ func loadCalibrationByChannel(logger *slog.Logger) map[hwdb.ChannelKey]*hwdb.Cha
 // /sys/class/hwmon/hwmonN/pwmM into the hwmon chip name (read from the
 // sibling "name" file) and channel index M. Returns ok=false when the path
 // does not match the expected shape or the chip name file cannot be read.
+// findPolarityChannel returns the live probe.ControllableChannel whose
+// PWMPath matches the controller's fan PWMPath. nil when no matching
+// channel exists — the controller then falls back to the pre-#1037
+// pass-through write semantics. RULE-POLARITY-05 / RULE-POLARITY-11.
+func findPolarityChannel(channels []*probe.ControllableChannel, pwmPath string) *probe.ControllableChannel {
+	for _, ch := range channels {
+		if ch != nil && ch.PWMPath == pwmPath {
+			return ch
+		}
+	}
+	return nil
+}
+
 func parseHwmonChannel(pwmPath string) (chipName string, idx int, ok bool) {
 	dir := filepath.Dir(pwmPath)
 	base := filepath.Base(pwmPath)

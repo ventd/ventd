@@ -19,6 +19,8 @@ import (
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/polarity"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -175,6 +177,14 @@ type Controller struct {
 	// blendFn is the v0.5.9 confidence-gated blend hook. Called
 	// after curve eval + clamp, before hysteresis. nil-safe.
 	blendFn BlendFn
+
+	// polarityCh is the live ControllableChannel used by every PWM
+	// write to route through polarity.WritePWM (RULE-POLARITY-05 /
+	// RULE-POLARITY-11). When nil (test scaffolding without polarity
+	// wiring), writes fall through to the unchanged byte semantics —
+	// preserves the pre-#1037 behaviour for tests that don't supply
+	// a channel. Issue #1037.
+	polarityCh *probe.ControllableChannel
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -262,6 +272,60 @@ func WithBlend(fn BlendFn) Option {
 	return func(c *Controller) { c.blendFn = fn }
 }
 
+// WithPolarityChannel wires the live probe.ControllableChannel into
+// the controller's hot PWM-write path so every backend.Write goes
+// through polarity.WritePWM (RULE-POLARITY-05). On inverted-polarity
+// channels the helper rewrites value → 255-value before reaching the
+// backend; on phantom/unknown channels it refuses the write entirely.
+//
+// nil-safe by construction. Without a channel wired, the controller
+// falls back to the unchanged byte semantics — preserves the pre-#1037
+// behaviour for tests that don't supply a channel. Issue #1037.
+func WithPolarityChannel(ch *probe.ControllableChannel) Option {
+	return func(c *Controller) { c.polarityCh = ch }
+}
+
+// writePWMViaPolarity is the controller's polarity-aware PWM write
+// helper. Every controller-internal PWM-byte write MUST go through
+// this method so the route-via-polarity contract holds across the
+// main write path, the retry sub-call, and the sentinel-carry-forward
+// branch (RULE-POLARITY-11). When the controller has no
+// polarityCh wired, writes pass through unchanged.
+//
+// Returns nil when polarity.WritePWM refuses the write (phantom /
+// unknown channels) — that refusal is operator-visible via the WARN
+// log line; the controller treats it as a successful skip so the tick
+// loop continues. A genuine backend write error is propagated.
+func (c *Controller) writePWMViaPolarity(ch hal.Channel, pwm uint8) error {
+	if c.polarityCh == nil {
+		return c.backend.Write(ch, pwm)
+	}
+	var backendErr error
+	err := polarity.WritePWM(c.polarityCh, pwm, func(adjusted uint8) error {
+		backendErr = c.backend.Write(ch, adjusted)
+		return backendErr
+	})
+	if err != nil {
+		// polarity refusal (phantom/unknown). Log and treat as a
+		// skipped tick — never escalate to the controller's fatal
+		// path. The wizard / doctor surface alerts the operator.
+		if errors.Is(err, polarity.ErrChannelNotControllable) ||
+			errors.Is(err, polarity.ErrPolarityNotResolved) {
+			c.logger.Warn("controller: polarity refused write",
+				"event", "polarity_refused",
+				"pwm_path", c.pwmPath, "polarity", c.polarityCh.Polarity, "err", err)
+			return nil
+		}
+		// Backend error surfaced through polarity.WritePWM's fn —
+		// propagate verbatim so the existing retry path runs.
+		if backendErr != nil {
+			return backendErr
+		}
+		return err
+	}
+	return nil
+}
+
 func New(
 	fanName, curveName string,
 	pwmPath, fanType string,
@@ -321,7 +385,7 @@ func (c *Controller) writeWithRetry(ch hal.Channel, pwm uint8, pwmPath, kind str
 	}
 	adjusted := uint8(hwdb.InvertPWM(c.calCh, int(pwm), c.pwmUnitMax))
 
-	writeErr := c.backend.Write(ch, adjusted)
+	writeErr := c.writePWMViaPolarity(ch, adjusted)
 	if writeErr == nil {
 		return nil
 	}
@@ -335,7 +399,7 @@ func (c *Controller) writeWithRetry(ch hal.Channel, pwm uint8, pwmPath, kind str
 		"event", "write_retry",
 		"pwm_path", pwmPath, "fan", c.fanName, "kind", kind, "err", writeErr)
 	time.Sleep(50 * time.Millisecond)
-	retryErr := c.backend.Write(ch, adjusted)
+	retryErr := c.writePWMViaPolarity(ch, adjusted)
 	if retryErr == nil {
 		c.logger.Info("controller: PWM write retry succeeded",
 			"event", "write_retry_succeeded",
@@ -541,7 +605,16 @@ func (c *Controller) tick() {
 		if c.hasLastPWM {
 			ch, buildErr := c.channelFor(fan)
 			if buildErr == nil {
-				_ = c.backend.Write(ch, c.lastPWM)
+				// Route through polarity.WritePWM so the inversion
+				// contract holds on this branch too (RULE-POLARITY-05 /
+				// RULE-POLARITY-11). Pre-#1037 this branch wrote the
+				// raw lastPWM byte direct to the backend, bypassing
+				// the polarity helper — on inverted-polarity fans
+				// every sentinel-glitch tick wrote the wrong-direction
+				// byte. The error return is intentionally swallowed:
+				// the carry-forward branch is best-effort and the
+				// next valid sensor read recovers.
+				_ = c.writePWMViaPolarity(ch, c.lastPWM)
 			}
 		}
 		return
