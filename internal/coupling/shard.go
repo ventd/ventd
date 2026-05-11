@@ -122,6 +122,15 @@ type Shard struct {
 	kind   SnapshotKind
 	groups []int // indices that have been merged into composite columns
 
+	// regressorWindow is the rolling W=60 ring of φ rows the
+	// identifiability tick consumes to compute κ via Window.Kappa
+	// (RULE-CPL-IDENT-01 + RULE-CPL-IDENT-WIRING-04). Each Update
+	// appends to it; the runtime's per-minute identifiability tick
+	// reads it and classifies via Window.Kappa + ClassifyKappa
+	// (RULE-CPL-IDENT-02). Nil-safe: nil window = no classification,
+	// snapshot.Kappa stays at 0.
+	regressorWindow *Window
+
 	// snapshot is read lock-free by Snapshot.Read() and the
 	// controller hot loop. Updated by every successful Tick.
 	snapshot atomic.Pointer[Snapshot]
@@ -174,14 +183,15 @@ func New(cfg Config) (*Shard, error) {
 	pInitTr := mat.Trace(p)
 
 	s := &Shard{
-		channelID: cfg.ChannelID,
-		d:         d,
-		nCoupled:  cfg.NCoupled,
-		theta:     theta,
-		p:         p,
-		pInitTr:   pInitTr,
-		lambda:    cfg.Lambda,
-		kind:      KindWarmup,
+		channelID:       cfg.ChannelID,
+		d:               d,
+		nCoupled:        cfg.NCoupled,
+		theta:           theta,
+		p:               p,
+		pInitTr:         pInitTr,
+		lambda:          cfg.Lambda,
+		kind:            KindWarmup,
+		regressorWindow: NewWindow(d, 60),
 	}
 
 	// Initial snapshot — all zeros, warming up.
@@ -271,6 +281,14 @@ func (s *Shard) Update(now time.Time, phi []float64, y float64) error {
 	s.nSamples++
 	s.lastTick = now
 
+	// Append the φ row to the identifiability window
+	// (RULE-CPL-IDENT-01 + RULE-CPL-IDENT-WIRING-04). The runtime's
+	// per-minute identifiability tick consumes this rolling W=60 ring
+	// to compute κ and call SetKind.
+	if s.regressorWindow != nil {
+		_ = s.regressorWindow.Add(phi)
+	}
+
 	// Re-publish snapshot. Caller's Identifiability tick
 	// (separate cadence) updates kappa + kind; we just
 	// refresh the state-derived fields here.
@@ -288,6 +306,21 @@ func (s *Shard) SetKind(kind SnapshotKind, kappa float64) {
 	s.kappa = kappa
 	s.snapshot.Store(s.buildSnapshot())
 }
+
+// RegressorWindow returns the shard's rolling regressor window. Used
+// by the runtime's per-minute identifiability tick to compute
+// Window.Kappa and Window.FindCoVaryingPairs
+// (RULE-CPL-IDENT-WIRING-04). May be nil for shards constructed
+// before v0.6.0; callers MUST nil-check.
+func (s *Shard) RegressorWindow() *Window {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.regressorWindow
+}
+
+// NCoupled returns the configured coupled-channel count. Used by the
+// identifiability tick when calling Window.FindCoVaryingPairs.
+func (s *Shard) NCoupled() int { return s.nCoupled }
 
 // SetGroups records the co-varying fan group indices (R9 §U1 +
 // pairwise Pearson detector). Called once at shard creation or

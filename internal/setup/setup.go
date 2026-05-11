@@ -188,6 +188,15 @@ type Manager struct {
 	// SetAcousticGateOptions is the production wiring hook.
 	acousticGateOpts AcousticGateOptions
 
+	// calibrationCompleteFn is the v0.6.0 wiring hook into the
+	// confidence aggregator's cold-start hard pin (RULE-AGG-WIRING-01
+	// + RULE-AGG-COLDSTART-01). When set, it is invoked with the
+	// wall-clock of phantom-verify completion — the canonical
+	// "calibration is done, w_pred should be hard-pinned to 0 for the
+	// next 5 minutes" boundary. nil = no aggregator wired (tests +
+	// monitor-only systems); a nil hook is a clean no-op.
+	calibrationCompleteFn func(time.Time)
+
 	// events is the in-memory ring buffer for the activity-feed SSE.
 	// Capped at maxEventsRingSize entries; appendEventLocked drops the
 	// oldest on overflow. Reads happen via EventsSince(cursor) which
@@ -282,6 +291,23 @@ func (m *Manager) SetVendorDaemonProbe(fn func(context.Context) recovery.VendorD
 func (m *Manager) SetAcousticGateOptions(opts AcousticGateOptions) {
 	m.mu.Lock()
 	m.acousticGateOpts = opts
+	m.mu.Unlock()
+}
+
+// SetCalibrationCompleteFn wires the v0.6.0 cold-start hard-pin hook
+// (RULE-AGG-WIRING-01). The callback is invoked exactly once per
+// wizard run, after Phase 6b's phantom-verification completes and
+// before the wizard's finalising phase. Production code in
+// cmd/ventd/main.go binds this to aggregator.SetEnvelopeCDoneAt so
+// the v0.5.9 confidence-gated controller's 5-minute cold-start window
+// (RULE-AGG-COLDSTART-01) anchors at a real wall-clock instead of the
+// zero-value time.Time that left the pin structurally inert through
+// every v0.5.x release (issue #1035 row 4).
+//
+// A nil callback (the test default) is a clean no-op.
+func (m *Manager) SetCalibrationCompleteFn(fn func(time.Time)) {
+	m.mu.Lock()
+	m.calibrationCompleteFn = fn
 	m.mu.Unlock()
 }
 
@@ -1262,6 +1288,19 @@ func (m *Manager) run(ctx context.Context) {
 	// proxy-only acoustic estimation when no K_cal record lands.
 	// RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01.
 	m.runAcousticGate(ctx)
+
+	// RULE-AGG-WIRING-01: notify the confidence aggregator that
+	// Envelope C is complete so the cold-start hard pin
+	// (RULE-AGG-COLDSTART-01) anchors at a real wall-clock. The
+	// callback is set by cmd/ventd/main.go to bind aggregator
+	// .SetEnvelopeCDoneAt; nil = no aggregator wired and the call is
+	// a no-op (tests, monitor-only).
+	m.mu.Lock()
+	calComplete := m.calibrationCompleteFn
+	m.mu.Unlock()
+	if calComplete != nil {
+		calComplete(time.Now())
+	}
 
 	// Signal the UI that calibration is done and we're generating the config.
 	// Without this the UI appears frozen while gatherProfile/buildConfig run.

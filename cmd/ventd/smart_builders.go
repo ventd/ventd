@@ -262,9 +262,20 @@ func buildMarginalRuntime(
 // fallback.SelectTier — Tier 0 (tach present), Tier 4 (laptop EC), or
 // Tier 7 (open-loop refusal). Per spec-v0_5_9 §2.4 + RULE-CONFA-FORMULA-01.
 //
+// stateDir + hwmonFingerprint drive RULE-CONFA-WIRING-02 +
+// RULE-CONFA-PERSIST-01/02: after Admit, each channel's persisted
+// Bucket is loaded from <stateDir>/smart/conf-A/<channel>.cbor and the
+// bin histogram + first-contact flag + last-update wall-clock are
+// restored. A fingerprint mismatch (motherboard swap, hwmon
+// re-enumeration) discards cleanly per RULE-CONFA-PERSIST-02 and the
+// channel re-warms from zero. A schema mismatch
+// (RULE-CONFA-PERSIST-03) discards likewise.
+//
 // Returns nil when there are no controllable channels (monitor-only).
 func buildLayerAEstimator(
 	channels []*probe.ControllableChannel,
+	stateDir string,
+	hwmonFingerprint string,
 	logger *slog.Logger,
 ) *layer_a.Estimator {
 	if len(channels) == 0 {
@@ -277,6 +288,7 @@ func buildLayerAEstimator(
 		return nil
 	}
 	now := time.Now()
+	var loaded, fresh int
 	for _, ch := range channels {
 		tier := fallback.SelectTier(ch)
 		if err := est.Admit(ch.PWMPath, tier, layer_a.DefaultNoiseFloor, now); err != nil {
@@ -284,8 +296,26 @@ func buildLayerAEstimator(
 				"channel", ch.PWMPath, "tier", tier, "err", err)
 			continue
 		}
+		if stateDir == "" {
+			continue
+		}
+		ok, loadErr := est.LoadChannel(stateDir, ch.PWMPath, hwmonFingerprint, logger)
+		switch {
+		case loadErr != nil:
+			logger.Warn("layer_a: LoadChannel error (cold start)",
+				"channel", ch.PWMPath, "err", loadErr)
+			fresh++
+		case ok:
+			loaded++
+		default:
+			fresh++
+		}
 	}
-	logger.Info("layer_a: estimator initialised", "channels", len(channels))
+	logger.Info("layer_a: estimator initialised",
+		"channels", len(channels),
+		"loaded", loaded,
+		"cold_start", fresh,
+		"hwmon_fp", hwmonFingerprint)
 	return est
 }
 

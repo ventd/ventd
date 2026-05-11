@@ -538,20 +538,22 @@ func run() error {
 		State:      st,
 		Coupling:   buildCouplingRuntime(channels, st, dmiFingerprint, logger),
 		Marginal:   buildMarginalRuntime(channels, st, dmiFingerprint, sguDet, logger),
-		LayerA:     buildLayerAEstimator(channels, logger),
+		LayerA:     buildLayerAEstimator(channels, st.Dir, dmiFingerprint, logger),
 		Aggregator: buildAggregator(channels, logger),
 		Blended:    buildBlendedController(channels, cfg, logger),
 		Decisions:  controller.NewDecisionCache(),
 	}
 	if obsWriter != nil {
-		// Wire the per-tick controller observation feed into Layer-B
-		// coupling + Layer-C marginal alongside the existing
-		// persistence path. The bridge is a no-op equivalent to
-		// buildObsAppend when both runtimes are nil; otherwise it
-		// satisfies RULE-CPL-WIRING-04 + RULE-CMB-WIRING-04 (closes
-		// the v0.5.7 / v0.5.8 ghost-code wiring gap surfaced as
-		// issue #1033).
-		smartMode.ObsAppend = buildSmartObsBridge(obsWriter, smartMode.Coupling, smartMode.Marginal)
+		// Wire the per-tick controller observation feed into Layer-A
+		// conf_A coverage, Layer-B coupling, and Layer-C marginal
+		// alongside the existing persistence path. The bridge is a
+		// no-op equivalent to buildObsAppend when every runtime is
+		// nil; otherwise it satisfies RULE-CONFA-WIRING-01 +
+		// RULE-CPL-WIRING-04 + RULE-CMB-WIRING-04 (closes the
+		// v0.5.7–v0.5.9 ghost-code wiring gaps surfaced as issues
+		// #1033 + #1035).
+		smartMode.ObsAppend = buildSmartObsBridge(obsWriter,
+			smartMode.Coupling, smartMode.Marginal, smartMode.LayerA)
 	}
 
 	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, oppFactory, smartMode)
@@ -908,6 +910,21 @@ func runDaemonInternal(
 			return probe.PersistOutcome(kv, r)
 		})
 	}
+	// RULE-AGG-WIRING-01: wire the wizard's calibration-complete
+	// notification into the confidence aggregator's cold-start hard
+	// pin (RULE-AGG-COLDSTART-01). Without this the SetEnvelopeCDoneAt
+	// timestamp stayed at its zero value through every v0.5.x release
+	// and the pin was structurally inert (elapsed > 5 min always true
+	// → gate never engaged; issue #1035 row 4). A nil aggregator
+	// (monitor-only / tests) makes the wiring a no-op.
+	if smartMode != nil && smartMode.Aggregator != nil {
+		agg := smartMode.Aggregator
+		setupMgr.SetCalibrationCompleteFn(func(t time.Time) {
+			logger.Info("aggregator: SetEnvelopeCDoneAt fired from wizard calibration-complete",
+				"at", t.Format(time.RFC3339))
+			agg.SetEnvelopeCDoneAt(t)
+		})
+	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
@@ -1033,6 +1050,28 @@ func runDaemonInternal(
 		sigLib = smartMode.SigFactory(&liveCfg)
 	}
 	if sigLib != nil && smartMode.State != nil {
+		// RULE-SIG-WIRING-01 + RULE-SIG-PERSIST-02: restore the
+		// persisted bucket state from KV at daemon start so HitCount,
+		// LastSeenUnix, and CurrentEWMA survive a restart. Without this
+		// every daemon restart wipes the operator-visible workload
+		// history (issue #1035 row 11) — even though Save / SaveManifest
+		// were running on the 60s persistence ticker.
+		labels, manifestErr := signature.LoadManifest(smartMode.State.KV)
+		if manifestErr != nil {
+			logger.Warn("signature: LoadManifest failed; cold start",
+				"err", manifestErr)
+		} else if len(labels) > 0 {
+			if loadErr := sigLib.LoadLabels(smartMode.State.KV, labels); loadErr != nil {
+				logger.Warn("signature: LoadLabels failed; cold start",
+					"labels", len(labels), "err", loadErr)
+			} else {
+				logger.Info("signature: library warm-restarted from KV",
+					"labels", len(labels))
+			}
+		} else {
+			logger.Info("signature: no persisted labels; cold start")
+		}
+
 		sigCtx, sigCancel := context.WithCancel(ctx)
 		defer sigCancel()
 		wg.Add(1)
