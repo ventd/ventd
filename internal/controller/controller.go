@@ -155,9 +155,25 @@ type Controller struct {
 	//     reload that changes type from pi to something else).
 	piState map[string]curve.PIState
 
-	// lastTickAt is the wall-clock time at the end of the most recent tick.
-	// Used to compute the elapsed dt passed to EvaluateStateful each tick.
-	lastTickAt time.Time
+	// lastTickAt is the wall-clock time at the end of the most recent
+	// legitimate control-loop tick (a tick that actually evaluated the
+	// curve and committed a PWM write — or a manual-mode write). It is
+	// used to compute the elapsed dt passed to EvaluateStateful each tick.
+	//
+	// RULE-CTRL-DT-YIELD-01 (#1046): yields — calibration in progress,
+	// panic engaged, fan-not-found, refused PWM=0, sentinel carry-forward
+	// — must NOT advance lastTickAt. Doing so caused the first post-yield
+	// control tick to compute dt against the LAST yield rather than the
+	// last actual control tick, which violated the documented "dt tracks
+	// actual elapsed time" invariant in a way that could over- or
+	// under-correct on the post-yield first tick.
+	//
+	// hasLastTickAt is false until the first legitimate tick lands and on
+	// every yield path; the first post-yield control tick observes
+	// hasLastTickAt==false and uses the clampDT minimum (0.1s) as dt,
+	// matching first-tick behaviour after restart.
+	lastTickAt    time.Time
+	hasLastTickAt bool
 
 	// wasInPanic tracks whether the previous tick was yielded to panic mode.
 	// Used to detect the engagement transition and reset piState exactly once.
@@ -349,7 +365,6 @@ func New(
 		sentinelBuf:        make(map[string]bool),    // Opt-1 (sentinel tracking)
 		sensorInvalidSince: make(map[string]time.Time),
 		piState:            make(map[string]curve.PIState),
-		lastTickAt:         time.Now(),
 		fatalErr:           make(chan error, 1),
 	}
 	if fanType == "nvidia" {
@@ -473,16 +488,24 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 // tick is one control iteration. Errors are logged and the tick is skipped;
 // the loop continues on the next interval.
 func (c *Controller) tick() {
-	// Capture wall-clock time for PI dt computation. lastTickAt is updated
-	// at the end of every tick (including yields) via defer so dt tracks
-	// actual elapsed time rather than only work-completing ticks.
+	// Capture wall-clock time for PI dt computation. RULE-CTRL-DT-YIELD-01
+	// (#1046): only legitimate control-loop ticks advance lastTickAt. Yields
+	// (calibration, panic, missing fan, refused PWM=0, sentinel carry-
+	// forward) clear hasLastTickAt instead, so the first post-yield tick
+	// behaves like first-tick-after-startup (dt == clampDT min) rather than
+	// computing dt against the LAST yield.
 	now := time.Now()
-	dtSeconds := clampDT(now.Sub(c.lastTickAt))
-	defer func() { c.lastTickAt = now }()
+	var dtSeconds float64
+	if c.hasLastTickAt {
+		dtSeconds = clampDT(now.Sub(c.lastTickAt))
+	} else {
+		dtSeconds = clampDT(0)
+	}
 
 	// Yield the tick to the calibration goroutine — it owns the PWM channel.
 	if c.fanType != "nvidia" && c.cal.IsCalibrating(c.pwmPath) {
 		c.logger.Debug("controller: calibration in progress, skipping tick")
+		c.hasLastTickAt = false
 		return
 	}
 
@@ -498,6 +521,7 @@ func (c *Controller) tick() {
 			}
 		}
 		c.logger.Debug("controller: panic active, skipping tick")
+		c.hasLastTickAt = false
 		return
 	}
 	c.wasInPanic = false
@@ -510,6 +534,7 @@ func (c *Controller) tick() {
 	fan, ok := findFanByPath(live, c.pwmPath, c.fanType)
 	if !ok {
 		c.logger.Warn("controller: fan not found in live config, skipping tick")
+		c.hasLastTickAt = false
 		return
 	}
 
@@ -533,17 +558,22 @@ func (c *Controller) tick() {
 		if pwm == 0 && !fan.AllowStop {
 			c.logger.Warn("controller: refusing manual PWM=0 on fan without allow_stop",
 				"pwm_path", c.pwmPath, "fan_type", fan.Type)
+			c.hasLastTickAt = false
 			return
 		}
 		ch, err := c.channelFor(fan)
 		if err != nil {
 			c.logger.Error("controller: cannot build backend channel", "err", err)
+			c.hasLastTickAt = false
 			return
 		}
 		if err := c.writeWithRetry(ch, pwm, c.pwmPath, "manual"); err != nil {
+			c.hasLastTickAt = false
 			return
 		}
-		c.emitObservation(pwm)
+		c.emitObservationFor(fan, pwm)
+		c.lastTickAt = now
+		c.hasLastTickAt = true
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
 		return
 	}
@@ -551,6 +581,7 @@ func (c *Controller) tick() {
 	curveCfg, ok := findCurve(live, curveName)
 	if !ok {
 		c.logger.Warn("controller: curve not found in live config, skipping tick", "curve", curveName)
+		c.hasLastTickAt = false
 		return
 	}
 
@@ -587,6 +618,7 @@ func (c *Controller) tick() {
 			c.logger.Warn("controller: sensor sentinel on first tick, restoring fan to firmware auto",
 				"sensor", curveCfg.Sensor, "fan", c.fanName)
 			c.wd.RestoreOne(c.pwmPath)
+			c.hasLastTickAt = false
 			return
 		}
 		since, tracked := c.sensorInvalidSince[curveCfg.Sensor]
@@ -600,6 +632,7 @@ func (c *Controller) tick() {
 			c.logger.Warn("controller: sensor sentinel for >30s, restoring fan to firmware auto",
 				"sensor", curveCfg.Sensor, "fan", c.fanName)
 			c.wd.RestoreOne(c.pwmPath)
+			c.hasLastTickAt = false
 			return
 		}
 		if c.hasLastPWM {
@@ -617,6 +650,7 @@ func (c *Controller) tick() {
 				_ = c.writePWMViaPolarity(ch, c.lastPWM)
 			}
 		}
+		c.hasLastTickAt = false
 		return
 	}
 	// Sentinel cleared: reset tracking for this sensor so the 30s clock
@@ -682,6 +716,7 @@ func (c *Controller) tick() {
 	if pwm == 0 && !fan.AllowStop {
 		c.logger.Warn("controller: refusing PWM=0 on fan without allow_stop",
 			"pwm_path", c.pwmPath, "fan_type", fan.Type)
+		c.hasLastTickAt = false
 		return
 	}
 
@@ -700,6 +735,11 @@ func (c *Controller) tick() {
 				"proposed_pwm", pwm,
 				"held_pwm", c.lastPWM,
 			)
+			// Hysteresis-suppressed ticks are still legitimate control
+			// ticks: the curve evaluated, the gate fired, the next tick
+			// should compute dt against this tick. Advance lastTickAt.
+			c.lastTickAt = now
+			c.hasLastTickAt = true
 			return
 		}
 	}
@@ -707,13 +747,15 @@ func (c *Controller) tick() {
 	ch, err := c.channelFor(fan)
 	if err != nil {
 		c.logger.Error("controller: cannot build backend channel", "err", err)
+		c.hasLastTickAt = false
 		return
 	}
 	if err := c.writeWithRetry(ch, pwm, c.pwmPath, "curve"); err != nil {
+		c.hasLastTickAt = false
 		return
 	}
 
-	c.emitObservation(pwm)
+	c.emitObservationFor(fan, pwm)
 
 	// Update hysteresis baseline — the temp + PWM we just committed are
 	// what future ramp-down comparisons land against.
@@ -724,6 +766,11 @@ func (c *Controller) tick() {
 			c.lastTemp = t
 		}
 	}
+
+	// Legitimate control-loop tick committed. Advance lastTickAt so the
+	// next tick computes dt against this one (RULE-CTRL-DT-YIELD-01).
+	c.lastTickAt = now
+	c.hasLastTickAt = true
 
 	c.logger.Debug("controller: tick",
 		"sensors", sensors,
@@ -1001,10 +1048,17 @@ func clamp(v, lo, hi uint8) uint8 {
 	return v
 }
 
-// emitObservation emits one ObsRecord to the v0.5.4 observation log
+// emitObservationFor emits one ObsRecord to the v0.5.4 observation log
 // after a successful PWM write. Closes over the controller's pwmPath
 // (its ChannelID is computed by main.go's wiring closure) and the
 // signature library's lock-free Label reader.
+//
+// RULE-CTRL-OBS-RPM-01 (#1047): for fans with a tach the controller
+// reads RPM via backend.Read so smart-mode consumers (Layer-B / Layer-C
+// fallback-tier classifier in R8) see real tach data rather than the
+// previous -1 sentinel. Read failures (or fans without a tach) record
+// RPM=-1; backend.Read errors are NOT propagated — observation is
+// best-effort, the control loop must not abort because tach is flaky.
 //
 // SensorReadings is cloned from the per-tick rawSensorsBuf so the
 // next tick's overwrite cannot race main.go's adapter or any
@@ -1014,7 +1068,7 @@ func clamp(v, lo, hi uint8) uint8 {
 //
 // Nil-safe: when neither obsAppend nor obsLabel is wired, the
 // controller behaves exactly as it did pre-v0.5.6.
-func (c *Controller) emitObservation(pwm uint8) {
+func (c *Controller) emitObservationFor(fan config.Fan, pwm uint8) {
 	if c.obsAppend == nil {
 		return
 	}
@@ -1033,8 +1087,37 @@ func (c *Controller) emitObservation(pwm uint8) {
 		Ts:             time.Now().UnixMicro(),
 		PWMPath:        c.pwmPath,
 		PWMWritten:     pwm,
-		RPM:            -1, // tach reads not yet wired into controller
+		RPM:            c.readRPMForObs(fan),
 		SignatureLabel: label,
 		SensorReadings: sensors,
 	})
+}
+
+// readRPMForObs returns the current tach RPM for the channel, or -1
+// when no tach is configured / the read fails. Best-effort; never
+// returns an error because observation must not abort the control
+// loop. RULE-CTRL-OBS-RPM-01.
+func (c *Controller) readRPMForObs(fan config.Fan) int32 {
+	ch, err := c.channelFor(fan)
+	if err != nil {
+		return -1
+	}
+	// Only hwmon channels have a fan_input we can read via the HAL.
+	// nvidia + IPMI backends expose Read but the RPM semantics differ;
+	// today only hwmon is wired into smart-mode consumers, so guard
+	// here rather than adding backend-dispatch noise.
+	if c.fanType != "hwmon" {
+		return -1
+	}
+	if ch.Caps&hal.CapRead == 0 {
+		return -1
+	}
+	reading, err := c.backend.Read(ch)
+	if err != nil || !reading.OK {
+		return -1
+	}
+	// hal.Reading.RPM is uint16; the int32 contract on ObsRecord.RPM
+	// gives smart-mode consumers room to encode tach-less channels as
+	// -1. A uint16 RPM trivially fits in int32.
+	return int32(reading.RPM)
 }

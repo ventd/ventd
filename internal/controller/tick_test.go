@@ -417,3 +417,86 @@ func TestTick_SensorReadFailureFallsBackToMaxPWM(t *testing.T) {
 		t.Errorf("PWM on sensor failure = %d, want 200 (loud fallback)", got)
 	}
 }
+
+// TestTick_YieldDoesNotAdvanceLastTickAt pins issue #1046 (controller H3):
+// yields (calibration in progress, panic engaged, fan-not-found, sentinel
+// carry-forward) must NOT advance lastTickAt. The first post-yield control
+// tick must compute dt as if it were the first tick (clampDT minimum) rather
+// than against the last yield wall-clock — otherwise the PI integrator sees
+// a tiny dt against state that may have drifted across the yield.
+func TestTick_YieldDoesNotAdvanceLastTickAt(t *testing.T) {
+	ff := newFakeFan(t)
+	if err := os.WriteFile(ff.tempPath, []byte("60000\n"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+
+	// Use a stubCal whose IsCalibrating return we can flip between ticks.
+	cal := &stubCal{active: map[string]bool{}}
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	c := New(
+		"cpu fan", "cpu_curve",
+		ff.pwmPath, "hwmon",
+		cfgAtomicPtr(cfg), wd, cal, logger,
+	)
+
+	// Tick 1: legitimate control tick — should populate lastTickAt.
+	c.tick()
+	if !c.hasLastTickAt {
+		t.Fatal("legitimate tick did not populate hasLastTickAt")
+	}
+	tickOneStamp := c.lastTickAt
+
+	// Tick 2: yield via IsCalibrating. Must NOT advance lastTickAt and must
+	// clear hasLastTickAt so the next legitimate tick computes dt as
+	// first-tick (clampDT minimum).
+	cal.active[ff.pwmPath] = true
+	c.tick()
+	if c.hasLastTickAt {
+		t.Error("hasLastTickAt remained true across a calibration yield; first post-yield tick will compute dt against the stale yield wall-clock (issue #1046)")
+	}
+	if !c.lastTickAt.Equal(tickOneStamp) {
+		t.Errorf("lastTickAt advanced during a yield; tick-1=%v lastTickAt=%v — yields must NOT bump the tick clock", tickOneStamp, c.lastTickAt)
+	}
+
+	// Tick 3: yield off, but the first post-yield tick must still observe
+	// hasLastTickAt=false on entry. We can only assert this externally by
+	// ticking with calibration still on for a bit longer first, then
+	// confirming a legitimate post-yield tick re-arms the clock.
+	cal.active[ff.pwmPath] = false
+	c.tick()
+	if !c.hasLastTickAt {
+		t.Error("first post-yield legitimate tick did not re-arm lastTickAt")
+	}
+}
+
+// TestTick_ManualYieldDoesNotAdvanceLastTickAt covers the refused-PWM-0
+// manual-mode yield variant of issue #1046: a manual-mode tick that the
+// safety gate refuses must also clear hasLastTickAt rather than advance it.
+func TestTick_ManualYieldDoesNotAdvanceLastTickAt(t *testing.T) {
+	ff := newFakeFan(t)
+	if err := os.WriteFile(ff.tempPath, []byte("60000\n"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+
+	// Tick 1: legitimate.
+	c.tick()
+	if !c.hasLastTickAt {
+		t.Fatal("legitimate tick did not populate hasLastTickAt")
+	}
+
+	// Switch into manual mode with PWM=0 on a fan without AllowStop —
+	// the controller refuses the write and returns early.
+	zero := uint8(0)
+	manualCfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	manualCfg.Controls = []config.Control{{Fan: "cpu fan", Curve: "cpu_curve", ManualPWM: &zero}}
+	c.cfg.Store(manualCfg)
+
+	c.tick()
+	if c.hasLastTickAt {
+		t.Error("hasLastTickAt remained true across a refused-PWM=0 manual yield (issue #1046)")
+	}
+}

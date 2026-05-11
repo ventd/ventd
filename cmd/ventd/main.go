@@ -1158,6 +1158,7 @@ func runDaemonInternal(
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
 		calMap := loadCalibrationByChannel(logger)
+		resolvePWMUnitMax := makePWMUnitMaxResolver(logger)
 		for _, ctrl := range cfg.Controls {
 			fanCfg, err := resolveControl(cfg, ctrl)
 			if err != nil {
@@ -1186,7 +1187,13 @@ func runDaemonInternal(
 			if fanCfg.Type == "hwmon" {
 				if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
 					if calCh, found := calMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
-						opts = append(opts, controller.WithCalibration(calCh, 255))
+						// Issue #1044: pwmUnitMax comes from the catalog
+						// match's EffectiveControllerProfile.PWMUnitMax. Hard-
+						// coding 255 produced garbage on step_0_N /
+						// cooling_level inverted channels (e.g. thinkpad_acpi
+						// 0..7) via hwdb.InvertPWM(cal, pwm, 255).
+						pwmUnitMax := resolvePWMUnitMax(hwmonName)
+						opts = append(opts, controller.WithCalibration(calCh, pwmUnitMax))
 					}
 				}
 			}
@@ -1328,6 +1335,7 @@ func runDaemonInternal(
 					wd.Register(fan.PWMPath, fan.Type)
 				}
 				reloadCalMap := loadCalibrationByChannel(logger)
+				reloadPWMUnitMax := makePWMUnitMaxResolver(logger)
 				for _, ctrl := range newCfg.Controls {
 					fanCfg, err := resolveControl(newCfg, ctrl)
 					if err != nil {
@@ -1352,7 +1360,9 @@ func runDaemonInternal(
 					if fanCfg.Type == "hwmon" {
 						if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
 							if calCh, found := reloadCalMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
-								reloadOpts = append(reloadOpts, controller.WithCalibration(calCh, 255))
+								// Issue #1044: thread catalog PWMUnitMax.
+								pwmUnitMax := reloadPWMUnitMax(hwmonName)
+								reloadOpts = append(reloadOpts, controller.WithCalibration(calCh, pwmUnitMax))
 							}
 						}
 					}
@@ -1529,6 +1539,59 @@ func warnIfUnconfined(logger *slog.Logger) {
 			"profile", profilePath,
 			"current", current,
 			"hint", "check /var/log/ventd/install.log or run: sudo apparmor_parser -r "+profilePath)
+	}
+}
+
+// makePWMUnitMaxResolver returns a per-chip pwmUnitMax lookup keyed by the
+// hwmon "name" file value (e.g. "thinkpad", "nct6798"). Issue #1044:
+// hwdb.InvertPWM(cal, pwm, pwmUnitMax) returns pwmUnitMax-pwm for inverted
+// channels; hard-coding 255 produces out-of-range writes on step_0_N /
+// cooling_level drivers (e.g. thinkpad_acpi levels 0..7 → InvertPWM(_, 3, 255)
+// = 252 written to a register that accepts 0..7).
+//
+// The resolver loads the embedded catalog + live DMI fingerprint once, then
+// memoises matcher lookups per chip name. Any failure (catalog missing, DMI
+// unreadable, no chip match, no PWMUnitMax in the resolved profile) falls
+// back to 255 — the historical default that's correct for the vast majority
+// (duty_0_255) of channels. The fix surfaces ONLY on the step_0_N /
+// cooling_level lane where the catalog actually pins a non-255 value.
+func makePWMUnitMaxResolver(logger *slog.Logger) func(chipName string) int {
+	const defaultPWMUnitMax = 255
+
+	cat, catErr := hwdb.LoadCatalog()
+	if catErr != nil {
+		logger.Warn("controller: pwm_unit_max resolver: catalog load failed, defaulting to 255", "err", catErr)
+		return func(string) int { return defaultPWMUnitMax }
+	}
+	dmi, dmiErr := hwdb.ReadDMI(os.DirFS("/"))
+	if dmiErr != nil {
+		logger.Warn("controller: pwm_unit_max resolver: DMI read failed, defaulting to 255", "err", dmiErr)
+	}
+	dmiFP := hwdb.DMIFingerprint{
+		SysVendor:    dmi.SysVendor,
+		ProductName:  dmi.ProductName,
+		BoardVendor:  dmi.BoardVendor,
+		BoardName:    dmi.BoardName,
+		BoardVersion: dmi.BoardVersion,
+	}
+
+	cache := map[string]int{}
+	return func(chipName string) int {
+		if chipName == "" {
+			return defaultPWMUnitMax
+		}
+		if v, ok := cache[chipName]; ok {
+			return v
+		}
+		v := defaultPWMUnitMax
+		ecp, matchErr := hwdb.MatchV1(cat, chipName, dmiFP)
+		if matchErr == nil && ecp != nil && ecp.PWMUnitMax != nil && *ecp.PWMUnitMax > 0 {
+			v = *ecp.PWMUnitMax
+			logger.Info("controller: pwm_unit_max resolved from catalog",
+				"chip", chipName, "pwm_unit_max", v)
+		}
+		cache[chipName] = v
+		return v
 	}
 }
 

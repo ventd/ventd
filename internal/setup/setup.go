@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -391,14 +392,31 @@ func Needed(cfg *config.Config) bool {
 }
 
 // Start launches the setup goroutine. Returns an error if already running.
+//
+// Issue #1060 (F3): AcquireWizardLock is called BEFORE the goroutine spawns
+// so a concurrent wizard run on a sibling daemon (or a re-entry via
+// `--setup`) is detected and the caller sees *ErrWizardAlreadyRunning. The
+// release func is invoked from the run goroutine's defer so the lock file
+// is removed on every exit path including panic.
 func (m *Manager) Start() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.running {
+		m.mu.Unlock()
 		return fmt.Errorf("setup: already running")
 	}
 	if m.done {
+		m.mu.Unlock()
 		return fmt.Errorf("setup: already completed; restart the daemon for a fresh run")
+	}
+	// AcquireWizardLock outside the goroutine so a sibling-already-running
+	// failure surfaces synchronously to the caller (web handler, CLI).
+	// RULE-WIZARD-GATE-LOCK-01..03 — defined in lock.go.
+	release, lockErr := acquireWizardLockFn()
+	if lockErr != nil {
+		m.errMsg = lockErr.Error()
+		m.failureClass = recovery.ClassConcurrentInstall
+		m.mu.Unlock()
+		return lockErr
 	}
 	m.running = true
 	m.done = false
@@ -415,9 +433,15 @@ func (m *Manager) Start() error {
 	m.fans = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	go m.run(ctx)
+	m.mu.Unlock()
+	go m.run(ctx, release)
 	return nil
 }
+
+// acquireWizardLockFn is the test seam for the wizard-lock primitive.
+// Production points it at AcquireWizardLock; tests can swap in a stub to
+// exercise the "lock already held" surface without writing real lock files.
+var acquireWizardLockFn = AcquireWizardLock
 
 // setPhase updates the current phase and its human-readable description.
 // Also appends a phase-transition event to the in-memory ring buffer so
@@ -777,8 +801,32 @@ func (m *Manager) Abort() {
 
 // run is the setup goroutine. It detects hardware, installs any missing
 // drivers, discovers fans, detects RPM sensors, and calibrates all fans.
-func (m *Manager) run(ctx context.Context) {
+//
+// release, when non-nil, is the wizard-lock release callback returned by
+// AcquireWizardLock at Start time. run defers it so the lock file is
+// removed on every exit path including panic.
+func (m *Manager) run(ctx context.Context, release func()) {
+	// Issue #1061 (F4): panic-recover so a crash in any phase doesn't take
+	// down the daemon goroutine. The recover logs the panic + sets the
+	// manager's terminal-state phase to "failed" so the web UI surfaces it
+	// rather than the operator seeing a frozen wizard with no signal.
 	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			m.logger.Error("setup: wizard goroutine panicked; daemon survives, wizard transitions to failed",
+				"panic", r, "stack", string(stack))
+			m.mu.Lock()
+			m.errMsg = fmt.Sprintf("wizard panic: %v", r)
+			m.failureClass = recovery.ClassUnknown
+			m.phase = "failed"
+			m.phaseMsg = "Setup crashed unexpectedly. Send a diagnostic bundle so we can investigate."
+			m.mu.Unlock()
+		}
+	}()
+	defer func() {
+		if release != nil {
+			release()
+		}
 		m.mu.Lock()
 		m.running = false
 		m.done = true
