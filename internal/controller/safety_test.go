@@ -756,4 +756,56 @@ func TestRulePolarity11_ControllerHotPathRoutesViaPolarityWritePWM(t *testing.T)
 			t.Errorf("nil polarityCh: backend got %d, want 100 (pass-through)", fb.lastWritten)
 		}
 	})
+
+	t.Run("polarity_inverted_sentinel_carry_forward_routes_via_writepwm", func(t *testing.T) {
+		// RULE-POLARITY-11's third call site: the sentinel-carry-forward
+		// branch in tick() (controller.go:650). The other two call sites
+		// (writeWithRetry's main write + 50ms-retry) share the same
+		// writePWMViaPolarity helper and are covered by the subtests
+		// above. This pins the third site explicitly.
+		//
+		// Without this test, a regression that swapped
+		//   _ = c.writePWMViaPolarity(ch, c.lastPWM)
+		// for a raw c.backend.Write(...) on the sentinel branch would
+		// silently pass CI on inverted-polarity boards — exactly the
+		// regression class that bit Phoenix's hosts pre-#1067 / #1037.
+		// Filed as #1079.
+		ff := newFakeFan(t)
+		// Tick 1: valid temperature → lastPWM recorded. polarityCh is
+		// nil at this point so the sysfs byte is the raw curve value.
+		if err := os.WriteFile(ff.tempPath, []byte("60000\n"), 0o600); err != nil {
+			t.Fatalf("seed temp: %v", err)
+		}
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+		c.tick()
+		firstPWM := readPWMByte(t, ff.pwmPath)
+		if firstPWM == 0 || firstPWM == 255 {
+			t.Fatalf("first tick PWM=%d unusable for inversion comparison", firstPWM)
+		}
+
+		// Wire polarityCh = inverted AFTER tick 1 so tick 1's recorded
+		// lastPWM is the raw curve value (not the inverted byte). Tick 2
+		// will route c.lastPWM (= firstPWM internally) through polarity
+		// and the sysfs byte must land at 255 - firstPWM.
+		c.polarityCh = &probe.ControllableChannel{
+			PWMPath:  ff.pwmPath,
+			Polarity: "inverted",
+		}
+
+		// Inject sentinel temperature → tick 2 takes the carry-forward
+		// branch.
+		if err := os.WriteFile(ff.tempPath, []byte("255500\n"), 0o600); err != nil {
+			t.Fatalf("seed sentinel: %v", err)
+		}
+		c.tick()
+
+		got := readPWMByte(t, ff.pwmPath)
+		want := uint8(255 - firstPWM)
+		if got != want {
+			t.Errorf("sentinel carry-forward on inverted-polarity channel: pwm = %d, want %d (255 - %d).\n"+
+				"A regression bypassing polarity.WritePWM on the carry-forward branch would leave pwm = %d (raw lastPWM).",
+				got, want, firstPWM, firstPWM)
+		}
+	})
 }

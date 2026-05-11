@@ -32,3 +32,4 @@ operation is "wire the new system, leave the old in place" so the fix can
 ship without a coordinated rule-file rewrite across the catalog.
 
 Bound: internal/controller/safety_test.go:polarity_inverted_routes_via_writepwm
+Bound: internal/controller/safety_test.go:polarity_inverted_sentinel_carry_forward_routes_via_writepwm
