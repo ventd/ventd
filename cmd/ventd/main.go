@@ -544,7 +544,14 @@ func run() error {
 		Decisions:  controller.NewDecisionCache(),
 	}
 	if obsWriter != nil {
-		smartMode.ObsAppend = buildObsAppend(obsWriter)
+		// Wire the per-tick controller observation feed into Layer-B
+		// coupling + Layer-C marginal alongside the existing
+		// persistence path. The bridge is a no-op equivalent to
+		// buildObsAppend when both runtimes are nil; otherwise it
+		// satisfies RULE-CPL-WIRING-04 + RULE-CMB-WIRING-04 (closes
+		// the v0.5.7 / v0.5.8 ghost-code wiring gap surfaced as
+		// issue #1033).
+		smartMode.ObsAppend = buildSmartObsBridge(obsWriter, smartMode.Coupling, smartMode.Marginal)
 	}
 
 	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, oppFactory, smartMode)
