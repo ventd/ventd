@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwmon"
@@ -26,6 +27,37 @@ import (
 // backend. Kept as a package-level constant so callers (main.go,
 // watchdog) can reference it without importing hal just for the string.
 const BackendName = "hwmon"
+
+// EBUSY rate-observability thresholds. The Write path tracks EBUSY
+// occurrences per channel in a 60s rolling window (counter reset on
+// window expiry) and escalates the log level as the rate climbs.
+// RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+const (
+	// EBUSYWindow is the rolling-counter span. A burst of EBUSY events
+	// spread over more than this collapses into separate windows; a
+	// burst within the span accumulates.
+	EBUSYWindow = 60 * time.Second
+	// EBUSYWarnThreshold is the count within EBUSYWindow that escalates
+	// the log line from one-off WARN to repeated-storm WARN. Tells the
+	// operator "this isn't a transient; the BIOS is in a tight
+	// reassertion loop".
+	EBUSYWarnThreshold = 5
+	// EBUSYEscalateThreshold is the count within EBUSYWindow that
+	// escalates to ERROR. A doctor detector reading EBUSYRates()
+	// surfaces this as a recovery card; v0.5.40 logs it; the
+	// detector wiring is a follow-up PR.
+	EBUSYEscalateThreshold = 20
+)
+
+// ebusyStats tracks the rolling EBUSY count for one channel. The
+// window resets when EBUSYWindow elapses since the first event in
+// the current burst.
+type ebusyStats struct {
+	mu              sync.Mutex
+	firstEventUnix  int64 // unix-seconds; zero means no event seen yet
+	count           int
+	lastWarnedCount int // last count at which we emitted an escalating log line; debounces noise
+}
 
 // State is the per-channel payload carried in hal.Channel.Opaque.
 // Exported so the watchdog and controller can construct channels for
@@ -57,6 +89,17 @@ type State struct {
 type Backend struct {
 	logger   *slog.Logger
 	acquired sync.Map // key: pwmPath (string), value: struct{}
+
+	// ebusyRates tracks per-channel EBUSY occurrence counts in a 60s
+	// rolling window. RULE-HWMON-EBUSY-RATE-OBSERVABILITY. Key:
+	// pwmPath; value: *ebusyStats. Concurrent Write calls update
+	// per-channel stats under the ebusyStats.mu lock.
+	ebusyRates sync.Map
+
+	// nowFn is the clock seam for ebusy rate tracking. nil → time.Now.
+	// Tests override via export_test.go to drive the rolling window
+	// deterministically.
+	nowFn func() time.Time
 
 	// writePWMEnable is the function called by ensureManualMode to flip a
 	// pwm*_enable sysfs file into manual mode. nil → hwmon.WritePWMEnable.
@@ -224,8 +267,11 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 	}
 	writeErr := b.writeDuty(st, pwm)
 	if writeErr != nil && errors.Is(writeErr, syscall.EBUSY) {
-		b.logger.Warn("hwmon: write returned EBUSY, BIOS may be contesting manual mode — re-acquiring",
-			"pwm_path", st.PWMPath, "first_err", writeErr)
+		// Record the EBUSY event in the per-channel rolling window
+		// BEFORE the re-acquire retry, so a tight reassertion loop's
+		// rate is tracked even when the retry succeeds — observability
+		// of the storm shape, not just the write outcome.
+		b.recordEBUSY(st.PWMPath, writeErr)
 		b.acquired.Delete(st.PWMPath)
 		if reacqErr := b.ensureManualMode(st); reacqErr != nil {
 			return fmt.Errorf("hal/hwmon: EBUSY re-acquire failed for %s: %w", st.PWMPath, reacqErr)
@@ -237,6 +283,126 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		}
 	}
 	return writeErr
+}
+
+// recordEBUSY updates the per-channel rolling EBUSY counter and emits
+// an escalating log line on threshold crossings.
+// RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+//
+// The window is a counter-reset, not a true sliding window: when
+// EBUSYWindow elapses since the first event in the burst, the
+// counter resets to one and a fresh window begins. This is cheaper
+// than a per-event ring buffer and adequate for "is this channel in
+// a BIOS-reassertion storm right now?" — true if count climbs past
+// EBUSYWarnThreshold inside one window.
+//
+// Log escalation:
+//   - count == 1            → WARN, original "re-acquiring" message
+//     (preserves existing operator-facing log for one-off events).
+//   - count == EBUSYWarnThreshold     → WARN escalation, "storm
+//     detected" — tells operators this isn't a transient.
+//   - count == EBUSYEscalateThreshold → ERROR escalation. A future
+//     doctor detector reads EBUSYRates() to surface the storm as a
+//     recovery card; v0.5.40 ships the log line + the accessor seam,
+//     the detector wires up in a follow-up PR.
+//   - count > EBUSYEscalateThreshold  → silent (debounced). The
+//     operator already has the ERROR; no value in spamming.
+func (b *Backend) recordEBUSY(pwmPath string, writeErr error) {
+	now := b.now()
+	v, _ := b.ebusyRates.LoadOrStore(pwmPath, &ebusyStats{})
+	st := v.(*ebusyStats)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	if st.firstEventUnix == 0 || now.Unix()-st.firstEventUnix >= int64(EBUSYWindow.Seconds()) {
+		// Fresh burst — reset window.
+		st.firstEventUnix = now.Unix()
+		st.count = 1
+		st.lastWarnedCount = 0
+	} else {
+		st.count++
+	}
+
+	switch {
+	case st.count == 1:
+		b.logger.Warn("hwmon: write returned EBUSY, BIOS may be contesting manual mode — re-acquiring",
+			"pwm_path", pwmPath, "first_err", writeErr)
+		st.lastWarnedCount = 1
+	case st.count == EBUSYWarnThreshold && st.lastWarnedCount < EBUSYWarnThreshold:
+		b.logger.Warn("hwmon: EBUSY storm detected on channel — BIOS reassertion in tight loop",
+			"pwm_path", pwmPath,
+			"events_in_window", st.count,
+			"window_seconds", int(EBUSYWindow.Seconds()))
+		st.lastWarnedCount = EBUSYWarnThreshold
+	case st.count == EBUSYEscalateThreshold && st.lastWarnedCount < EBUSYEscalateThreshold:
+		b.logger.Error("hwmon: EBUSY storm escalating — operator action recommended",
+			"pwm_path", pwmPath,
+			"events_in_window", st.count,
+			"window_seconds", int(EBUSYWindow.Seconds()),
+			"hint", "BIOS fan-control feature (Q-Fan / Smart Fan) likely needs disabling")
+		st.lastWarnedCount = EBUSYEscalateThreshold
+	}
+}
+
+// EBUSYRate is the per-channel rolling-window snapshot returned by
+// EBUSYRates. RULE-HWMON-EBUSY-RATE-OBSERVABILITY exposes this as
+// the seam for a future doctor detector — the v0.5.40 ship is the
+// accessor + the escalating log lines; the detector PR consumes
+// this map to emit recovery cards.
+type EBUSYRate struct {
+	// PWMPath is the channel identifier (matches hal.Channel.ID).
+	PWMPath string
+	// EventCount is the EBUSY events seen in the current window.
+	// Zero when no event has happened or when the previous burst's
+	// window has fully expired (a subsequent EBUSY would reset to 1).
+	EventCount int
+	// WindowStart is the unix-second timestamp of the first event in
+	// the current window. Zero when EventCount == 0.
+	WindowStart int64
+	// WindowSeconds is the window span (EBUSYWindow in seconds).
+	WindowSeconds int
+}
+
+// EBUSYRates returns a snapshot of per-channel EBUSY rolling-window
+// stats. The map is keyed by PWMPath. Empty when no EBUSY events
+// have been recorded.
+//
+// Stale windows (firstEventUnix older than EBUSYWindow) are
+// reported with their last-known EventCount and the original
+// WindowStart so the doctor detector can distinguish "currently
+// storming" (WindowStart within last 60s) from "recently stormed,
+// now quiet" (WindowStart older than 60s but counter not yet
+// cleared by a subsequent EBUSY). The next recordEBUSY call resets
+// the stats on the same channel.
+func (b *Backend) EBUSYRates() map[string]EBUSYRate {
+	out := map[string]EBUSYRate{}
+	b.ebusyRates.Range(func(key, value any) bool {
+		path, _ := key.(string)
+		st, _ := value.(*ebusyStats)
+		if st == nil {
+			return true
+		}
+		st.mu.Lock()
+		if st.count > 0 {
+			out[path] = EBUSYRate{
+				PWMPath:       path,
+				EventCount:    st.count,
+				WindowStart:   st.firstEventUnix,
+				WindowSeconds: int(EBUSYWindow.Seconds()),
+			}
+		}
+		st.mu.Unlock()
+		return true
+	})
+	return out
+}
+
+// now returns the clock's current instant via the test seam.
+func (b *Backend) now() time.Time {
+	if b.nowFn != nil {
+		return b.nowFn()
+	}
+	return time.Now()
 }
 
 // writeDuty performs the actual duty-cycle write. Split out from

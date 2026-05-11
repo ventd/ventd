@@ -2,6 +2,7 @@ package hwmon
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/ventd/ventd/internal/hal"
 )
@@ -43,6 +44,13 @@ func NewBackendForTestWithDuty(
 		writePWMEnable: writePWMEnable,
 		writeDutyFn:    writeDutyFn,
 	}
+}
+
+// SetClockForTest overrides the EBUSY rate-tracking clock so a test
+// can drive the rolling window deterministically. nil resets to the
+// production wall clock (time.Now). RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+func (b *Backend) SetClockForTest(nowFn func() time.Time) {
+	b.nowFn = nowFn
 }
 
 // MakeTestChannel constructs a hal.Channel with the hwmon State opaque for
