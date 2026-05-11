@@ -137,6 +137,13 @@ func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 // Read samples the current PWM / RPM for a channel. Temperature is
 // left zero — hwmon temp* files are exposed as sensors, not fan
 // channels, and sit outside the FanBackend contract.
+//
+// Read enforces the empty-by-construction invariant on the returned
+// Reading: when OK=false, every other field (PWM, RPM, Temp) is zeroed
+// before return. Callers that ignore OK and read a partial-populated
+// Reading (e.g. a valid RPM accompanying a failed PWM read) used to see
+// stale values from the partial population; the fix guarantees that
+// {OK:false} carries no meaningful sub-state — see #1049.
 func (b *Backend) Read(ch hal.Channel) (hal.Reading, error) {
 	st, err := stateFrom(ch)
 	if err != nil {
@@ -174,6 +181,13 @@ func (b *Backend) Read(ch hal.Channel) (hal.Reading, error) {
 		}
 	} else {
 		reading.OK = false
+	}
+	// Enforce the empty-by-construction invariant: a Reading with
+	// OK=false carries no partial state. Prior to #1049, a PWM-read
+	// failure left a valid RPM on the Reading, and consumers that
+	// ignored OK saw a misleading partial reading.
+	if !reading.OK {
+		return hal.Reading{OK: false}, nil
 	}
 	return reading, nil
 }

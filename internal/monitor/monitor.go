@@ -198,7 +198,15 @@ func scanInputs(dir, prefix, unit string, divisor float64) []Reading {
 		// are in mid-latch; after scaling these map to 255.5°C (temp), 65535 RPM
 		// (fan), or 65.535 V (in). A UI that renders these without filtering
 		// would show 255.5°C for a sensor that reads 8.5°C a second later.
-		if isSentinelMonitorVal(prefix, val) {
+		//
+		// Delegate to halhwmon.IsSentinelSensorVal — the single source of
+		// truth for sentinel rejection thresholds. Prior to #1048 the
+		// monitor package carried its own copy of the rejection logic that
+		// drifted from hwmon.IsSentinelSensorVal: monitor's version was
+		// missing the absolute-zero floor (RULE-SENTINEL-TEMP-FLOOR), so an
+		// int32-underflow temperature of −2147483.648°C passed through
+		// monitor.Scan to /api/hardware.
+		if halhwmon.IsSentinelSensorVal(path, val) {
 			slog.Default().Warn("monitor: sentinel or implausible value suppressed",
 				"path", path, "prefix", prefix, "value", val)
 			continue
@@ -288,22 +296,6 @@ func extractBaseNum(path string) int {
 		}
 	}
 	return 0
-}
-
-// isSentinelMonitorVal reports whether a scaled sensor value is a known driver
-// sentinel or exceeds the plausibility cap for the given hwmon file prefix.
-// Mirrors the thresholds in internal/hal/hwmon/sentinel.go so that the monitor
-// scan path and the status/SSE path enforce the same rejection criteria.
-func isSentinelMonitorVal(prefix string, val float64) bool {
-	switch prefix {
-	case "temp":
-		return val >= halhwmon.PlausibleTempMaxCelsius
-	case "fan":
-		return val >= halhwmon.SentinelRPMRaw || val > halhwmon.PlausibleRPMMax
-	case "in":
-		return val > halhwmon.PlausibleVoltageMaxVolts
-	}
-	return false
 }
 
 func readStr(path string) string {

@@ -90,6 +90,14 @@ type Channel struct {
 // backend could not populate this reading (e.g. transient sysfs
 // error, NVML query failure); callers should treat non-OK readings
 // as "skip this tick", not "write 0".
+//
+// Invariant: when OK=false, every other field MUST be zero. Backends
+// are responsible for enforcing this empty-by-construction shape so
+// that consumers ignoring OK cannot accidentally use partial state
+// (a "valid RPM" on a reading whose PWM read failed is misleading —
+// the channel's overall state is unknown). Backends that branch
+// internally on per-field failure paths MUST zero the rest of the
+// struct before returning when any branch sets OK=false. See #1049.
 type Reading struct {
 	PWM  uint8
 	RPM  uint16
