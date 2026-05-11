@@ -30,6 +30,7 @@ import (
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
@@ -162,6 +163,15 @@ type Server struct {
 	// installed (RULE-PROBE-09). Nil in tests that don't need KV teardown;
 	// set via SetKVWiper in main.go after Server construction.
 	kvWiper func() error
+
+	// polarityChannels carries the live probe.ControllableChannel slice
+	// used by handlePanic's writeMaxPWMToAllFans so the PANIC, MAX
+	// COOLING write routes through polarity.WritePWM (RULE-POLARITY-05).
+	// Without this, an inverted-polarity fan flipped MaxPWM→MinPWM
+	// (effectively turning the fan OFF) when the operator clicked the
+	// panic button — the opposite of the safety intent. Issue #1037.
+	// nil in tests that don't wire panic-mode hwmon writes.
+	polarityChannels []*probe.ControllableChannel
 }
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
@@ -515,6 +525,16 @@ func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 // wizard and probe KV namespaces on "Reset to initial setup" (RULE-PROBE-09).
 // Pass probe.WipeNamespaces(st.KV) from main.go.
 func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
+
+// SetPolarityChannels wires the live probe.ControllableChannel slice
+// so handlePanic's MaxPWM writes route through polarity.WritePWM
+// (RULE-POLARITY-05). Without this, an inverted-polarity fan flipped
+// MaxPWM→MinPWM (effectively turning OFF) when the operator clicked
+// the PANIC, MAX COOLING button — the opposite of the safety intent.
+// nil-safe for tests. Issue #1037.
+func (s *Server) SetPolarityChannels(channels []*probe.ControllableChannel) {
+	s.polarityChannels = channels
+}
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that

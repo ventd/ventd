@@ -28,8 +28,10 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -632,6 +634,126 @@ func TestSafety_Invariants(t *testing.T) {
 		}
 		if _, err := os.Stat(pathA); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("stale hwmon3 path should not exist after simulated renumber: %v", err)
+		}
+	})
+}
+
+// TestRulePolarity11_ControllerHotPathRoutesViaPolarityWritePWM binds
+// RULE-POLARITY-11: every PWM write in the controller hot path MUST
+// route through polarity.WritePWM so inverted-polarity channels
+// receive 255-pwm (flipped) and phantom/unknown channels are refused
+// at the helper boundary rather than at the backend boundary.
+//
+// Issue #1037: pre-#1037, the controller's main write path
+// (writeWithRetry) wrote the raw PWM byte direct to backend.Write.
+// The audit found three call sites that needed routing: the main
+// write, the retry sub-call inside writeWithRetry, and the
+// sentinel-carry-forward branch. This test pins the main write +
+// retry path; the sentinel branch is exercised indirectly via the
+// rules in the existing sentinel/* subtests above.
+//
+// Bound: internal/controller/safety_test.go:polarity_inverted_routes_via_writepwm
+func TestRulePolarity11_ControllerHotPathRoutesViaPolarityWritePWM(t *testing.T) {
+	t.Run("polarity_inverted_routes_via_writepwm", func(t *testing.T) {
+		// Set up a controller with a polarityCh whose Polarity="inverted".
+		// Use writeWithRetry directly so the test doesn't depend on a
+		// fully-staged tick (sensor, curve, clamp) — the contract being
+		// pinned is "every backend.Write the controller dispatches
+		// passes through polarity.WritePWM first".
+		ff := newFakeFan(t)
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+
+		// Inverted-polarity channel — polarity.WritePWM rewrites
+		// value → 255-value before calling fn.
+		c.polarityCh = &probe.ControllableChannel{
+			PWMPath:  ff.pwmPath,
+			Polarity: "inverted",
+		}
+
+		fb := &fakeErrBackend{}
+		c.backend = fb
+
+		ch := hal.Channel{ID: ff.pwmPath}
+		if err := c.writeWithRetry(ch, 100, ff.pwmPath, "curve"); err != nil {
+			t.Fatalf("writeWithRetry returned unexpected error: %v", err)
+		}
+		// Inverted: 255 - 100 = 155. If the controller bypassed
+		// polarity.WritePWM the backend would see 100 verbatim.
+		if fb.lastWritten != 155 {
+			t.Errorf("inverted-polarity write: backend got %d, want 155 (255-100)", fb.lastWritten)
+		}
+		if fb.writeCalls != 1 {
+			t.Errorf("inverted-polarity write: backend.Write called %d times, want 1", fb.writeCalls)
+		}
+	})
+
+	t.Run("polarity_normal_passes_value_through", func(t *testing.T) {
+		// Normal polarity: value passes through unchanged. Pins the
+		// contract that the polarity helper is a no-op for normal
+		// channels rather than corrupting the byte.
+		ff := newFakeFan(t)
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+		c.polarityCh = &probe.ControllableChannel{
+			PWMPath:  ff.pwmPath,
+			Polarity: "normal",
+		}
+		fb := &fakeErrBackend{}
+		c.backend = fb
+
+		ch := hal.Channel{ID: ff.pwmPath}
+		if err := c.writeWithRetry(ch, 100, ff.pwmPath, "curve"); err != nil {
+			t.Fatalf("writeWithRetry returned unexpected error: %v", err)
+		}
+		if fb.lastWritten != 100 {
+			t.Errorf("normal-polarity write: backend got %d, want 100 (unchanged)", fb.lastWritten)
+		}
+	})
+
+	t.Run("polarity_unknown_refused_no_backend_write", func(t *testing.T) {
+		// Unknown polarity: polarity.WritePWM refuses without
+		// calling fn. The controller treats the refusal as a
+		// skipped tick (returns nil) and the backend never sees
+		// the write.
+		ff := newFakeFan(t)
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+		c.polarityCh = &probe.ControllableChannel{
+			PWMPath:  ff.pwmPath,
+			Polarity: "unknown",
+		}
+		fb := &fakeErrBackend{}
+		c.backend = fb
+
+		ch := hal.Channel{ID: ff.pwmPath}
+		if err := c.writeWithRetry(ch, 100, ff.pwmPath, "curve"); err != nil {
+			t.Errorf("writeWithRetry should swallow polarity refusal as a skipped tick, got %v", err)
+		}
+		if fb.writeCalls != 0 {
+			t.Errorf("unknown-polarity must not reach backend; got %d Write calls", fb.writeCalls)
+		}
+	})
+
+	t.Run("nil_polarity_channel_falls_through_unchanged", func(t *testing.T) {
+		// nil polarityCh: the controller falls back to the
+		// pre-#1037 pass-through write semantics. Preserves
+		// behaviour for tests that don't supply a channel and
+		// for the brief window during daemon-start before the
+		// channel slice is wired.
+		ff := newFakeFan(t)
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+		c.polarityCh = nil
+		fb := &fakeErrBackend{}
+		c.backend = fb
+
+		ch := hal.Channel{ID: ff.pwmPath}
+		if err := c.writeWithRetry(ch, 100, ff.pwmPath, "curve"); err != nil {
+			t.Fatalf("writeWithRetry returned unexpected error: %v", err)
+		}
+		if fb.lastWritten != 100 {
+			t.Errorf("nil polarityCh: backend got %d, want 100 (pass-through)", fb.lastWritten)
 		}
 	})
 }

@@ -65,6 +65,22 @@ func (s *SupermicroIPMIProbe) ProbeIPMIPolarity(ctx context.Context, ch *probe.C
 		return res, nil
 	}
 
+	// Defer firmware-auto restore so a ctx-cancel mid-hold (the two
+	// ctx.Done() checks below) still returns the BMC to auto-curve
+	// management before this function returns. RULE-POLARITY-04 /
+	// Issue #1056. HwmonProber + NVMLProber already implement this
+	// pattern; Supermicro was the only missing-restore branch.
+	// restoreDone guards against duplicate restore on the normal path.
+	var restoreDone bool
+	defer func() {
+		if restoreDone {
+			return
+		}
+		restoreReq := []byte{0x30, 0x45, 0x00}
+		restoreRespBuf := make([]byte, 4)
+		_ = s.SendRecv(restoreReq, restoreRespBuf)
+	}()
+
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
@@ -82,10 +98,12 @@ func (s *SupermicroIPMIProbe) ProbeIPMIPolarity(ctx context.Context, ch *probe.C
 	observed := s.readSDRFan(ch.SourceID)
 	res.Observed = float64(observed)
 
-	// Restore to auto mode (SET_FAN_MODE=0x00).
+	// Normal-path restore to auto mode (SET_FAN_MODE=0x00). Sets
+	// restoreDone so the deferred fallback skips its duplicate write.
 	restore := []byte{0x30, 0x45, 0x00}
 	restoreResp := make([]byte, 4)
 	_ = s.SendRecv(restore, restoreResp)
+	restoreDone = true
 	s.clock()(RestoreDelay)
 
 	delta := float64(observed - baseline)
