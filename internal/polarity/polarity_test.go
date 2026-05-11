@@ -88,23 +88,6 @@ func TestPolarityRules(t *testing.T) {
 			}
 		})
 
-		t.Run("ipmi_dell_no_write_on_firmware_locked", func(t *testing.T) {
-			// Dell firmware refusal: probe must NOT attempt additional writes after refusal
-			dellProbe := &polarity.DellIPMIProbe{
-				SendRecv: func(req, resp []byte) error {
-					resp[0] = 0xd4 // iDRAC CC_INSUFFICIENT_PRIVILEGE
-					return nil
-				},
-			}
-			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
-			res, err := dellProbe.ProbeIPMIPolarity(context.Background(), ch)
-			if err != nil {
-				t.Fatalf("ProbeIPMIPolarity: %v", err)
-			}
-			if res.Polarity != "phantom" || res.PhantomReason != polarity.PhantomReasonFirmwareLocked {
-				t.Errorf("got polarity=%q reason=%q, want phantom/firmware_locked", res.Polarity, res.PhantomReason)
-			}
-		})
 	})
 
 	// RULE-POLARITY-02: hold time must be 3 seconds ± 200ms across backends.
@@ -314,113 +297,12 @@ func TestPolarityRules(t *testing.T) {
 		}
 	})
 
-	// RULE-POLARITY-07: each IPMI vendor backend must implement IPMIVendorProbe.
-	// Dell and HPE phantom their channels permanently (no deferred state).
-	t.Run("RULE-POLARITY-07_ipmi_vendor_probe_interface", func(t *testing.T) {
-		// Supermicro: real probe path via SendRecv.
-		t.Run("supermicro_probes_via_send_recv", func(t *testing.T) {
-			var cmds [][]byte
-			smProbe := &polarity.SupermicroIPMIProbe{
-				Clock: noopClock,
-				SendRecv: func(req, resp []byte) error {
-					cmds = append(cmds, append([]byte(nil), req...))
-					// Get Sensor Reading → baseline 500*64 RPM
-					if len(req) == 3 && req[0] == 0x04 {
-						resp[0] = 0x00
-						resp[1] = 8 // 8*64=512 RPM
-						return nil
-					}
-					resp[0] = 0x00 // SET_FAN_SPEED OK
-					return nil
-				},
-			}
-			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
-			res, err := smProbe.ProbeIPMIPolarity(context.Background(), ch)
-			if err != nil {
-				t.Fatalf("ProbeIPMIPolarity: %v", err)
-			}
-			// With equal baseline and observed → phantom no_response (no RPM delta).
-			// What matters: probe ran (cmds non-empty) and a midpoint write was issued.
-			if len(cmds) == 0 {
-				t.Error("Supermicro probe sent no commands")
-			}
-			_ = res
-		})
-
-		// Issue #1056 / pass-6-polarity.md H3: ctx-cancel mid-hold MUST
-		// still issue the SET_FAN_MODE=auto restore via deferred recovery.
-		// Pre-#1056 the Supermicro probe returned ctx.Err() at line 70/78
-		// without writing the restore command, leaving the BMC in
-		// OEM-50% mode indefinitely after a ctx cancel.
-		t.Run("supermicro_ctx_cancel_mid_hold_issues_restore", func(t *testing.T) {
-			var cmds [][]byte
-			cancelCtx, cancel := context.WithCancel(context.Background())
-			smProbe := &polarity.SupermicroIPMIProbe{
-				// Cancel ctx during the hold so the next ctx.Done()
-				// check returns ctx.Err() — exercising the
-				// previously-broken early-return path.
-				Clock: func(d time.Duration) {
-					cancel()
-				},
-				SendRecv: func(req, resp []byte) error {
-					cmds = append(cmds, append([]byte(nil), req...))
-					if len(req) == 3 && req[0] == 0x04 {
-						resp[0] = 0x00
-						resp[1] = 8
-						return nil
-					}
-					resp[0] = 0x00
-					return nil
-				},
-			}
-			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
-			_, err := smProbe.ProbeIPMIPolarity(cancelCtx, ch)
-			// ctx-cancel returns ctx.Err() but the restore must
-			// still have fired via defer.
-			if err == nil {
-				t.Errorf("expected ctx-cancel error, got nil")
-			}
-			if len(cmds) == 0 {
-				t.Fatal("no commands issued")
-			}
-			// The deferred restore is the LAST IPMI command sent —
-			// SET_FAN_MODE (netFn=0x30 cmd=0x45 data=[0x00]). Pre-#1056
-			// the function exited without ever sending this.
-			last := cmds[len(cmds)-1]
-			if len(last) < 3 || last[0] != 0x30 || last[1] != 0x45 || last[2] != 0x00 {
-				t.Errorf("last command = %v; want SET_FAN_MODE=auto [0x30, 0x45, 0x00]", last)
-			}
-		})
-
-		t.Run("dell_firmware_locked_permanent_phantom", func(t *testing.T) {
-			dellProbe := &polarity.DellIPMIProbe{
-				SendRecv: func(req, resp []byte) error {
-					resp[0] = 0xd4 // INSUFFICIENT_PRIVILEGE
-					return nil
-				},
-			}
-			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
-			res, err := dellProbe.ProbeIPMIPolarity(context.Background(), ch)
-			if err != nil {
-				t.Fatalf("ProbeIPMIPolarity: %v", err)
-			}
-			if res.Polarity != "phantom" || res.PhantomReason != polarity.PhantomReasonFirmwareLocked {
-				t.Errorf("Dell: got %q/%q, want phantom/firmware_locked", res.Polarity, res.PhantomReason)
-			}
-		})
-
-		t.Run("hpe_405_permanent_phantom", func(t *testing.T) {
-			hpeProbe := &polarity.HPEIPMIProbe{HTTPStatus: 405}
-			ch := &probe.ControllableChannel{SourceID: "ipmi0", Driver: "ipmi", Polarity: "unknown"}
-			res, err := hpeProbe.ProbeIPMIPolarity(context.Background(), ch)
-			if err != nil {
-				t.Fatalf("ProbeIPMIPolarity: %v", err)
-			}
-			if res.Polarity != "phantom" || res.PhantomReason != polarity.PhantomReasonProfileOnly {
-				t.Errorf("HPE: got %q/%q, want phantom/profile_only", res.Polarity, res.PhantomReason)
-			}
-		})
-	})
+	// RULE-POLARITY-07 is documentation-only in v0.5.39+ — the IPMI
+	// vendor-dispatch surface (`internal/polarity/ipmi.go`) was deleted as
+	// part of #1071's option-2 path because no production caller ever
+	// constructed any of the vendor probes. The rule file is preserved as
+	// a v0.7+ reservation; no bound subtest exists until the wiring is
+	// brought back into scope.
 
 	// RULE-POLARITY-08: daemon start applies persisted polarity by (backend,identity) key.
 	// Miss → NeedsProbe=true; match → polarity applied; orphan → logged, no panic.
