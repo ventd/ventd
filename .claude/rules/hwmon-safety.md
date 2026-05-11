@@ -195,6 +195,93 @@ write to the wrong fan after a reboot.
 
 Bound: internal/controller/safety_test.go:hwmon_index_instability/resolve_by_device_path
 
+## RULE-HWMON-SWAP-MONITOR: A long-running goroutine periodically re-resolves stored hwmon paths against their stable-device anchors; mismatches are surfaced at WARN level and dispatched to an optional SwapHandler.
+
+RULE-HWMON-INDEX-UNSTABLE covers the startup-time resolution
+contract: stored hwmon paths are rebased via `hwmon.ResolvePath`
+once at daemon start. This rule covers the **runtime** complement:
+hwmonN indices can shift during a daemon's lifetime when a USB GPU
+hotplugs, when `modprobe -r/-i` reloads a Super-I/O driver, or
+when udev re-numbers chips post-suspend. Without runtime re-
+resolution, the controller silently writes to a stale path until
+the next daemon restart.
+
+The pre-v0.5.41 doctor surface (`RULE-DOCTOR-DETECTOR-HWMONSWAP`)
+catches the same condition reactively — but only on the next
+periodic doctor sweep, which can be minutes away. M21 from the
+v0.5.26 senior review proposed a real-time runtime monitor.
+
+`hwmon.MonitorSwap(ctx, inputs, interval, logger, onSwap)` is the
+long-running goroutine entry point. Every `interval`, it calls
+`ReResolveAll(inputs)` and dispatches the optional `SwapHandler`
+for every detection where Changed=true. Every detection is
+logged at WARN regardless of whether a handler is wired —
+observability holds even without a remap dispatch.
+
+`hwmon.ReResolveAll(inputs []ChannelInput) []SwapDetection` is the
+pure helper underneath. Each `ChannelInput` carries:
+
+- `StoredPath`: the sysfs path stamped at startup (e.g.
+  `/sys/class/hwmon/hwmon2/pwm1`).
+- `StableDevice`: the boot-persistent parent (e.g.
+  `/sys/devices/platform/nct6687.2608`) as returned by
+  `hwmon.StableDevice` at startup.
+
+`DefaultSwapMonitorInterval = 10 * time.Minute`. Module reloads and
+hotplug events are rare; a 10-minute cadence keeps the syscall
+overhead negligible while bounding worst-case detection latency to
+a real-time remediation window. Operators that need tighter
+detection can pass a shorter interval to MonitorSwap directly.
+
+The daemon-side wiring is `startHwmonSwapMonitor(ctx, wg, channels,
+logger)` in `cmd/ventd/smart_builders.go`. It builds the
+ChannelInput slice by:
+
+1. Iterating `[]*probe.ControllableChannel` from the live probe
+   result.
+2. Skipping channels with empty `PWMPath`.
+3. Skipping channels whose `hwmon.StableDevice(pwmPath)` returns
+   empty string (NVML, IPMI, virtual devices that don't expose a
+   chip-parent symlink).
+4. Spawning one MonitorSwap goroutine when the resulting slice is
+   non-empty.
+
+A nil channel slice or zero eligible channels short-circuits to a
+clean no-op — no goroutine is registered against `wg`.
+
+v0.5.41 ships **observability-only**: the SwapHandler is nil, so
+detections are surfaced via WARN log lines but no remap dispatch
+happens. The actual remap (calling Manager.RemapKey, updating
+controller caches, updating watchdog entries) requires a
+coordinated refactor across the controller, watchdog, and
+calibration manager that needs separate design. The seam (onSwap
+callback) is in place so the follow-up PR only wires the
+dispatch, not the detection. The risk of observability-only is
+**operator awareness lag** — the WARN line tells operators
+something is wrong but the daemon continues writing to the stale
+path until restart. The v0.5.x release-notes call this out
+explicitly so operators on hot-plug-prone setups know to restart
+the daemon on receipt of a swap WARN.
+
+Tests (under `internal/hwmon/swap_monitor_test.go`) cover: steady-
+state no-swap, swap detection + rebase, empty StableDevice,
+ctx-cancel unwind within bounded latency, handler invocation on
+detection, empty-inputs short-circuit, nil-handler observability,
+and the locked default interval. Tests under
+`cmd/ventd/main_hwmon_swap_monitor_test.go` cover the daemon-side
+wiring helper's filtering + goroutine registration.
+
+Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_NoSwapReportsUnchanged
+Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_SwapDetectedAndRebased
+Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_NoStableDeviceLeavesUnchanged
+Bound: internal/hwmon/swap_monitor_test.go:TestMonitorSwap_StopsOnContextCancel
+Bound: internal/hwmon/swap_monitor_test.go:TestMonitorSwap_FiresHandlerOnDetection
+Bound: internal/hwmon/swap_monitor_test.go:TestMonitorSwap_EmptyInputsExitsCleanly
+Bound: internal/hwmon/swap_monitor_test.go:TestMonitorSwap_NilHandlerStillLogs
+Bound: internal/hwmon/swap_monitor_test.go:TestDefaultSwapMonitorInterval_Is10Min
+Bound: cmd/ventd/main_hwmon_swap_monitor_test.go:TestStartHwmonSwapMonitor_SkipsWhenNoEligibleChannels
+Bound: cmd/ventd/main_hwmon_swap_monitor_test.go:TestStartHwmonSwapMonitor_RegistersGoroutineForEligibleChannel
+
 ## RULE-HWMON-SENTINEL-TEMP: temperature sentinel rejected at the backend read boundary
 
 Raw sysfs temperature reads in millidegrees that match the 0xFFFF sentinel
