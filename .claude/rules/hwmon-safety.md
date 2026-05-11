@@ -66,6 +66,79 @@ primitive only; it never converts a real EBUSY-storm into a hung daemon.
 Bound: internal/hal/hwmon/backend_test.go:TestWrite_EBUSY_ReacquiresAndRetries
 Bound: internal/hal/hwmon/backend_test.go:TestWrite_PersistentEBUSY_FailsAfterOneRetry
 
+## RULE-HWMON-EBUSY-RATE-OBSERVABILITY: Backend tracks per-channel EBUSY rate in a 60s rolling window and emits escalating log levels at 5/min (WARN-storm) and 20/min (ERROR-escalation); EBUSYRates() exposes the snapshot for future doctor wiring.
+
+RULE-HWMON-MODE-REACQUIRE covers the single-event recovery primitive
+(one re-acquire + retry on EBUSY). This rule is the
+**observability ladder** on top of that primitive — when the BIOS
+reassertion timer is tighter than the controller's tick, the
+recovery succeeds but masks a storm. Operators need to see the
+rate, not just the individual events.
+
+Per audit follow-up M17 from the v0.5.26 senior review:
+
+> Add a per-channel `consecutiveEBUSY` counter; emit WARN at 5/min,
+> doctor card at 20/min, fall back to firmware-auto at 100/min.
+
+v0.5.40 ships the rate-tracking + escalating logs + the
+`EBUSYRates()` accessor seam. The "100/min firmware-auto"
+auto-fallback is intentionally deferred to a follow-up PR — it
+introduces a state-machine surface (silenced channels, cooldown
+re-entry, watchdog interaction) that needs HIL data before
+shipping.
+
+`Backend.recordEBUSY(pwmPath, writeErr)` is called inside
+`Backend.Write` BEFORE the existing re-acquire retry, so a tight
+reassertion loop's rate is tracked even when the retry succeeds —
+the storm shape is recorded, not just the write outcome.
+
+The per-channel rolling window:
+
+- `EBUSYWindow = 60 * time.Second` — counter-reset, not a true
+  sliding window. When `EBUSYWindow` elapses since the first event
+  in the burst, the counter resets to one and a fresh window
+  begins. Cheaper than a per-event ring buffer; adequate for "is
+  this channel storming right now?".
+- `EBUSYWarnThreshold = 5` — count at which the log line escalates
+  from one-off WARN to "storm detected" WARN.
+- `EBUSYEscalateThreshold = 20` — count at which the log line
+  escalates to ERROR with the operator-actionable hint about
+  disabling BIOS fan-control (Q-Fan / Smart Fan).
+
+Log emission is **debounced** by the `lastWarnedCount` field —
+each threshold crossing emits exactly one log line per window, not
+one per event. The 21st event in the same window is silent (the
+operator already has the ERROR; no value in spamming).
+
+`Backend.EBUSYRates()` returns a snapshot keyed by `pwmPath`. Each
+entry carries the running count, the window-start timestamp, and
+the window span. A doctor detector reading this map distinguishes:
+
+- **Currently storming** — `WindowStart` is within the last 60s
+  AND `EventCount >= EBUSYWarnThreshold`. Surface as a Warning
+  recovery card.
+- **Recently stormed, now quiet** — `WindowStart` older than 60s
+  but the counter hasn't been reset by a subsequent EBUSY. The
+  channel calmed down on its own (the BIOS gave up); surface as
+  Info or skip.
+- **Never stormed** — channel absent from the map.
+
+Per-channel isolation is load-bearing: one channel suffering
+Q-Fan reassertion must not pollute the counter for another well-
+behaved channel on the same chip. The `sync.Map[pwmPath]*ebusyStats`
+shape gives each channel its own counter + window, protected by
+the inner `ebusyStats.mu` mutex.
+
+A clock seam (`Backend.SetClockForTest`) lets tests drive the
+rolling window deterministically without `time.Sleep`. Production
+uses `time.Now`.
+
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_TracksWithinWindow
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_WindowResetAfterExpiry
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_NoEventsReturnsEmpty
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_PerChannelIsolation
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_ThresholdConstantsLocked
+
 ## RULE-HWMON-RESTORE-EXIT: Watchdog.Restore() fires on every documented exit path
 
 The controller's Run method must call Watchdog.Restore() on every exit:
