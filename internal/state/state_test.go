@@ -842,3 +842,305 @@ func TestRULE_STATE_MIGRATION_V1_V2_NOOP(t *testing.T) {
 		}
 	})
 }
+
+// TestDurability_WriteVersion_UsesIOXWriteFile is a static-analysis
+// regression test for audit pass-6 finding C1 (#1050). The pre-fix
+// version.go used `os.WriteFile` directly, skipping iox.WriteFile's
+// tempfile + fsync + rename + dir-fsync chain. A regression to
+// `os.WriteFile` here re-opens RULE-IOX-01 violation on the version
+// sentinel.
+func TestDurability_WriteVersion_UsesIOXWriteFile(t *testing.T) {
+	data, err := os.ReadFile("version.go")
+	if err != nil {
+		t.Fatalf("read version.go: %v", err)
+	}
+	src := string(data)
+	if strings.Contains(src, "os.WriteFile(path") {
+		t.Error("version.go must NOT call os.WriteFile directly on the version sentinel; use iox.WriteFile (#1050)")
+	}
+	if !strings.Contains(src, "iox.WriteFile(path") {
+		t.Error("version.go must call iox.WriteFile on the version sentinel (#1050, RULE-IOX-01)")
+	}
+
+	// Behavioural check: writeVersion creates the sentinel atomically
+	// and leaves no `.tmp.` siblings. Mirrors the leak-and-overwrite
+	// assertions in TestRULE_STATE_01_AtomicWrite.
+	dir := t.TempDir()
+	path := filepath.Join(dir, versionFileName)
+	if err := writeVersion(path, 2); err != nil {
+		t.Fatalf("writeVersion: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read sentinel: %v", err)
+	}
+	if string(body) != "2\n" {
+		t.Errorf("sentinel content = %q; want %q", body, "2\n")
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp.") {
+			t.Errorf("writeVersion left a tempfile sibling: %s", e.Name())
+		}
+	}
+}
+
+// TestDurability_AcquirePID_UsesIOXWriteFile is a regression test
+// for audit pass-6 finding C2 (#1051). The pre-fix pidfile.go used
+// `os.WriteFile` directly, so a concurrent reader could see a
+// half-written PID file and treat it as stale, racing a still-alive
+// daemon.
+func TestDurability_AcquirePID_UsesIOXWriteFile(t *testing.T) {
+	data, err := os.ReadFile("pidfile.go")
+	if err != nil {
+		t.Fatalf("read pidfile.go: %v", err)
+	}
+	src := string(data)
+	if strings.Contains(src, "os.WriteFile(path") {
+		t.Error("pidfile.go must NOT call os.WriteFile directly on the PID file; use iox.WriteFile (#1051)")
+	}
+	if !strings.Contains(src, "iox.WriteFile(path") {
+		t.Error("pidfile.go must call iox.WriteFile on the PID file (#1051, RULE-IOX-01)")
+	}
+
+	// Behavioural check: AcquirePID writes a valid PID and leaves no
+	// `.tmp.` siblings under the state directory.
+	dir := t.TempDir()
+	release, err := AcquirePID(dir)
+	if err != nil {
+		t.Fatalf("AcquirePID: %v", err)
+	}
+	t.Cleanup(release)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp.") {
+			t.Errorf("AcquirePID left a tempfile sibling: %s", e.Name())
+		}
+	}
+}
+
+// TestDurability_LogOpen_DirFsyncOnCreate is a regression test for
+// audit pass-6 finding C3 (#1052). Fresh log-file creation goes
+// through iox.SyncDir to make the directory entry durable on power
+// loss. The behaviour is opaque to userspace; assertions pin (a) the
+// source references iox.SyncDir, and (b) the create-then-iterate
+// round-trip works in the presence of the syncs.
+func TestDurability_LogOpen_DirFsyncOnCreate(t *testing.T) {
+	data, err := os.ReadFile("log.go")
+	if err != nil {
+		t.Fatalf("read log.go: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "iox.SyncDir") {
+		t.Error("log.go must call iox.SyncDir after fresh log file creation (#1052)")
+	}
+
+	dir := t.TempDir()
+	db := newLogDB(dir, discardLogger())
+	defer func() { _ = db.closeAll() }()
+
+	if err := db.Append("test", []byte("first record")); err != nil {
+		t.Fatalf("first Append: %v", err)
+	}
+	if err := db.Append("test", []byte("second record")); err != nil {
+		t.Fatalf("second Append: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "test.log")); err != nil {
+		t.Fatalf("log file missing after Append: %v", err)
+	}
+	var got []string
+	if err := db.Iterate("test", time.Time{}, func(p []byte) error {
+		got = append(got, string(p))
+		return nil
+	}); err != nil {
+		t.Fatalf("Iterate: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("Iterate: got %d records, want 2: %v", len(got), got)
+	}
+}
+
+// TestDurability_LogRotation_DirFsyncOnRotate is a regression test
+// for audit pass-6 finding H1 (#1053). After the rename chain in
+// rotateLocked, the parent directory MUST be fsync'd once so the
+// .N-1 → .N shifts + current → .1 rename are durable as a batch on
+// power loss.
+func TestDurability_LogRotation_DirFsyncOnRotate(t *testing.T) {
+	data, err := os.ReadFile("log.go")
+	if err != nil {
+		t.Fatalf("read log.go: %v", err)
+	}
+	src := string(data)
+	// The rotation-time sync is identified by the WARN line text;
+	// pin the message so a regression that drops the call (or the
+	// WARN) fails CI.
+	if !strings.Contains(src, "dir-fsync after rotation failed") {
+		t.Error("log.go's rotateLocked must dir-fsync after the rename chain (#1053)")
+	}
+
+	// Behavioural smoke: rotate succeeds end-to-end with the sync
+	// hooked in.
+	dir := t.TempDir()
+	db := newLogDB(dir, discardLogger())
+	defer func() { _ = db.closeAll() }()
+	if err := db.SetRotationPolicy("test", RotationPolicy{KeepCount: 3, CompressOld: false}); err != nil {
+		t.Fatalf("SetRotationPolicy: %v", err)
+	}
+	for i := range 5 {
+		if err := db.Append("test", []byte(fmt.Sprintf("pre-rot-%d", i))); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+	if err := db.Rotate("test"); err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "test.log.1")); err != nil {
+		t.Errorf("rotated file .1 missing: %v", err)
+	}
+	if err := db.Append("test", []byte("post-rot")); err != nil {
+		t.Fatalf("post-rot Append: %v", err)
+	}
+}
+
+// TestRULE_STATE_07_TransactionPersistFailureSurfacesAndRollsBack
+// extends RULE-STATE-07's atomic-commit pinning with the failed-
+// commit case from audit pass-6 finding H3 (#1054). When fn returns
+// nil but persist fails, the caller MUST receive an error that
+// errors.Is matches ErrTransactionPersistFailed, AND the in-memory
+// state MUST be rolled back so subsequent Get returns the
+// pre-transaction value rather than the orphaned in-memory mutation.
+func TestRULE_STATE_07_TransactionPersistFailureSurfacesAndRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.yaml")
+	db, err := openKV(path, discardLogger())
+	if err != nil {
+		t.Fatalf("openKV: %v", err)
+	}
+	// Seed the pre-transaction value.
+	if err := db.Set("ns", "k", "before"); err != nil {
+		t.Fatalf("Set seed: %v", err)
+	}
+
+	// Force persist failure by replacing state.yaml with a
+	// directory of the same name. atomicWrite's final
+	// `os.Rename(tmp, path)` then fails with EISDIR-equivalent
+	// (target is a directory; rename refuses to clobber a non-empty
+	// dir with a regular file). The failure exercises the exact
+	// "fn-returned-nil-but-persist-failed" branch RULE-STATE-07
+	// extends.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(path, "wedge"), 0o755); err != nil {
+		t.Fatalf("mkdir path-as-dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(path) })
+
+	txErr := db.WithTransaction(func(tx *KVTx) error {
+		tx.Set("ns", "k", "would-have-committed")
+		tx.Set("ns", "new", "also-would-have-committed")
+		return nil
+	})
+	if txErr == nil {
+		t.Fatal("WithTransaction: expected persist failure, got nil")
+	}
+	if !errors.Is(txErr, ErrTransactionPersistFailed) {
+		t.Errorf("WithTransaction error: got %v; want errors.Is ErrTransactionPersistFailed", txErr)
+	}
+
+	// In-memory rollback: the failed-commit attempt must not have
+	// advanced db.data ahead of the on-disk file.
+	v, ok, _ := db.Get("ns", "k")
+	if !ok || v != "before" {
+		t.Errorf("Get after failed commit: got %v ok=%v; want \"before\" ok=true", v, ok)
+	}
+	if _, ok, _ := db.Get("ns", "new"); ok {
+		t.Error("Get \"ns/new\" after failed commit: expected ok=false (rolled back)")
+	}
+
+	// Restore: remove the directory-shaped placeholder and persist
+	// from the rolled-back in-memory state so we can re-open and
+	// confirm the on-disk view matches what callers now see.
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatalf("cleanup dir-shaped path: %v", err)
+	}
+	if err := db.Set("ns", "k", "before"); err != nil {
+		t.Fatalf("re-persist after rollback: %v", err)
+	}
+
+	db2, err := openKV(path, discardLogger())
+	if err != nil {
+		t.Fatalf("re-openKV: %v", err)
+	}
+	v2, ok2, _ := db2.Get("ns", "k")
+	if !ok2 || v2 != "before" {
+		t.Errorf("Re-openKV Get: got %v ok=%v; want \"before\" ok=true", v2, ok2)
+	}
+}
+
+// TestKV_Load_CorruptYAMLReturnsErrCorruptState is the regression
+// test for audit pass-6 finding H4 (#1055). A corrupt state.yaml
+// MUST surface as a typed error (ErrCorruptState) rather than be
+// silently downgraded to "empty state, first-boot semantics" — the
+// pre-fix behaviour silently destroyed wizard / polarity / smart-
+// mode records that drive operator-visible decisions.
+//
+// The companion "missing file = empty state is fine" case is
+// preserved per RULE-STATE-10.
+func TestKV_Load_CorruptYAMLReturnsErrCorruptState(t *testing.T) {
+	t.Run("corrupt_yaml_returns_ErrCorruptState", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "state.yaml")
+		// Write a payload that's syntactically invalid YAML.
+		corrupt := []byte("not: valid: yaml: [unbalanced")
+		if err := os.WriteFile(path, corrupt, 0o640); err != nil {
+			t.Fatalf("write corrupt: %v", err)
+		}
+		_, err := openKV(path, discardLogger())
+		if err == nil {
+			t.Fatal("openKV on corrupt YAML: expected error, got nil")
+		}
+		if !errors.Is(err, ErrCorruptState) {
+			t.Errorf("openKV on corrupt YAML: got %v; want errors.Is ErrCorruptState", err)
+		}
+	})
+
+	t.Run("missing_file_returns_empty_state", func(t *testing.T) {
+		// Preservation of RULE-STATE-10's first-boot semantics:
+		// a missing state.yaml is a normal first-boot condition,
+		// not corruption.
+		dir := t.TempDir()
+		path := filepath.Join(dir, "state.yaml")
+		db, err := openKV(path, discardLogger())
+		if err != nil {
+			t.Fatalf("openKV on missing file: %v", err)
+		}
+		_, ok, _ := db.Get("ns", "k")
+		if ok {
+			t.Error("Get on empty KV: expected ok=false")
+		}
+	})
+
+	t.Run("valid_yaml_loads_cleanly", func(t *testing.T) {
+		// Pin that the change doesn't break the happy path:
+		// a valid YAML payload loads without error.
+		dir := t.TempDir()
+		path := filepath.Join(dir, "state.yaml")
+		db, err := openKV(path, discardLogger())
+		if err != nil {
+			t.Fatalf("openKV fresh: %v", err)
+		}
+		if err := db.Set("ns", "k", "v"); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		// Re-open from disk.
+		db2, err := openKV(path, discardLogger())
+		if err != nil {
+			t.Fatalf("re-openKV on valid YAML: %v", err)
+		}
+		v, ok, _ := db2.Get("ns", "k")
+		if !ok || v != "v" {
+			t.Errorf("Get after re-open: got %v ok=%v; want \"v\" ok=true", v, ok)
+		}
+	})
+}

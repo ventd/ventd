@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ventd/ventd/internal/iox"
 )
 
 const (
@@ -94,10 +96,26 @@ func (db *LogDB) handle(name string) (*logHandle, error) {
 	if err := os.MkdirAll(db.dir, dirMode); err != nil {
 		return nil, fmt.Errorf("log dir: %w", err)
 	}
+	// Detect first-open vs reopen via pre-stat: if logPath doesn't
+	// exist yet, the OpenFile below will create it and the parent
+	// directory entry will be vulnerable to metadata batching on
+	// consumer SSDs (audit pass-6 finding C3, #1052). We dir-fsync
+	// after the create to make the new file visible across power
+	// loss. Reopens of an existing log skip the fsync — the entry
+	// is already durable from a prior session's creation.
+	_, preStatErr := os.Stat(logPath)
+	freshCreate := os.IsNotExist(preStatErr)
+
 	// O_APPEND | O_DSYNC — crash-consistent append (RULE-STATE-03)
 	f, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND|syscall.O_DSYNC, fileMode)
 	if err != nil {
 		return nil, fmt.Errorf("open log %s: %w", logPath, err)
+	}
+	if freshCreate {
+		if syncErr := iox.SyncDir(db.dir); syncErr != nil {
+			db.logger.Warn("state: log: dir-fsync after create failed",
+				"dir", db.dir, "err", syncErr)
+		}
 	}
 	var size int64
 	if info, statErr := f.Stat(); statErr == nil {
@@ -233,6 +251,18 @@ func (h *logHandle) rotateLocked() error {
 		return fmt.Errorf("rotate rename: %w", err)
 	}
 
+	// Fsync the parent directory once so the entire rename chain
+	// (shifts above + rename-to-.1 + the upcoming openFileLocked
+	// create) is durable on power loss. Without this a mid-rotation
+	// power loss can leave both .1 and .2 pointing at the same
+	// content (the .1→.2 succeeded but the directory entry batch was
+	// lost) or the .1 entry missing entirely. Audit pass-6 finding
+	// H1 (#1053). One syscall covers the entire batch.
+	if syncErr := iox.SyncDir(filepath.Dir(h.logPath)); syncErr != nil && h.logger != nil {
+		h.logger.Warn("state: log: dir-fsync after rotation failed",
+			"path", h.logPath, "err", syncErr)
+	}
+
 	// Open the new log file BEFORE releasing the lock.
 	if err := h.openFileLocked(); err != nil {
 		return err
@@ -255,9 +285,25 @@ func (h *logHandle) rotateLocked() error {
 }
 
 func (h *logHandle) openFileLocked() error {
+	// Detect first-open vs reopen to scope the dir-fsync to the
+	// create-an-inode case (audit pass-6 finding C3, #1052). After a
+	// rotation rename the new logPath doesn't exist yet — the
+	// OpenFile below creates it; the parent-dir fsync makes the
+	// freshly-created directory entry durable on power loss. Reopens
+	// of an existing log skip the fsync — the entry is already
+	// durable from a prior session's creation.
+	_, preStatErr := os.Stat(h.logPath)
+	freshCreate := os.IsNotExist(preStatErr)
+
 	f, err := os.OpenFile(h.logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND|syscall.O_DSYNC, fileMode)
 	if err != nil {
 		return fmt.Errorf("open log %s: %w", h.logPath, err)
+	}
+	if freshCreate {
+		if syncErr := iox.SyncDir(filepath.Dir(h.logPath)); syncErr != nil && h.logger != nil {
+			h.logger.Warn("state: log: dir-fsync after create failed",
+				"path", h.logPath, "err", syncErr)
+		}
 	}
 	var size int64
 	if info, err := f.Stat(); err == nil {
