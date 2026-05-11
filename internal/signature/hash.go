@@ -100,7 +100,7 @@ func LoadOrCreateSalt(path string) ([]byte, error) {
 		}
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return nil, readErr
+			return nil, fmt.Errorf("signature: read salt %s: %w", path, readErr)
 		}
 		if len(data) < SaltLen {
 			return nil, fmt.Errorf("signature: salt file %s too short (%d bytes, need %d)",
@@ -111,7 +111,7 @@ func LoadOrCreateSalt(path string) ([]byte, error) {
 		// Generate fresh and write atomically.
 		return generateAndWriteSalt(path)
 	default:
-		return nil, err
+		return nil, fmt.Errorf("signature: stat salt %s: %w", path, err)
 	}
 }
 
@@ -120,7 +120,7 @@ func LoadOrCreateSalt(path string) ([]byte, error) {
 // bytes.
 func generateAndWriteSalt(path string) ([]byte, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("signature: mkdir salt dir %s: %w", filepath.Dir(path), err)
 	}
 	salt := make([]byte, SaltLen)
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
