@@ -8,18 +8,19 @@ import (
 )
 
 // TestRuntime_IdentifiabilityTickClassifiesKappa pins
-// RULE-CPL-IDENT-WIRING-04: after Update has populated the
-// per-shard regressor window with enough rows, calling the
-// runtime's per-tick classify path MUST compute κ via
-// Window.Kappa and write it through Shard.SetKind. The check is
-// exercised inline (without spawning the per-minute ticker) so the
-// test doesn't have to sleep 60s.
+// RULE-CPL-IDENT-WIRING-04 by driving the production helper
+// Shard.RunIdentificationTick directly. After Update has populated
+// the per-shard regressor window with enough rows, the helper MUST
+// compute κ via Window.Kappa, classify via ClassifyKappa, and write
+// the kind through Shard.SetKind — returning true to indicate the
+// classification ran.
 //
-// We exercise the *internal sequence* the production tick uses
-// (Shard.RegressorWindow → Window.Kappa → ClassifyKappa →
-// Shard.SetKind). Without this wiring Snapshot.Kappa stays at 0
-// and the controller's PI-instability guard's
-// `kappa > 1e4` branch is structurally dead.
+// Pre-#1075 this test replayed the helper sequence inline. After
+// helper-extraction the test now binds against the actual helper,
+// which is the same code path runShardLoop invokes from its
+// identTick.C case. A regression that drops the call from
+// runShardLoop has to actively delete a named-method reference,
+// which is harder to do by accident than removing an inline block.
 func TestRuntime_IdentifiabilityTickClassifiesKappa(t *testing.T) {
 	s, err := New(DefaultConfig("ch1", 0))
 	if err != nil {
@@ -35,61 +36,48 @@ func TestRuntime_IdentifiabilityTickClassifiesKappa(t *testing.T) {
 		}
 	}
 
-	// Same code shape as the production identTick branch.
-	win := s.RegressorWindow()
-	if win == nil {
-		t.Fatal("RegressorWindow returned nil; v0.6.0 wiring broken")
+	// Drive the real production helper directly.
+	if !s.RunIdentificationTick(slog.New(slog.NewTextHandler(io.Discard, nil))) {
+		t.Fatal("RunIdentificationTick returned false on populated window")
 	}
-	if win.Count() < s.Dim() {
-		t.Fatalf("Window.Count()=%d < Dim()=%d after 30 Updates", win.Count(), s.Dim())
-	}
-	kappa := win.Kappa()
-	kind := ClassifyKappa(kappa)
-	s.SetKind(kind, kappa)
 
 	snap := s.Read()
 	if snap == nil {
-		t.Fatal("Read() returned nil after SetKind")
+		t.Fatal("Read() returned nil after RunIdentificationTick")
 	}
-	if snap.Kappa != kappa {
-		t.Errorf("Snapshot.Kappa = %v after SetKind(%v); want %v",
-			snap.Kappa, kappa, kappa)
+	if snap.Kappa <= 0 {
+		t.Errorf("Snapshot.Kappa = %v after RunIdentificationTick; want > 0", snap.Kappa)
 	}
 	// The kind on the published snapshot may still be KindWarmup
 	// because buildSnapshot's warmupComplete gate fires only when
-	// n_samples ≥ 5·d² AND tr(P) ≤ 0.5·tr(P_0) AND κ ≤ 10⁴. At 30
-	// samples we're below 5·4=20-trip-three, but tr(P) may not have
-	// shrunk yet. The load-bearing assertion is that κ was written
-	// through.
+	// n_samples is high enough AND tr(P) ≤ 0.5·tr(P_0) AND κ ≤ 10⁴.
+	// At 30 samples we may not have cleared all three gates. The
+	// load-bearing assertion is that κ was written through.
 	t.Logf("kappa=%v kind=%v warming=%v", snap.Kappa, snap.Kind, snap.WarmingUp)
 }
 
 // TestRuntime_IdentifiabilityTickSkipsWhenWindowEmpty pins the
-// short-circuit: when the window has fewer rows than d, the tick
-// must NOT call Window.Kappa (which returns +Inf, which would
-// classify as KindUnidentifiable and corrupt the snapshot of a
-// shard that's legitimately mid-warmup).
+// short-circuit clause of RunIdentificationTick: when the window
+// has fewer rows than d, the helper MUST return false WITHOUT
+// touching the snapshot's kappa / kind. (Window.Kappa on an empty
+// window returns +Inf, which would classify as KindUnidentifiable
+// and corrupt a shard that's legitimately mid-warmup.)
 func TestRuntime_IdentifiabilityTickSkipsWhenWindowEmpty(t *testing.T) {
 	s, err := New(DefaultConfig("ch1", 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// No Updates → window is empty.
-	win := s.RegressorWindow()
-	if win == nil {
-		t.Fatal("RegressorWindow returned nil")
+	preKappa := float64(0)
+	if snap := s.Read(); snap != nil {
+		preKappa = snap.Kappa
 	}
-	if win.Count() >= s.Dim() {
-		t.Errorf("Window.Count()=%d unexpectedly >= Dim()=%d on fresh shard",
-			win.Count(), s.Dim())
+	if s.RunIdentificationTick(nil) {
+		t.Fatal("RunIdentificationTick on empty window: expected false, got true")
 	}
-	// Production guard: `if win.Count() < s.Dim() { continue }` —
-	// production never reaches SetKind. We mirror that guard here.
-	if win.Count() < s.Dim() {
-		// Skip — production behaviour. Assertion holds.
-		return
+	if snap := s.Read(); snap != nil && snap.Kappa != preKappa {
+		t.Errorf("snapshot kappa mutated on under-populated window: pre=%v post=%v",
+			preKappa, snap.Kappa)
 	}
-	t.Fatal("test invariant broken: fresh shard window should be smaller than Dim")
 }
 
 // TestRuntime_IdentifiabilityTickIntegrationViaRun is a smoke test

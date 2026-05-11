@@ -112,12 +112,20 @@ PI-instability guard never sees the unidentifiability threshold
 Bound: internal/coupling/identifiability_wiring_test.go:TestRuntime_IdentifiabilityTickClassifiesKappa
 Bound: internal/coupling/identifiability_wiring_test.go:TestRuntime_IdentifiabilityTickSkipsWhenWindowEmpty
 
-## RULE-SIG-WIRING-01: Daemon start calls signature.Library.LoadLabels after LoadManifest.
+## RULE-SIG-WIRING-01: Daemon start dispatches the signature warm-restart through the named loadSignatureState helper.
 
-`runDaemonInternal` calls `signature.LoadManifest(state.KV)` and
-then `sigLib.LoadLabels(state.KV, labels)` immediately after the
-SigFactory returns. HitCount, LastSeenUnix, and CurrentEWMA from
-every persisted bucket are restored per RULE-SIG-PERSIST-02.
+`runDaemonInternal` calls `loadSignatureState(sigLib,
+smartMode.State.KV, logger)` (defined in
+`cmd/ventd/smart_builders.go`) immediately after the SigFactory
+returns. The helper reads the persisted manifest, then
+re-hydrates every bucket's HitCount / LastSeenUnix /
+CurrentEWMA per RULE-SIG-PERSIST-02. Audit pass-3 (#1075)
+extracted the helper from main.go's inline LoadManifest +
+LoadLabels block so the rule binding tests the same code path
+the production caller exercises — a regression that drops the
+call site has to actively delete a named-method reference,
+which is much harder to do by accident than removing an inline
+block.
 
 Without this wiring every daemon restart wipes the operator-visible
 workload history (issue #1035 row 11) — even though `Save` /
@@ -125,3 +133,5 @@ workload history (issue #1035 row 11) — even though `Save` /
 read side was never wired.
 
 Bound: cmd/ventd/main_signature_load_test.go:TestSignatureLoadLabels_RestoresPersistedBuckets
+Bound: cmd/ventd/main_signature_load_test.go:TestSignatureLoadLabels_NoManifestIsColdStart
+Bound: cmd/ventd/main_signature_load_test.go:TestSignatureLoadLabels_NilArgsAreNoOp
