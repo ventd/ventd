@@ -58,12 +58,29 @@ import (
 // manifest must not brick the daemon. Nil library or nil KV are
 // clean no-ops so test scaffolding (and pre-smart-mode hosts)
 // proceed unchanged.
+//
+// Before LoadLabels, the helper sweeps the persisted layer via
+// EvictPersistedBefore (RULE-SIG-PERSIST-03) so workloads that
+// haven't fired in PersistedEvictionAge (30 days) never restore
+// into memory — caps long-running-daemon /var/lib/ventd/ growth.
 func loadSignatureState(sigLib *signature.Library, kv *state.KVDB, logger *slog.Logger) {
 	if sigLib == nil || kv == nil {
 		return
 	}
 	if logger == nil {
 		logger = slog.Default()
+	}
+	cutoff := time.Now().Add(-signature.PersistedEvictionAge)
+	if evicted, evictErr := sigLib.EvictPersistedBefore(kv, cutoff); evictErr != nil {
+		// Best-effort: log + continue. The eviction sweep MUST NOT
+		// block warm-restart — a partial sweep that surfaced an
+		// error has still freed some rows; LoadLabels below
+		// continues with whatever survived.
+		logger.Warn("signature: persist-eviction sweep had errors",
+			"evicted", evicted, "err", evictErr)
+	} else if evicted > 0 {
+		logger.Info("signature: persist-eviction sweep dropped stale buckets",
+			"evicted", evicted, "age_days", int(signature.PersistedEvictionAge.Hours())/24)
 	}
 	labels, manifestErr := signature.LoadManifest(kv)
 	if manifestErr != nil {

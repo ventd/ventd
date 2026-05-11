@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	msgpack "github.com/vmihailenco/msgpack/v5"
 )
@@ -12,11 +13,22 @@ import (
 // library. RULE-SIG-PERSIST-01.
 const KVNamespace = "signature"
 
+// PersistedEvictionAge is the default on-disk freshness window for
+// signature buckets. A bucket whose LastSeenUnix is older than now
+// minus this duration is evicted at daemon start via
+// EvictPersistedBefore. 30 days matches the R7 §Q5 weighted-LRU
+// time constant (τ=14 days) doubled — a workload that hasn't fired
+// in a month is functionally gone, and persisting its bucket
+// indefinitely contributes to unbounded state.yaml growth on
+// long-running daemons. RULE-SIG-PERSIST-03.
+const PersistedEvictionAge = 30 * 24 * time.Hour
+
 // kvStore is the spec-16 KV interface this package consumes.
 // Satisfied by *state.KVDB; tests inject a map-backed mock.
 type kvStore interface {
 	Get(namespace, key string) (any, bool, error)
 	Set(namespace, key string, value any) error
+	Delete(namespace, key string) error
 }
 
 // Save persists every bucket in the library to KV. Caller is
@@ -133,4 +145,87 @@ func LoadManifest(kv kvStore) ([]string, error) {
 	default:
 		return nil, errors.New("manifest: unexpected value type")
 	}
+}
+
+// EvictPersistedBefore deletes every persisted bucket whose
+// LastSeenUnix is strictly older than cutoff. Returns the count of
+// rows deleted plus the first error encountered (best-effort
+// sweep — per-row failures do not abort the loop). The manifest
+// is rewritten after the sweep so the survivor list is canonical;
+// a subsequent LoadLabels call restores only the survivors.
+//
+// Buckets that fail to decode (corrupt msgpack payload) are
+// deleted unconditionally — a row we can't read is unrecoverable
+// and counts against the on-disk budget the same as a healthy row.
+//
+// Manifest entries that point at missing KV rows are silently
+// dropped from the rewritten manifest (no error surfaced), since
+// a dangling pointer is the natural cleanup case for an evict-
+// without-manifest-rewrite race.
+//
+// A nil-ish KV (no manifest, no rows) is a clean no-op returning
+// (0, nil). RULE-SIG-PERSIST-03.
+func (lib *Library) EvictPersistedBefore(kv kvStore, cutoff time.Time) (int, error) {
+	labels, err := LoadManifest(kv)
+	if err != nil {
+		return 0, fmt.Errorf("manifest: %w", err)
+	}
+	if len(labels) == 0 {
+		return 0, nil
+	}
+	cutoffUnix := cutoff.Unix()
+	survivors := make([]string, 0, len(labels))
+	deleted := 0
+	var firstErr error
+	for _, label := range labels {
+		raw, ok, getErr := kv.Get(KVNamespace, label)
+		if getErr != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("get %q: %w", label, getErr)
+			}
+			// Don't carry forward an unreadable row's label —
+			// either it's gone or we'll re-discover it on the
+			// next Save.
+			continue
+		}
+		if !ok {
+			// Dangling manifest entry; drop silently.
+			continue
+		}
+		payload, _ := raw.([]byte)
+		if payload == nil {
+			if s, sok := raw.(string); sok {
+				payload = []byte(s)
+			}
+		}
+		var b Bucket
+		if err := msgpack.Unmarshal(payload, &b); err != nil {
+			// Corrupt row — best-effort delete, don't survive.
+			if dErr := kv.Delete(KVNamespace, label); dErr != nil && firstErr == nil {
+				firstErr = fmt.Errorf("delete corrupt %q: %w", label, dErr)
+			}
+			deleted++
+			continue
+		}
+		if b.LastSeenUnix < cutoffUnix {
+			if dErr := kv.Delete(KVNamespace, label); dErr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("delete stale %q: %w", label, dErr)
+				}
+				// Keep in survivors so the next sweep retries.
+				survivors = append(survivors, label)
+				continue
+			}
+			deleted++
+			continue
+		}
+		survivors = append(survivors, label)
+	}
+	if deleted > 0 || len(survivors) != len(labels) {
+		if err := kv.Set(manifestNamespace, manifestKey,
+			strings.Join(survivors, "\n")); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("rewrite manifest: %w", err)
+		}
+	}
+	return deleted, firstErr
 }
