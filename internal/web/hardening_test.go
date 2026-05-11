@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,9 +167,24 @@ func TestHandleSystemReboot_CallsRestoreBeforeReboot(t *testing.T) {
 	// CI container.
 	srv.rebootBlocker = func() string { return "" }
 
-	var order []string
-	srv.SetRebootRestore(func(_ context.Context) { order = append(order, "restore") })
-	srv.rebootExec = func() { order = append(order, "reboot") }
+	var (
+		mu    sync.Mutex
+		order []string
+	)
+	appendOrder := func(v string) {
+		mu.Lock()
+		defer mu.Unlock()
+		order = append(order, v)
+	}
+	snapshotOrder := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		cp := make([]string, len(order))
+		copy(cp, order)
+		return cp
+	}
+	srv.SetRebootRestore(func(_ context.Context) { appendOrder("restore") })
+	srv.rebootExec = func() { appendOrder("reboot") }
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/reboot", nil)
 	w := httptest.NewRecorder()
@@ -183,16 +198,17 @@ func TestHandleSystemReboot_CallsRestoreBeforeReboot(t *testing.T) {
 	// callback. Bounded by 2 s.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(order) == 2 {
+		if len(snapshotOrder()) == 2 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if len(order) != 2 {
-		t.Fatalf("reboot goroutine did not complete; observed=%v", order)
+	final := snapshotOrder()
+	if len(final) != 2 {
+		t.Fatalf("reboot goroutine did not complete; observed=%v", final)
 	}
-	if order[0] != "restore" || order[1] != "reboot" {
-		t.Errorf("ordering wrong: got %v, want [restore reboot] (RULE-HWMON-RESTORE-EXIT)", order)
+	if final[0] != "restore" || final[1] != "reboot" {
+		t.Errorf("ordering wrong: got %v, want [restore reboot] (RULE-HWMON-RESTORE-EXIT)", final)
 	}
 }
 
@@ -250,9 +266,10 @@ func TestHandleSystemReboot_RefusedWithActiveManualOverride(t *testing.T) {
 			{Fan: "cpu fan", Curve: "cpu_curve", ManualPWM: &manual},
 		},
 	}
-	var p atomic.Pointer[config.Config]
-	p.Store(cfg)
-	srv.cfg = &p
+	// Use the existing atomic.Pointer on srv.cfg (the version-test server
+	// already constructed it). Reassigning the field races with the
+	// background runHistorySampler goroutine reading via s.cfg.Load().
+	srv.cfg.Store(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/system/reboot", nil)
 	w := httptest.NewRecorder()
