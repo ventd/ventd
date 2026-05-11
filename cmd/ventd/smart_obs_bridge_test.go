@@ -82,7 +82,7 @@ func makeObsRecord(ts time.Time, pwmPath string, pwm uint8, sigLabel string, tem
 func TestSmartObsBridge_FirstTickSkipsUpdate(t *testing.T) {
 	ch := "/sys/class/hwmon/hwmon0/pwm1"
 	w, couplingRT, marginalRT, _ := newBridgeRuntimes(t, ch)
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	// Single tick — no prior observation for this channel.
 	bridge(makeObsRecord(time.Now(), ch, 100, "sig-1", 50.0))
@@ -107,7 +107,7 @@ func TestSmartObsBridge_FirstTickSkipsUpdate(t *testing.T) {
 func TestSmartObsBridge_SecondTickFeedsLayerB(t *testing.T) {
 	ch := "/sys/class/hwmon/hwmon0/pwm1"
 	w, couplingRT, marginalRT, _ := newBridgeRuntimes(t, ch)
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	now := time.Now()
 	bridge(makeObsRecord(now, ch, 100, "sig-1", 50.0))                    // tick 1: baseline only
@@ -135,7 +135,7 @@ func TestSmartObsBridge_SecondTickFeedsLayerB(t *testing.T) {
 func TestSmartObsBridge_SecondTickFeedsLayerC(t *testing.T) {
 	ch := "/sys/class/hwmon/hwmon0/pwm1"
 	w, couplingRT, marginalRT, _ := newBridgeRuntimes(t, ch)
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	now := time.Now()
 	bridge(makeObsRecord(now, ch, 100, "sig-1", 50.0))                    // tick 1: baseline
@@ -165,7 +165,7 @@ func TestSmartObsBridge_NilRuntimesAreNoOp(t *testing.T) {
 		t.Fatalf("observation.NewWriter: %v", err)
 	}
 
-	bridge := buildSmartObsBridge(w, nil, nil)
+	bridge := buildSmartObsBridge(w, nil, nil, nil)
 
 	// Should not panic, should not error — equivalent to plain
 	// persistence.
@@ -195,7 +195,7 @@ func TestSmartObsBridge_PersistAlwaysHappens(t *testing.T) {
 
 	couplingRT := coupling.NewRuntime(stateDir, "fp-test", silentBridgeLogger())
 	marginalRT := marginal.NewRuntime(stateDir, "fp-test", nil, nil, silentBridgeLogger())
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	// Tick with NO sensor readings — the smart-mode feeds short-
 	// circuit, but persist MUST still happen.
@@ -262,7 +262,7 @@ func TestSmartObsBridge_MultiChannelIndependence(t *testing.T) {
 	chA := "/sys/class/hwmon/hwmon0/pwm1"
 	chB := "/sys/class/hwmon/hwmon0/pwm2"
 	w, couplingRT, marginalRT, _ := newBridgeRuntimes(t, chA, chB)
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	now := time.Now()
 	// chA: two ticks → 1 sample on chA's shard.
@@ -295,7 +295,7 @@ func TestSmartObsBridge_TempUnitMicroseconds(t *testing.T) {
 	// crash on a realistic micros-timestamp (which would happen if
 	// someone wrote UnixNano() in the controller-side emit but the
 	// bridge used UnixMicro — overflow → garbage time).
-	bridge := buildSmartObsBridge(w, couplingRT, marginalRT)
+	bridge := buildSmartObsBridge(w, couplingRT, marginalRT, nil)
 
 	// 2026-05-11T00:00:00Z in microseconds.
 	ts := time.Date(2026, 5, 11, 0, 0, 0, 0, time.UTC)

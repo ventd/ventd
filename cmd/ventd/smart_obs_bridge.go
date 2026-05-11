@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/marginal"
@@ -36,10 +37,11 @@ type channelObsState struct {
 }
 
 // buildSmartObsBridge wraps the buildObsAppend persistence closure
-// with the Layer-B + Layer-C data feed. The returned closure is what
-// SmartModeBundle.ObsAppend is set to in cmd/ventd/main.go.
+// with the Layer-A + Layer-B + Layer-C data feeds. The returned
+// closure is what SmartModeBundle.ObsAppend is set to in
+// cmd/ventd/main.go.
 //
-// Per RULE-CPL-WIRING-04 + RULE-CMB-WIRING-04:
+// Per RULE-CONFA-WIRING-01 + RULE-CPL-WIRING-04 + RULE-CMB-WIRING-04:
 //
 //   - On every controller tick after the first per channel, the
 //     closure calls coupling.Shard(channelID).Update(now, phi, y) with
@@ -81,9 +83,10 @@ func buildSmartObsBridge(
 	obsWriter *observation.Writer,
 	couplingRT *coupling.Runtime,
 	marginalRT *marginal.Runtime,
+	layerAEst *layer_a.Estimator,
 ) func(*controller.ObsRecord) {
 	persist := buildObsAppend(obsWriter)
-	if couplingRT == nil && marginalRT == nil {
+	if couplingRT == nil && marginalRT == nil && layerAEst == nil {
 		return persist
 	}
 
@@ -93,13 +96,35 @@ func buildSmartObsBridge(
 	return func(rec *controller.ObsRecord) {
 		persist(rec)
 
+		now := time.UnixMicro(rec.Ts)
+
+		// Layer-A's Observe is independent of T_prev — it folds PWM
+		// into the per-channel bin histogram (and, when available,
+		// residual sum-of-squares). The bin-coverage advance is what
+		// drives RULE-CONFA-COVERAGE-01 and ultimately the conf_A
+		// four-term product (RULE-CONFA-FORMULA-01). Without this call
+		// coverage stays at 0 forever, conf_A multiplies to 0, and the
+		// aggregator's min-collapse pins w_pred at 0 — the symptom
+		// surfaced as issue #1035 row 1.
+		//
+		// predictedRPM=0 here skips the residual update (Observe's
+		// documented behaviour) but still increments the bin count
+		// — the structural-coverage contribution v0.6.0 needs. A
+		// future PR that threads controller-side predicted RPM at
+		// write time can pass it through unchanged.
+		if layerAEst != nil {
+			layerAEst.Observe(rec.PWMPath, rec.PWMWritten,
+				rec.RPM, 0, now)
+		}
+
 		tNow := maxTempReading(rec.SensorReadings)
 		if math.IsNaN(tNow) {
 			// No usable sensor reading this tick — can't compute a
-			// regressor. Skip without burning the per-channel state.
+			// regressor. Layer-A's Observe above already fired (PWM
+			// coverage is sensor-independent); skip Layer-B/C without
+			// burning per-channel temperature state.
 			return
 		}
-		now := time.UnixMicro(rec.Ts)
 
 		mu.Lock()
 		defer mu.Unlock()

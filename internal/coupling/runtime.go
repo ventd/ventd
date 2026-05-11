@@ -166,16 +166,38 @@ func (r *Runtime) runShardLoop(ctx context.Context, s *Shard) {
 			}
 			return
 		case <-identTick.C:
-			// Identifiability is computed inline by the
-			// caller's window helper; runtime just records
-			// the result. Caller passes via SetKind.
+			// RULE-CPL-IDENT-WIRING-04 + RULE-CPL-IDENT-02 +
+			// RULE-CPL-IDENT-03 — identifiability tick.
 			//
-			// This tick is currently a no-op stub — the
-			// concrete identifiability path lands when
-			// PR-B wires window updates from the controller's
-			// per-tick observation. Today the shard runs
-			// at warmup until n_samples + tr(P) clear; κ
-			// classification awaits that wiring.
+			// Read the per-shard regressor window (populated by
+			// Shard.Update on every controller tick via the v0.6.0
+			// smart_obs_bridge wiring), compute κ via the rolling
+			// ΦᵀΦ condition number, classify via ClassifyKappa, and
+			// write the kind through Shard.SetKind. Co-varying-fan
+			// detection (RULE-CPL-IDENT-03) runs alongside but is
+			// log-only — the v0.5.7 reduced-model uses NCoupled=0
+			// so no pairs are ever found; the call is structural /
+			// forward-compat for v0.7+ when NCoupled rises.
+			win := s.RegressorWindow()
+			if win == nil || win.Count() < s.Dim() {
+				// Not enough samples yet — let the shard's
+				// snapshot continue to report whatever kind
+				// buildSnapshot inferred from the warmup gate
+				// (KindWarmup until n_samples + tr(P) clear).
+				continue
+			}
+			kappa := win.Kappa()
+			kind := ClassifyKappa(kappa)
+			s.SetKind(kind, kappa)
+			if pairs := win.FindCoVaryingPairs(s.NCoupled()); len(pairs) > 0 {
+				r.logger.Info("coupling: co-varying PWM-pair candidates detected",
+					"channel", s.channelID,
+					"pairs", pairs)
+			}
+			r.logger.Debug("coupling: identifiability classified",
+				"channel", s.channelID,
+				"kappa", kappa,
+				"kind", kind)
 		case <-persistTick.C:
 			if err := s.Save(r.stateDir, r.hwmonFingerprint); err != nil {
 				r.logger.Warn("coupling: periodic save failed",
