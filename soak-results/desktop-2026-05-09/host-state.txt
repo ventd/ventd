@@ -1,0 +1,41 @@
+=== smart/ tree ===
+total 12
+drwx------ 3 root root 4096 May  4 03:33 .
+drwxr-x--- 6 root root 4096 May  8 22:52 ..
+drwx------ 2 root root 4096 May  8 22:52 shard-B
+
+=== shard-B contents ===
+total 40
+drwx------ 2 root root 4096 May  8 22:52 .
+drwx------ 3 root root 4096 May  4 03:33 ..
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm1.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm2.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm3.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm4.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm5.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm6.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm7.cbor
+-rw------- 1 root root  157 May  8 22:52 _sys_class_hwmon_hwmon5_pwm8.cbor
+
+=== conf-A contents ===
+ls: cannot access '/var/lib/ventd/smart/conf-A/': No such file or directory
+
+=== shard-C contents ===
+ls: cannot access '/var/lib/ventd/smart/shard-C/': No such file or directory
+
+=== observation log ===
+total 44300
+drwx------ 2 root root     4096 May  8 00:00 .
+drwxr-x--- 6 root root     4096 May  8 22:52 ..
+-rw------- 1 root root 37554498 May  8 22:52 observations.log
+-rw------- 1 root root  1977015 May  8 00:00 observations.log.1.gz
+-rw------- 1 root root  1982019 May  7 00:00 observations.log.2.gz
+-rw------- 1 root root  2075098 May  6 00:00 observations.log.3.gz
+-rw------- 1 root root  1753098 May  5 00:00 observations.log.4.gz
+-rw------- 1 root root        0 May  4 03:32 observations.log.5
+
+=== ventd version + uptime ===
+MainPID=1047244
+ActiveEnterTimestamp=Fri 2026-05-08 10:36:30 UTC
+bash: line 13: /opt/ventd/ventd: No such file or directory
+ventd 0.5.31 (4d343750dd00edb2abbace45c28381ea3157c931) 1778234551
