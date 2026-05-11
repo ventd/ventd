@@ -2,6 +2,7 @@ package signature
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -114,6 +115,13 @@ func TestSalt_RegenerationOnMissingFile(t *testing.T) {
 // TestSalt_RejectsLooseFilePermissions asserts that an existing
 // salt file with mode > 0600 is refused (operator must chmod
 // before daemon start). RULE-SIG-SALT-01.
+//
+// Pass-4 audit S2: also pins the ErrSaltFilePermissionsTooLoose
+// sentinel contract — the test asserts `errors.Is(err,
+// ErrSaltFilePermissionsTooLoose)` not just `err != nil` so the
+// sentinel becomes the documented programmable surface for
+// future callers that want to recover (e.g. an installer that
+// auto-chmods on detection).
 func TestSalt_RejectsLooseFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".signature_salt")
@@ -124,6 +132,9 @@ func TestSalt_RejectsLooseFilePermissions(t *testing.T) {
 	_, err := LoadOrCreateSalt(path)
 	if err == nil {
 		t.Fatal("expected error for mode 0644 salt file")
+	}
+	if !errors.Is(err, ErrSaltFilePermissionsTooLoose) {
+		t.Errorf("LoadOrCreateSalt: expected errors.Is(err, ErrSaltFilePermissionsTooLoose); got %v", err)
 	}
 }
 
