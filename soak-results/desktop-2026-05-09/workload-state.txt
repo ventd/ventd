@@ -1,0 +1,18 @@
+=== tdarr containers / processes ===
+968926 s6-supervise tdarr_node
+1060003 bash -c echo "=== tdarr containers / processes ==="; pgrep -af tdarr | head -5 echo echo "=== ventd uptime + memory ===" echo password | sudo -S systemctl show ventd -p ActiveEnterTimestamp -p MainPID -p MemoryCurrent 2>/dev/null echo echo "=== observation log size now ===" echo password | sudo -S ls -la /var/lib/ventd/logs/observations.log 2>/dev/null echo echo "=== shard-B mtime drift ===" echo password | sudo -S stat -c "%y  %n" /var/lib/ventd/smart/shard-B/*.cbor 2>/dev/null | head echo echo "=== last few opportunistic-related journal lines from ventd ===" echo password | sudo -S journalctl -u ventd --since "6 hours ago" 2>/dev/null | grep -iE "opportunistic|coupling|warmup|admit|gate|skip" | tail -15 echo echo "=== load average ===" uptime
+
+=== ventd uptime + memory ===
+MainPID=1047244
+MemoryCurrent=43024384
+ActiveEnterTimestamp=Fri 2026-05-08 10:36:30 UTC
+
+=== observation log size now ===
+-rw------- 1 root root 2226354 May 10 01:21 /var/lib/ventd/logs/observations.log
+
+=== shard-B mtime drift ===
+
+=== last few opportunistic-related journal lines from ventd ===
+
+=== load average ===
+ 01:21:22 up 7 days, 14:01,  6 users,  load average: 0.00, 0.00, 0.07

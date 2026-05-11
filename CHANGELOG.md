@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.37] - 2026-05-11
+
+### Headline
+
+Smart-mode field-validation fixes — both halves of the RFC #1024 closure: soft-idle gate (time domain) + group-aware OAT (topology domain). Phase C5 HIL evidence on Phoenix's MSI Z690-A (desktop, 26.5 h) and Proxmox host (9.6 h) confirmed v0.5.x's smart-mode pipeline structurally cannot advance under realistic workload: the 600 s sustained-idle durability + tight PSI thresholds closed the opportunistic gate > 99 % of ticks; on the desktop, even with probes firing, the firmware-mirrored 4-fan group would have OAT-rejected every Layer-C admission. v0.5.37 ships both fixes so re-soak can demonstrate convergence on either / both failure modes.
+
+### Changed
+
+- **Default `OpportunisticGate` flips from strict to soft (#1030).** New `IdleGateMode` enum on `OpportunisticGateConfig`; `ModeSoftIdle` is the zero value and the v0.6.0+ default. Single-shot evaluation against relaxed PSI thresholds (`cpu.some avg60 < 10.0 %`, `io.some avg60 < 10.0 %`, mem unchanged at `0.5 %`) and a relaxed loadavg fallback (`0.50 × ncpus` vs strict `0.10 × ncpus`). The 600 s durability loop is dropped — the scheduler's 60 s tick cadence supplies the temporal envelope. Cross-tick IRQ delta detection moves to a caller-owned `IRQBaseline *IRQCounters` that the scheduler initialises once per scheduler-lifetime and passes on every tick. All hard guards remain unchanged in soft mode: hard preconditions (battery / container / scrub / blocked-process / post-resume warmup per RULE-OPP-IDLE-04); process blocklist (RULE-IDLE-06); input-IRQ delta (RULE-OPP-IDLE-02, now uses caller-owned baseline); active-SSH (RULE-OPP-IDLE-03). `ModeStrictIdle` preserves the legacy v0.5.x evaluator. Operator escape hatch via `--strict-idle-gate` on the daemon CLI for hosts where the soft thresholds prove too permissive.
+
+- **`marginal.Runtime.SetPWMGroups([][]string)` makes the Layer-C OAT gate group-aware (#1031).** Declares operationally co-moving channel sets (firmware-mirrored siblings or single-PWM-register fan-out). The OAT gate `oatGate(channelID)` exits early when the candidate other-channel's group key matches the admitting channel's group key — intra-group movement is excluded from the quiet-window check. Channels outside the group still gate normally; cross-channel-interference protection is preserved for genuinely-independent channels. Ungrouped channels act as size-1 groups via the `groupKey()` fallback; the empty-map default preserves exact v0.5.x semantics. The catalog-to-runtime plumbing (`hwdb.BoardProfile.PWMGroups` → `Runtime.SetPWMGroups` via the matcher) lands in a follow-on PR once HIL polarity data on the Z690-A confirms which sysfs channels actually co-move; today the infrastructure is dormant but tested (six dedicated subtests bound to amended RULE-CMB-OAT-01).
+
+### Internals
+
+- New `RULE-OPP-IDLE-SOFT-MODE` in `.claude/rules/opportunistic.md` — bound to six subtests in `internal/idle/opportunistic_test.go` covering the load-bearing single-shot guarantee (< 500 ms wall-clock vs ~600 s strict loop), the soft PSI ceiling refusal, the canonical RFC #1024 "soft admits where strict refuses" case at `cpu.some avg60 = 3 %`, mode-constant pinning (zero-value must stay soft), and the nil-baseline first-call admit branch.
+- `RULE-OPP-IDLE-01` amended — durability constant applies in `ModeStrictIdle` only; constant and strict-mode behaviour preserved as operator escape-hatch contract. `RULE-OPP-IDLE-02` amended + second binding added (soft and strict modes both enforce input-IRQ delta refusal; soft uses caller-owned baseline).
+- `RULE-CMB-OAT-01` amended for the v0.6.0 group-aware form; pre-v0.6 "j ≠ i" form replaced with "j NOT IN i's PWM group". Five new binding subtests under the amended rule cover intra-group co-movement admit, extra-group movement still rejects, ungrouped channels behave as size-1 groups (v0.5.x semantics preserved), single-member groups silently dropped, and SetPWMGroups idempotency.
+
+### Senior review pass
+
+These two pieces land together as Phase A's reference fixes for the v0.6.0 ship-plan smart-mode-convergence question (#1024). Path A unblocks the time domain (probes can fire during workload lulls); Path B unblocks the topology domain (grouped fans don't OAT-reject each other). Either alone leaves one of the two known field hosts stuck. The catalog-side `pwm_groups` data for the Z690-A is the next surface — gated on HIL polarity verdict to author correctly. Re-soak runs against v0.5.37 alone; if convergence happens on Path A alone, Path B's infrastructure stays dormant in production (no behaviour change). If re-soak shows persistent OAT rejection on the Z690-A, the catalog-data follow-on activates Path B's machinery immediately.
+
 ## [v0.5.36] - 2026-05-10
 
 ### Headline

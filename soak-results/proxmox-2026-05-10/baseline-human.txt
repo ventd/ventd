@@ -1,0 +1,50 @@
+channel: /sys/class/hwmon/hwmon3/pwm1
+  hwfp:           95e459395c04…
+  d / n_coupled:  2 / 0
+  n_samples:      0 / 20 [--]
+  tr(P):          2000.000 / 50.000 [--]
+  theta:          [0.0000, 0.0000] [--]
+  lambda:         0.9900
+  last seen:      —
+  verdict:        warming up — no observations yet (excitation gate may still be closed)
+
+channel: /sys/class/hwmon/hwmon3/pwm2
+  hwfp:           95e459395c04…
+  d / n_coupled:  2 / 0
+  n_samples:      0 / 20 [--]
+  tr(P):          2000.000 / 50.000 [--]
+  theta:          [0.0000, 0.0000] [--]
+  lambda:         0.9900
+  last seen:      —
+  verdict:        warming up — no observations yet (excitation gate may still be closed)
+
+channel: /sys/class/hwmon/hwmon3/pwm3
+  hwfp:           95e459395c04…
+  d / n_coupled:  2 / 0
+  n_samples:      0 / 20 [--]
+  tr(P):          2000.000 / 50.000 [--]
+  theta:          [0.0000, 0.0000] [--]
+  lambda:         0.9900
+  last seen:      —
+  verdict:        warming up — no observations yet (excitation gate may still be closed)
+
+channel: /sys/class/hwmon/hwmon3/pwm4
+  hwfp:           95e459395c04…
+  d / n_coupled:  2 / 0
+  n_samples:      0 / 20 [--]
+  tr(P):          2000.000 / 50.000 [--]
+  theta:          [0.0000, 0.0000] [--]
+  lambda:         0.9900
+  last seen:      —
+  verdict:        warming up — no observations yet (excitation gate may still be closed)
+
+channel: /sys/class/hwmon/hwmon3/pwm5
+  hwfp:           95e459395c04…
+  d / n_coupled:  2 / 0
+  n_samples:      0 / 20 [--]
+  tr(P):          2000.000 / 50.000 [--]
+  theta:          [0.0000, 0.0000] [--]
+  lambda:         0.9900
+  last seen:      —
+  verdict:        warming up — no observations yet (excitation gate may still be closed)
+
