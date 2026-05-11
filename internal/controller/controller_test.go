@@ -581,3 +581,32 @@ func TestWriteWithRetry_AppliesPolarityInversion(t *testing.T) {
 		t.Errorf("inverted PWM: got %d, want 55 (255-200)", fb.lastWritten)
 	}
 }
+
+// TestWriteWithRetry_InvertedStepN_HonoursCatalogPWMUnitMax pins issue #1044
+// (controller H1): on step_0_N drivers (e.g. thinkpad_acpi 0..7) an inverted
+// channel writes 255-pwm under the hard-coded-255 bug, producing out-of-range
+// register writes. The fix threads PWMUnitMax from
+// EffectiveControllerProfile.PWMUnitMax through WithCalibration; this test
+// pins the math at the writeWithRetry boundary with pwmUnitMax=7.
+func TestWriteWithRetry_InvertedStepN_HonoursCatalogPWMUnitMax(t *testing.T) {
+	ff := newFakeFan(t)
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	c.calCh = &hwdb.ChannelCalibration{PolarityInverted: true}
+	c.pwmUnitMax = 7 // thinkpad_acpi-like step_0_7 driver
+
+	fb := &fakeErrBackend{}
+	c.backend = fb
+
+	ch := hal.Channel{ID: ff.pwmPath}
+	// Logical PWM=3 on an inverted step_0_7 channel must produce
+	// physical write of 7-3=4. Pre-fix (pwmUnitMax=255) the write was
+	// 255-3=252 — invalid for a register that accepts 0..7.
+	err := c.writeWithRetry(ch, 3, ff.pwmPath, "curve")
+	if err != nil {
+		t.Fatalf("writeWithRetry returned unexpected error: %v", err)
+	}
+	if fb.lastWritten != 4 {
+		t.Errorf("inverted step_0_7 PWM: got %d, want 4 (7-3)", fb.lastWritten)
+	}
+}

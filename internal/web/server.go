@@ -158,6 +158,21 @@ type Server struct {
 	// detection logic.
 	rebootBlocker func() string
 
+	// rebootRestore is invoked before handleSystemReboot fires
+	// systemctl reboot so the watchdog hands every controlled
+	// channel back to firmware auto BEFORE the kernel-init sequence
+	// kicks in (issue #1064 / RULE-HWMON-RESTORE-EXIT + RULE-WD-
+	// RESTORE-BUDGET). Production wires this to watchdog.RestoreCtx
+	// via SetRebootRestore; tests can swap a stub to observe ordering
+	// without touching real sysfs. Nil-safe: a nil hook is skipped.
+	rebootRestore func(ctx context.Context)
+
+	// rebootExec is the test seam that runs the actual systemctl /
+	// reboot command after the watchdog Restore. Production uses
+	// exec.Command via runRebootCommands; tests can swap a stub to
+	// observe call ordering. Nil falls back to runRebootCommands.
+	rebootExec func()
+
 	// kvWiper is called by handleSetupReset to wipe the wizard and probe
 	// KV namespaces so the next daemon start treats the system as freshly
 	// installed (RULE-PROBE-09). Nil in tests that don't need KV teardown;
@@ -564,6 +579,15 @@ func (s *Server) loadPolarityChannels() []*probe.ControllableChannel {
 	}
 	return nil
 }
+
+// SetRebootRestore installs the watchdog-restore hook called before
+// systemctl reboot fires. Issue #1064 / RULE-HWMON-RESTORE-EXIT: the
+// pre-reboot path MUST hand every controlled channel back to firmware
+// auto before the kernel-init sequence so a slow systemd shutdown
+// doesn't leave fans at the daemon's last manual-mode write. Nil-safe:
+// a nil hook is skipped (legacy behaviour for callers that don't pass a
+// watchdog).
+func (s *Server) SetRebootRestore(fn func(ctx context.Context)) { s.rebootRestore = fn }
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that
@@ -1427,21 +1451,35 @@ func (s *Server) handleSetupApplyMonitorOnly(w http.ResponseWriter, r *http.Requ
 
 // handleSetupReset POST /api/setup/reset
 // Deletes the config file and triggers a daemon restart, returning to first-boot mode.
+//
+// Issue #1063 (web H2): order is KV-wipe FIRST, then config delete. The
+// previous order left the config wiped while stale wizard / probe /
+// calibration KV state persisted on disk — on next start the daemon
+// hit the wizard with stale outcomes the operator just tried to clear.
+// If kvWiper fails we now return 500 with the error so the operator
+// knows the reset is half-done rather than seeing a misleading "ok".
 func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// 1. Wipe the wizard and probe KV namespaces FIRST so RULE-PROBE-09
+	// is honoured even if the subsequent config delete fails.
+	if s.kvWiper != nil {
+		if err := s.kvWiper(); err != nil {
+			s.logger.Error("setup reset: kv wipe failed; config NOT removed",
+				"err", err)
+			http.Error(w, "kv wipe failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	// 2. Now remove the config file. A failure here leaves us with
+	// stale config + wiped KV — the next daemon start re-runs the
+	// wizard cleanly (config-empty path), so this is the recoverable
+	// failure ordering.
 	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
 		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-	// Wipe the wizard and probe KV namespaces so the next daemon start
-	// treats this system as freshly installed (RULE-PROBE-09).
-	if s.kvWiper != nil {
-		if err := s.kvWiper(); err != nil {
-			s.logger.Warn("setup reset: kv wipe failed", "err", err)
-		}
 	}
 	// Clear the persistent applied-marker so a host that opted into
 	// monitor-only via handleSetupApply's empty-fanset escape goes back
@@ -1489,16 +1527,22 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	// 1. Config file.
+	// Issue #1063 (web H2): KV wipe FIRST, then config delete. A kvWiper
+	// failure now returns 500 so the operator knows the reset is
+	// half-done; the previous order left the config wiped while stale
+	// wizard / probe / polarity records persisted on disk.
+	if s.kvWiper != nil {
+		if err := s.kvWiper(); err != nil {
+			s.logger.Error("factory reset: kv wipe failed; config + auth NOT removed",
+				"err", err)
+			http.Error(w, "kv wipe failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	// Config file.
 	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
 		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-	// 2. KV namespaces.
-	if s.kvWiper != nil {
-		if err := s.kvWiper(); err != nil {
-			s.logger.Warn("factory reset: kv wipe failed", "err", err)
-		}
 	}
 	// 3. Applied marker.
 	if err := s.setup.ClearApplied(); err != nil {
@@ -1607,10 +1651,18 @@ func rebootEnvironmentBlocker() string {
 // Sends a response immediately then issues a system reboot.
 // Used after the setup wizard auto-patches GRUB and needs a reboot to continue.
 //
-// Refuses with 409 Conflict when the daemon is running in an environment
-// where "reboot the host" isn't the right action — containers, LXC, WSL,
-// anywhere ventd is PID 1. The wizard surfaces the body verbatim so the
-// user sees a human explanation, not a stdlib error string.
+// Refuses with 409 Conflict when:
+//   - The daemon is running in an environment where "reboot the host" isn't
+//     the right action — containers, LXC, WSL, anywhere ventd is PID 1.
+//   - At least one fan is pinned via a manual-override Control.ManualPWM
+//     entry. Rebooting while an operator-pinned manual override is in flight
+//     would silently discard that intent.
+//
+// Issue #1064 (web H3): the reboot goroutine now runs with defer recover()
+// so a panic in exec.Command doesn't leave the daemon in an inconsistent
+// state with no diagnostic surface; it calls the watchdog Restore hook with
+// RULE-WD-RESTORE-BUDGET (1.8s) before invoking systemctl so fans are
+// handed back to BIOS auto before the kernel-init sequence kicks in.
 func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1625,30 +1677,93 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reboot not supported in this environment: "+reason, http.StatusConflict)
 		return
 	}
+	// Refuse the reboot if the operator has any active manual-mode override
+	// pinned in config. The wizard's auto-reboot path should never silently
+	// discard an operator-pinned PWM value mid-flight; surface a 409 so the
+	// UI can render an explanation.
+	if names := activeManualOverrides(s.cfg.Load()); len(names) > 0 {
+		reason := "active manual-mode override on fan(s): " + strings.Join(names, ", ")
+		s.logger.Warn("web: system reboot refused", "reason", reason)
+		http.Error(w, "reboot refused while manual override is active: "+reason, http.StatusConflict)
+		return
+	}
 	s.logger.Info("web: system reboot requested via setup wizard")
 	s.writeJSON(r, w, map[string]string{"status": "rebooting"})
 	// Flush the response before rebooting so the browser receives it.
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
+	restore := s.rebootRestore
+	rebootFn := s.rebootExec
+	if rebootFn == nil {
+		rebootFn = runRebootCommands
+	}
 	go func() {
+		// Issue #1064: recover any panic inside the reboot goroutine.
+		// The HTTP handler has already replied "rebooting"; without this
+		// recover an exec.Command panic would kill the goroutine while
+		// the daemon's other state pointed at "reboot in flight".
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.logger.Error("web: reboot goroutine panicked; daemon survives",
+					"panic", rec)
+			}
+		}()
 		// Ctx-aware delay so daemon shutdown isn't blocked by a pending reboot dispatch.
 		select {
 		case <-time.After(300 * time.Millisecond):
 		case <-s.ctx.Done():
 			return
 		}
-		// Try init-system reboot commands in order. All of these go through a
-		// proper shutdown sequence that syncs filesystems before rebooting.
-		for _, cmd := range [][]string{
-			{"systemctl", "reboot"}, // systemd
-			{"reboot"},              // OpenRC / runit / generic
-		} {
-			if err := exec.Command(cmd[0], cmd[1:]...).Run(); err == nil {
-				return
-			}
+		// Pre-reboot Restore: hand every controlled channel back to BIOS
+		// auto BEFORE invoking systemctl, with the RULE-WD-RESTORE-BUDGET
+		// 1.8s budget so a wedged sysfs write on one fan doesn't stall the
+		// reboot indefinitely. Nil-safe in tests + legacy callers.
+		if restore != nil {
+			rctx, cancel := context.WithTimeout(context.Background(), 1800*time.Millisecond)
+			restore(rctx)
+			cancel()
 		}
+		rebootFn()
 	}()
+}
+
+// runRebootCommands is the production reboot-exec hook. Tries systemd
+// first, then the generic `reboot` binary; both go through a proper
+// shutdown sequence that syncs filesystems.
+func runRebootCommands() {
+	for _, cmd := range [][]string{
+		{"systemctl", "reboot"},
+		{"reboot"},
+	} {
+		if err := execCmdRun(cmd[0], cmd[1:]...); err == nil {
+			return
+		}
+	}
+}
+
+// execCmdRun wraps exec.Command(...).Run() so tests can intercept the
+// command-spawn behaviour without monkey-patching the stdlib. Production
+// uses exec.Command directly.
+var execCmdRun = func(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
+}
+
+// activeManualOverrides returns the names of fans pinned to a manual PWM
+// value via Control.ManualPWM in the live config. Used by the reboot
+// path to refuse reboots that would silently discard an operator's
+// manual-mode intent.
+func activeManualOverrides(cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var names []string
+	for _, ctrl := range cfg.Controls {
+		if ctrl.ManualPWM != nil {
+			names = append(names, ctrl.Fan)
+		}
+	}
+	return names
 }
 
 // handleDetectRPM POST /api/detect-rpm?fan=<pwmPath>
@@ -1713,6 +1828,76 @@ type installLogResponse struct {
 	RebootMessage string   `json:"reboot_message,omitempty"`
 }
 
+// validateInstallRequest enforces method + body shape on every install
+// handler routed through runInstallHandler. Issue #1062 (web H1): the
+// previous shape accepted any non-empty body without validating
+// Content-Type or rejecting unknown fields, so a malformed JSON payload
+// silently fell through to defaults (typically guessInstalledOOTModule
+// for reset/reinstall, or the canonical acpi_enforce_resources=lax for
+// grub-cmdline-add). The operator UI showed success even though the
+// payload it sent was discarded.
+//
+// Now: when the request carries a body, Content-Type MUST start with
+// "application/json" (parameters like charset are allowed) and dst (if
+// non-nil) MUST decode cleanly with DisallowUnknownFields. Any failure
+// returns a 400 to the caller — no silent fall-through.
+//
+// dst is optional: handlers that don't accept a body pass nil and an
+// empty / missing body is accepted. The body cap is enforced upstream by
+// requireMaxBody (RULE-WEB-BODY-SIZE-CAP-1MIB).
+func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	if r.Body == nil || r.ContentLength == 0 {
+		// No body — handlers that accept an optional payload fall
+		// through to their default values.
+		return true
+	}
+	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
+	if ct == "" {
+		http.Error(w, "Content-Type required when body is present", http.StatusBadRequest)
+		return false
+	}
+	if mediaType := strings.SplitN(ct, ";", 2)[0]; strings.TrimSpace(mediaType) != "application/json" {
+		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		return false
+	}
+	if dst == nil {
+		// Handler doesn't accept any fields, but the caller sent a body.
+		// Tolerate empty `{}`; refuse anything else as malformed input
+		// rather than silently discarding it.
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		var probe map[string]any
+		if err := dec.Decode(&probe); err != nil {
+			if isMaxBytesErr(err) {
+				http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+				return false
+			}
+			http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+			return false
+		}
+		if len(probe) != 0 {
+			http.Error(w, "this endpoint does not accept any body fields", http.StatusBadRequest)
+			return false
+		}
+		return true
+	}
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		if isMaxBytesErr(err) {
+			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
 // runInstallHandler is the common body for server-side package installs.
 // It invokes fn with a logFn that appends to the returned log, formats the
 // response consistently, and clears the corresponding hwdiag entry on success.
@@ -1736,7 +1921,13 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 
 // handleInstallKernelHeaders POST /api/hwdiag/install-kernel-headers
 // Installs the distro's kernel-headers package for the running kernel.
+// No body fields are accepted (issue #1062): a request that carries
+// a body of any shape MUST present Content-Type: application/json AND
+// MUST contain an empty JSON object — anything else returns 400.
 func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
+	if !validateInstallRequest(w, r, nil) {
+		return
+	}
 	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
 }
 
@@ -1754,17 +1945,19 @@ func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Reque
 //
 // Body: optional {"module": "it87"}; empty falls through to
 // guessInstalledOOTModule which inspects /lib/modules/.../extra/.
+//
+// Issue #1062 (web H1): when a body is present it MUST be valid JSON
+// with the documented `module` field; a malformed body returns 400
+// rather than silently falling through to guessInstalledOOTModule.
 func (s *Server) handleResetAndReinstall(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Module string `json:"module"`
+	}
+	if !validateInstallRequest(w, r, &body) {
+		return
+	}
+	module := strings.TrimSpace(body.Module)
 	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
-		module := ""
-		if r.Body != nil && r.ContentLength > 0 {
-			var body struct {
-				Module string `json:"module"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-				module = body.Module
-			}
-		}
 		if module == "" {
 			module = guessInstalledOOTModule()
 		}
@@ -1854,14 +2047,18 @@ func execOutput(name string, args ...string) string {
 // shell-special chars so a future caller-controlled input source
 // can't trigger shell injection in /etc/default/grub.
 func (s *Server) handleGrubCmdlineAdd(w http.ResponseWriter, r *http.Request) {
-	param := "acpi_enforce_resources=lax"
-	if r.Body != nil && r.ContentLength > 0 {
-		var body struct {
-			Param string `json:"param"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.Param != "" {
-			param = body.Param
-		}
+	// Issue #1062 (web H1): validate body shape explicitly; a malformed
+	// payload returns 400 rather than silently falling through to the
+	// canonical acpi_enforce_resources=lax default.
+	var body struct {
+		Param string `json:"param"`
+	}
+	if !validateInstallRequest(w, r, &body) {
+		return
+	}
+	param := strings.TrimSpace(body.Param)
+	if param == "" {
+		param = "acpi_enforce_resources=lax"
 	}
 	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
 		logFn("Writing GRUB drop-in to " + grub.DropInPath)
@@ -1954,6 +2151,9 @@ func (s *Server) handleModprobeOptionsWrite(w http.ResponseWriter, r *http.Reque
 // installLogResponse shape as the install endpoints so the UI can
 // render the parser output uniformly.
 func (s *Server) handleLoadAppArmor(w http.ResponseWriter, r *http.Request) {
+	if !validateInstallRequest(w, r, nil) {
+		return
+	}
 	s.runInstallHandler(w, r, "", loadAppArmorProfile)
 }
 
@@ -1996,7 +2196,11 @@ func loadAppArmorProfile(log func(string)) error {
 
 // handleInstallDKMS POST /api/hwdiag/install-dkms
 // Installs the distro's dkms package so OOT modules survive kernel upgrades.
+// Body is rejected (issue #1062): this endpoint takes no fields.
 func (s *Server) handleInstallDKMS(w http.ResponseWriter, r *http.Request) {
+	if !validateInstallRequest(w, r, nil) {
+		return
+	}
 	s.runInstallHandler(w, r, hwdiag.IDOOTDKMSMissing, hwmon.EnsureDKMS)
 }
 
