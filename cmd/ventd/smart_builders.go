@@ -35,9 +35,53 @@ import (
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
+	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/state"
 	"github.com/ventd/ventd/internal/sysclass"
 )
+
+// loadSignatureState restores the persisted signature library from
+// KV at daemon start. It is the helper extracted from
+// runDaemonInternal (audit pass-3 #1075) so the rule-binding test
+// for RULE-SIG-WIRING-01 exercises the same code path production
+// runs — not a replayed LoadManifest + LoadLabels sequence in
+// isolation. A regression that drops the call site has to delete a
+// named-method reference, which is much harder to do by accident
+// than removing an inline block.
+//
+// RULE-SIG-WIRING-01 + RULE-SIG-PERSIST-02: read the persisted
+// manifest, then re-hydrate every bucket's HitCount /
+// LastSeenUnix / CurrentEWMA so a daemon restart preserves the
+// operator-visible workload history (issue #1035 row 11).
+//
+// Failures degrade to cold-start with a WARN log; a corrupted
+// manifest must not brick the daemon. Nil library or nil KV are
+// clean no-ops so test scaffolding (and pre-smart-mode hosts)
+// proceed unchanged.
+func loadSignatureState(sigLib *signature.Library, kv *state.KVDB, logger *slog.Logger) {
+	if sigLib == nil || kv == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	labels, manifestErr := signature.LoadManifest(kv)
+	if manifestErr != nil {
+		logger.Warn("signature: LoadManifest failed; cold start", "err", manifestErr)
+		return
+	}
+	if len(labels) == 0 {
+		logger.Info("signature: no persisted labels; cold start")
+		return
+	}
+	if loadErr := sigLib.LoadLabels(kv, labels); loadErr != nil {
+		logger.Warn("signature: LoadLabels failed; cold start",
+			"labels", len(labels), "err", loadErr)
+		return
+	}
+	logger.Info("signature: library warm-restarted from KV",
+		"labels", len(labels))
+}
 
 // daemon's runtime state. Returns nil when there are no controllable
 // channels (monitor-only mode); the daemon then never starts the

@@ -19,6 +19,7 @@ package coupling
 
 import (
 	"errors"
+	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -398,6 +399,46 @@ func (s *Shard) warmupComplete(tr float64) bool {
 // nil-check). RULE-CPL-RUNTIME-02.
 func (s *Shard) Read() *Snapshot {
 	return s.snapshot.Load()
+}
+
+// RunIdentificationTick performs one identifiability classification
+// pass on this shard: read the regressor window, compute κ via
+// Window.Kappa, classify via ClassifyKappa, and write the kind via
+// SetKind. Logs co-varying PWM-pair candidates at INFO when the
+// reduced-model NCoupled is > 0 and pairs are detected.
+//
+// Returns true when the window had enough rows (≥ Dim()) to compute
+// κ; false when under-populated — in that case the shard's snapshot
+// kind comes from buildSnapshot's warmup-gate inference, unchanged.
+//
+// `internal/coupling/runtime.go::runShardLoop`'s per-minute
+// `identTick.C` case calls this exactly once; the rule contract
+// (RULE-CPL-IDENT-WIRING-04) names the helper as the dispatch
+// surface so a refactor that drops the call site from runShardLoop
+// requires actively deleting a named-method call rather than an
+// inline block.
+//
+// `logger` may be nil (tests).
+func (s *Shard) RunIdentificationTick(logger *slog.Logger) bool {
+	win := s.RegressorWindow()
+	if win == nil || win.Count() < s.Dim() {
+		return false
+	}
+	kappa := win.Kappa()
+	kind := ClassifyKappa(kappa)
+	s.SetKind(kind, kappa)
+	if logger != nil {
+		if pairs := win.FindCoVaryingPairs(s.NCoupled()); len(pairs) > 0 {
+			logger.Info("coupling: co-varying PWM-pair candidates detected",
+				"channel", s.channelID,
+				"pairs", pairs)
+		}
+		logger.Debug("coupling: identifiability classified",
+			"channel", s.channelID,
+			"kappa", kappa,
+			"kind", kind)
+	}
+	return true
 }
 
 // _ keeps math imported for future use; the bounded-covariance

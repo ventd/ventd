@@ -334,6 +334,27 @@ func (m *Manager) SetCalibrationCompleteFn(fn func(time.Time)) {
 	m.mu.Unlock()
 }
 
+// fireCalibrationComplete invokes the registered calibration-complete
+// hook with the given wall-clock. Manager.run calls this from the
+// post-phantom-verify / pre-finalising transition; the rule contract
+// (RULE-AGG-WIRING-01) names the helper as the dispatch surface so a
+// refactor that drops the call site from Manager.run requires actively
+// deleting a named-method call rather than the inline read-and-invoke
+// pattern that used to live there.
+//
+// Locking semantics match the original inline shape: read the field
+// under m.mu, release the lock, invoke without holding the lock so a
+// slow hook can't block other Manager operations. A nil hook is a
+// clean no-op. (#1075)
+func (m *Manager) fireCalibrationComplete(at time.Time) {
+	m.mu.Lock()
+	fn := m.calibrationCompleteFn
+	m.mu.Unlock()
+	if fn != nil {
+		fn(at)
+	}
+}
+
 // New creates a Manager with the production sysfs/procfs path roots. NVML
 // lifecycle is managed via the refcount-safe nvidia.Init/Shutdown pair;
 // setup does not need to know whether the daemon already initialised NVML.
@@ -1411,13 +1432,9 @@ func (m *Manager) run(ctx context.Context, release func()) {
 	// (RULE-AGG-COLDSTART-01) anchors at a real wall-clock. The
 	// callback is set by cmd/ventd/main.go to bind aggregator
 	// .SetEnvelopeCDoneAt; nil = no aggregator wired and the call is
-	// a no-op (tests, monitor-only).
-	m.mu.Lock()
-	calComplete := m.calibrationCompleteFn
-	m.mu.Unlock()
-	if calComplete != nil {
-		calComplete(time.Now())
-	}
+	// a no-op (tests, monitor-only). Single named-method dispatch
+	// per #1075 — see fireCalibrationComplete's contract above.
+	m.fireCalibrationComplete(time.Now())
 
 	// Signal the UI that calibration is done and we're generating the config.
 	// Without this the UI appears frozen while gatherProfile/buildConfig run.

@@ -166,38 +166,16 @@ func (r *Runtime) runShardLoop(ctx context.Context, s *Shard) {
 			}
 			return
 		case <-identTick.C:
-			// RULE-CPL-IDENT-WIRING-04 + RULE-CPL-IDENT-02 +
-			// RULE-CPL-IDENT-03 — identifiability tick.
-			//
-			// Read the per-shard regressor window (populated by
-			// Shard.Update on every controller tick via the v0.6.0
-			// smart_obs_bridge wiring), compute κ via the rolling
-			// ΦᵀΦ condition number, classify via ClassifyKappa, and
-			// write the kind through Shard.SetKind. Co-varying-fan
-			// detection (RULE-CPL-IDENT-03) runs alongside but is
-			// log-only — the v0.5.7 reduced-model uses NCoupled=0
-			// so no pairs are ever found; the call is structural /
-			// forward-compat for v0.7+ when NCoupled rises.
-			win := s.RegressorWindow()
-			if win == nil || win.Count() < s.Dim() {
-				// Not enough samples yet — let the shard's
-				// snapshot continue to report whatever kind
-				// buildSnapshot inferred from the warmup gate
-				// (KindWarmup until n_samples + tr(P) clear).
-				continue
-			}
-			kappa := win.Kappa()
-			kind := ClassifyKappa(kappa)
-			s.SetKind(kind, kappa)
-			if pairs := win.FindCoVaryingPairs(s.NCoupled()); len(pairs) > 0 {
-				r.logger.Info("coupling: co-varying PWM-pair candidates detected",
-					"channel", s.channelID,
-					"pairs", pairs)
-			}
-			r.logger.Debug("coupling: identifiability classified",
-				"channel", s.channelID,
-				"kappa", kappa,
-				"kind", kind)
+			// RULE-CPL-IDENT-WIRING-04 — single named-method
+			// dispatch into the identifiability tick. The body of
+			// the tick lives on the shard (Shard.RunIdentificationTick)
+			// so the rule binding tests the same code path the
+			// production caller exercises, rather than replaying the
+			// helper sequence in isolation. A regression that drops
+			// this call site has to actively delete a named-method
+			// reference, which is much harder to do by accident than
+			// deleting an inline block. (#1075)
+			s.RunIdentificationTick(r.logger)
 		case <-persistTick.C:
 			if err := s.Save(r.stateDir, r.hwmonFingerprint); err != nil {
 				r.logger.Warn("coupling: periodic save failed",

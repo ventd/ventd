@@ -1090,27 +1090,13 @@ func runDaemonInternal(
 		sigLib = smartMode.SigFactory(&liveCfg)
 	}
 	if sigLib != nil && smartMode.State != nil {
-		// RULE-SIG-WIRING-01 + RULE-SIG-PERSIST-02: restore the
-		// persisted bucket state from KV at daemon start so HitCount,
-		// LastSeenUnix, and CurrentEWMA survive a restart. Without this
-		// every daemon restart wipes the operator-visible workload
-		// history (issue #1035 row 11) — even though Save / SaveManifest
-		// were running on the 60s persistence ticker.
-		labels, manifestErr := signature.LoadManifest(smartMode.State.KV)
-		if manifestErr != nil {
-			logger.Warn("signature: LoadManifest failed; cold start",
-				"err", manifestErr)
-		} else if len(labels) > 0 {
-			if loadErr := sigLib.LoadLabels(smartMode.State.KV, labels); loadErr != nil {
-				logger.Warn("signature: LoadLabels failed; cold start",
-					"labels", len(labels), "err", loadErr)
-			} else {
-				logger.Info("signature: library warm-restarted from KV",
-					"labels", len(labels))
-			}
-		} else {
-			logger.Info("signature: no persisted labels; cold start")
-		}
+		// RULE-SIG-WIRING-01 — single named-method dispatch into the
+		// signature warm-restart path. The body of the read sequence
+		// lives in loadSignatureState (smart_builders.go) so the rule
+		// binding tests the same code path the production caller
+		// exercises, rather than replaying LoadManifest + LoadLabels in
+		// isolation. (#1075)
+		loadSignatureState(sigLib, smartMode.State.KV, logger)
 
 		sigCtx, sigCancel := context.WithCancel(ctx)
 		defer sigCancel()
