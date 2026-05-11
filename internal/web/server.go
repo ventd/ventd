@@ -170,8 +170,14 @@ type Server struct {
 	// Without this, an inverted-polarity fan flipped MaxPWM→MinPWM
 	// (effectively turning the fan OFF) when the operator clicked the
 	// panic button — the opposite of the safety intent. Issue #1037.
-	// nil in tests that don't wire panic-mode hwmon writes.
-	polarityChannels []*probe.ControllableChannel
+	//
+	// Stored via atomic.Pointer so the daemon-startup SetPolarityChannels
+	// call cannot race the SSE / handler goroutines that loop the slice
+	// during panic handling. nil-load (no panicked write site has been
+	// wired) returns an empty slice via the load-helper; tests that
+	// don't supply channels read empty and skip the polarity-aware
+	// branch in handlePanic.
+	polarityChannels atomic.Pointer[[]*probe.ControllableChannel]
 }
 
 // New constructs the web server. authPath is the path to auth.json; pass ""
@@ -532,8 +538,31 @@ func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
 // MaxPWM→MinPWM (effectively turning OFF) when the operator clicked
 // the PANIC, MAX COOLING button — the opposite of the safety intent.
 // nil-safe for tests. Issue #1037.
+//
+// atomic.Pointer store; safe to call from any goroutine and at any
+// point in the server lifecycle. Production callers wire this once at
+// daemon-startup; the API exists for future post-wizard re-probe
+// reconfiguration so the lock-free reads are right by construction.
 func (s *Server) SetPolarityChannels(channels []*probe.ControllableChannel) {
-	s.polarityChannels = channels
+	if channels == nil {
+		// Store an empty slice so the load helper never returns a
+		// nil pointer; readers iterate the empty slice with no
+		// special-case branch.
+		empty := []*probe.ControllableChannel{}
+		s.polarityChannels.Store(&empty)
+		return
+	}
+	s.polarityChannels.Store(&channels)
+}
+
+// loadPolarityChannels is the lock-free read side. Returns an empty
+// slice when SetPolarityChannels hasn't fired yet (tests, pre-wizard
+// daemon-startup window).
+func (s *Server) loadPolarityChannels() []*probe.ControllableChannel {
+	if p := s.polarityChannels.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and

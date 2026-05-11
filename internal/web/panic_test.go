@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,9 +214,10 @@ func TestPanic_InvertedPolarityWritesZero(t *testing.T) {
 		Name: "cpu", Type: "hwmon", PWMPath: pwmPath,
 		MinPWM: 0, MaxPWM: 255,
 	}}
-	var live atomic.Pointer[config.Config]
-	live.Store(cfg)
-	srv.cfg = &live
+	// Store cfg through srv.cfg.Store rather than re-assigning the
+	// atomic.Pointer field — field is concurrently read by background
+	// goroutines started inside newVersionTestServer.
+	srv.cfg.Store(cfg)
 
 	// Polarity channel: inverted.
 	srv.SetPolarityChannels([]*probe.ControllableChannel{{
@@ -256,9 +256,10 @@ func TestPanic_NormalPolarityWritesMaxPWM(t *testing.T) {
 		Name: "cpu", Type: "hwmon", PWMPath: pwmPath,
 		MinPWM: 0, MaxPWM: 255,
 	}}
-	var live atomic.Pointer[config.Config]
-	live.Store(cfg)
-	srv.cfg = &live
+	// Store cfg through srv.cfg.Store rather than re-assigning the
+	// atomic.Pointer field — field is concurrently read by background
+	// goroutines started inside newVersionTestServer.
+	srv.cfg.Store(cfg)
 	srv.SetPolarityChannels([]*probe.ControllableChannel{{
 		PWMPath:  pwmPath,
 		Polarity: "normal",

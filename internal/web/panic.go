@@ -23,7 +23,7 @@ import (
 // SetPolarityChannels was never wired — callers fall back to the raw
 // byte write.
 func (s *Server) findPolarityChannelForFan(pwmPath string) *probe.ControllableChannel {
-	for _, ch := range s.polarityChannels {
+	for _, ch := range s.loadPolarityChannels() {
 		if ch != nil && ch.PWMPath == pwmPath {
 			return ch
 		}
