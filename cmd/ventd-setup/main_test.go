@@ -17,20 +17,36 @@ func silentLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// TestRun_HappyPath_DispatchesAndWritesNotImplResult — Phase A's
-// dispatcher has no registered handlers, so every operation falls
-// through to ErrOperationNotImpl. The binary should still exit 0
-// (request was syntactically valid and dispatched cleanly) and the
-// result file should carry OK=false + the not-impl error.
-func TestRun_HappyPath_DispatchesAndWritesNotImplResult(t *testing.T) {
+// TestRun_UnregisteredOperation_WritesNotImplResult — operations
+// without a registered handler fall through to ErrOperationNotImpl.
+// The binary should still exit 0 (request was syntactically valid
+// and dispatched cleanly) and the result file should carry
+// OK=false + the not-impl error.
+//
+// The test picks OpPatchKernelParam because it has no handler today
+// (only OpLoadModule and OpUnloadModule are registered in main.go's
+// dispatcher build). The LoadModule / UnloadModule happy-paths are
+// exercised hermetically in internal/setupbroker/handlers/
+// {load,unload}_module_test.go; this test guards the dispatcher's
+// fallthrough contract, not any handler's happy path.
+//
+// Pre-#1095 this test sent OpLoadModule and asserted OK=false on
+// the grounds that "Phase A has no handlers" — true when the test
+// was written but invalidated when LoadModuleHandler shipped. On
+// dev hosts that happen to have the requested module already
+// loadable (e.g. nct6687 on a board that supports it) the real
+// /sbin/modprobe call inside RealLoadModuleDeps would succeed and
+// flip OK to true. Switching to an un-registered op restores the
+// fallthrough contract without needing a deps-injection refactor.
+func TestRun_UnregisteredOperation_WritesNotImplResult(t *testing.T) {
 	dir := t.TempDir()
 	reqPath := filepath.Join(dir, "request.json")
 	resPath := filepath.Join(dir, "result.json")
 
 	req := setupbroker.Request{
 		SchemaVersion: setupbroker.SchemaVersion,
-		Operation:     setupbroker.OpLoadModule,
-		Params:        json.RawMessage(`{"module":"nct6687"}`),
+		Operation:     setupbroker.OpPatchKernelParam,
+		Params:        json.RawMessage(`{}`),
 		Audit: setupbroker.Audit{
 			WizardSessionID: "test-session",
 			RequestedBy:     "test@harness",
@@ -54,13 +70,13 @@ func TestRun_HappyPath_DispatchesAndWritesNotImplResult(t *testing.T) {
 		t.Fatalf("decode result: %v", err)
 	}
 	if res.OK {
-		t.Errorf("Result.OK = true, want false (Phase A has no handlers)")
+		t.Errorf("Result.OK = true, want false (op has no registered handler)")
 	}
 	if res.SchemaVersion != setupbroker.SchemaVersion {
 		t.Errorf("Result.SchemaVersion = %d, want %d", res.SchemaVersion, setupbroker.SchemaVersion)
 	}
-	if res.Operation != string(setupbroker.OpLoadModule) {
-		t.Errorf("Result.Operation = %q, want %q", res.Operation, setupbroker.OpLoadModule)
+	if res.Operation != string(setupbroker.OpPatchKernelParam) {
+		t.Errorf("Result.Operation = %q, want %q", res.Operation, setupbroker.OpPatchKernelParam)
 	}
 }
 
