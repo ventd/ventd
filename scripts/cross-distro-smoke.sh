@@ -364,6 +364,9 @@ ssh_vm_mock() {
     local host="$1"; shift
     local cmd="$*"
     case "$cmd" in
+        *"cloud-init status --wait"*)
+            echo "[mock] cloud-init wait completed on $host"
+            return 0 ;;
         *"install.sh"*)
             echo "[mock] ventd install.sh exit 0 on $host"
             return 0 ;;
@@ -410,6 +413,25 @@ ssh_vm() {
 smoke_vm() {
     local vmip="$1" journal_out="$2"
     local install_cmd install_out install_rc active ping_check
+
+    # Wait for cloud-init to reach a terminal state before running
+    # install.sh. Cloud-init's `packages:` block on dnf-backed distros
+    # (Fedora 44+) runs async vs the SSH-ready signal — the qemu-guest
+    # agent reports an IP and sshd accepts the smoke key while
+    # `dkms`/`gcc`/`make` are still installing in the background. The
+    # smoke row then trips install.sh's preflight (#1098) and reports
+    # a spurious FAIL even though those packages land seconds later.
+    #
+    # `cloud-init status --wait` blocks until the instance transitions
+    # to `done`/`error`/`degraded`. We proceed regardless of which
+    # terminal state — `error` and `degraded` are honest install.sh
+    # failure surfaces we want to see, not silent retries. Images
+    # without cloud-init (none of the current matrix, but defensive
+    # for slugs added later) short-circuit via `command -v cloud-init`.
+    # `2>&1 || true` keeps a non-zero wait from killing the smoke row.
+    ssh_vm "$vmip" \
+        "command -v cloud-init >/dev/null 2>&1 && sudo cloud-init status --wait >/dev/null 2>&1 || true" \
+        2>/dev/null || true
 
     install_cmd="curl -fsSL https://raw.githubusercontent.com/ventd/ventd/${VENTD_VERSION}/scripts/install.sh"
     install_cmd+=" | VENTD_VERSION=${VENTD_VERSION} sudo -E bash"
