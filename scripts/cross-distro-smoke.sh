@@ -20,7 +20,7 @@
 #
 # Usage:
 #   ./scripts/cross-distro-smoke.sh                  # all distros in config
-#   ./scripts/cross-distro-smoke.sh ubuntu-24-04     # just one
+#   ./scripts/cross-distro-smoke.sh ubuntu-26-04     # just one
 #
 # Environment overrides:
 #   PROXMOX_DRY_RUN=1   mock every HTTP call + every SSH command and write
@@ -632,7 +632,7 @@ TARGET_DISTROS=()
 if (( $# == 0 )); then
     # All configured distros, in a stable order so the output matches the
     # status matrix row ordering.
-    for d in ubuntu-24-04 debian-12 fedora-40 arch opensuse-tumbleweed void-glibc alpine-3-19; do
+    for d in ubuntu-26-04 debian-13 fedora-44 arch opensuse-tumbleweed void-glibc alpine-3-19; do
         if [[ -n "${TEMPLATE_VMIDS[$d]:-}" ]]; then
             TARGET_DISTROS+=("$d")
         fi

@@ -111,9 +111,9 @@ steps below, and convert it to a template in the Proxmox UI.
 
    ```
    declare -A TEMPLATE_VMIDS=(
-       [ubuntu-24-04]=9001
-       [debian-12]=9002
-       [fedora-40]=9003
+       [ubuntu-26-04]=9001
+       [debian-13]=9002
+       [fedora-44]=9003
        [arch]=9004
        [opensuse-tumbleweed]=9005
        [void-glibc]=9006
@@ -155,7 +155,7 @@ steps below, and convert it to a template in the Proxmox UI.
 3. Or run a single distro to iterate on template prep:
 
    ```
-   ./scripts/cross-distro-smoke.sh ubuntu-24-04
+   ./scripts/cross-distro-smoke.sh ubuntu-26-04
    ```
 
 A run takes roughly 2–5 minutes per distro with a full clone on local
