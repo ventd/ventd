@@ -66,9 +66,9 @@ VENTD_VERSION="v0.2.0"
 # docs/cross-distro-status.md uses exactly these slugs.
 
 declare -A TEMPLATE_VMIDS=(
-    [ubuntu-24-04]=9001
-    [debian-12]=9002
-    [fedora-40]=9003
+    [ubuntu-26-04]=9001
+    [debian-13]=9002
+    [fedora-44]=9003
     [arch]=9004
     [opensuse-tumbleweed]=9005
     [void-glibc]=9006

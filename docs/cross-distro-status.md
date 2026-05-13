@@ -20,15 +20,17 @@ Legend:
 
 | Distro               | amd64               | arm64 | Notes |
 |----------------------|:-------------------:|:-----:|-------|
-| Ubuntu 24.04         | PASS (v0.2.0)       |   —   | full install path — service active + /api/ping 200 |
-| Debian 12            | PASS-VM (v0.2.0)    |   —   | cloud kernel omits hwmon; install.sh preflight correctly refused |
-| Fedora 40            | PASS (v0.2.0)       |   —   | full install path |
+| Ubuntu 26.04         |          —          |   —   | new LTS; previous slug `ubuntu-24-04` was PASS @ v0.2.0 — re-pin pending v0.5.x re-run |
+| Debian 13            |          —          |   —   | trixie current stable; previous slug `debian-12` was PASS-VM @ v0.2.0 (cloud kernel omits hwmon; install.sh preflight refused, which is the expected pass shape on VM targets) |
+| Fedora 44            |          —          |   —   | current stable; previous slug `fedora-40` was PASS @ v0.2.0, Fedora 40 EOL'd May 2025 |
 | Arch                 |          —          |   —   | `virt-customize` fails baking qga: pacman Landlock sandbox unsupported by libguestfs appliance kernel. Needs a boot-and-install template prep path. |
-| openSUSE Tumbleweed  | PASS (v0.2.0)       |   —   | full install path |
+| openSUSE Tumbleweed  |          —          |   —   | rolling; previous PASS @ v0.2.0 — re-pin pending |
 | Void (glibc)         |          —          |   —   | no glibc cloud image on the pve host (`/var/lib/vz/template/iso/void-live-musl.iso` is musl + live ISO, not cloud-init). Needs a separate template build. |
 | Alpine 3.19          |          —          |   —   | `alpine-3.19-nocloud.qcow2` has no cloud-init; needs a different prep path (manual sudo user + qga install). |
 
-Last updated: 2026-04-16, first matrix run against v0.2.0.
+Last updated: 2026-05-13, matrix bumped to current stable
+(Ubuntu 26.04 LTS / Debian 13 / Fedora 44); per-row PASS values reset
+pending the next v0.5.x re-run.
 
 arm64 coverage is not wired up yet — every row reads "—" on that column
 until the Proxmox host has arm64 templates and the harness config has a
