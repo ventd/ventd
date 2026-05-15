@@ -1438,7 +1438,14 @@ func (m *Manager) run(ctx context.Context, release func()) {
 		if f.CalPhase != "done" || f.Type != "hwmon" || f.RPMPath == "" {
 			continue
 		}
-		if !verifyHwmonChannelSpins(ctx, f.PWMPath, f.RPMPath, m.logger) {
+		// RULE-SETUP-PHANTOM-VERIFY-POLARITY-AWARE: pass the polarity
+		// classification from Phase 5b so the full-speed write is
+		// inverted for "inverted" channels. Otherwise a real inverted
+		// fan (NCT6683 on MSI, IT87 on some Gigabyte) receives raw 255
+		// → 0% effective duty → 0 RPM → false re-classification as
+		// phantom. The wizard would then exclude a perfectly working
+		// channel from the generated config.
+		if !verifyHwmonChannelSpins(ctx, f.PWMPath, f.RPMPath, f.PolarityPhase, m.logger) {
 			m.logger.Info("setup: post-calibration phantom-verify failed; re-classifying",
 				"pwm_path", f.PWMPath, "fan_name", f.Name)
 			m.mu.Lock()
@@ -1700,13 +1707,23 @@ type fanDiscovery struct {
 // path to mirror the calibration-sweep restore pattern. The wizard's
 // downstream restoreExcludedChannels handles the pwm_enable handback
 // for channels that fail this verification.
-func verifyHwmonChannelSpins(ctx context.Context, pwmPath, rpmPath string, logger *slog.Logger) bool {
+func verifyHwmonChannelSpins(ctx context.Context, pwmPath, rpmPath, polarityPhase string, logger *slog.Logger) bool {
 	const (
 		fullPWM        = uint8(255)
 		settleDuration = 3 * time.Second
 		sampleInterval = 200 * time.Millisecond
 		sampleCount    = 3
 	)
+	// RULE-SETUP-PHANTOM-VERIFY-POLARITY-AWARE: an "inverted"
+	// channel takes full-speed at raw 0; raw 255 is 0% effective.
+	// Writing raw 255 to an inverted fan leaves it stopped, which
+	// the verify samples as 0 RPM and incorrectly re-classifies as
+	// phantom. The polarity-aware verify writes the *effective*
+	// full-speed byte: 255 for normal, 0 for inverted.
+	writeByte := fullPWM
+	if polarityPhase == "inverted" {
+		writeByte = 0
+	}
 	origPWM, err := readSysfsUint8(pwmPath)
 	if err != nil {
 		logger.Warn("phantom-verify: read origPWM failed; admitting", "pwm_path", pwmPath, "err", err)
@@ -1716,8 +1733,9 @@ func verifyHwmonChannelSpins(ctx context.Context, pwmPath, rpmPath string, logge
 		// Best-effort restore on every exit path.
 		_ = writeSysfsUint8(pwmPath, origPWM)
 	}()
-	if err := writeSysfsUint8(pwmPath, fullPWM); err != nil {
-		logger.Warn("phantom-verify: write PWM=255 failed; admitting", "pwm_path", pwmPath, "err", err)
+	if err := writeSysfsUint8(pwmPath, writeByte); err != nil {
+		logger.Warn("phantom-verify: write full-speed failed; admitting",
+			"pwm_path", pwmPath, "polarity", polarityPhase, "write_byte", writeByte, "err", err)
 		return true
 	}
 	select {

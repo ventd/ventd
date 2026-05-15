@@ -54,7 +54,15 @@ func (p *HwmonProber) writeFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// ProbeChannel implements Prober for hwmon/EC channels (RULE-POLARITY-01..04).
+// ProbeChannel implements Prober for hwmon/EC channels (RULE-POLARITY-01..04,
+// RULE-POLARITY-13). Bipolar pulse: write BipolarLowPWM, settle, read RPM_low;
+// write BipolarHighPWM, settle, read RPM_high. Classification delta is
+// RPM_high − RPM_low — baseline-PWM-invariant. The pre-#1110 algorithm
+// compared a single midpoint write against pre-write baseline RPM, which
+// misclassified normal fans whose baseline PWM was already above midpoint:
+// a fan running at PWM=255 / 2300 RPM slowed to ~1500 RPM under PWM=128,
+// producing a false "inverted" label. Baseline PWM is captured for restore
+// only — never used in classification.
 func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableChannel) (ChannelResult, error) {
 	res := ChannelResult{
 		Backend:  "hwmon",
@@ -91,44 +99,53 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		}
 	}()
 
-	// Measure baseline RPM over BaselineWindow.
-	baselineRPM := p.readRPMMean(ch.TachPath, BaselineWindow)
-	res.Baseline = baselineRPM
-
-	// Write midpoint (RULE-POLARITY-01).
-	if err := p.writeFile(ch.PWMPath, []byte("128\n")); err != nil {
+	// Bipolar LOW pulse (RULE-POLARITY-13).
+	if err := p.writeFile(ch.PWMPath, []byte(strconv.Itoa(int(BipolarLowPWM))+"\n")); err != nil {
 		res.Polarity = "phantom"
 		res.PhantomReason = PhantomReasonWriteFailed
 		return res, nil
 	}
-
-	// Check for context cancellation before sleeping (RULE-POLARITY-04).
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
 	default:
 	}
-
-	// Hold for 3 seconds (RULE-POLARITY-02).
-	p.clock()(HoldDuration)
-
+	p.clock()(BipolarPulseHold)
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
 	default:
 	}
+	rpmLow := p.readRPMMean(ch.TachPath, RestoreDelay)
+	res.Baseline = rpmLow // Reused field: RPM observed at the LOW pulse.
 
-	// Observe RPM over last 500ms of hold (RULE-POLARITY-01).
-	observedRPM := p.readRPMMean(ch.TachPath, RestoreDelay)
-	res.Observed = observedRPM
+	// Bipolar HIGH pulse (RULE-POLARITY-13).
+	if err := p.writeFile(ch.PWMPath, []byte(strconv.Itoa(int(BipolarHighPWM))+"\n")); err != nil {
+		res.Polarity = "phantom"
+		res.PhantomReason = PhantomReasonWriteFailed
+		return res, nil
+	}
+	select {
+	case <-ctx.Done():
+		return res, ctx.Err()
+	default:
+	}
+	p.clock()(BipolarPulseHold)
+	select {
+	case <-ctx.Done():
+		return res, ctx.Err()
+	default:
+	}
+	rpmHigh := p.readRPMMean(ch.TachPath, RestoreDelay)
+	res.Observed = rpmHigh
 
 	// Restore baseline before classifying.
 	_ = p.writeFile(ch.PWMPath, []byte(strconv.Itoa(baselinePWM)+"\n"))
 	p.clock()(RestoreDelay)
 	restored = true
 
-	// Classify (RULE-POLARITY-03).
-	delta := observedRPM - baselineRPM
+	// Classify on the bipolar delta — baseline-PWM-invariant.
+	delta := rpmHigh - rpmLow
 	res.Delta = delta
 
 	switch {

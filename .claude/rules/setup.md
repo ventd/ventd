@@ -127,7 +127,13 @@ Layer 3 catches the false-positive class with one final write-and-read
 after calibration completes:
 
 1. For every channel with `CalPhase == "done"` and `Type == "hwmon"`:
-2. Write PWM=255 (full speed) to `PWMPath`.
+2. Write the polarity-aware full-speed byte to `PWMPath`: raw `255`
+   for `PolarityPhase == "normal"` (default), raw `0` for
+   `PolarityPhase == "inverted"`. The polarity-aware split was added
+   in #1110 — pre-#1110 the verify wrote raw 255 unconditionally,
+   which on a genuinely-inverted channel (NCT6683 on MSI, IT87 on
+   some Gigabyte) is 0% effective duty and produces 0 RPM, falsely
+   re-classifying a perfectly working channel as phantom.
 3. Sleep 3 seconds for the fan to settle.
 4. Take three RPM samples from `RPMPath`, spaced 200 ms apart.
 5. If at least one sample reads > 0, admit (real fan).

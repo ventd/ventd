@@ -39,7 +39,7 @@ func TestVerifyHwmonChannelSpins(t *testing.T) {
 		writeFile(t, rpmPath, "0") // no fan plugged in
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, logger)
+		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "normal", logger)
 		if got {
 			t.Errorf("phantom fan (RPM=0) should return false; got true")
 		}
@@ -63,7 +63,7 @@ func TestVerifyHwmonChannelSpins(t *testing.T) {
 			time.Sleep(2500 * time.Millisecond)
 			_ = os.WriteFile(rpmPath, []byte("1500"), 0o644)
 		}()
-		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, logger)
+		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "normal", logger)
 		if !got {
 			t.Errorf("real fan (RPM>0 within 3s) should return true; got false")
 		}
@@ -77,7 +77,7 @@ func TestVerifyHwmonChannelSpins(t *testing.T) {
 		// rpmPath does not exist → readSysfsInt returns error.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, logger)
+		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "normal", logger)
 		if !got {
 			t.Errorf("read failure should admit (return true); got false — risks falsely excluding real fans on transient sysfs trouble")
 		}
@@ -92,9 +92,41 @@ func TestVerifyHwmonChannelSpins(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		// Cancel almost immediately — verify returns true (admit).
 		go func() { time.Sleep(100 * time.Millisecond); cancel() }()
-		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, logger)
+		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "normal", logger)
 		if !got {
 			t.Errorf("ctx cancel should admit; got false")
+		}
+	})
+
+	t.Run("inverted_polarity_writes_raw_zero_not_255", func(t *testing.T) {
+		// RULE-SETUP-PHANTOM-VERIFY-POLARITY-AWARE: a channel classified
+		// "inverted" by the polarity probe must receive raw=0 (=100%
+		// effective) from phantom-verify, not raw=255 (which on an
+		// inverted fan is 0% effective and produces 0 RPM, falsely
+		// re-classifying the channel as phantom).
+		dir := t.TempDir()
+		pwmPath := filepath.Join(dir, "pwm1")
+		rpmPath := filepath.Join(dir, "fan1_input")
+		writeFile(t, pwmPath, "100")
+		writeFile(t, rpmPath, "0")
+		// The "fan" responds: write raw 0 → RPM rises. Write raw 255 →
+		// RPM stays 0. So we only flip rpmPath to a non-zero value
+		// after observing pwm goes to 0.
+		go func() {
+			deadline := time.Now().Add(4 * time.Second)
+			for time.Now().Before(deadline) {
+				if v := readFile(t, pwmPath); v == "0" || v == "0\n" {
+					_ = os.WriteFile(rpmPath, []byte("1500"), 0o644)
+					return
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		got := verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "inverted", logger)
+		if !got {
+			t.Errorf("inverted-polarity fan (effective full speed at raw=0) should admit; got false — phantom-verify still writing raw 255 on inverted channels")
 		}
 	})
 }
@@ -143,7 +175,7 @@ func TestVerifyHwmonChannelSpins_OrigPWMRestoredOnAllExitPaths(t *testing.T) {
 			origPWM := uint8(173)
 			writeFile(t, pwmPath, strconv.Itoa(int(origPWM)))
 			rpmPath, ctx := tc.setup(t, dir)
-			_ = verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, logger)
+			_ = verifyHwmonChannelSpins(ctx, pwmPath, rpmPath, "normal", logger)
 			if v := readFile(t, pwmPath); v != strconv.Itoa(int(origPWM)) {
 				t.Errorf("origPWM not restored on %s exit path; got %q want %d", tc.name, v, origPWM)
 			}

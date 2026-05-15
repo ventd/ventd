@@ -31,6 +31,26 @@ const (
 	HoldDuration   = 3 * time.Second
 	RestoreDelay   = 500 * time.Millisecond
 	BaselineWindow = time.Second
+
+	// Bipolar-probe pulse values (RULE-POLARITY-13). The pre-#1110
+	// algorithm wrote a single midpoint (128 / 50%) and compared
+	// observed RPM against the pre-write baseline. That misclassified
+	// every normal fan whose baseline PWM was above midpoint — a
+	// fan running at PWM=255 / 2300 RPM slowed to ~1500 RPM when 128
+	// was written, producing a negative delta and a false "inverted"
+	// label. The 13900K / NCT6687 wizard incident on 2026-05-15
+	// landed every controlled channel in that misclassification
+	// because BIOS auto held fans at high PWM going into the probe.
+	//
+	// The bipolar test writes LOW then HIGH (matching the validity
+	// probe at internal/validity, RULE-CALIB-PR2B-01) and classifies
+	// on the delta between the two PULSES, not against baseline.
+	// Polarity classification becomes baseline-PWM-invariant.
+	BipolarLowPWM    uint8         = 51  // ~20% of 255
+	BipolarHighPWM   uint8         = 204 // ~80% of 255
+	BipolarLowPct    uint8         = 20
+	BipolarHighPct   uint8         = 80
+	BipolarPulseHold time.Duration = 2 * time.Second
 )
 
 // Sentinel errors.
