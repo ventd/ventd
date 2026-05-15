@@ -33,7 +33,7 @@ import (
 // + install pathway. Only an unexpected internal error (catalog
 // failed to parse, transport opened then immediately failed) is a
 // real error in the journal-trail sense.
-func Probe(dmi hwdb.DMI, enableWrite bool) (*Backend, error) {
+func Probe(dmi hwdb.DMI) (*Backend, error) {
 	cat, err := nbfcdb.LoadCatalog()
 	if err != nil {
 		return nil, fmt.Errorf("nbfc: load catalog: %w", err)
@@ -77,11 +77,10 @@ func Probe(dmi hwdb.DMI, enableWrite bool) (*Backend, error) {
 	}
 
 	b, err := New(ProbeOpts{
-		Config:       cfg,
-		Filename:     entry.Filename,
-		Transport:    transport,
-		ACPI:         bridge,
-		WriteEnabled: enableWrite,
+		Config:    cfg,
+		Filename:  entry.Filename,
+		Transport: transport,
+		ACPI:      bridge,
 	})
 	if err != nil {
 		if transport != nil {

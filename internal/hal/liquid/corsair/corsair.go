@@ -28,11 +28,15 @@ type channelEntry struct {
 
 // corsairBackend implements hal.FanBackend for a single probed Corsair device.
 //
-// writable is true only when BOTH conditions hold (RULE-LIQUID-06):
-//   - ProbeOptions.UnsafeCorsairWrites was set to true, AND
-//   - the device firmware version is in firmwareAllowList.
-//
-// In v0.4.0 firmwareAllowList is empty, so writable is always false.
+// writable is always true post-v0.6.1 — the firmware allowlist + the
+// `--unsafe-corsair-writes` gate were removed (see RULE-LIQUID-03 +
+// RULE-LIQUID-06 amendments). The genuine safety mechanism is the
+// pump-minimum floor (RULE-LIQUID-01), USB-disconnect pump floor
+// (RULE-LIQUID-02), restore-on-panic (RULE-LIQUID-04), serialised
+// writes (RULE-LIQUID-05), and conflicting-kernel-driver yield
+// (RULE-LIQUID-07). Field retained for back-compat with the
+// adapter boundary; consumers can keep treating it as a static
+// invariant.
 //
 // reconnecting marks that the device just reconnected after a USB disconnect.
 // The next Write call will first write pumpMin to the pump before the
@@ -127,8 +131,11 @@ func (b *corsairBackend) Read(ch hal.Channel) (hal.Reading, error) {
 //
 // RULE-LIQUID-01: pump channels are floored at pumpMin before writing.
 // RULE-LIQUID-02: if reconnecting, the pump floor is written first.
-// RULE-LIQUID-03 / RULE-LIQUID-06: returns ErrReadOnlyUnvalidatedFirmware
-// when writable is false.
+//
+// Post-v0.6.1 writable is structurally true (the firmware allowlist
+// + --unsafe-corsair-writes gate were removed); the !writable branch
+// remains as defence-in-depth for any future re-introduction of a
+// genuine refusal cause (kernel-driver-owns-device mid-run, etc.).
 func (b *corsairBackend) Write(ch hal.Channel, pwm uint8) error {
 	if !b.writable {
 		return fmt.Errorf("corsair: %w", liquid.ErrReadOnlyUnvalidatedFirmware)

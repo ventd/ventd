@@ -8,10 +8,13 @@
 // confidence aggregator, doctor card) Just Works because the
 // contract is the contract.
 //
-// v0.6.0 ships the code default-off behind `--enable-nbfc-write`
-// (mirrors `--enable-gpu-write` / `--unsafe-corsair-writes`). The
-// matcher + catalogue surface are always on (read-only); operator
-// opt-in is required to actually write to the EC.
+// Writes are unconditional once the matcher resolves a catalogue
+// entry and the EC transport opens. The closed-set register
+// allowlist (RULE-NBFC-EC-02), the upstream-vetted catalogue's
+// per-model register map, and the existing RULE-IDLE-02 (battery)
+// + RULE-IDLE-03 (container) hard refuses are the safety
+// mechanism — there is no extra --enable-nbfc-write gate. See
+// `feedback-dont-default-writes-off` in auto-memory for rationale.
 package nbfc
 
 import "errors"
@@ -34,12 +37,6 @@ var ErrNBFCConfigNeedsLuaRuntime = errors.New("nbfc: matched config requires Lua
 // install path. Surfaced as a Warning doctor card on hosts where the
 // bridge is missing.
 var ErrNBFCConfigNeedsAcpiBridge = errors.New("nbfc: matched config requires acpi_call DKMS module (install via wizard)")
-
-// ErrNBFCWriteGated is returned by Write / Restore when the operator
-// has not passed `--enable-nbfc-write`. The HAL Read path remains
-// open in this state so smart-mode telemetry still flows (RPM
-// readings, sensor maps). Mirrors `RULE-GPU-PR2D-01`.
-var ErrNBFCWriteGated = errors.New("nbfc: write gated; enable with --enable-nbfc-write")
 
 // ErrNBFCNoTransport is returned when Probe could match a config and
 // classify it as supported (register-only or ACPI-with-bridge) but

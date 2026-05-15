@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.6.1] - 2026-05-16
+
+### Headline
+
+Two HIL-evidence gates that had been shipping write paths default-off "until field-validation accumulates" are removed: the v0.6.0 NBFC backend's `--enable-nbfc-write` flag and the v0.4.0 Corsair backend's firmware allowlist + `--unsafe-corsair-writes` flag. Both were "ship the code, wait for HIL to flip" patterns that produced zero operator value — every laptop user / Corsair user saw "your hardware is recognised but you can't actually use it". Per `feedback-dont-default-writes-off`: the closed-set primitives (register allowlist, pump-minimum floor, USB-reconnect floor, restore-on-panic, serialised writes, kernel-driver yield) are the real safety mechanism; per-model opt-in flags pending HIL are not.
+
+### Changed
+
+- **NBFC backend (`internal/hal/nbfc/`) writes default-on.** Removed `Backend.writeEnabled` field, `ProbeOpts.WriteEnabled`, `Probe(dmi, enableWrite)` parameter, `ErrNBFCWriteGated` sentinel, and the gate branches in `Write` / `Restore`. The HAL Backend now constructs a writable instance whenever the upstream catalogue resolves a non-Lua config and the EC transport opens. Rule renamed: `RULE-NBFC-HAL-WRITE-GATE` → `RULE-NBFC-HAL-DEFAULT-WRITES-ON`. Test renamed: `TestRULE_NBFC_HAL_WriteGated` → `TestRULE_NBFC_HAL_DEFAULT_WRITES_ON` (now pins the post-removal contract: writes succeed without any flag).
+- **Corsair backend (`internal/hal/liquid/corsair/`) writes default-on.** Removed the `liveDevice` / `unknownFirmwareDevice` / `probeClass` type split, the empty `firmwareAllowList` map, and the `ProbeOptions.UnsafeCorsairWrites` field. `Probe` now returns a writable `corsairBackend` for any successfully-handshaken Commander Core / ST device regardless of firmware version. The `ErrReadOnlyUnvalidatedFirmware` sentinel is retained at the Write boundary as defence-in-depth (no production path constructs `writable=false` post-removal). Rules amended: `RULE-LIQUID-03` is now "defence-in-depth refusal at the Write boundary"; `RULE-LIQUID-06` is now "Probe returns writable unconditionally". Bound subtests preserved (same names; rewritten contents).
+- **spec-09 doc + `docs/nbfc.md`** amended: the "Safety gate" section in `docs/nbfc.md` becomes "Safety mechanism" and names the load-bearing primitives (register allowlist, idle refuses, watchdog restore). The "default-off behind `--enable-nbfc-write`" framing in spec-09 is gone.
+- **`internal/hal/gpu/registry.go` comment** clarifies that `--enable-gpu-write` is retained for the genuine NVIDIA driver-version constraint (`RULE-POLARITY-06`: R515+), distinct from the v0.6.1-removed HIL gates.
+
+### Internals
+
+- Auto-memory: `feedback-dont-default-writes-off.md` codifies the rule for future HAL backend work.
+- Rule files touched: `.claude/rules/liquid-safety.md` (RULE-LIQUID-03 + RULE-LIQUID-06 rewritten), `.claude/rules/RULE-NBFC-B2.md` (gate prose deleted, rule renamed), `.claude/rules/gpu-pr2d-01.md` (clarifies non-HIL framing).
+- v0.6.0 ship-trail in `internal/web/CHANGELOG.md.embedded` is preserved verbatim — the v0.6.0 release-notes still describe what shipped then. v0.6.1 is an Added/Changed entry on top.
+
+### Senior review pass
+
+The kept gates (`--enable-gpu-write` for genuine R515+ driver constraints; `--allow-server-probe` for BMC fan-curve conflicts; `--enable-amd-overdrive` for `amdgpu.ppfeaturemask` kernel-taint; `--enable-soak-excitation` for synthetic Δpwm driver) are NOT HIL-evidence gates — each protects against a real underlying constraint distinct from "hardware tested in fleet yet?". Their flags stay. The audit covered `internal/`, `cmd/`, `specs/`, and `.claude/rules/` for any HIL-evidence-gated path.
+
 ## [v0.6.0] - 2026-05-16
 
 ### Headline

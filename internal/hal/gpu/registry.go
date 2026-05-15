@@ -18,7 +18,10 @@ import (
 type ProbeOptions struct {
 	// EnableGPUWrite enables fan write commands when true AND per-device
 	// capability probe succeeds. Without this flag all GPU channels are
-	// registered read-only. Mirrors --unsafe-corsair-writes (RULE-LIQUID-06).
+	// registered read-only. Retained for genuine NVIDIA driver-version
+	// constraints (`RULE-POLARITY-06`: R515+ required for nvmlDeviceSet*);
+	// distinct from the v0.6.1-removed `--unsafe-corsair-writes` /
+	// `--enable-nbfc-write` HIL-evidence gates.
 	EnableGPUWrite bool
 
 	// AMDOverdrive mirrors the --enable-amd-overdrive experimental flag.

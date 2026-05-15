@@ -41,18 +41,26 @@ Bound: internal/hal/liquid/corsair/safety_test.go:ReconnectPumpFloor
 
 ---
 
-## RULE-LIQUID-03: Unknown firmware is read-only
+## RULE-LIQUID-03: ErrReadOnlyUnvalidatedFirmware remains as a defence-in-depth refusal at the Write boundary; production no longer constructs synthetic-read-only Corsair backends post-v0.6.1.
 
-A firmware version not present on the allow-list (which is empty for
-v0.4.0) causes the adapter to wrap the probed device as an
-`unknownFirmwareDevice`. Any call to `SetDuty` or `SetCurve` on that
-wrapper returns `ErrReadOnlyUnvalidatedFirmware`. Read operations — fan
-speeds, coolant temperature, connected-state — proceed normally. The
-enforcement point is the HAL adapter boundary, not a runtime flag inside
-the corsair package; the type split between `liveDevice` and
-`unknownFirmwareDevice` makes the read-only constraint compile-time for
-code inside the package. Sending unvalidated write commands to an unknown
-firmware risks leaving the device in a state that requires iCUE to recover.
+v0.4 wrapped any device with an unrecognised firmware as
+`unknownFirmwareDevice`; writes returned `ErrReadOnlyUnvalidatedFirmware`.
+v0.6.1 removed the wrapper type and the firmware allowlist entirely per
+`feedback-dont-default-writes-off` — Corsair writes now proceed
+unconditionally, with safety enforced by the closed-set primitives
+(`RULE-LIQUID-01` pump floor, `RULE-LIQUID-02` USB-reconnect floor,
+`RULE-LIQUID-04` restore-on-panic, `RULE-LIQUID-05` serialised writes,
+`RULE-LIQUID-07` kernel-driver yield).
+
+The `if !b.writable { return ErrReadOnlyUnvalidatedFirmware }` branch
+remains in `corsairBackend.Write` as defence-in-depth: a future
+re-introduction of a genuine refusal cause (kernel-driver-owns-device
+mid-run, known-bad firmware revision surfacing a wedge bug) can set
+`writable = false` on a constructed backend without further code
+changes. The bound subtest constructs a synthetic-read-only backend
+directly (production no longer does) and asserts the refusal contract:
+`Write` returns `ErrReadOnlyUnvalidatedFirmware` and issues zero HID
+commands.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:UnknownFirmwareReadOnly
 
@@ -89,19 +97,28 @@ Bound: internal/hal/liquid/corsair/safety_test.go:SerialisedWrites
 
 ---
 
-## RULE-LIQUID-06: Writable mode requires both the unsafe flag and an allow-listed firmware
+## RULE-LIQUID-06: Corsair Probe returns a writable backend unconditionally post-v0.6.1; the firmware allowlist + --unsafe-corsair-writes gate were removed.
 
-A Corsair device enters writable mode only when both conditions are true:
-(a) the operator passed `--unsafe-corsair-writes` on the ventd command
-line, and (b) the device's firmware version is present on the allow-list,
-which is empty for v0.4.0. Either condition false causes the device to be
-wrapped as `unknownFirmwareDevice`; writes return
-`ErrReadOnlyUnvalidatedFirmware`. Both conditions are checked at `Probe`
-time and the result is a compile-time type, not a runtime flag inside the
-backend. Because the v0.4.0 allow-list is empty, every real device shipped
-in v0.4.0 is read-only regardless of the flag; the flag exists so that the
-gate mechanism is exercised in tests before any firmware version is added to
-the list.
+v0.4 ProbeOptions required both the `--unsafe-corsair-writes` operator
+flag AND a firmware version on the empty-by-default `firmwareAllowList`
+for a device to enter writable mode. v0.6.1 removed both gates per
+`feedback-dont-default-writes-off` — the empty-allowlist pattern was
+exactly the "ship code, wait for HIL evidence" anti-pattern the rule
+forbids. The CLI flag is gone; the allowlist map is gone; the type
+split (`liveDevice` / `unknownFirmwareDevice` / `probeClass`) is gone.
+
+Probe now returns a writable `corsairBackend` for any successfully-
+handshaken Commander Core / ST device, regardless of firmware version.
+Safety is enforced by the closed-set primitives that always were the
+load-bearing protection: pump-minimum floor (`RULE-LIQUID-01`), USB-
+reconnect pump floor (`RULE-LIQUID-02`), restore-on-panic
+(`RULE-LIQUID-04`), per-device serialised writes (`RULE-LIQUID-05`),
+and conflicting-kernel-driver yield (`RULE-LIQUID-07`).
+
+The bound subtest exercises three different firmware-version tuples
+through `probeWith` and asserts each produces a writable backend.
+The earlier "flag=false / fw not listed / both true" three-case
+matrix is dead — there is no flag, no allowlist.
 
 Bound: internal/hal/liquid/corsair/safety_test.go:WriteRequiresFlagAndAllowlist
 

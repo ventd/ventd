@@ -7,10 +7,13 @@ backend satisfies the `hal.FanBackend` contract; everything
 downstream (watchdog Restore-on-exit, calibration, smart-mode,
 doctor) Just Works because the contract is the contract.
 
-v0.6.0 ships the backend *code* universally, but EC writes are
-gated behind `--enable-nbfc-write` (mirrors `--enable-gpu-write`
-per `RULE-GPU-PR2D-01`). The catalogue match + Read paths are
-always on; operator opt-in is required to actually drive the EC.
+v0.6.0 shipped the backend behind a `--enable-nbfc-write` HIL-evidence
+gate; v0.6.1 removed it per `feedback-dont-default-writes-off`. The
+catalogue match + Read paths AND the Write / Restore paths are now
+all on universally. The closed-set register allowlist
+(`RULE-NBFC-EC-02`), the upstream-vetted catalogue, and the existing
+idle/battery/container refuses (`RULE-IDLE-02`, `RULE-IDLE-03`) are
+the safety mechanism — no operator opt-in flag is required.
 
 Each rule binds 1:1 to a subtest.
 
@@ -55,9 +58,6 @@ The nbfc schema declares two restore surfaces — per-fan
 are applied in order. `WriteMode` semantics (`Set` / `And` / `Or`)
 are honoured on the reset path via `applyRegisterReset`.
 
-When `--enable-nbfc-write` is off, `Restore` is a clean no-op —
-there's nothing to restore because we never wrote anything.
-
 Bound: internal/hal/nbfc/backend_test.go:TestRULE_NBFC_HAL_03_RestoreWritesResetValue
 
 ## RULE-NBFC-HAL-04: Lua-using configs are refused at construction (`ErrNBFCConfigNeedsLuaRuntime`); ACPI-using configs are refused only when the ACPI bridge isn't wired (`ErrNBFCConfigNeedsAcpiBridge`).
@@ -91,20 +91,26 @@ wrong fan speeds.
 
 Bound: internal/hal/nbfc/backend_test.go:TestRULE_NBFC_HAL_05_Words16Routes
 
-## RULE-NBFC-HAL-WRITE-GATE: `Write` returns `ErrNBFCWriteGated` when `--enable-nbfc-write` is off; `Read` continues to work; `Restore` is a clean no-op.
+## RULE-NBFC-HAL-DEFAULT-WRITES-ON: `Write` and `Restore` proceed unconditionally once `Backend.New` succeeds; there is no extra `--enable-nbfc-write` operator-opt-in flag.
 
-v0.6.0 ships the backend default-off, matching the existing
-`--enable-gpu-write` / `--unsafe-corsair-writes` pattern. The
-operator-visible surface (the doctor card naming the matched
-upstream config) appears universally; actual EC writes require
-the explicit opt-in flag. This is the HIL-coverage gate while
-laptop hardware enters the fleet — once a specific model has
-field-validation evidence, that model can be unlocked per-config
-in a future release.
+The closed-set register allowlist (`RULE-NBFC-EC-02`), the
+upstream-vetted nbfc-linux catalogue's per-model register map,
+the existing `RULE-IDLE-02` (battery refuse) and `RULE-IDLE-03`
+(container refuse) hard gates, and the watchdog's `Restore`-on-
+exit contract (`RULE-WD-RESTORE-EXIT`) are the safety mechanism.
+An additional per-backend opt-in flag pending HIL evidence
+contradicts ventd's framing ("install, open browser, click Apply
+— ventd handles the rest") and produces zero operator value:
+every laptop user would see "your hardware is recognised but you
+can't actually use it" and either give up or hand-edit the flag.
+See `feedback-dont-default-writes-off` in auto-memory for the
+broader rationale.
 
-The Read path stays open so smart-mode telemetry (catalogue
-recognition, future RPM-via-tach when nbfc adds tach support)
-continues to work for monitor-only mode. Restore is a no-op
-because there's nothing to undo — the daemon never wrote.
+The earlier `RULE-NBFC-HAL-WRITE-GATE` framing + `ErrNBFCWriteGated`
+sentinel landed in v0.6.0 and were removed in the v0.6.1 follow-up
+alongside the Corsair firmware-allowlist gate (`RULE-LIQUID-03` /
+`RULE-LIQUID-06`) — both were HIL-style "ship code, wait for
+evidence to flip" gates with no genuine safety justification
+beyond the prior catalog/allowlist surface.
 
-Bound: internal/hal/nbfc/backend_test.go:TestRULE_NBFC_HAL_WriteGated
+Bound: internal/hal/nbfc/backend_test.go:TestRULE_NBFC_HAL_DEFAULT_WRITES_ON
