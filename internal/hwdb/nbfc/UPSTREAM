@@ -1,0 +1,6 @@
+upstream: github.com/nbfc-linux/nbfc-linux
+tag:      0.5.2
+commit:   f4b1e0da4667570f3686e6160681e81219ebf0bb
+synced:   2026-05-15T22:58:56Z
+config_count: 311
+license:  GPL-3.0

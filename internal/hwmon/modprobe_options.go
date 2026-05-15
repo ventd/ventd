@@ -24,6 +24,14 @@ var allowedModprobeOptions = map[string]map[string]bool{
 	"thinkpad_acpi": {
 		"fan_control=1": true,
 	},
+	// Stage 1D (spec-09 PR B1) — ec_sys debugfs write support. The
+	// in-tree ec_sys module exposes EC register read/write via
+	// /sys/kernel/debug/ec/ec0/io; writes are gated by this option.
+	// Consumed by internal/ec.openECSysReal and the NBFC preflight
+	// remediation card.
+	"ec_sys": {
+		"write_support=1": true,
+	},
 }
 
 // IsAllowedModprobeOption reports whether (module, options) is an

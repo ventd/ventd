@@ -64,6 +64,10 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// wiring layer (PR-D follow-up #67) will swap in the live
 		// probe count.
 		detectors.NewECLockedLaptopDetector(countWritablePWMFiles("/sys/class/hwmon"), nil),
+		// spec-09 PR A — surface NBFC catalogue matches for laptops
+		// in monitor-only mode. Nil Catalog → loader runs once on
+		// first Probe; cheap to defer.
+		detectors.NewNBFCMatchDetector(countWritablePWMFiles("/sys/class/hwmon"), nil),
 	}
 	if len(modules) > 0 {
 		dets = append(dets,

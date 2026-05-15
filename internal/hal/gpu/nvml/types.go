@@ -18,4 +18,4 @@ var ErrWriteGated = errors.New("gpu write gated: enable with --enable-gpu-write 
 
 // ErrLaptopDgpuRequiresEC is returned when a write is attempted on a dGPU
 // in a laptop chassis where the EC manages fans (see RULE-GPU-PR2D-06).
-var ErrLaptopDgpuRequiresEC = errors.New("laptop dGPU fan control requires userspace EC backend (spec-09 NBFC)")
+var ErrLaptopDgpuRequiresEC = errors.New("laptop dGPU fan control requires the NBFC backend (spec-09); run `ventd doctor` to see whether this laptop is in the upstream nbfc-linux catalogue")
