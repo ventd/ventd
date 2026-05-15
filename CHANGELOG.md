@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.38] - 2026-05-15
+
+### Headline
+
+MSI laptops with `msi_wmi_platform` no longer trigger a wasted IT8688E driver-install cycle. Cleaner journal output on this hardware; the correct end-state (monitor-only) is unchanged.
+
+### Fixed
+
+- **MSI laptop IT8688E vendor fallback (#1103, #1104).** `identifyDriverNeeds()` in `internal/hwmon/autoload.go` proposed `it8688e` for any MSI board whose `board_name` didn't match the `nct6687d` DMI triggers — but MSI gaming laptops (MS-16R8, MS-17K2, etc.) expose `msi_wmi_platform` in hwmon for RPM readings only and have no ISA ITE Super-I/O chip for `it87` to bind to. Pre-fix sequence: wizard compiled + DKMS-registered IT87 → `modprobe it87` found nothing to bind → host fell through to monitor-only mode after a misleading "Installing IT8688E fan controller driver — this may take a minute..." line in the journal. The fix mirrors the existing ASUS `asus_ec` / `asus_ec_sensors` guard: when `msi_wmi_platform` is in the hwmon set, suppress the MSI fallback entirely. ASRock and Biostar branches are left alone — neither ships laptops behind WMI platform drivers. Surfaced via the diag bundle from an Ubuntu 25.10 MSI MS-16R8 (Intel i5-12450H).
+
+### Internals
+
+- No new rule files. The fix is a one-line guard mirroring an existing pattern; coverage lands as a new subtest in the table-driven `TestIdentifyDriverNeeds` in `internal/hwmon/autoload_test.go` (now 18 cases, exercising the exact MS-16R8 + `msi_wmi_platform` signature from the diag bundle).
+
+### Senior review pass
+
+The host's correct end-state on this hardware remains monitor-only — full fan *control* on MSI laptops needs a userspace EC backend (nbfc / clevo-style), which is v0.7+ scope and an upstream/firmware reality rather than something a kernel module can patch around. This release just stops the wasted install cycle + the misleading journal line on the affected hardware class.
+
 ## [v0.5.37] - 2026-05-11
 
 ### Headline
