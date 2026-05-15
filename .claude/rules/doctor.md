@@ -349,3 +349,43 @@ Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETE
 Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestRULE_DOCTOR_DETECTOR_ECLockedLaptop_RespectsContextCancel
 Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestECLockedLaptop_EntityHashStableAcrossProbes
 Bound: internal/doctor/detectors/ec_locked_laptop_d_test.go:TestECLockedLaptop_EntityHashDistinguishesChoicesShape
+
+## RULE-DOCTOR-DETECTOR-STATEFREESPACE: Surfaces the iox.ErrInsufficientFreeSpace sentinel from the state filesystem; low space is a Blocker, missing dir is benign first-boot, measurement failure is a Warning.
+
+Closes audit-doc pass-4 S5 (issue #1092). Before this detector,
+`iox.ErrInsufficientFreeSpace` had a documented errors.Is contract
+(RULE-IOX-02) consumed by RULE-STATE-12's KV-write gate but zero
+production callers branching on the sentinel — the state package
+refused writes correctly, but the operator only learned about it
+via journald error trails after the fact.
+
+The detector reuses `iox.EnsureFreeSpace` with the same 1 MiB
+RULE-STATE-12 floor so the doctor surface and the runtime gate
+report identical thresholds. errors.Is dispatch keeps
+RULE-WIZARD-RECOVERY-06's no-string-match principle intact:
+
+- `nil` → no fact (healthy).
+- `errors.Is(err, os.ErrNotExist)` → no fact. RULE-STATE-10 has
+  `state.Open` mkdir the directory on first start, so absence is
+  the normal pre-first-boot condition, not a failure.
+- `errors.Is(err, iox.ErrInsufficientFreeSpace)` → Blocker fact
+  with `recovery.ClassUnknown` so the generic remediation card
+  fires. Detail names the byte threshold + the RULE-STATE-12
+  invariant so operators reading the journal can correlate the
+  refusal class to the underlying contract.
+- Any other measurement failure (EACCES on non-root invocations
+  is the canonical case) → Warning fact per RULE-DOCTOR-04
+  graceful-degrade. Doctor cannot confirm the gate is satisfied
+  but does not pretend it is.
+
+Production wires the detector with `("", 0, nil)` — the empty
+constructor admits the canonical defaults of `/var/lib/ventd`,
+`iox.MinFreeBytesForState`, and `iox.EnsureFreeSpace`. Tests
+inject wrapped errors via the `FreeSpaceProbeFn` seam to exercise
+every branch without standing up a near-full filesystem.
+
+Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_HappyPathNoFacts
+Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_ConsumesInsufficientFreeSpaceSentinel
+Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_MissingStateDirIsBenign
+Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_MeasurementErrorSurfaces
+Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_RespectsContextCancel
