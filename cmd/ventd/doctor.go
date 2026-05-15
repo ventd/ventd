@@ -54,6 +54,11 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		detectors.NewUserspaceConflictDetector(nil),
 		detectors.NewBatteryTransitionDetector(nil),
 		detectors.NewContainerPostbootDetector(nil),
+		// RULE-STATE-12 surface: catch a low-space /var/lib/ventd
+		// before the operator hits the KV-write refusal trail in
+		// journald. Closes audit-doc S5 (issue #1092) by giving
+		// iox.ErrInsufficientFreeSpace a live production caller.
+		detectors.NewStateFreeSpaceDetector("", 0, nil),
 		// EC-locked-laptop card uses a local writable-PWM glob as a
 		// proxy for the probe's ControllableChannels count; the daemon
 		// wiring layer (PR-D follow-up #67) will swap in the live
