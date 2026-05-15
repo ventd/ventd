@@ -368,6 +368,19 @@ func TestIdentifyDriverNeeds(t *testing.T) {
 			wantKeys:    []string{"nct6687d"},
 		},
 		{
+			// MS-16R8 is an MSI gaming laptop (Intel i5-12450H). It
+			// exposes msi_wmi_platform in hwmon for RPM readings only;
+			// there is no ISA ITE chip to bind it87 to. Pre-fix, the
+			// MSI vendor fallback returned [it8688e] and the wizard
+			// compiled + DKMS-registered the driver before modprobe
+			// found nothing to bind, stranding the host monitor-only.
+			name:        "MSI laptop with msi_wmi_platform suppresses it8688e fallback",
+			boardVendor: "Micro-Star International Co., Ltd.",
+			boardName:   "MS-16R8",
+			hwmonNames:  []string{"coretemp", "msi_wmi_platform"},
+			wantKeys:    []string{},
+		},
+		{
 			name:        "ASRock falls through to it8688e",
 			boardVendor: "ASRock",
 			hwmonNames:  []string{"coretemp"},

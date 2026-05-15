@@ -764,7 +764,12 @@ func identifyDriverNeeds(boardVendor, boardName string, hwmonNames []string) []D
 		if isASUS && !hwmonSet["asus_ec"] && !hwmonSet["asus_ec_sensors"] {
 			add("it8688e")
 		}
-		if (isMSI && !seen["nct6687d"]) || isASRock || isBiostar {
+		// MSI laptops expose msi_wmi_platform for RPM readings only and
+		// have no ISA ITE chip for it87 to bind to. Skip the fallback
+		// so we don't compile + DKMS-register a driver that modprobe
+		// will then have nothing to bind, leaving the host stranded in
+		// monitor-only mode with a misleading "driver installed" log.
+		if (isMSI && !seen["nct6687d"] && !hwmonSet["msi_wmi_platform"]) || isASRock || isBiostar {
 			add("it8688e")
 		}
 	}
