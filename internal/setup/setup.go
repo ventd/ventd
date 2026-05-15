@@ -617,6 +617,38 @@ func (m *Manager) afterDriverInstall(ctx context.Context, reason string) {
 	}
 }
 
+// afterFinalize re-runs the daemon-level probe so the persisted
+// wizard.initial_outcome reflects the post-calibration kernel state. Called
+// from Manager.run after the finalize phase has produced a non-empty
+// doneFans set — at which point the calibration sweep + RPM correlation
+// have proven controllable channels exist (RULE-PROBE-04 will classify the
+// fresh probe as OutcomeControl).
+//
+// This complements afterDriverInstall (RULE-SETUP-REPROBE-01) which only
+// fires when the wizard ran the installing_driver phase. Hosts whose
+// driver is already loaded at first boot skip installing_driver entirely
+// and would otherwise leave wizard.initial_outcome stuck at "monitor_only"
+// from a stale daemon-startup probe forever — every smart-mode subsystem
+// remains inert despite controllers actively driving PWM (issue #1108).
+//
+// reason is a short tag identifying the trigger ("FinalizeWithChannels")
+// logged alongside the re-probe error, if any. Errors are non-fatal: the
+// wizard's Phase 4 sysfs walk and the generated config are unaffected;
+// only the persisted KV outcome misses the update, recoverable on the
+// next driver-install / module-load / wizard-finalize event.
+func (m *Manager) afterFinalize(ctx context.Context, reason string) {
+	m.mu.Lock()
+	rp := m.reprobeFn
+	m.mu.Unlock()
+	if rp == nil {
+		return
+	}
+	if err := rp(ctx); err != nil {
+		m.logger.Warn("setup: post-finalize reprobe failed; persisted wizard outcome may be stale until next daemon restart",
+			"trigger", reason, "err", err)
+	}
+}
+
 // RunBlocking runs setup synchronously (for the CLI --setup flag).
 func (m *Manager) RunBlocking() error {
 	if err := m.Start(); err != nil {
@@ -1559,6 +1591,16 @@ func (m *Manager) run(ctx context.Context, release func()) {
 	m.result = cfg
 	m.profile = profile
 	m.mu.Unlock()
+
+	// RULE-SETUP-REPROBE-02 (issue #1108): persist a fresh wizard outcome
+	// now that the calibration sweep proved controllable channels exist.
+	// afterDriverInstall (RULE-SETUP-REPROBE-01) only fires from the
+	// installing_driver phase; on hosts whose driver was already loaded at
+	// first boot the wizard skips that phase entirely and the persisted KV
+	// outcome would otherwise stay at the daemon-startup probe's stale
+	// "monitor_only" value, leaving every smart-mode subsystem inert
+	// despite the apply step bringing controllers up.
+	m.afterFinalize(ctx, "FinalizeWithChannels")
 }
 
 // setupFailMessage returns a human-readable error when no fans could be set up.

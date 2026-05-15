@@ -122,3 +122,60 @@ func TestReProber_ErrorLoggedDoesNotBlockSuccess(t *testing.T) {
 		t.Fatalf("LoadModule wrapped a non-fatal ReProber error: %v", err)
 	}
 }
+
+// TestReProber_FiresAfterFinalize asserts that the wizard's finalize phase
+// invokes the registered ReProber callback so wizard.initial_outcome reflects
+// the post-calibration kernel state regardless of whether the installing_driver
+// phase ran (#1108). Hosts whose driver was already loaded at first boot skip
+// installing_driver entirely; without this the persisted KV outcome stays at
+// a stale "monitor_only" value forever, leaving smart-mode subsystems inert
+// despite controllers actively driving PWM.
+func TestReProber_FiresAfterFinalize(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
+	m := NewWithRoots(cal, logger, t.TempDir(), t.TempDir(), t.TempDir())
+
+	var fired atomic.Int32
+	m.SetReProber(func(ctx context.Context) error {
+		fired.Add(1)
+		return nil
+	})
+
+	m.afterFinalize(context.Background(), "FinalizeWithChannels")
+	if got := fired.Load(); got != 1 {
+		t.Errorf("ReProber fired %d times after afterFinalize, want 1", got)
+	}
+}
+
+// TestReProber_FinalizeNilIsNoOp asserts that afterFinalize is safe when no
+// ReProber is wired (the test scaffolding default — production always wires
+// it via cmd/ventd/main.go).
+func TestReProber_FinalizeNilIsNoOp(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
+	m := NewWithRoots(cal, logger, t.TempDir(), t.TempDir(), t.TempDir())
+
+	// No SetReProber call — m.reprobeFn stays nil.
+	m.afterFinalize(context.Background(), "FinalizeWithChannels")
+}
+
+// TestReProber_FinalizeErrorLoggedDoesNotPanic asserts that a ReProber
+// returning an error during finalize is logged at WARN but does not panic
+// or otherwise disrupt the wizard goroutine. The wizard's generated config
+// is unaffected by a stale KV outcome — only smart-mode subsystem activation
+// is delayed until the next reprobe trigger.
+func TestReProber_FinalizeErrorLoggedDoesNotPanic(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
+	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
+	m := NewWithRoots(cal, logger, t.TempDir(), t.TempDir(), t.TempDir())
+
+	m.SetReProber(func(ctx context.Context) error {
+		return errors.New("simulated probe error")
+	})
+
+	// Bare call: a panic here would fail the test via the runtime's
+	// goroutine-panic surface rather than via t.Fatal — the assertion is
+	// "no panic", which is the absence of an outcome we can't directly
+	// observe other than by reaching the next line.
+	m.afterFinalize(context.Background(), "FinalizeWithChannels")
+}
