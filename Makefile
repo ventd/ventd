@@ -78,3 +78,9 @@ sync-embeds: sync-install-sh sync-changelog ## Refresh every install-time embed 
 
 clean: ## Remove build artifacts.
 	rm -rf dist/ coverage.out
+
+# spec-09 PR A — vendor upstream nbfc-linux catalogue at the tag
+# pinned in internal/hwdb/nbfc/UPSTREAM. Pass TAG=0.x.y to bump.
+.PHONY: sync-nbfc-configs
+sync-nbfc-configs:
+	scripts/sync-nbfc-configs.sh $(TAG)

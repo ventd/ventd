@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.6.0] - 2026-05-16
+
+### Headline
+
+Two load-bearing wins land in one tag: (1) smart-mode field-validation closes — Layer-B converged on the MSI Z690-A / NCT6687 (the original RFC #1024 failure host) with 6 channels carrying non-zero θ across thousands of samples, persisting across daemon restarts; (2) spec-09 NBFC backend ships across four PRs (A: catalogue match + doctor card; B1: pure-Go EC transport; B2: HAL backend; B3: ACPI bridge), bringing fan control to 311 laptop models from the upstream nbfc-linux community catalogue. The NBFC EC-write paths are default-off behind `--enable-nbfc-write` until per-model HIL evidence accumulates.
+
+### Added
+
+- **spec-09 PR A — NBFC catalogue + DMI matcher + doctor card.** 311 JSON configs vendored from `nbfc-linux/nbfc-linux@0.5.2` (GPL-3.0, license-compatible) under `internal/hwdb/nbfc/configs/`. The matcher resolves a live DMI tuple to a config via three tiers (exact, wildcard-glob, substring); the doctor detector emits one Fact per matched DMI naming the upstream `NotebookModel`, the source filename, and the control mode (`register-only`, `register-only (16-bit)`, `ACPI-method`, or `Lua-driven`). Hosts whose DMI doesn't match get a Warning with the upstream-contribution URL. The 311-config corpus parses cleanly under Go's strict `encoding/json` via an in-loader normaliser pipeline (`stripJSONComments` + `stripTrailingCommas` + `rewriteHexLiterals` + `stripLeadingZeros`) — five upstream configs use JSON5-style quirks the C parser tolerates. Rules: `RULE-NBFC-CATALOG-01..03`, `RULE-NBFC-CATALOG-JSONC-01`, `RULE-NBFC-DOCTOR-01`. New: `internal/hwdb/nbfc/`, `internal/doctor/detectors/nbfc_match_d.go`, `docs/nbfc.md`, `scripts/sync-nbfc-configs.sh`, Makefile `sync-nbfc-configs` target.
+- **spec-09 PR B1 — pure-Go EC transport (`internal/ec/`).** Two transports: `ec_sys` debugfs (preferred — kernel handles OBF/IBF; one syscall per byte) and `/dev/port` direct I/O with the ACPI 4.0 §12.3 OBF/IBF handshake (fallback). Both CGO-free. `WithAllowlist(t, allowed)` wraps a raw transport in a closed-set register gate; every Read / Write / Read16 / Write16 validates the address against the active nbfc config's `RegistersUsed()` and refuses with `ErrECRegisterNotInConfig` without touching the EC. The `dev_port` transport's busy-wait loops honour a 1 ms per-step deadline and surface `ErrECBusy` on timeout — a wedged EC cannot busy-spin the daemon. Modprobe allowlist gains `ec_sys → write_support=1` so the existing `/api/hwdiag/modprobe-options-write` endpoint dispatches the remediation when the kernel module is loaded read-only. Rules: `RULE-NBFC-EC-01..06`.
+- **spec-09 PR B2 — `internal/hal/nbfc/` HAL backend.** Satisfies the full `hal.FanBackend` contract over an EC transport + matched nbfc config. Enumerate (one channel per `FanConfiguration`), Read (8-bit or 16-bit register / ACPI dispatch + percentage-scaling), Write (clamp + scale via `pwmToRegister` + dispatch), Restore (per-fan `FanSpeedResetValue` + per-RegisterWriteConfiguration ResetValue with `Set` / `And` / `Or` / `Call` mode semantics), Close. Lua-using configs are refused at construction; ACPI configs require the bridge (PR B3); register configs require the EC transport. Default-off — `--enable-nbfc-write` gates Write / Restore. Rules: `RULE-NBFC-HAL-01..05`, `RULE-NBFC-HAL-WRITE-GATE`.
+- **spec-09 PR B3 — ACPI method bridge (`internal/acpi/`).** Pure-Go writer to `/proc/acpi/call` (provided by the GPL-2.0+ `acpi_call` DKMS module). `Bridge.Call(method, args...)` formats requests as `"<method> [arg1] [arg2]..."` (matches `nbfc-linux/src/ec_acpi.c`) and parses both legacy-decimal and `0x`-hex response formats. Closed-set discipline via per-host allowlist drawn from `Config.AcpiMethodsUsed()`. Wired into the HAL backend's Read / Write / Restore dispatch so the 7 catalogue configs that drive fans via ACPI methods (HP Pavilion 17 Notebook PC, HP 250 G8 Notebook PC, Acer TravelMate P253, ASUSTeK X551CA, Acer Aspire E1-570G, plus two others) become controllable. `acpi.Available()` distinguishes module-not-loaded (ENOENT) from runtime-failure so the doctor surface dispatches the correct remediation. Rules: `RULE-NBFC-ACPI-01..05`.
+- **spec-09 design document** at `specs/spec-09-nbfc-backend.md` — 7-section spec covering motivation, honest framing (Lua refused, ACPI requires acpi_call DKMS, EC writes default-off until HIL), PR breakdown, trigger conditions, the RULE-NBFC-* family skeleton, file map, and upstream citations.
+- **Smart-mode soak observer** — `cmd/ventd-soak snapshot` and `ventd-soak watch` are the operator-facing tools for inspecting persisted Layer-B shard state without standing up a daemon. Read-only (RULE-SOAK-EXCITATION-OPT-IN); the excite subcommand remains gated behind `--enable-soak-excitation` and is documentation-only in this release.
+
+### Changed
+
+- **NVML laptop-dGPU error message.** `ErrLaptopDgpuRequiresEC` (`RULE-GPU-PR2D-06`) now points at `ventd doctor` rather than a bare "spec-09 NBFC backend" reference. Operators on laptop dGPUs see actionable guidance directing them at the new doctor card.
+- **Doctor detector wiring.** The new `nbfc_match` detector registers alongside `ec_locked_laptop`; both surface complementary facts (one explains `platform_profile`, the other names the upstream nbfc config). Both fire on monitor-only hosts; the operator sees whichever applies.
+
+### Field validation
+
+- **RFC #1024 closed.** v0.5.37's soft-idle gate + group-aware OAT fixes are confirmed converged on the original failure host (MSI Z690-A / 13900K / NCT6687, post-migration to Proxmox role). Layer-B `Snapshot.Theta` carries non-zero values across all 6 channels with `n_samples` ranging from 1755 to 16872, `tr(P)` near zero, persisting across daemon restarts. Four of six channels (pwm1/3/5/6) share identical θ values — the firmware-mirrored fan group the v0.5.37 release notes predicted for NCT668x. The smart-mode pipeline is the v0.6.0 ship-gate question; it's empirically answered.
+
+### Internals
+
+- New rule files: `.claude/rules/RULE-NBFC-A.md`, `.claude/rules/RULE-NBFC-B1.md`, `.claude/rules/RULE-NBFC-B2.md`, `.claude/rules/RULE-NBFC-B3.md`. Twenty-two new bound subtests across the four files.
+- Rulelint passes at 401 rule(s), 683 bound(s) verified — zero errors; only pre-existing unclaimed-subtest warnings remain.
+- Modprobe options allowlist extended: `ec_sys → write_support=1` joins `thinkpad_acpi → fan_control=1`. Three new bound subtests in `internal/hwmon/modprobe_options_test.go`.
+
+### Deferred
+
+- `acpi_call` DKMS catalogue row in `internal/hwdb/profiles-v1.yaml`. The bridge ships; ventd's existing DKMS install pipeline (`legion_laptop`, `nct6687d`) handles the install path manually for v0.6.0 GA. The catalogue row + automated install wiring lands when a HIL operator on one of the 7 ACPI-config laptop models reports back.
+- Operator-facing `--enable-nbfc-write` flag plumbing into `cmd/ventd/main.go`. The HAL Backend's `WriteEnabled` gate is in place; the daemon-level flag wiring lands alongside the first HIL run on a real nbfc-supported laptop.
+- Wizard / setup integration for NBFC-matched hardware. The doctor card is the v0.6.0 surface; the wizard's first-boot flow that runs Probe + presents enable-write opt-in is a v0.6.x follow-up.
+
+### Senior review pass
+
+The largest single release since v0.5.0 — both the smart-mode convergence question (the original v0.6.0 ship gate) and the spec-09 NBFC backend (originally targeted for v0.8.0) land together. The justification for pulling spec-09 forward: smart-mode convergence was the load-bearing v0.6.0 question, and answering it empirically opens headroom in the v0.5.x → v0.6.0 tag's scope. The NBFC catalogue surface unlocks fan control on 311 laptop models the previous architecture couldn't reach; the write paths ship default-off so HIL evidence accumulates before the gate flips per-model.
+
 ## [v0.5.39] - 2026-05-16
 
 ### Headline

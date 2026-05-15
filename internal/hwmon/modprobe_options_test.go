@@ -21,6 +21,11 @@ func TestIsAllowedModprobeOption(t *testing.T) {
 		{"thinkpad with semicolon", "thinkpad_acpi", "fan_control=1;rm -rf /", false},
 		{"thinkpad with disabled value", "thinkpad_acpi", "fan_control=0", false},
 		{"future-allowed it87 still rejected today", "it87", "ignore_resource_conflict=1", false},
+		// spec-09 PR B1 — ec_sys.write_support (NBFC EC transport
+		// preflight remediation; closed-set discipline preserved).
+		{"ec_sys write_support=1", "ec_sys", "write_support=1", true},
+		{"ec_sys disabled value still rejected", "ec_sys", "write_support=0", false},
+		{"ec_sys with extra option still rejected", "ec_sys", "write_support=1 read_support=1", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
