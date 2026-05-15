@@ -101,10 +101,14 @@ func TestLiquidSafety_Invariants(t *testing.T) {
 		}
 	})
 
-	// ── UnknownFirmwareReadOnly (RULE-LIQUID-03) ───────────────────────────────
-	// A device whose firmware is not on the allow-list must return
-	// ErrReadOnlyUnvalidatedFirmware from Write and must not issue any HID
-	// command.
+	// ── UnknownFirmwareReadOnly (RULE-LIQUID-03, defence-in-depth) ────────────
+	// The v0.4 firmware-allowlist gate was removed in v0.6.1 — Corsair
+	// writes now proceed unconditionally on the happy path. The Write
+	// path's `if !b.writable { return ErrReadOnlyUnvalidatedFirmware }`
+	// remains as defence-in-depth for any future re-introduction of a
+	// genuine refusal cause. This test pins that surface: a manually-
+	// constructed backend with writable=false (a state production
+	// no longer produces) still refuses cleanly without touching HID.
 	t.Run("UnknownFirmwareReadOnly", func(t *testing.T) {
 		dev := fakehid.NewCorsairDevice(fakehid.CorsairConfig{
 			VID: 0x1b1c, PID: 0x0c1c,
@@ -116,7 +120,7 @@ func TestLiquidSafety_Invariants(t *testing.T) {
 		}
 		b := &corsairBackend{
 			inner:    pd,
-			writable: false,
+			writable: false, // synthetic — production always sets true post-v0.6.1
 			pumpMin:  50,
 			channels: []channelEntry{{index: 0, role: hal.RoleCase}},
 		}
@@ -124,13 +128,13 @@ func TestLiquidSafety_Invariants(t *testing.T) {
 		ch := hal.Channel{ID: "/dev/hidraw0-0"}
 		err := b.Write(ch, 80)
 		if err == nil {
-			t.Fatal("Write on read-only device returned nil, want ErrReadOnlyUnvalidatedFirmware")
+			t.Fatal("Write on synthetic-read-only device returned nil, want ErrReadOnlyUnvalidatedFirmware")
 		}
 		if !errors.Is(err, liquid.ErrReadOnlyUnvalidatedFirmware) {
 			t.Errorf("got %v, want ErrReadOnlyUnvalidatedFirmware", err)
 		}
 		if len(dev.DutiesWritten) != 0 {
-			t.Errorf("read-only Write issued %d duty commands, want 0", len(dev.DutiesWritten))
+			t.Errorf("synthetic-read-only Write issued %d duty commands, want 0", len(dev.DutiesWritten))
 		}
 	})
 
@@ -202,16 +206,13 @@ func TestLiquidSafety_Invariants(t *testing.T) {
 	})
 
 	// ── WriteRequiresFlagAndAllowlist (RULE-LIQUID-06) ────────────────────────
-	// Write access requires BOTH UnsafeCorsairWrites=true AND firmware on the
-	// allow-list. Either condition false → ErrReadOnlyUnvalidatedFirmware.
-	// Both true → writable (Write does not return that error).
+	// v0.4: writes required UnsafeCorsairWrites=true AND an allow-listed
+	// firmware. v0.6.1 removed BOTH gates per feedback-dont-default-writes-off
+	// — the closed-set primitives (pump-floor, USB-reconnect floor, restore-
+	// on-panic, serialised writes) are the safety mechanism. This test now
+	// pins the post-v0.6.1 contract: probeWith with any firmware returns a
+	// writable backend whose Write does NOT surface ErrReadOnlyUnvalidatedFirmware.
 	t.Run("WriteRequiresFlagAndAllowlist", func(t *testing.T) {
-		// Insert a test firmware version into the allow-list for this subtest.
-		fw := firmwareVersion{major: 9, minor: 9, patch: 9}
-		firmwareAllowList[fw] = true
-		defer delete(firmwareAllowList, fw)
-
-		// makePipe returns an openFn that injects a CorsairPipe with the given firmware.
 		makePipe := func(maj, min, pat uint8) func(string) (openResult, error) {
 			return func(path string) (openResult, error) {
 				d := fakehid.NewCorsairDevice(fakehid.CorsairConfig{
@@ -226,41 +227,20 @@ func TestLiquidSafety_Invariants(t *testing.T) {
 				}, nil
 			}
 		}
-
-		// Paths whose sysfs node won't exist → CheckAndUnbind returns nil.
 		const testPath = "/dev/hidraw9999"
 
-		// Case 1: flag=false, firmware on list → read-only.
-		b1, err := probeWith(testPath, ProbeOptions{UnsafeCorsairWrites: false, PumpMinimum: 50}, makePipe(9, 9, 9))
-		if err != nil {
-			t.Fatalf("probeWith (flag=false): %v", err)
+		// Any firmware: backend is writable on the happy path.
+		for _, fw := range [][]uint8{{1, 2, 3}, {9, 9, 9}, {0, 0, 0}} {
+			b, err := probeWith(testPath, ProbeOptions{PumpMinimum: 50}, makePipe(fw[0], fw[1], fw[2]))
+			if err != nil {
+				t.Fatalf("probeWith (fw=%v): %v", fw, err)
+			}
+			pumpCh := hal.Channel{ID: testPath + "-0"}
+			if werr := b.Write(pumpCh, 80); errors.Is(werr, liquid.ErrReadOnlyUnvalidatedFirmware) {
+				t.Errorf("fw=%v: Write returned ErrReadOnlyUnvalidatedFirmware, want writable post-v0.6.1", fw)
+			}
+			_ = b.Close()
 		}
-		ch := hal.Channel{ID: testPath + "-1"}
-		if werr := b1.Write(ch, 80); !errors.Is(werr, liquid.ErrReadOnlyUnvalidatedFirmware) {
-			t.Errorf("flag=false: got %v, want ErrReadOnlyUnvalidatedFirmware", werr)
-		}
-		_ = b1.Close()
-
-		// Case 2: flag=true, firmware NOT on list → read-only.
-		b2, err := probeWith(testPath, ProbeOptions{UnsafeCorsairWrites: true, PumpMinimum: 50}, makePipe(1, 2, 3))
-		if err != nil {
-			t.Fatalf("probeWith (fw not listed): %v", err)
-		}
-		if werr := b2.Write(ch, 80); !errors.Is(werr, liquid.ErrReadOnlyUnvalidatedFirmware) {
-			t.Errorf("fw not listed: got %v, want ErrReadOnlyUnvalidatedFirmware", werr)
-		}
-		_ = b2.Close()
-
-		// Case 3: flag=true AND firmware on list → writable.
-		b3, err := probeWith(testPath, ProbeOptions{UnsafeCorsairWrites: true, PumpMinimum: 50}, makePipe(9, 9, 9))
-		if err != nil {
-			t.Fatalf("probeWith (both true): %v", err)
-		}
-		pumpCh := hal.Channel{ID: testPath + "-0"}
-		if werr := b3.Write(pumpCh, 80); errors.Is(werr, liquid.ErrReadOnlyUnvalidatedFirmware) {
-			t.Error("flag+fw both true: Write returned ErrReadOnlyUnvalidatedFirmware, want writable")
-		}
-		_ = b3.Close()
 	})
 
 	// ── UnbindConflictingDriver (RULE-LIQUID-07) ──────────────────────────────

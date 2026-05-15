@@ -8,7 +8,7 @@ import (
 
 // frameSize is the HID packet size for Commander Core v2 firmware.
 // v1 firmware uses a smaller packet; devices responding with a shorter
-// frame are probed as unknownFirmwareDevice.
+// frame surface as a firmware-handshake error during Probe.
 // ref: commander_core.md §2.1 (packet structure)
 const frameSize = 1024
 

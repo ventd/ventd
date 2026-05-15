@@ -17,16 +17,17 @@ import (
 // becomes one hal.Channel; reads / writes route through the
 // register-allowlisted internal/ec.Transport.
 //
-// v0.6.0 ships default-off: WriteEnabled gates every Write / Restore
-// path so the catalogue surface (Enumerate, Read) is always available
-// but actual EC writes require `--enable-nbfc-write`. Mirrors the
-// existing --enable-gpu-write pattern (`RULE-GPU-PR2D-01`).
+// Writes are unconditional: the upstream catalogue's per-model
+// register map is the trust boundary, the closed-set allowlist on
+// the EC transport (RULE-NBFC-EC-02) is the runtime gate, and
+// RULE-IDLE-02 (battery) + RULE-IDLE-03 (container) refuse the
+// daemon entirely on hosts where writes are unsafe. No artificial
+// --enable-nbfc-write gate; see feedback-dont-default-writes-off.
 type Backend struct {
-	cfg          *nbfcdb.Config
-	cfgFilename  string
-	transport    ec.Transport
-	acpi         *acpi.Bridge // nil when config uses no ACPI methods
-	writeEnabled bool
+	cfg         *nbfcdb.Config
+	cfgFilename string
+	transport   ec.Transport
+	acpi        *acpi.Bridge // nil when config uses no ACPI methods
 
 	mu       sync.Mutex
 	channels []hal.Channel
@@ -56,10 +57,6 @@ type ProbeOpts struct {
 	// ErrNBFCConfigNeedsAcpiBridge. The bridge's allowlist should
 	// come from Config.AcpiMethodsUsed().
 	ACPI *acpi.Bridge
-
-	// WriteEnabled gates the Write / Restore paths. Wire from the
-	// daemon's --enable-nbfc-write flag.
-	WriteEnabled bool
 }
 
 // New constructs a Backend over the given config + transport. Returns
@@ -91,11 +88,10 @@ func New(opts ProbeOpts) (*Backend, error) {
 	}
 
 	b := &Backend{
-		cfg:          opts.Config,
-		cfgFilename:  opts.Filename,
-		transport:    wrapped,
-		acpi:         opts.ACPI,
-		writeEnabled: opts.WriteEnabled,
+		cfg:         opts.Config,
+		cfgFilename: opts.Filename,
+		transport:   wrapped,
+		acpi:        opts.ACPI,
 	}
 	b.buildChannels()
 	return b, nil
@@ -211,11 +207,10 @@ func (b *Backend) readFanRegister(fan *nbfcdb.FanConfiguration) (uint16, error) 
 }
 
 // Write commands the channel to a 0-255 PWM byte. Scaled into the
-// upstream register range via pwmToRegister. Gated by WriteEnabled.
+// upstream register range via pwmToRegister, then dispatched through
+// the closed-set register allowlist (or ACPI bridge when the matched
+// fan declares a WriteAcpiMethod).
 func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
-	if !b.writeEnabled {
-		return ErrNBFCWriteGated
-	}
 	fan, ok := ch.Opaque.(*nbfcdb.FanConfiguration)
 	if !ok || fan == nil {
 		return fmt.Errorf("nbfc: Write: channel %q has no FanConfiguration", ch.ID)
@@ -244,9 +239,6 @@ func (b *Backend) writeFanRegister(fan *nbfcdb.FanConfiguration, val uint16) err
 // with ResetRequired=true. Idempotent + safe to call on a channel
 // that was never Written.
 func (b *Backend) Restore(ch hal.Channel) error {
-	if !b.writeEnabled {
-		return nil // no-op when writes are gated; nothing to restore
-	}
 	fan, ok := ch.Opaque.(*nbfcdb.FanConfiguration)
 	if !ok || fan == nil {
 		return nil

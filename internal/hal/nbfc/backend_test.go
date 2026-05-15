@@ -73,9 +73,8 @@ func testConfig() *nbfcdb.Config {
 // returns one channel per FanConfiguration.
 func TestRULE_NBFC_HAL_01_EnumerateOneChannelPerFan(t *testing.T) {
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    &fakeECTransport{},
-		WriteEnabled: true,
+		Config:    testConfig(),
+		Transport: &fakeECTransport{},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -100,9 +99,8 @@ func TestRULE_NBFC_HAL_01_EnumerateOneChannelPerFan(t *testing.T) {
 func TestRULE_NBFC_HAL_02_WriteScalesAndWrites(t *testing.T) {
 	fake := &fakeECTransport{}
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    fake,
-		WriteEnabled: true,
+		Config:    testConfig(),
+		Transport: fake,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -133,9 +131,8 @@ func TestRULE_NBFC_HAL_02_WriteScalesAndWrites(t *testing.T) {
 func TestRULE_NBFC_HAL_02_ReadReversesScaling(t *testing.T) {
 	fake := &fakeECTransport{}
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    fake,
-		WriteEnabled: true,
+		Config:    testConfig(),
+		Transport: fake,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -167,9 +164,8 @@ func TestRULE_NBFC_HAL_02_ReadReversesScaling(t *testing.T) {
 func TestRULE_NBFC_HAL_03_RestoreWritesResetValue(t *testing.T) {
 	fake := &fakeECTransport{}
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    fake,
-		WriteEnabled: true,
+		Config:    testConfig(),
+		Transport: fake,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -190,9 +186,8 @@ func TestRULE_NBFC_HAL_04_LuaConfigRefusedAtNew(t *testing.T) {
 	cfg := testConfig()
 	cfg.LuaLibraries = []string{"math"}
 	_, err := New(ProbeOpts{
-		Config:       cfg,
-		Transport:    &fakeECTransport{},
-		WriteEnabled: true,
+		Config:    cfg,
+		Transport: &fakeECTransport{},
 	})
 	if !errors.Is(err, ErrNBFCConfigNeedsLuaRuntime) {
 		t.Errorf("expected ErrNBFCConfigNeedsLuaRuntime, got %v", err)
@@ -205,9 +200,8 @@ func TestRULE_NBFC_HAL_04_ACPIConfigRefusedWhenBridgeNil(t *testing.T) {
 	cfg := testConfig()
 	cfg.FanConfigurations[0].ReadAcpiMethod = "\\_SB.PCI0.SFNV"
 	_, err := New(ProbeOpts{
-		Config:       cfg,
-		Transport:    &fakeECTransport{},
-		WriteEnabled: true,
+		Config:    cfg,
+		Transport: &fakeECTransport{},
 	})
 	if !errors.Is(err, ErrNBFCConfigNeedsAcpiBridge) {
 		t.Errorf("expected ErrNBFCConfigNeedsAcpiBridge, got %v", err)
@@ -225,10 +219,9 @@ func TestRULE_NBFC_HAL_04_ACPIConfigAdmitsWhenBridgeWired(t *testing.T) {
 	cfg.FanConfigurations[0].WriteRegister = 0
 	bridge := acpi.New(cfg.AcpiMethodsUsed())
 	b, err := New(ProbeOpts{
-		Config:       cfg,
-		Transport:    nil,
-		ACPI:         bridge,
-		WriteEnabled: true,
+		Config:    cfg,
+		Transport: nil,
+		ACPI:      bridge,
 	})
 	if err != nil {
 		t.Fatalf("New with bridge wired: %v", err)
@@ -244,9 +237,8 @@ func TestRULE_NBFC_HAL_05_Words16Routes(t *testing.T) {
 	cfg.FanConfigurations[0].MaxSpeedValue = 0xFFFF
 	fake := &fakeECTransport{}
 	b, err := New(ProbeOpts{
-		Config:       cfg,
-		Transport:    fake,
-		WriteEnabled: true,
+		Config:    cfg,
+		Transport: fake,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -263,14 +255,20 @@ func TestRULE_NBFC_HAL_05_Words16Routes(t *testing.T) {
 	}
 }
 
-// RULE-NBFC-HAL-WRITE-GATE — Write returns ErrNBFCWriteGated when
-// WriteEnabled is false.
-func TestRULE_NBFC_HAL_WriteGated(t *testing.T) {
+// RULE-NBFC-HAL-DEFAULT-WRITES-ON — Backend writes unconditionally
+// once construction succeeds; no extra opt-in flag is consulted on
+// the Write / Restore paths. The closed-set register allowlist
+// (RULE-NBFC-EC-02), the upstream-vetted catalogue, and the
+// existing idle/battery/container hard refuses are the safety
+// mechanism. Confirms the gate removal in the v0.6.1 follow-up to
+// spec-09 (see feedback-dont-default-writes-off in auto-memory).
+func TestRULE_NBFC_HAL_DEFAULT_WRITES_ON(t *testing.T) {
 	fake := &fakeECTransport{}
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    fake,
-		WriteEnabled: false,
+		Config:    testConfig(),
+		Transport: fake,
+		// WriteEnabled intentionally not set — the field is gone.
+		// The Backend should write to the EC without any extra flag.
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -278,21 +276,21 @@ func TestRULE_NBFC_HAL_WriteGated(t *testing.T) {
 	defer b.Close()
 	chs, _ := b.Enumerate(context.Background())
 
-	err = b.Write(chs[0], 128)
-	if !errors.Is(err, ErrNBFCWriteGated) {
-		t.Errorf("expected ErrNBFCWriteGated, got %v", err)
+	if err := b.Write(chs[0], 128); err != nil {
+		t.Fatalf("Write should succeed by default: %v", err)
 	}
-	// Verify the underlying transport saw nothing.
-	if fake.bytes[0x11] != 0 {
-		t.Errorf("transport touched when gated: byte = %#x", fake.bytes[0x11])
+	// Confirm the transport actually saw the write — midpoint pwm=128
+	// scales to (20 + 80*0.5) = 60 in MinSpeedValue=20/MaxSpeedValue=100
+	// space (RULE-NBFC-HAL-02).
+	if fake.bytes[0x11] != 60 {
+		t.Errorf("transport byte = %#x, want 60 (scaled midpoint)", fake.bytes[0x11])
 	}
-	// Read should still work.
-	if _, err := b.Read(chs[0]); err != nil {
-		t.Errorf("Read should work when writes are gated: %v", err)
-	}
-	// Restore should be a clean no-op (nothing to restore).
+	// Restore should also fire by default.
 	if err := b.Restore(chs[0]); err != nil {
-		t.Errorf("Restore should no-op when gated: %v", err)
+		t.Fatalf("Restore should succeed by default: %v", err)
+	}
+	if fake.bytes[0x11] != 50 {
+		t.Errorf("Restore wrote %#x, want 50 (FanSpeedResetValue)", fake.bytes[0x11])
 	}
 }
 
@@ -311,9 +309,8 @@ func TestConfig_RegistersUsedCoversReadWriteRegisters(t *testing.T) {
 // Backend.Close is idempotent.
 func TestBackend_CloseIdempotent(t *testing.T) {
 	b, err := New(ProbeOpts{
-		Config:       testConfig(),
-		Transport:    &fakeECTransport{},
-		WriteEnabled: true,
+		Config:    testConfig(),
+		Transport: &fakeECTransport{},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -351,10 +348,9 @@ func TestRULE_NBFC_ACPI_04_BackendDispatchesACPI(t *testing.T) {
 	}
 	bridge := acpi.New(methods)
 	b, err := New(ProbeOpts{
-		Config:       cfg,
-		Transport:    nil, // pure-ACPI; no EC required
-		ACPI:         bridge,
-		WriteEnabled: true,
+		Config:    cfg,
+		Transport: nil, // pure-ACPI; no EC required
+		ACPI:      bridge,
 	})
 	if err != nil {
 		t.Fatalf("New (pure-ACPI with bridge): %v", err)

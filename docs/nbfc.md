@@ -32,27 +32,28 @@ Three outcomes:
 - **Exact / glob / substring match → fan control is available.** The
   doctor surface names the upstream `NotebookModel`, the source file
   the config came from, and the control mode (register / ACPI). The
-  NBFC backend registers automatically when `--enable-nbfc-write` is
-  on (default: off, see *Safety gate* below).
+  NBFC backend registers automatically and drives fans without
+  further operator opt-in. The closed-set register allowlist (only
+  registers named in the matched config are writable), the upstream-
+  vetted catalogue, and the existing battery / container / idle
+  refuses (RULE-IDLE-02 / 03) are the safety mechanism.
 - **Lua-driven match → monitor-only, refused.** No catalogue entry
   currently uses Lua, but the slot exists for forward compatibility.
 - **No match → monitor-only with a contribution invite.** The doctor
   card includes the upstream Configuration HowTo URL and the
   `ec_probe` walk you'll need to produce a new config.
 
-## Safety gate
+## Safety mechanism
 
-`--enable-nbfc-write` is **off by default**. NBFC writes go to raw EC
-registers (or invoke ACPI methods) on a specific laptop model; an
-incorrect config or a regression in this backend writes wrong values
-to firmware-managed registers. The gate matches the existing pattern
-for `--enable-gpu-write` (NVML / AMD) and `--unsafe-corsair-writes`
-(Corsair HID): the *catalogue match* surfaces freely (read-only), but
-the *control loop* requires explicit operator opt-in.
-
-The gate is lifted per-model as HIL evidence accumulates. Until then
-ventd will *recognise* your laptop and tell you so — it just won't
-write fan speeds until you turn the gate on.
+ventd never writes to a register the matched upstream config didn't
+declare — `internal/ec.WithAllowlist` wraps the EC transport in a
+closed-set gate sourced from `Config.RegistersUsed()`. Same closed-
+set discipline applies to ACPI method paths via `Config.AcpiMethodsUsed()`.
+The watchdog's restore-on-exit contract (RULE-WD-RESTORE-EXIT) hands
+every channel back to firmware-managed mode on daemon exit. Battery,
+container, and scrub-active states refuse the daemon entirely
+(RULE-IDLE-02, RULE-IDLE-03). These are the same protections that
+have been load-bearing in nbfc-linux's upstream daemon for years.
 
 ## EC transport
 

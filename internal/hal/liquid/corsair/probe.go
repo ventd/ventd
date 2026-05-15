@@ -10,9 +10,15 @@ import (
 )
 
 // RegisterAll probes all Corsair Commander devices visible on the system and
-// registers each with the HAL under "corsair:<path>". Devices whose firmware is
-// not on the allow-list are registered as read-only backends (RULE-LIQUID-06).
-// Probe failures and missing hardware are logged and skipped — not fatal.
+// registers each with the HAL under "corsair:<path>". Probe failures and
+// missing hardware are logged and skipped — not fatal.
+//
+// v0.6.1 dropped the firmware allowlist + `--unsafe-corsair-writes` gate per
+// the `feedback-dont-default-writes-off` directive — those were "ship code,
+// wait for HIL evidence" gates. The genuine safety primitives stay: pump-
+// minimum floor (RULE-LIQUID-01), USB-disconnect pump floor (RULE-LIQUID-02),
+// restore-on-panic (RULE-LIQUID-04), per-device serialised writes
+// (RULE-LIQUID-05), and conflicting-kernel-driver yield (RULE-LIQUID-07).
 func RegisterAll(logger *slog.Logger, opts ProbeOptions) {
 	m := DeviceMatcher()
 	infos, err := hidraw.Enumerate([]hidraw.Matcher{{
@@ -35,11 +41,6 @@ func RegisterAll(logger *slog.Logger, opts ProbeOptions) {
 
 // ProbeOptions carries runtime flags that affect how a Corsair device is probed.
 type ProbeOptions struct {
-	// UnsafeCorsairWrites enables write commands when set to true AND the
-	// device firmware is on the allow-list (empty in v0.4.0).
-	// --unsafe-corsair-writes flag wires into this field.
-	UnsafeCorsairWrites bool
-
 	// PumpMinimum is the minimum duty cycle for pump channels (RULE-LIQUID-01).
 	// Defaults to defaultPumpMinimum when zero.
 	PumpMinimum uint8
@@ -49,8 +50,8 @@ type ProbeOptions struct {
 // Config-overridable per device but cannot be set to zero.
 const defaultPumpMinimum uint8 = 50
 
-// probedDevice is the concrete HID state shared by liveDevice and unknownFirmwareDevice.
-// It holds the open HID handle and per-device protocol state.
+// probedDevice is the concrete HID state for a Corsair device. Holds the
+// open HID handle and per-device protocol state.
 //
 // RULE-LIQUID-05: mu serialises all HID command transfers per device.
 type probedDevice struct {
@@ -61,37 +62,6 @@ type probedDevice struct {
 	mu      sync.Mutex
 }
 
-// liveDevice wraps probedDevice for devices with an allow-listed firmware.
-// Writable when ProbeOptions.UnsafeCorsairWrites is true AND firmware is listed.
-// (v0.4.0 allow-list is empty, so no real device ever becomes liveDevice.)
-type liveDevice struct{ *probedDevice }
-
-// unknownFirmwareDevice wraps probedDevice for devices whose firmware is not
-// on the allow-list. Read operations work; write commands return
-// ErrReadOnlyUnvalidatedFirmware at the adapter boundary.
-//
-// RULE-LIQUID-03: unknown firmware is read-only.
-type unknownFirmwareDevice struct{ *probedDevice }
-
-// probeClass is the internal compile-time discriminant that drives corsairBackend
-// construction. The concrete type (liveDevice vs unknownFirmwareDevice) encodes
-// write access so it cannot be confused with a runtime boolean flag.
-//
-// RULE-LIQUID-06: writable() returns true only for liveDevice.
-type probeClass interface {
-	writable() bool
-}
-
-func (d liveDevice) writable() bool            { return true }
-func (d unknownFirmwareDevice) writable() bool { return false }
-
-// firmwareAllowList is the set of firmware versions approved for write access.
-// Empty for v0.4.0 — every real device probes as unknownFirmwareDevice.
-// RULE-LIQUID-06: writable mode requires BOTH the unsafe flag AND an
-// allow-listed firmware. Because the list is empty in v0.4.0, no device
-// ever gains write access regardless of the flag.
-var firmwareAllowList = map[firmwareVersion]bool{}
-
 // openResult carries the result of the openFn injected into probeWith.
 type openResult struct {
 	hid  hidIO
@@ -99,16 +69,12 @@ type openResult struct {
 }
 
 // Probe opens the hidraw device at path, runs the Commander Core firmware
-// handshake, and returns a FanBackend adapter.
-//
-// Decision tree:
-//
-//	(a) CheckAndUnbind(path) fails → return ErrKernelDriverOwnsDevice, no adapter.
-//	(b) firmware NOT on allow-list OR UnsafeCorsairWrites==false → unknownFirmwareDevice (read-only)
-//	(c) both (a) succeeded AND firmware on allow-list AND flag set → liveDevice (writable)
+// handshake, and returns a FanBackend adapter. The returned backend is
+// always writable; the pump-minimum floor, USB-disconnect pump floor,
+// restore-on-panic, serialised writes, and conflicting-kernel-driver yield
+// are enforced by the corsairBackend regardless of firmware version.
 //
 // RULE-LIQUID-07: CheckAndUnbind is called before opening the hidraw device.
-// RULE-LIQUID-06: writable requires flag AND allow-listed firmware.
 func Probe(path string, opts ProbeOptions) (hal.FanBackend, error) {
 	return probeWith(path, opts, nil)
 }
@@ -168,22 +134,11 @@ func probeWith(path string, opts ProbeOptions, openFn func(string) (openResult, 
 		pumpMin = defaultPumpMinimum
 	}
 
-	// RULE-LIQUID-06: classify by compile-time type — liveDevice when both the
-	// unsafe flag and an allow-listed firmware are present, unknownFirmwareDevice
-	// otherwise. cls.writable() drives the corsairBackend writable field so the
-	// type split is the single source of truth, not a stand-alone boolean.
-	var cls probeClass
-	if opts.UnsafeCorsairWrites && firmwareAllowList[pd.fw] {
-		cls = liveDevice{pd}
-	} else {
-		cls = unknownFirmwareDevice{pd}
-	}
-
 	channels := buildChannels(entry)
 
 	return &corsairBackend{
 		inner:    pd,
-		writable: cls.writable(),
+		writable: true,
 		pumpMin:  pumpMin,
 		channels: channels,
 	}, nil

@@ -30,69 +30,44 @@ func makeBackend(cfg fakehid.CorsairConfig, opts ProbeOptions, path string) (*co
 	}
 	b := &corsairBackend{
 		inner:    pd,
-		writable: opts.UnsafeCorsairWrites && firmwareAllowList[firmwareVersion{}],
+		writable: true, // post-v0.6.1: writable unconditionally; the firmware allowlist + unsafe-flag gate were removed
 		pumpMin:  pumpMin,
 		channels: buildChannels(entry),
 	}
 	return b, pipe, dev
 }
 
-// TestProbe_KnownFirmwareReturnsLive verifies that probeWith with a firmware
-// version on the allow-list AND the unsafe flag produces a writable backend.
-func TestProbe_KnownFirmwareReturnsLive(t *testing.T) {
-	fw := firmwareVersion{major: 9, minor: 9, patch: 9}
-	firmwareAllowList[fw] = true
-	defer delete(firmwareAllowList, fw)
-
-	openFn := func(path string) (openResult, error) {
-		d := fakehid.NewCorsairDevice(fakehid.CorsairConfig{
-			VID: 0x1b1c, PID: 0x0c1c,
-			FirmwareMajor: 9, FirmwareMinor: 9, FirmwarePatch: 9,
+// TestProbe_AnyFirmwareReturnsWritable verifies post-v0.6.1 contract:
+// probeWith returns a writable backend regardless of firmware version,
+// since the firmware allowlist + --unsafe-corsair-writes gate were
+// removed. Safety is now enforced by RULE-LIQUID-01..05/07 only.
+func TestProbe_AnyFirmwareReturnsWritable(t *testing.T) {
+	for _, fw := range [][]uint8{{1, 2, 3}, {9, 9, 9}, {0, 0, 0}} {
+		fw := fw
+		t.Run("", func(t *testing.T) {
+			openFn := func(path string) (openResult, error) {
+				d := fakehid.NewCorsairDevice(fakehid.CorsairConfig{
+					VID: 0x1b1c, PID: 0x0c1c,
+					FirmwareMajor: fw[0], FirmwareMinor: fw[1], FirmwarePatch: fw[2],
+				})
+				return openResult{
+					hid:  fakehid.NewCorsairPipe(d),
+					info: hidraw.DeviceInfo{ProductID: 0x0c1c, VendorID: 0x1b1c, Path: path},
+				}, nil
+			}
+			b, err := probeWith("/dev/hidraw9999", ProbeOptions{PumpMinimum: 50}, openFn)
+			if err != nil {
+				t.Fatalf("probeWith fw=%v: %v", fw, err)
+			}
+			defer func() { _ = b.Close() }()
+			cb, ok := b.(*corsairBackend)
+			if !ok {
+				t.Fatalf("expected *corsairBackend, got %T", b)
+			}
+			if !cb.writable {
+				t.Errorf("fw=%v: expected writable=true post-v0.6.1", fw)
+			}
 		})
-		return openResult{
-			hid:  fakehid.NewCorsairPipe(d),
-			info: hidraw.DeviceInfo{ProductID: 0x0c1c, VendorID: 0x1b1c, Path: path},
-		}, nil
-	}
-
-	b, err := probeWith("/dev/hidraw9999", ProbeOptions{UnsafeCorsairWrites: true, PumpMinimum: 50}, openFn)
-	if err != nil {
-		t.Fatalf("probeWith: %v", err)
-	}
-	defer func() { _ = b.Close() }()
-
-	cb, ok := b.(*corsairBackend)
-	if !ok {
-		t.Fatalf("expected *corsairBackend, got %T", b)
-	}
-	if !cb.writable {
-		t.Error("expected writable=true when flag set and firmware allow-listed")
-	}
-}
-
-// TestProbe_UnknownFirmwareReturnsReadOnly verifies that probeWith with a firmware
-// version NOT on the allow-list produces a read-only backend regardless of the flag.
-func TestProbe_UnknownFirmwareReturnsReadOnly(t *testing.T) {
-	openFn := func(path string) (openResult, error) {
-		d := fakehid.NewCorsairDevice(fakehid.CorsairConfig{
-			VID: 0x1b1c, PID: 0x0c1c,
-			FirmwareMajor: 1, FirmwareMinor: 2, FirmwarePatch: 3,
-		})
-		return openResult{
-			hid:  fakehid.NewCorsairPipe(d),
-			info: hidraw.DeviceInfo{ProductID: 0x0c1c, VendorID: 0x1b1c, Path: path},
-		}, nil
-	}
-
-	b, err := probeWith("/dev/hidraw9999", ProbeOptions{UnsafeCorsairWrites: true, PumpMinimum: 50}, openFn)
-	if err != nil {
-		t.Fatalf("probeWith: %v", err)
-	}
-	defer func() { _ = b.Close() }()
-
-	cb := b.(*corsairBackend)
-	if cb.writable {
-		t.Error("expected writable=false when firmware not on allow-list")
 	}
 }
 
