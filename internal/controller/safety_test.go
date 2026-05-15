@@ -757,6 +757,75 @@ func TestRulePolarity11_ControllerHotPathRoutesViaPolarityWritePWM(t *testing.T)
 		}
 	})
 
+	t.Run("polarity_refused_phantom_hands_back_to_bios_auto_once", func(t *testing.T) {
+		// RULE-POLARITY-12: when polarity.WritePWM refuses (phantom/unknown),
+		// the controller MUST hand the channel back to BIOS auto via
+		// watchdog.RestoreOne on the FIRST refusal. Subsequent refusals are
+		// silent skips — the polarityHandedBack flag prevents log spam and
+		// redundant restores at controller poll-rate.
+		//
+		// Without this rule, a fan whose calibration sweep ended at PWM=0
+		// and whose polarity was misclassified as phantom sits at 0 RPM
+		// forever. For an AIO pump, that's a thermal disaster. Closes the
+		// 2026-05-15 NCT6687 wizard incident on Phoenix's 13900K box where
+		// every controlled channel got refused and stalled at PWM=0 for
+		// nearly an hour before manual intervention.
+		ff := newFakeFan(t)
+		cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+		c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+
+		// Register the fan with the watchdog so it has an origEnable to
+		// restore back to. The fakehwmon fixture initialises Enable=2
+		// (BIOS auto) so origEnable=2 is captured here.
+		c.wd.Register(ff.pwmPath, "hwmon")
+
+		// Phantom polarity → polarity.WritePWM refuses with
+		// ErrChannelNotControllable.
+		c.polarityCh = &probe.ControllableChannel{
+			PWMPath:  ff.pwmPath,
+			Polarity: "phantom",
+		}
+		fb := &fakeErrBackend{}
+		c.backend = fb
+
+		// Simulate ventd having taken control: pwm_enable=1 (manual).
+		if err := os.WriteFile(ff.enablePath, []byte("1\n"), 0o600); err != nil {
+			t.Fatalf("seed pwm_enable=1: %v", err)
+		}
+
+		// First refusal: must dispatch through watchdog.RestoreOne which
+		// writes pwm_enable=2 back. polarityHandedBack flips to true.
+		ch := hal.Channel{ID: ff.pwmPath}
+		if err := c.writeWithRetry(ch, 100, ff.pwmPath, "curve"); err != nil {
+			t.Fatalf("first polarity refusal returned err: %v", err)
+		}
+		if fb.writeCalls != 0 {
+			t.Errorf("phantom: backend.Write got %d calls; want 0", fb.writeCalls)
+		}
+		if !c.polarityHandedBack {
+			t.Error("polarityHandedBack must be true after first refusal")
+		}
+		// Watchdog should have restored pwm_enable to 2 (the origEnable
+		// captured at Register time).
+		gotEnable := readPWMByte(t, ff.enablePath)
+		if gotEnable != 2 {
+			t.Errorf("pwm_enable after handback = %d, want 2 (BIOS auto)", gotEnable)
+		}
+
+		// Second refusal: write something else to pwm_enable so we can
+		// detect whether the handback fires again. It must NOT.
+		if err := os.WriteFile(ff.enablePath, []byte("1\n"), 0o600); err != nil {
+			t.Fatalf("re-seed pwm_enable=1: %v", err)
+		}
+		if err := c.writeWithRetry(ch, 150, ff.pwmPath, "curve"); err != nil {
+			t.Fatalf("second polarity refusal returned err: %v", err)
+		}
+		gotEnable = readPWMByte(t, ff.enablePath)
+		if gotEnable != 1 {
+			t.Errorf("second-refusal handback fired (pwm_enable=%d); want 1 (untouched)", gotEnable)
+		}
+	})
+
 	t.Run("polarity_inverted_sentinel_carry_forward_routes_via_writepwm", func(t *testing.T) {
 		// RULE-POLARITY-11's third call site: the sentinel-carry-forward
 		// branch in tick() (controller.go:650). The other two call sites

@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.5.39] - 2026-05-16
+
+### Headline
+
+Polarity probe rewritten as a bipolar low/high pulse pair — fans whose BIOS auto-curve held them at high baseline PWM going into the wizard no longer misclassify as inverted (and then cascade into phantom via the post-cal sanity check). The controller's hot path also gains a safety net: on the first polarity refusal per channel, the watchdog hands the channel back to BIOS auto so a misclassified fan never sits at PWM=0 waiting for the next daemon restart. Closes the 2026-05-15 incident on a 13900K / NCT6687 box where every controlled channel got refused and stalled at PWM=0 for nearly an hour.
+
+### Fixed
+
+- **Bipolar polarity probe (RULE-POLARITY-13).** `HwmonProber` and `NVMLProber` now drive `BipolarLowPWM` (51 ≈ 20%) followed by `BipolarHighPWM` (204 ≈ 80%), each held for `BipolarPulseHold` (2 s), and classify on the delta between the two pulses. The pre-fix algorithm wrote a single midpoint (128 / 50%) and compared against the pre-write baseline RPM — that misclassified every normal fan whose baseline PWM was already above midpoint, which is the common case when BIOS auto-curves are running fans at 70-100% going into the wizard. A fan at PWM=255 / 2300 RPM slowed to ~1500 RPM under PWM=128, producing `delta = -800` and a false-inverted label. The bipolar replacement is baseline-PWM-invariant. Mirrors the pattern `internal/validity/` already uses (RULE-CALIB-PR2B-01). Rules POLARITY-01 / POLARITY-02 amended to match.
+- **Controller safety handback on polarity refusal (RULE-POLARITY-12).** When `polarity.WritePWM` returns `ErrChannelNotControllable` (phantom) or `ErrPolarityNotResolved` (unknown), the controller now dispatches `wd.RestoreOne(pwmPath)` on the first refusal per controller lifetime — handing the channel back to BIOS auto rather than leaving it at whatever PWM the calibration sweep last committed (typically 0). The per-controller `polarityHandedBack` flag silences subsequent refusals so journald isn't filled at controller poll-rate. Critical for AIO pumps on misclassified channels where a stuck PWM=0 means no coolant circulation.
+- **Polarity-aware phantom-verify.** Phase 6b's `verifyHwmonChannelSpins` now writes raw 0 for "inverted" channels and raw 255 for normal channels (i.e. effective 100% in both cases). Pre-fix, the verify wrote raw 255 unconditionally, which on a genuinely-inverted channel (NCT6683 on MSI, IT87 on some Gigabyte) is 0% effective duty → 0 RPM → false re-classification as phantom. The previously-detected "inverted" classification would then be lost and a perfectly working channel excluded from `controls:`. The `RULE-SETUP-PHANTOM-VERIFY` rule text in `setup.md` is amended to cover the polarity-aware path.
+
+### Internals
+
+- New rules: `RULE-POLARITY-12.md` (controller refused-handback) and `RULE-POLARITY-13.md` (bipolar probe). Amended `RULE-POLARITY-01.md`, `RULE-POLARITY-02.md`, and the `RULE-SETUP-PHANTOM-VERIFY` block in `setup.md` to reflect the new algorithm + polarity-awareness.
+- `polarity.HwmonProber.ProbeChannel` now ignores baseline RPM for classification (used only for the restore). Baseline PWM is still captured and restored on every exit path (RULE-POLARITY-04 preserved).
+- `polarity.NVMLProber.ProbeChannel` follows the same shape: set manual policy → LOW pulse → HIGH pulse → restore → classify.
+- New constants in `internal/polarity/polarity.go`: `BipolarLowPWM`, `BipolarHighPWM`, `BipolarLowPct`, `BipolarHighPct`, `BipolarPulseHold`.
+- New bound tests: `RULE-POLARITY-13_bipolar_baseline_invariant/hwmon_normal_fan_high_baseline_classifies_normal`, `polarity_refused_phantom_hands_back_to_bios_auto_once`, `inverted_polarity_writes_raw_zero_not_255`.
+
+### Senior review pass
+
+The NCT6687 chip's per-channel `pwm_enable` EINVAL on value 2 (it accepts only {1, 5}) is independent of this fix — the watchdog's `RestoreOne` dispatches the captured `origEnable`, and the chip-specific EINVAL fallback chain (RULE-HWMON-ENABLE-EINVAL-FALLBACK) lives in `setup.go`'s `restoreExcludedChannels`, not `restoreOne`. A separate PR should hoist the EINVAL probe-and-fallback into the watchdog path so the safety handback works uniformly on every chip; filed as a follow-up issue.
+
 ## [v0.5.38] - 2026-05-15
 
 ### Headline

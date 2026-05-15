@@ -201,6 +201,15 @@ type Controller struct {
 	// preserves the pre-#1037 behaviour for tests that don't supply
 	// a channel. Issue #1037.
 	polarityCh *probe.ControllableChannel
+
+	// polarityHandedBack records that the channel has already been
+	// handed back to BIOS auto via watchdog.RestoreOne after a polarity
+	// refusal (RULE-POLARITY-12). The first refusal triggers the
+	// handback + a single operator-visible WARN; subsequent refusals
+	// in the same controller lifetime are silent skips so journald
+	// isn't spammed at controller poll-rate while the operator
+	// investigates the wizard's classification.
+	polarityHandedBack bool
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -322,14 +331,32 @@ func (c *Controller) writePWMViaPolarity(ch hal.Channel, pwm uint8) error {
 		return backendErr
 	})
 	if err != nil {
-		// polarity refusal (phantom/unknown). Log and treat as a
-		// skipped tick — never escalate to the controller's fatal
-		// path. The wizard / doctor surface alerts the operator.
+		// Polarity refusal (phantom/unknown). RULE-POLARITY-12: hand
+		// the channel back to BIOS auto on the FIRST refusal so the
+		// fan doesn't sit at whatever the last write committed (often
+		// PWM=0 from a calibration sweep). Without this, a refused
+		// AIO pump silently stays stopped and the CPU thermal-throttles
+		// or worse. The watchdog's RestoreOne is the canonical hand-
+		// back primitive — same path the daemon-exit defer uses — so
+		// the chip-specific pwm_enable fallback chain (RULE-HWMON-
+		// ENABLE-EINVAL-FALLBACK et al) applies uniformly.
+		//
+		// Subsequent refusals in the same controller lifetime are
+		// silent skips so journald isn't filled at controller poll-
+		// rate. The handback is one-shot per controller: a re-probe
+		// + config reload spawns a fresh controller whose flag starts
+		// false again.
 		if errors.Is(err, polarity.ErrChannelNotControllable) ||
 			errors.Is(err, polarity.ErrPolarityNotResolved) {
-			c.logger.Warn("controller: polarity refused write",
-				"event", "polarity_refused",
-				"pwm_path", c.pwmPath, "polarity", c.polarityCh.Polarity, "err", err)
+			if !c.polarityHandedBack {
+				c.logger.Warn("controller: polarity refused write; handing back to BIOS auto",
+					"event", "polarity_refused",
+					"pwm_path", c.pwmPath, "polarity", c.polarityCh.Polarity, "err", err)
+				if c.wd != nil {
+					c.wd.RestoreOne(c.pwmPath)
+				}
+				c.polarityHandedBack = true
+			}
 			return nil
 		}
 		// Backend error surfaced through polarity.WritePWM's fn —

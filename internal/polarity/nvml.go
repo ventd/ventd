@@ -123,7 +123,7 @@ func (p *NVMLProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCha
 		return res, nil
 	}
 
-	// Read baseline state (policy + speed).
+	// Read baseline state (policy + speed) for restore-only.
 	baselineSpeed, err := p.nvml().GetFanSpeed(id.GPUIndex, id.FanIndex)
 	if err != nil {
 		res.Polarity = "phantom"
@@ -131,7 +131,6 @@ func (p *NVMLProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCha
 		return res, nil
 	}
 	baselinePolicy, hasPolicy, _ := p.nvml().GetFanControlPolicy(id.GPUIndex, id.FanIndex)
-	res.Baseline = float64(baselineSpeed)
 
 	// Restore is deferred on every path (RULE-POLARITY-04).
 	restored := false
@@ -145,40 +144,62 @@ func (p *NVMLProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCha
 		}
 	}()
 
-	// Set manual policy + 50% speed (RULE-POLARITY-01).
+	// Set manual policy before any write.
 	if _, err := p.nvml().SetFanControlPolicy(id.GPUIndex, id.FanIndex, nvidia.FanPolicyTemperatureDiscrete); err != nil {
 		res.Polarity = "phantom"
 		res.PhantomReason = PhantomReasonWriteFailed
 		return res, nil
 	}
-	if err := p.nvml().SetFanSpeed(id.GPUIndex, id.FanIndex, 50); err != nil {
+
+	// Bipolar LOW pulse (RULE-POLARITY-13).
+	if err := p.nvml().SetFanSpeed(id.GPUIndex, id.FanIndex, BipolarLowPct); err != nil {
 		res.Polarity = "phantom"
 		res.PhantomReason = PhantomReasonWriteFailed
 		return res, nil
 	}
-
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
 	default:
 	}
-
-	// Hold 3 seconds (RULE-POLARITY-02).
-	p.clock()(HoldDuration)
-
+	p.clock()(BipolarPulseHold)
 	select {
 	case <-ctx.Done():
 		return res, ctx.Err()
 	default:
 	}
-
-	observedSpeed, err := p.nvml().GetFanSpeed(id.GPUIndex, id.FanIndex)
+	speedLow, err := p.nvml().GetFanSpeed(id.GPUIndex, id.FanIndex)
 	if err != nil {
 		res.Polarity = "phantom"
 		res.PhantomReason = PhantomReasonNoResponse
 		return res, nil
 	}
-	res.Observed = float64(observedSpeed)
+	res.Baseline = float64(speedLow) // Reused field: speed observed at the LOW pulse.
+
+	// Bipolar HIGH pulse (RULE-POLARITY-13).
+	if err := p.nvml().SetFanSpeed(id.GPUIndex, id.FanIndex, BipolarHighPct); err != nil {
+		res.Polarity = "phantom"
+		res.PhantomReason = PhantomReasonWriteFailed
+		return res, nil
+	}
+	select {
+	case <-ctx.Done():
+		return res, ctx.Err()
+	default:
+	}
+	p.clock()(BipolarPulseHold)
+	select {
+	case <-ctx.Done():
+		return res, ctx.Err()
+	default:
+	}
+	speedHigh, err := p.nvml().GetFanSpeed(id.GPUIndex, id.FanIndex)
+	if err != nil {
+		res.Polarity = "phantom"
+		res.PhantomReason = PhantomReasonNoResponse
+		return res, nil
+	}
+	res.Observed = float64(speedHigh)
 
 	// Restore.
 	_ = p.nvml().SetFanSpeed(id.GPUIndex, id.FanIndex, baselineSpeed)
@@ -188,8 +209,8 @@ func (p *NVMLProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCha
 	p.clock()(RestoreDelay)
 	restored = true
 
-	// Classify (RULE-POLARITY-03).
-	delta := float64(observedSpeed) - float64(baselineSpeed)
+	// Classify on the bipolar delta — baseline-speed-invariant.
+	delta := float64(speedHigh) - float64(speedLow)
 	res.Delta = delta
 
 	switch {

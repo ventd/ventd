@@ -40,12 +40,15 @@ func noopClock(time.Duration) {}
 // ─── RULE-POLARITY-01 ────────────────────────────────────────────────────────
 
 func TestPolarityRules(t *testing.T) {
-	// RULE-POLARITY-01: midpoint write MUST be exactly 128 for hwmon, 50 for NVML,
-	// and vendor-specific for IPMI. Subtest verifies write capture per backend.
+	// RULE-POLARITY-01: bipolar probe MUST write BipolarLowPWM then
+	// BipolarHighPWM for hwmon, and BipolarLowPct then BipolarHighPct for
+	// NVML. The pre-#1110 midpoint-only write was replaced because it
+	// misclassified normal fans whose baseline PWM was already above
+	// midpoint (2026-05-15 NCT6687 wizard incident).
 	t.Run("RULE-POLARITY-01_midpoint_write", func(t *testing.T) {
-		t.Run("hwmon_writes_128", func(t *testing.T) {
-			// baseline=200 RPM, observed=820 RPM → delta=+620 → normal
-			fake := fixtures.NewFakeHwmon(64, []int{200, 200, 820, 820})
+		t.Run("hwmon_writes_bipolar_low_then_high", func(t *testing.T) {
+			// rpmSeq: [RPM_low=200, RPM_high=820] → delta=+620 → normal
+			fake := fixtures.NewFakeHwmon(64, []int{200, 820})
 			p := fixtures.HwmonProberFromFake(fake)
 			ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
 			_, err := p.ProbeChannel(context.Background(), ch)
@@ -53,18 +56,25 @@ func TestPolarityRules(t *testing.T) {
 				t.Fatalf("ProbeChannel: %v", err)
 			}
 			writes := fake.Writes()
-			if len(writes) == 0 {
-				t.Fatal("no writes recorded")
+			if len(writes) < 2 {
+				t.Fatalf("want ≥2 writes (LOW, HIGH, restore); got %d: %v", len(writes), writes)
 			}
-			if writes[0] != 128 {
-				t.Errorf("first write = %d, want 128", writes[0])
+			if writes[0] != int(polarity.BipolarLowPWM) {
+				t.Errorf("first write = %d, want BipolarLowPWM (%d)", writes[0], polarity.BipolarLowPWM)
+			}
+			if writes[1] != int(polarity.BipolarHighPWM) {
+				t.Errorf("second write = %d, want BipolarHighPWM (%d)", writes[1], polarity.BipolarHighPWM)
 			}
 		})
 
-		t.Run("nvml_writes_50pct", func(t *testing.T) {
-			// baseline=20%, observed=50% → delta=+30 → normal (>ThresholdPct)
-			fake := fixtures.NewFakeNVML("570.211.01", 20, 1)
-			p := &polarity.NVMLProber{Clock: noopClock, NVMLFuncs: fake}
+		t.Run("nvml_writes_bipolar_20_then_80", func(t *testing.T) {
+			// LOW reads 20%, HIGH reads 80% → delta=+60 → normal
+			seq := &seqFakeNVML{
+				driverVersion: "570.211.01",
+				policy:        1,
+				speeds:        []uint8{20, 80},
+			}
+			p := &polarity.NVMLProber{Clock: noopClock, NVMLFuncs: seq}
 			ch := &probe.ControllableChannel{
 				PWMPath:  "nvml:0:0",
 				Driver:   "nvml",
@@ -74,29 +84,27 @@ func TestPolarityRules(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ProbeChannel: %v", err)
 			}
-			calls := fake.SetSpeedCalls()
-			// First call must be 50 (midpoint)
-			var found50 bool
-			for _, c := range calls {
-				if c == 50 {
-					found50 = true
-					break
-				}
+			calls := seq.setCalls
+			if len(calls) < 2 {
+				t.Fatalf("want ≥2 SetFanSpeed calls (LOW, HIGH); got %d: %v", len(calls), calls)
 			}
-			if !found50 {
-				t.Errorf("SetFanSpeed was never called with 50; calls = %v", calls)
+			if calls[0] != polarity.BipolarLowPct {
+				t.Errorf("first SetFanSpeed = %d, want BipolarLowPct (%d)", calls[0], polarity.BipolarLowPct)
+			}
+			if calls[1] != polarity.BipolarHighPct {
+				t.Errorf("second SetFanSpeed = %d, want BipolarHighPct (%d)", calls[1], polarity.BipolarHighPct)
 			}
 		})
 
 	})
 
-	// RULE-POLARITY-02: hold time must be 3 seconds ± 200ms across backends.
-	// Verified via injected clock accumulator.
+	// RULE-POLARITY-02: bipolar pulse-hold ≥ BipolarPulseHold per pulse.
+	// Total clock-injected sleep ≥ 2×BipolarPulseHold.
 	t.Run("RULE-POLARITY-02_hold_time_3s", func(t *testing.T) {
 		var totalSleep time.Duration
 		clockFn := func(d time.Duration) { totalSleep += d }
 
-		fake := fixtures.NewFakeHwmon(64, []int{200, 200, 820, 820})
+		fake := fixtures.NewFakeHwmon(64, []int{200, 820})
 		p := &polarity.HwmonProber{
 			Clock:    clockFn,
 			ReadFile: fake.ReadFile,
@@ -108,14 +116,16 @@ func TestPolarityRules(t *testing.T) {
 		if _, err := p.ProbeChannel(context.Background(), ch); err != nil {
 			t.Fatalf("ProbeChannel: %v", err)
 		}
-		// HoldDuration + RestoreDelay + baseline reads; hold must be exactly present.
-		if totalSleep < polarity.HoldDuration-200*time.Millisecond {
-			t.Errorf("total sleep %v < HoldDuration-200ms (%v)", totalSleep, polarity.HoldDuration-200*time.Millisecond)
+		minPulseSleep := 2 * polarity.BipolarPulseHold
+		if totalSleep < minPulseSleep-200*time.Millisecond {
+			t.Errorf("total sleep %v < 2×BipolarPulseHold-200ms (%v)", totalSleep, minPulseSleep-200*time.Millisecond)
 		}
 	})
 
-	// RULE-POLARITY-03: phantom classification thresholds.
-	// hwmon: abs(delta) < 150 → phantom; NVML: abs(delta) < 10 → phantom.
+	// RULE-POLARITY-03: phantom classification thresholds — bipolar delta.
+	// rpmSeq[0]=RPM_low (after BipolarLowPWM), rpmSeq[1]=RPM_high (after
+	// BipolarHighPWM). hwmon |delta| < 150 → phantom; sign disambiguates
+	// normal vs inverted. NVML same with 10pct threshold.
 	t.Run("RULE-POLARITY-03_threshold_boundary", func(t *testing.T) {
 		cases := []struct {
 			name       string
@@ -123,11 +133,11 @@ func TestPolarityRules(t *testing.T) {
 			wantPol    string
 			wantReason string
 		}{
-			{"delta_+620_normal", []int{200, 200, 820, 820}, "normal", ""},
-			{"delta_-620_inverted", []int{820, 820, 200, 200}, "inverted", ""},
-			{"delta_+149_phantom", []int{200, 200, 349, 349}, "phantom", polarity.PhantomReasonNoResponse},
-			{"delta_-149_phantom", []int{349, 349, 200, 200}, "phantom", polarity.PhantomReasonNoResponse},
-			{"delta_0_phantom", []int{500, 500, 500, 500}, "phantom", polarity.PhantomReasonNoResponse},
+			{"delta_+620_normal", []int{200, 820}, "normal", ""},
+			{"delta_-620_inverted", []int{820, 200}, "inverted", ""},
+			{"delta_+149_phantom", []int{200, 349}, "phantom", polarity.PhantomReasonNoResponse},
+			{"delta_-149_phantom", []int{349, 200}, "phantom", polarity.PhantomReasonNoResponse},
+			{"delta_0_phantom", []int{500, 500}, "phantom", polarity.PhantomReasonNoResponse},
 		}
 		for _, tc := range cases {
 			tc := tc
@@ -148,12 +158,13 @@ func TestPolarityRules(t *testing.T) {
 			})
 		}
 
-		// NVML thresholds.
+		// NVML thresholds (bipolar). speeds[0]=baselineSpeed read,
+		// speeds[1]=LOW-pulse read, speeds[2]=HIGH-pulse read.
 		nvmlCases := []struct {
-			name     string
-			baseline uint8
-			observed uint8
-			wantPol  string
+			name    string
+			low     uint8
+			high    uint8
+			wantPol string
 		}{
 			{"nvml_+30_normal", 20, 50, "normal"},
 			{"nvml_-30_inverted", 50, 20, "inverted"},
@@ -164,11 +175,12 @@ func TestPolarityRules(t *testing.T) {
 		for _, tc := range nvmlCases {
 			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
-				// Use seqFakeNVML to return baseline then observed speed.
+				// seqFakeNVML returns speeds in order on each GetFanSpeed.
+				// Order: [baseline-read, low-pulse-read, high-pulse-read].
 				seq := &seqFakeNVML{
 					driverVersion: "570.211.01",
 					policy:        1,
-					speeds:        []uint8{tc.baseline, tc.observed},
+					speeds:        []uint8{tc.low, tc.low, tc.high},
 				}
 				p := &polarity.NVMLProber{Clock: noopClock, NVMLFuncs: seq}
 				ch := &probe.ControllableChannel{
@@ -185,6 +197,54 @@ func TestPolarityRules(t *testing.T) {
 				}
 			})
 		}
+	})
+
+	// RULE-POLARITY-13: bipolar probe must classify polarity invariant
+	// to baseline PWM. The 2026-05-15 NCT6687 incident misclassified
+	// every normal fan as inverted because the BIOS auto-curve had them
+	// running at high PWM going into the probe and the midpoint write
+	// produced a negative delta. This test pins the bug-fix contract.
+	t.Run("RULE-POLARITY-13_bipolar_baseline_invariant", func(t *testing.T) {
+		t.Run("hwmon_normal_fan_high_baseline_classifies_normal", func(t *testing.T) {
+			// Fan running at PWM=255 / 2300 RPM going into the probe.
+			// Bipolar probe drives LOW=51 then HIGH=204. Real normal
+			// fan response: LOW yields ~400 RPM, HIGH yields ~1800 RPM.
+			// delta = +1400 → normal. The pre-fix midpoint-vs-baseline
+			// would have computed (1500-2300)=-800 and called this
+			// inverted; the new algorithm cannot make that mistake.
+			fake := fixtures.NewFakeHwmon(255, []int{400, 1800})
+			p := fixtures.HwmonProberFromFake(fake)
+			ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+			res, err := p.ProbeChannel(context.Background(), ch)
+			if err != nil {
+				t.Fatalf("ProbeChannel: %v", err)
+			}
+			if res.Polarity != "normal" {
+				t.Errorf("Polarity = %q, want normal (delta=%.0f) — baseline-already-high regression",
+					res.Polarity, res.Delta)
+			}
+			// Baseline PWM must be restored on the way out.
+			if fake.CurrentPWM() != 255 {
+				t.Errorf("baseline PWM not restored: got %d, want 255", fake.CurrentPWM())
+			}
+		})
+
+		t.Run("hwmon_inverted_fan_low_baseline_classifies_inverted", func(t *testing.T) {
+			// Inverted fan at PWM=10 (raw) is at high effective duty.
+			// LOW=51 raw = high effective: ~1800 RPM.
+			// HIGH=204 raw = low effective: ~400 RPM.
+			// delta = -1400 → inverted.
+			fake := fixtures.NewFakeHwmon(10, []int{1800, 400})
+			p := fixtures.HwmonProberFromFake(fake)
+			ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+			res, err := p.ProbeChannel(context.Background(), ch)
+			if err != nil {
+				t.Fatalf("ProbeChannel: %v", err)
+			}
+			if res.Polarity != "inverted" {
+				t.Errorf("Polarity = %q, want inverted (delta=%.0f)", res.Polarity, res.Delta)
+			}
+		})
 	})
 
 	// RULE-POLARITY-04: probe MUST restore baseline on every exit path.

@@ -174,8 +174,12 @@ func (f *FakeNVML) SetPolicyCalls() []int {
 
 // HwmonProberFromFake builds a polarity.HwmonProber wired to a FakeHwmon.
 // A step-advancing Now function (400ms per call) is injected so that
-// readRPMMean executes exactly 2 iterations for BaselineWindow (1s) and 1
-// iteration for RestoreDelay (500ms), consuming sequences predictably in tests.
+// readRPMMean over the RestoreDelay (500ms) window executes exactly one
+// real tach read per pulse — the bipolar probe's two readRPMMean calls
+// (one after the LOW pulse, one after the HIGH pulse) consume the
+// FakeHwmon's rpm sequence in order: rpmSeq[0] = RPM_low, rpmSeq[1] =
+// RPM_high. Two-element sequences are sufficient; longer sequences are
+// not exhausted.
 func HwmonProberFromFake(f *FakeHwmon) *polarity.HwmonProber {
 	base := time.Now()
 	var calls int64
