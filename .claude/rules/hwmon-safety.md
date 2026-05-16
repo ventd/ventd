@@ -68,70 +68,35 @@ Bound: internal/hal/hwmon/backend_test.go:TestWrite_PersistentEBUSY_FailsAfterOn
 
 ## RULE-HWMON-EBUSY-RATE-OBSERVABILITY: Backend tracks per-channel EBUSY rate in a 60s rolling window and emits escalating log levels at 5/min (WARN-storm) and 20/min (ERROR-escalation); EBUSYRates() exposes the snapshot for future doctor wiring.
 
-RULE-HWMON-MODE-REACQUIRE covers the single-event recovery primitive
-(one re-acquire + retry on EBUSY). This rule is the
-**observability ladder** on top of that primitive — when the BIOS
-reassertion timer is tighter than the controller's tick, the
-recovery succeeds but masks a storm. Operators need to see the
-rate, not just the individual events.
-
-Per audit follow-up M17 from the v0.5.26 senior review:
-
-> Add a per-channel `consecutiveEBUSY` counter; emit WARN at 5/min,
-> doctor card at 20/min, fall back to firmware-auto at 100/min.
-
-v0.5.40 ships the rate-tracking + escalating logs + the
-`EBUSYRates()` accessor seam. The "100/min firmware-auto"
-auto-fallback is intentionally deferred to a follow-up PR — it
-introduces a state-machine surface (silenced channels, cooldown
-re-entry, watchdog interaction) that needs HIL data before
-shipping.
+The observability ladder on top of RULE-HWMON-MODE-REACQUIRE: the
+per-event re-acquire succeeds invisibly during a BIOS-reassertion
+storm, so the daemon also has to surface the *rate*.
 
 `Backend.recordEBUSY(pwmPath, writeErr)` is called inside
-`Backend.Write` BEFORE the existing re-acquire retry, so a tight
-reassertion loop's rate is tracked even when the retry succeeds —
-the storm shape is recorded, not just the write outcome.
+`Backend.Write` BEFORE the existing re-acquire retry, so the storm
+shape is recorded even when the retry succeeds.
 
-The per-channel rolling window:
+Constants (locked by `TestEBUSYRate_ThresholdConstantsLocked`):
+- `EBUSYWindow = 60 * time.Second` — counter-reset window (resets to
+  one when 60s elapses since the first event in the burst).
+- `EBUSYWarnThreshold = 5` — escalates from one-off WARN to
+  "storm detected" WARN.
+- `EBUSYEscalateThreshold = 20` — escalates to ERROR with the
+  operator-actionable BIOS-disable hint.
 
-- `EBUSYWindow = 60 * time.Second` — counter-reset, not a true
-  sliding window. When `EBUSYWindow` elapses since the first event
-  in the burst, the counter resets to one and a fresh window
-  begins. Cheaper than a per-event ring buffer; adequate for "is
-  this channel storming right now?".
-- `EBUSYWarnThreshold = 5` — count at which the log line escalates
-  from one-off WARN to "storm detected" WARN.
-- `EBUSYEscalateThreshold = 20` — count at which the log line
-  escalates to ERROR with the operator-actionable hint about
-  disabling BIOS fan-control (Q-Fan / Smart Fan).
+Log emission is debounced by `lastWarnedCount`: each threshold crossing
+emits exactly one log line per window. Per-channel isolation via
+`sync.Map[pwmPath]*ebusyStats` is load-bearing — one storming channel
+must not pollute another's counter. A clock seam
+(`Backend.SetClockForTest`) drives tests deterministically.
 
-Log emission is **debounced** by the `lastWarnedCount` field —
-each threshold crossing emits exactly one log line per window, not
-one per event. The 21st event in the same window is silent (the
-operator already has the ERROR; no value in spamming).
+`Backend.EBUSYRates()` returns a per-channel snapshot for a future
+doctor detector (currently-storming / recently-stormed / never-stormed
+classification).
 
-`Backend.EBUSYRates()` returns a snapshot keyed by `pwmPath`. Each
-entry carries the running count, the window-start timestamp, and
-the window span. A doctor detector reading this map distinguishes:
-
-- **Currently storming** — `WindowStart` is within the last 60s
-  AND `EventCount >= EBUSYWarnThreshold`. Surface as a Warning
-  recovery card.
-- **Recently stormed, now quiet** — `WindowStart` older than 60s
-  but the counter hasn't been reset by a subsequent EBUSY. The
-  channel calmed down on its own (the BIOS gave up); surface as
-  Info or skip.
-- **Never stormed** — channel absent from the map.
-
-Per-channel isolation is load-bearing: one channel suffering
-Q-Fan reassertion must not pollute the counter for another well-
-behaved channel on the same chip. The `sync.Map[pwmPath]*ebusyStats`
-shape gives each channel its own counter + window, protected by
-the inner `ebusyStats.mu` mutex.
-
-A clock seam (`Backend.SetClockForTest`) lets tests drive the
-rolling window deterministically without `time.Sleep`. Production
-uses `time.Now`.
+See `docs/rules-rationale/hwmon-runtime-monitors.md` for the audit-M17
+recommendation, the deferred 100/min auto-fallback, and the doctor-
+detector consumption design.
 
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_TracksWithinWindow
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_WindowResetAfterExpiry
@@ -197,79 +162,37 @@ Bound: internal/controller/safety_test.go:hwmon_index_instability/resolve_by_dev
 
 ## RULE-HWMON-SWAP-MONITOR: A long-running goroutine periodically re-resolves stored hwmon paths against their stable-device anchors; mismatches are surfaced at WARN level and dispatched to an optional SwapHandler.
 
-RULE-HWMON-INDEX-UNSTABLE covers the startup-time resolution
-contract: stored hwmon paths are rebased via `hwmon.ResolvePath`
-once at daemon start. This rule covers the **runtime** complement:
-hwmonN indices can shift during a daemon's lifetime when a USB GPU
-hotplugs, when `modprobe -r/-i` reloads a Super-I/O driver, or
-when udev re-numbers chips post-suspend. Without runtime re-
-resolution, the controller silently writes to a stale path until
-the next daemon restart.
-
-The pre-v0.5.41 doctor surface (`RULE-DOCTOR-DETECTOR-HWMONSWAP`)
-catches the same condition reactively — but only on the next
-periodic doctor sweep, which can be minutes away. M21 from the
-v0.5.26 senior review proposed a real-time runtime monitor.
+The runtime complement to RULE-HWMON-INDEX-UNSTABLE's startup-time
+rebase. hwmonN indices can shift mid-lifetime (USB GPU hotplug,
+`modprobe -r/-i`, udev re-numbering post-suspend); without runtime
+re-resolution the controller silently writes to a stale path until
+daemon restart.
 
 `hwmon.MonitorSwap(ctx, inputs, interval, logger, onSwap)` is the
-long-running goroutine entry point. Every `interval`, it calls
-`ReResolveAll(inputs)` and dispatches the optional `SwapHandler`
-for every detection where Changed=true. Every detection is
-logged at WARN regardless of whether a handler is wired —
-observability holds even without a remap dispatch.
+goroutine entry point. Every `interval` it calls `ReResolveAll(inputs)`
+and dispatches the optional `SwapHandler` per `Changed=true`
+detection. Every detection is logged at WARN regardless of handler
+wiring. `hwmon.ReResolveAll(inputs []ChannelInput) []SwapDetection`
+is the pure helper; each `ChannelInput` carries `StoredPath`
+(daemon-start sysfs path) and `StableDevice`
+(boot-persistent parent from `hwmon.StableDevice`).
 
-`hwmon.ReResolveAll(inputs []ChannelInput) []SwapDetection` is the
-pure helper underneath. Each `ChannelInput` carries:
+`DefaultSwapMonitorInterval = 10 * time.Minute`. Daemon-side wiring
+is `startHwmonSwapMonitor(ctx, wg, channels, logger)` in
+`cmd/ventd/smart_builders.go`; it skips channels with empty `PWMPath`
+or empty `StableDevice` (NVML / IPMI / virtual). Zero eligible
+channels = clean no-op, no goroutine registered.
 
-- `StoredPath`: the sysfs path stamped at startup (e.g.
-  `/sys/class/hwmon/hwmon2/pwm1`).
-- `StableDevice`: the boot-persistent parent (e.g.
-  `/sys/devices/platform/nct6687.2608`) as returned by
-  `hwmon.StableDevice` at startup.
+**v0.5.41 ships observability-only**: `SwapHandler` is nil in
+production. Detections surface via WARN; the actual remap (touching
+controller caches, watchdog entries, calibration Manager.RemapKey)
+requires a coordinated refactor in a follow-up PR. Operator awareness
+lag is acknowledged; release notes call out the restart-on-WARN
+mitigation.
 
-`DefaultSwapMonitorInterval = 10 * time.Minute`. Module reloads and
-hotplug events are rare; a 10-minute cadence keeps the syscall
-overhead negligible while bounding worst-case detection latency to
-a real-time remediation window. Operators that need tighter
-detection can pass a shorter interval to MonitorSwap directly.
-
-The daemon-side wiring is `startHwmonSwapMonitor(ctx, wg, channels,
-logger)` in `cmd/ventd/smart_builders.go`. It builds the
-ChannelInput slice by:
-
-1. Iterating `[]*probe.ControllableChannel` from the live probe
-   result.
-2. Skipping channels with empty `PWMPath`.
-3. Skipping channels whose `hwmon.StableDevice(pwmPath)` returns
-   empty string (NVML, IPMI, virtual devices that don't expose a
-   chip-parent symlink).
-4. Spawning one MonitorSwap goroutine when the resulting slice is
-   non-empty.
-
-A nil channel slice or zero eligible channels short-circuits to a
-clean no-op — no goroutine is registered against `wg`.
-
-v0.5.41 ships **observability-only**: the SwapHandler is nil, so
-detections are surfaced via WARN log lines but no remap dispatch
-happens. The actual remap (calling Manager.RemapKey, updating
-controller caches, updating watchdog entries) requires a
-coordinated refactor across the controller, watchdog, and
-calibration manager that needs separate design. The seam (onSwap
-callback) is in place so the follow-up PR only wires the
-dispatch, not the detection. The risk of observability-only is
-**operator awareness lag** — the WARN line tells operators
-something is wrong but the daemon continues writing to the stale
-path until restart. The v0.5.x release-notes call this out
-explicitly so operators on hot-plug-prone setups know to restart
-the daemon on receipt of a swap WARN.
-
-Tests (under `internal/hwmon/swap_monitor_test.go`) cover: steady-
-state no-swap, swap detection + rebase, empty StableDevice,
-ctx-cancel unwind within bounded latency, handler invocation on
-detection, empty-inputs short-circuit, nil-handler observability,
-and the locked default interval. Tests under
-`cmd/ventd/main_hwmon_swap_monitor_test.go` cover the daemon-side
-wiring helper's filtering + goroutine registration.
+See `docs/rules-rationale/hwmon-runtime-monitors.md` for the audit-M21
+motivation, the interval-choice trade-offs, and the remap-dispatch
+follow-up scope.
 
 Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_NoSwapReportsUnchanged
 Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_SwapDetectedAndRebased
