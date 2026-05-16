@@ -259,80 +259,39 @@ Bound: internal/idle/opportunistic_test.go:TestOpportunisticGate_HardPreconditio
 
 ## RULE-OPP-IDLE-SOFT-MODE: ModeSoftIdle (v0.6.0+ default) is single-shot with relaxed PSI thresholds; ModeStrictIdle reverts to the v0.5.x 600 s durability loop via `--strict-idle-gate`.
 
-**v0.6.0 change**. Phase C5 HIL field-validation (issue #1024,
-desktop + Proxmox soak verdicts) confirmed the v0.5.x strict
-evaluator structurally prevents smart-mode from advancing under
-realistic workload: the 600 s sustained-idle durability requirement +
-the calibration-grade PSI thresholds (cpu.some avg60 > 1.0 %) closed
-the gate > 99 % of ticks on hosts running Tdarr (desktop) or LXC
-containers (Proxmox), producing zero Layer-B RLS updates over
-~36 hours of cumulative observation. The hypothesis chain:
-
-```
-realistic workload (any class)
-  → RULE-OPP-IDLE-01..04 closed > 99 % of ticks
-  → opportunistic probes never fire (RULE-OPP-PROBE-01)
-  → no Δpwm-on-i-while-zero-on-j events
-  → RULE-CMB-OAT-01 admits zero samples to Layer-B RLS
-  → Snapshot.WarmingUp stays true forever
-  → predictive controller path is structurally locked out
-```
-
-v0.6.0 introduces the **soft-idle gate** as the new default. The
-`IdleGateMode` enum on `OpportunisticGateConfig` selects between:
+`IdleGateMode` on `OpportunisticGateConfig` selects between:
 
 - **ModeSoftIdle (zero value, default)**: single-shot evaluation
-  against the soft thresholds `softPSICpuCeiling = 10.0 %`,
-  `softPSIIoCeiling = 10.0 %`, `softPSIMemCeiling = 0.5 %` (memory
-  unchanged from strict — memory pressure is a physical signal
-  workload lulls don't change). Loadavg fallback for kernels
-  without PSI is `softLoadAvgPerCPU = 0.5 × ncpus` (vs strict
-  `0.10 × ncpus`). The 600 s durability loop is dropped — the
-  scheduler's 60 s tick cadence supplies the temporal envelope.
+  against soft thresholds `softPSICpuCeiling = 10.0 %`,
+  `softPSIIoCeiling = 10.0 %`, `softPSIMemCeiling = 0.5 %`. Loadavg
+  fallback (no PSI) is `softLoadAvgPerCPU = 0.5 × ncpus`. The 600 s
+  durability loop is dropped — the scheduler's 60 s tick cadence
+  supplies the temporal envelope.
+- **ModeStrictIdle**: legacy v0.5.x evaluator (600 s durability +
+  tight PSI thresholds). Operator escape hatch via the daemon CLI
+  flag `--strict-idle-gate`. `opportunisticDurability = 600 s` and
+  the strict PSI constants remain in place for this mode.
 
-- **ModeStrictIdle**: the legacy v0.5.x evaluator (600 s
-  durability + tight PSI thresholds). Operator escape hatch via
-  the daemon CLI flag `--strict-idle-gate`.
+**Hard guards remain checked first in both modes**:
+RULE-OPP-IDLE-01..04 hard preconditions (battery / container /
+scrub / blocked-process / post-resume warmup) refuse regardless of
+Mode; process blocklist (RULE-IDLE-06), input IRQ delta
+(RULE-OPP-IDLE-02 — uses caller-owned `IRQBaseline` in soft mode),
+and active SSH session (RULE-OPP-IDLE-03) all fire identically.
 
-The relaxed thresholds are calibrated against the v0.6 RFC #1024
-desktop trace: cpu.some avg60 spent the majority of every 60 s
-window between 2-8 % during Tdarr transcoding lulls (strict refuses
-above 1.0 %; soft admits up to 10.0 %). 10 % is operationally
-meaningful — a system where 10 % of tasks stalled on CPU in the
-last 60 s is genuinely busy; 5-8 % is the "between transcoding
-tasks" window the v0.6 ship plan targets.
+Mode is mutually exclusive (one per daemon lifetime) and is logged
+at scheduler construction so operators can audit via journald.
 
-**All hard guards remain unchanged in soft mode**:
+Load-bearing: zero-value `ModeSoftIdle = 0`, `ModeStrictIdle = 1`
+— literal `OpportunisticGateConfig{}` constructions exercise the
+soft evaluator. Single-shot timing < 500 ms is asserted directly to
+catch a regression re-introducing a durability loop in the soft
+path.
 
-- Hard preconditions (battery / container / scrub / blocked-process /
-  post-resume warmup, RULE-OPP-IDLE-04) are checked first and
-  refuse regardless of Mode.
-- Process blocklist (RULE-IDLE-06) — `rsync`, `ffmpeg`, `make`,
-  `apt`, etc. close the gate.
-- Input IRQ delta (RULE-OPP-IDLE-02) — fires in both modes; soft
-  uses caller-owned `IRQBaseline` for cross-tick state.
-- Active SSH session (RULE-OPP-IDLE-03) — single-shot loginctl
-  parse, same in both modes.
-
-The mode is mutually exclusive: a daemon runs in exactly one mode
-for its lifetime. The scheduler logs which mode is active at
-construction time so operators can audit via journald.
-
-The zero-value-is-soft contract is load-bearing: tests that
-construct an `OpportunisticGateConfig` literal without setting
-`Mode` exercise the soft evaluator. The bound subtest pins
-`ModeSoftIdle = 0` and `ModeStrictIdle = 1` so a future regression
-that flips the enum cannot silently revert the default.
-
-`opportunisticDurability` (600 s) and the strict PSI constants
-remain in place — they are not dead code, they are the strict-mode
-contract preserved as an operator escape hatch.
-
-The soft evaluator's single-shot guarantee is tested directly:
-elapsed wall-clock < 500 ms from gate entry to gate return on a
-clean fixture (vs ~600 s for the strict loop). A regression that
-re-introduces a durability loop in the soft path fails the bound
-subtest's elapsed-time assertion.
+See `docs/rules-rationale/opportunistic-soft-idle-and-watchdog-deadlines.md`
+for the v0.5.x structural lock-out evidence (RFC #1024 desktop +
+Proxmox soak), the relaxed-threshold calibration against Tdarr
+transcoding lulls, and the mode-flag rationale.
 
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_AdmitsAtRelaxedThresholds
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_RefusesAboveSoftPSICeiling
