@@ -22,9 +22,9 @@
 // coalescing the controller's per-tick PWM byte into a platform_profile
 // state via three bucket thresholds:
 //
-//   PWM 0..84   → "quiet"
-//   PWM 85..170 → "balanced"
-//   PWM 171..255 → "performance"
+//	PWM 0..84   → "quiet"
+//	PWM 85..170 → "balanced"
+//	PWM 171..255 → "performance"
 //
 // The powermode write happens alongside platform_profile when the
 // legion_laptop powermode node exists (it's optional — older legion_laptop

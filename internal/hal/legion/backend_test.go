@@ -19,10 +19,10 @@ import (
 // powermode sysfs nodes. Tests inspect file contents after Write to verify
 // the exact byte sequence.
 type fixture struct {
-	dir         string
-	profile     string
-	choices     string
-	powermode   string // empty when test wants Enumerate to NOT include powermode
+	dir       string
+	profile   string
+	choices   string
+	powermode string // empty when test wants Enumerate to NOT include powermode
 }
 
 func newFixture(t *testing.T, initialProfile, choicesContent string, withPowermode bool) *fixture {
