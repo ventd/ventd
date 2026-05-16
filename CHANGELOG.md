@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.7.1] - 2026-05-16
+
+### Headline
+
+MSI laptops with `msi_wmi_platform` (tach-only, no in-kernel PWM) now get the out-of-tree [BeardOverflow/msi-ec](https://github.com/BeardOverflow/msi-ec) driver proposed automatically. Closes the silent "no fan controllers found" dead-end PR #1104 left behind on hosts like the MSI Thin GF63 12U (MS-16R8) reported in #1116.
+
+### Fixed
+
+- `internal/hwmon/autoload.go::identifyDriverNeeds` — new dispatch branch: when `msi_wmi_platform` is in the hwmon set AND the board vendor matches `micro-star` / `msi`, propose the new `msi_ec` `DriverNeed`. The trigger is narrow on purpose: `msi_wmi_platform` is laptop-specific (the in-kernel driver registers only for MSI WMI GUIDs on laptop firmware), so the "platform driver present + MSI vendor" combination is a strong "MSI laptop with no in-kernel PWM" signal. MSI desktop boards never expose `msi_wmi_platform` and stay on the existing `nct6687d` / `it8688e` routes unchanged.
+
+### Added
+
+- `msi_ec` entry in `knownDriverNeeds` pointing at `https://github.com/BeardOverflow/msi-ec` (main branch, GPL-2.0, DKMS-ready). The existing install pipeline handles build / sign / DKMS-register / modprobe / verify uniformly — no per-driver code path. On unsupported EC firmware revisions `modprobe` binds but exposes no `pwm1`; the wizard's retry-loop in `setup.go` treats that as `ErrNoPWMChannelsAppeared`, surfaces a clean monitor-only outcome, and logs the chip mismatch — an honest dead-end with a log trail instead of the v0.5.x / v0.7.0 silent 17-minute trap.
+- Three new table-test rows in `internal/hwmon/autoload_test.go` pinning the gates: MSI short-vendor admits, non-MSI vendor with `msi_wmi_platform` does NOT trigger, MSI desktop MAG without `msi_wmi_platform` still routes to `nct6687d`. The existing post-#1104 row flips from `wantKeys: []` to `wantKeys: ["msi_ec"]` to lock in the new correct outcome.
+
+### Refs
+
+- Closes #1119, refs #1116. PR #1120.
+
 ## [v0.7.0] - 2026-05-16
 
 ### Headline
