@@ -168,3 +168,8 @@ and one-shot.
 
 Bound: internal/setup/phantom_verify_test.go:TestVerifyHwmonChannelSpins
 Bound: internal/setup/phantom_verify_test.go:TestVerifyHwmonChannelSpins_OrigPWMRestoredOnAllExitPaths
+Bound: internal/setup/phantom_verify_test.go:phantom_fan_returns_false
+Bound: internal/setup/phantom_verify_test.go:real_fan_returns_true
+Bound: internal/setup/phantom_verify_test.go:read_error_admits
+Bound: internal/setup/phantom_verify_test.go:ctx_cancel_admits
+Bound: internal/setup/phantom_verify_test.go:inverted_polarity_writes_raw_zero_not_255
