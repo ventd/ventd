@@ -47,12 +47,30 @@ The upstream is a config corpus (JSON / YAML / C# dictionary) covering per-model
 
 Each PR is self-contained: it lands one mode-A row, or one mode-B backend with its full RULE family, or one mode-C corpus with its `nbfc`-shape loader. CI green on each PR independently. No cross-PR dependencies on master.
 
-### PR-1: Legion HAL backend (Mode B)
-- `internal/hal/legion/{backend,backend_test}.go`
-- `.claude/rules/RULE-HAL-LEGION.md` (≥10 bound subtests)
-- Driver row already exists at `internal/hwdb/catalog/drivers/legion_hwmon.yaml` — extend to declare HAL backend tag `legion`
-- Wire into `cmd/ventd/calresolver.go::registerHALBackends`
-- Adopt the `pwmY_auto_pointZ_pwm` lm_sensors-style attr naming convention exposed by `legion_laptop`'s debugfs `fancurve` interface as the canonical "auto-point" schema for future backends (the canonical lm_sensors layout `pwmN_autoN_*`).
+### PR-1: Legion HAL backend (Mode B) — state-switcher + curve-upload
+
+Legion's write surface is structurally different from every other Mode B target. The `legion_laptop` driver exposes three control axes, none of which is a per-tick PWM byte:
+
+1. **`platform_profile`** — three-state ACPI enum (`quiet` / `balanced` / `performance`)
+2. **`powermode`** — four-state (0/1/2/3 ≈ quiet / balanced / performance / custom)
+3. **`fancurve`** (debugfs, 10 points + commit) — batch curve upload; the EC then drives per-tick using its own loop
+
+The `hal.FanBackend` contract (RULE-HAL-001..008) is shaped around a `Write(ch, uint8)` per-tick semantic. Legion needs both shapes — this PR ships them both:
+
+**PR-1a — state-switcher (per-tick PWM → platform_profile state)**: coalesce the controller's per-tick PWM byte into a platform_profile state via three bucket thresholds (PWM<85 → quiet, 85-170 → balanced, ≥170 → performance). Mirrors the contract every other Mode B backend honours. Ships with `RULE-HAL-LEGION-STATE-*` (≥8 bound subtests covering bucket boundaries + restore + EBUSY + idempotent write).
+
+**PR-1b — curve-upload (Apply-time batch via new `hal.CurveSink`)**: a new HAL interface extension `CurveSink interface { WriteCurve(Channel, []CurvePoint) error }` that backends opt into. Controller's apply path queries the backend via `_, ok := backend.(CurveSink)`; when ok, calls `WriteCurve` once per applied config + suppresses per-tick `Write` calls for that channel. The state-switcher path remains the fallback when `CurveSink` is not used (operator config explicitly chooses).
+
+Deliverables (single PR):
+- `internal/hal/legion/{backend,backend_test,curve,curve_test}.go` — implements both `hal.FanBackend` (state-switcher) and `hal.CurveSink` (10-point debugfs `/sys/kernel/debug/legion/fancurve` upload). Restore writes `level: 0` (BIOS auto resumes) on every exit path via the watchdog.
+- `internal/hal/curve_sink.go` — defines the `CurveSink` interface + `CurvePoint{TempC, PWM}` struct + the controller-side dispatch helper `CurveOrPerTick(backend, channel, curve, pwm)` so the apply path picks the right primitive without each call site re-implementing the type-assertion dance.
+- `.claude/rules/RULE-HAL-LEGION.md` with ≥12 bound subtests covering: state-switcher bucket boundaries, curve-upload payload format, debugfs write atomicity (single open + write + commit), `force=1` modparam absence graceful-degrade, EC chip-id mismatch tolerance, restore on every exit path, CurveSink interface conformance, write-during-no-curve fallback to state-switcher.
+- `.claude/rules/RULE-HAL-CURVE-SINK.md` — defines the controller-side contract: a backend that implements CurveSink MUST honour per-tick Write calls too (state-switcher fallback); Apply MUST call WriteCurve before any per-tick Writes; a backend that returns nil from WriteCurve has committed the curve and the controller MAY skip per-tick Writes for that channel.
+- Controller-side wiring in `internal/controller/blended.go` (apply path) to dispatch via CurveSink when supported.
+- Driver row at `internal/hwdb/catalog/drivers/legion_hwmon.yaml` — upgrade from the spec-03-scope-C shape to PR-2 schema `driver_profiles[]` v1.2 + add `fan_control_via: "curve_sink"` to declare the backend.
+- Wire into `cmd/ventd/calresolver.go::registerHALBackends`.
+
+This is a ~900 LoC PR (backend ~350, curve_sink interface ~80, RULE files ~300, controller wiring ~120, tests ~250) but the resulting CurveSink primitive is then reusable for PR-7 (HP Omen fan-curve via WMI), PR-8 (Razer Blade fan-curve via HID), and PR-9 (Alienware AWCC `Thermal_Control` curve). Worth the upfront investment.
 
 ### PR-2: Framework absorption (Mode A driver row + Mode C fw-fanctrl corpus)
 - `internal/hwdb/catalog/drivers/framework-laptop.yaml` — Mode A row for the Framework cros_ec hwmon surface (kernel 6.7+ `cros_ec_fan` mainline + DHowett/framework-laptop-kmod-impostor for older kernels)
