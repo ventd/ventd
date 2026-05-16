@@ -142,3 +142,97 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # ROG laptops — asus-wmi-sensors handles temps/tach via hwmon when
+  # available. Fan write is gated behind asusctl userspace today
+  # (https://gitlab.com/asus-linux/asusctl) which talks to asus-wmi
+  # platform driver via /sys/devices/platform/asus-nb-wmi. ventd's
+  # hwmon backend covers the read side; control via asus-wmi is the
+  # standard userspace path until in-kernel pwm sysfs lands.
+
+  - id: "asus-rog-strix-g15-2022"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "ROG Strix G513*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+      - "asus-nb-wmi (when configured for fan-control writes)"
+    notes: "ASUS ROG Strix G15 (2022 — G513 family, Ryzen 5000 / 6000).
+      asus-ec-sensors provides temps + tach via hwmon. Fan-control
+      writes are owned by asus-wmi platform driver + asusctl userspace;
+      ventd does not duplicate that path. Operator-facing tools:
+      asusctl (fan curve presets + AURA RGB) is the canonical way to
+      tune the curve. ventd reads tach + temps for observability."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl (canonical fan-curve controller for ROG laptops)"
+      - "https://github.com/zeule/asus-ec-sensors (hwmon driver, mainline since 5.17)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-zephyrus-g14-2023"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "ROG Zephyrus G14*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS ROG Zephyrus G14 (2023 — GA402 family). 14-inch gaming
+      ultrabook; thermal envelope is aggressive and fan tuning has
+      strong demand from Linux users. asusctl ships a curated curve
+      preset for this model — operators should layer asusctl on top of
+      ventd's read-side monitoring."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-tuf-gaming-a15-2023"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "TUF Gaming A15*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS TUF Gaming A15 (2023, FA507 / Ryzen 7000). Budget-tier
+      ROG sibling; same asusctl path applies."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

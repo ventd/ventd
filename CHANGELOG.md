@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
+## [v0.7.0] - 2026-05-16
+
+### Headline
+
+`internal/hal/thinkpad/` — new HAL backend driving Lenovo ThinkPad fans via the `thinkpad_acpi` procfs surface (`/proc/acpi/ibm/fan`). Completes the runtime half of the existing v1.3 catalogue work (the `thinkpad_acpi` driver profile + `lenovo-thinkpad.yaml` board entries were already shipped); previously the `rw_proc` capability had no HAL backend to honour it. Quantises every uint8 PWM input to the firmware's 0..7 level grid via round-half-up integer arithmetic, wraps the kernel's silent EPERM-on-`fan_control=0` as `ErrFanControlDisabled` so the existing modprobe-options-write recovery endpoint (`RULE-MODPROBE-OPTIONS-01`) dispatches on operator click, and restores via `"level auto"` per the driver profile's `exit_behaviour: restore_auto`. Writes are unconditional once `Enumerate` returns a channel — no per-backend opt-in flag, matching the v0.6.1 NBFC / Corsair posture.
+
+### Added
+
+- `internal/hal/thinkpad/` package: `Backend{Enumerate, Read, Write, Restore, Close, Name}` over `/proc/acpi/ibm/fan`, including:
+  - `pwmToLevel(pwm uint8) uint8` — round-half-up quantisation `(pwm * 7 + 127) / 255` over the closed firmware grid `[0, 7]`.
+  - `levelToPWM(level uint8) uint8` — inverse, centred on each level's quantisation band so write→read→compare round-trips are stable.
+  - `parseProcFan` — multi-line `key:\tvalue` parser tolerant of missing speed; rejects out-of-range / non-numeric / non-keyword levels with `ErrInvalidProcFanResponse`.
+  - Sentinels: `ErrFanControlDisabled`, `ErrProcFanAbsent`, `ErrInvalidProcFanResponse`.
+- `.claude/rules/RULE-HAL-THINKPAD.md` — 11 bound rules covering pwm/level quantisation, parseProcFan, Read empty-by-construction, enable-then-level write sequence, EPERM-as-typed-error wrap, level-auto-with-disable-fallback restore, Enumerate idempotence + ctx-cancel, Close idempotence, opaque-type guards.
+- `internal/hal/thinkpad/backend_test.go` — exhaustive 256-value PWM sweep + boundary tables, hermetic via `t.TempDir()` procfs fixtures.
+
+### Changed
+
+- `cmd/ventd/calresolver.go::registerHALBackends` — registers the new `thinkpad` backend alongside `hwmon`, `nvml`, `ipmi`, etc.
+
+### Tiers 1-4 absorption ship (squishy-sparking-pearl plan)
+
+Twelve absorption targets from the catalog-sources plan land in one cycle. No HIL-gating, no per-backend opt-in flags — closed-set safety primitives (register allowlists, polarity-aware writes, watchdog Restore-on-exit, hard idle/container refusals) are the real protection layer per `feedback-dont-default-writes-off`.
+
+- **T1.2 ASUS ROG laptop catalog** — three ROG board profiles (Strix G15 2022, Zephyrus G14 2023, TUF Gaming A15 2023) in `internal/hwdb/catalog/boards/asus.yaml`. Read-side via `asus-ec-sensors` mainline driver; control deferred to the `asusctl` userspace tool.
+- **T1.3 Hysteresis** — confirmed existing implementation (`Curve.Hysteresis` field + `internal/controller/hysteresis_test.go`) is the canonical safety form (ramp-up-free, ramp-down-delayed). No additional ship.
+- **T1.4 `ventd import-sensors-conf <path>` subcommand** — new `internal/hwdb/lmsensors` package parses upstream `sensors.conf` format (label / ignore / chip directives; compute/set deferred) and emits a ventd hwdb chip-overlay YAML. Wired through `cmd/ventd/import_sensors_conf.go`; `--out <path>` lands in `/var/lib/ventd/profiles-pending/`.
+- **T2.1 Framework catalog + doctor card** — four Framework board profiles (13 Intel 11th-gen, 13 AMD 7040, 13 AMD AI 300, Framework 16) in `internal/hwdb/catalog/boards/framework.yaml`. Doctor branch in `vendor_remediation_d.go` points at `cros_ec_fan` (kernel 6.7+) + `fw-fanctrl` userspace.
+- **T2.2 Dell laptop catalog** — five additional Dell entries (XPS 15 9570, Precision 7510, Latitude E6440, G3 3590) covering the `i8k_whitelist_fan_control` set in `dell-smm-hwmon`.
+- **T2.3 liquidctl device catalog + integration** — new `internal/doctor/detectors/liquid_devices.go` with VID/PID metadata for NZXT (Kraken X3/Z3, Smart Device V1/V2, RGB & Fan Controller, Grid+ V3, H1 V2), Aquacomputer (D5 Next / Octo / Quadro), Corsair (Commander Core/ST/Pro/XT), Gigabyte (Waterforce). Consumed by `vendor_remediation_d.go::renderLiquidDeviceList` — each USB-vendor card includes the matched device list. Lookup helpers `LookupLiquidDeviceByVID` + `LookupLiquidDevice`.
+- **T2.4 Clevo / System76 catalog + doctor card** — four board profiles (Oryx Pro, Lemur Pro, Clevo X170KM-G, Tongfang GM5) in `internal/hwdb/catalog/boards/clevo-system76.yaml`. Doctor branch points at `clevo-indicator` / `clevo-fancontrol` userspace + ventd's existing `internal/ec/dev_port` transport (the planned backend bedrock).
+- **T3.1 HP Omen doctor card** — new `internal/doctor/detectors/hp_omen_d.go` recognises HP Omen / Victus DMI and emits an Info card pointing at `omen-fan` / `omen-fan-control`. Three Omen / Victus board profiles in `internal/hwdb/catalog/boards/hp.yaml` (Omen 16 2024 Intel, Omen 15 2023 AMD, Victus 16 2024) marked `overrides.unsupported: true`.
+- **T3.2 Intel Mac catalog** — four `apple-mac.yaml` board profiles (MacBook Pro 15" 2018, 16" 2019, iMac 27" 2020, Mac Pro 2019). Doctor branch in `vendor_remediation_d.go` points at `mbpfan` + the kernel `applesmc` RPM-target write path. Apple Silicon excluded by virtue of no SMC equivalent.
+- **T3.3 NZXT / Aquacomputer / Gigabyte device cards** — folded into T2.3's combined detector. Per-vendor doctor branches for each, with the device-catalog `renderLiquidDeviceList` consumed by every USB-vendor branch.
+- **T4.1 fan2go competitive analysis** — `docs/research/2026-05-fan2go-competitive-analysis.md` documents the architectural delta vs fan2go (AGPL-3.0 — study-only). Key gap: ventd has no Prometheus exporter today; everything else ventd is at or ahead. Future spec slot: `spec-prometheus`.
+- **T4.2 pwmconfig parity test** — `internal/calibrate/pwmconfig_parity_test.go` pins ventd's `DetectRPMSensor` against the canonical lm-sensors `pwmconfig` algorithm via two assertions: (a) RPM correlation wins over trailing-digit index alignment on boards with non-aligned tach wiring; (b) "no fan crossed the noise floor" maps cleanly to the `(empty RPMPath, nil)` no-winner contract.
+
+### Added (Tiers 1-4 plumbing)
+
+- `internal/doctor/detectors/hp_omen_d.go` + tests — HP Omen / Victus recognition.
+- `internal/doctor/detectors/vendor_remediation_d.go` + tests — combined Apple Intel / Clevo / NZXT / Aquacomputer / Gigabyte / Corsair / Framework recognition; uses `liquid_devices.go` for PID-level naming in card detail.
+- `internal/doctor/detectors/liquid_devices.go` + tests — vendored liquidctl device metadata table.
+- `internal/hwdb/lmsensors/parser.go` + `overlay.go` + tests — sensors.conf parser + YAML overlay emitter.
+- `cmd/ventd/import_sensors_conf.go` — new `ventd import-sensors-conf` subcommand wired into the argv router in `main.go`.
+- `internal/hwdb/catalog/boards/apple-mac.yaml`, `framework.yaml`, `clevo-system76.yaml` — new vendor catalog files.
+- `internal/calibrate/pwmconfig_parity_test.go` — parity assertions against lm-sensors `pwmconfig`.
+- `docs/research/2026-05-fan2go-competitive-analysis.md` — fan2go vs ventd architectural delta.
+
+### Changed (Tiers 1-4 plumbing)
+
+- `cmd/ventd/doctor.go::runDoctor` — registers `NewHPOmenDetector()` + `NewVendorRemediationDetector()` in the cli detector slice.
+- `cmd/ventd/main.go` — adds `ventd import-sensors-conf <path>` dispatch.
+- `internal/hwdb/catalog/boards/asus.yaml`, `dell.yaml`, `hp.yaml` — extended with new entries.
+
 ## [v0.6.1] - 2026-05-16
 
 ### Headline

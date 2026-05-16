@@ -173,3 +173,114 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  - id: "dell-xps-15-9570"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "XPS 15 9570"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell XPS 15 9570 (8th-gen Core, 1050 Ti). ON
+      i8k_whitelist_fan_control via the kernel.org dell-smm-hwmon
+      table — pwm1_enable + pwm1 writable. Dual-fan chassis but
+      pwm1 governs both via SMM."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for XPS 15 9570)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-precision-7510"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Precision 7510"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Precision 7510 mobile workstation (Xeon E3-1505M
+      v5, Quadro M1000M). ON the fan-control whitelist — pwm1_enable
+      + pwm1 writable. The whitelist entry was added so workstation
+      users could throttle the chassis fans separately from the
+      CPU thermal limits. Mobile-workstation-class chassis run hot
+      under sustained CAD/3D loads; ventd's curve work is high-
+      value here."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Precision 7510)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-latitude-e6440"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Latitude E6440"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Latitude E6440 (4th-gen Core, business laptop). ON
+      the fan-control whitelist. The 'E' prefix Latitudes use a
+      different DMI shape than the modern 5xxx/7xxx series — the
+      whitelist entry is exact match on PRODUCT_NAME so this
+      fingerprint must match byte-exact."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for E6440)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g3-3590"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "G3 3590"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell G3 3590 gaming laptop (9th-gen Core, GTX 1050/1660
+      Ti). ON the fan-control whitelist. Common Linux gaming target
+      in the budget tier."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for G3 3590)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

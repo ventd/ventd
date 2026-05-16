@@ -68,6 +68,17 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// in monitor-only mode. Nil Catalog → loader runs once on
 		// first Probe; cheap to defer.
 		detectors.NewNBFCMatchDetector(countWritablePWMFiles("/sys/class/hwmon"), nil),
+		// T3.1 — HP Omen / Victus gaming-laptop family. Mainline
+		// hp-wmi handles hotkeys only; fan control needs omen-fan
+		// or omen-fan-control kmod patch. Quiet on non-HP hosts.
+		detectors.NewHPOmenDetector(),
+		// T2.4 + T3.2 + T3.3 — vendor-recognition card for Intel-era
+		// Apple Macs (mbpfan), Clevo / System76 / Tongfang
+		// (clevo-indicator + clevo-fancontrol), NZXT (liquidctl /
+		// nzxt-kraken3 hwmon), and a Corsair AIO sanity card. Each
+		// fires independently; multi-match hosts (e.g. iMac Pro + NZXT
+		// AIO) see multiple Info cards.
+		detectors.NewVendorRemediationDetector(),
 	}
 	if len(modules) > 0 {
 		dets = append(dets,
