@@ -214,59 +214,31 @@ Bound: internal/signature/persistence_test.go:TestLibrary_WarmRestartFromKV
 sweeps the persisted KV layer at namespace `signature` and deletes
 every bucket whose `LastSeenUnix < cutoff.Unix()`. The manifest at
 (`signature_manifest`, `labels`) is rewritten in the same call so
-the survivor list is canonical — a subsequent `LoadLabels` only
-restores buckets that survived the sweep.
+`LoadLabels` only restores survivors.
 
-`PersistedEvictionAge = 30 * 24 * time.Hour` (30 days). The constant
-is exported so the daemon-start helper (`loadSignatureState` in
-`cmd/ventd/smart_builders.go`) and any future operator-tunable knob
-share a single source of truth. The 30-day window is double the
-R7 §Q5 weighted-LRU time constant (τ=14 days) — a workload that
-hasn't fired for two τ-halvings is functionally gone, and the
-weighted-LRU score `HitCount × exp(-(age/τ))` already collapses
-toward zero at that age.
+`PersistedEvictionAge = 30 * 24 * time.Hour` (30 days, double the R7
+§Q5 weighted-LRU τ=14 days). The constant is exported so
+`loadSignatureState` (in `cmd/ventd/smart_builders.go`) and future
+operator knobs share a single source of truth.
 
-Without this rule the in-memory cap (RULE-SIG-LIB-05 caps at 128
-LRU buckets) silently diverges from the on-disk row count:
-workloads that get LRU-evicted from memory keep their KV row
-forever because `Save` only writes the buckets currently in
-memory and never deletes ones that aren't. A long-running daemon
-with workload churn (game launches, browser tabs, dev tooling)
-sees the persisted row count climb without bound — issue C7 of
-the v0.5.26 senior review identified this as a state-persistence
-correctness gap that pressures `/var/lib/ventd/` disk usage.
+Sweep contract (per-row best-effort, WARN on per-row failures, no
+abort):
+1. No manifest → `(0, nil)` no-op (fresh install).
+2. Stale bucket (`LastSeenUnix < cutoff`) → `kv.Delete` + drop from
+   rewritten manifest.
+3. Corrupt bucket (msgpack decode fail) → delete same as stale.
+4. Dangling manifest entry (label in manifest, no KV row) → silently
+   pruned from rewritten manifest.
+5. Survivor → kept and listed in rewritten manifest.
 
-The sweep's contract:
+`loadSignatureState` calls the sweep BEFORE `LoadLabels` so stale
+labels never enter the in-memory map. The `kvStore` interface requires
+`Delete(namespace, key string) error`; production wires `*state.KVDB`.
 
-1. **No manifest → no-op.** A fresh install has no persisted
-   labels; `LoadManifest` returns an empty slice; the sweep
-   returns `(0, nil)` immediately without touching KV.
-2. **Stale bucket → deleted.** A row whose `LastSeenUnix` is
-   strictly older than `cutoff.Unix()` is removed via
-   `kv.Delete(KVNamespace, label)`. The label is dropped from
-   the rewritten manifest.
-3. **Corrupt bucket → deleted.** A row whose msgpack payload
-   fails to decode is unrecoverable; it counts against the
-   on-disk budget the same as a healthy row. Best-effort
-   delete (per-row error is the first-returned, not abort).
-4. **Dangling manifest entry → dropped silently.** A label
-   present in the manifest but with no KV row gets pruned from
-   the rewritten manifest without an error surface — the natural
-   cleanup case for a save-without-manifest-rewrite race.
-5. **Survivor → kept, listed in rewritten manifest.** A row
-   that decodes cleanly and whose `LastSeenUnix ≥ cutoff.Unix()`
-   stays untouched.
-
-Failures degrade to cold-start with a WARN: per-row errors do not
-abort the loop (best-effort sweep); the daemon proceeds with
-whatever survived. The integration point in `loadSignatureState`
-calls the sweep BEFORE `LoadLabels` so stale labels never enter
-the in-memory map.
-
-`kvStore` interface is extended to require `Delete(namespace, key
-string) error`. `*state.KVDB` (the production implementation)
-already exposes this; the test `fakeKV` mock adds a one-line
-implementation.
+See `docs/rules-rationale/smart-preset-and-signature-persistence.md`
+for the audit-C7 motivation (in-memory cap diverging from on-disk
+row count), the 30-day-vs-τ rationale, and the dangling-manifest
+race case.
 
 Bound: internal/signature/persistence_test.go:TestEvictPersistedBefore_DropsStaleBucketsAndRewritesManifest
 Bound: internal/signature/persistence_test.go:TestEvictPersistedBefore_NoManifestIsNoOp
