@@ -360,53 +360,36 @@ func TestBackend_Write_QuantisesEveryPWMByteToValidLevel(t *testing.T) {
 }
 
 func TestBackend_Write_EPERMWrapsAsErrFanControlDisabled(t *testing.T) {
-	// Make the fixture file read-only so os.WriteFile returns EACCES.
-	// The kernel's actual EPERM-on-fan_control=0 path emits the same
-	// errno (syscall.EPERM, which errors.Is(_, fs.ErrPermission) is
-	// true for), so a chmod-readonly file is a faithful proxy.
+	// The kernel's thinkpad_acpi.c returns -EPERM silently when
+	// fan_control=0 — the runtime sentinel ventd's wizard /
+	// doctor classifies on. The Backend.Write path wraps that
+	// EPERM as ErrFanControlDisabled so downstream branches via
+	// errors.Is.
+	//
+	// We exercise the wrap path through the writeFile function-
+	// pointer seam (Backend.writeFile) rather than relying on
+	// chmod-based DAC behaviour — the GitHub Actions ubuntu-latest
+	// runner's `runner` user silently bypasses chmod 0400 (apparent
+	// CAP_DAC_OVERRIDE-equivalent), which would make a
+	// filesystem-based EPERM injection vacuous on CI. The injected
+	// stub returns syscall.EPERM directly, which is what the real
+	// thinkpad_acpi.c path emits.
 	f := newProcFanFixture(t, validProcFanContent)
-	if err := os.Chmod(f.path, 0o400); err != nil {
-		t.Fatalf("chmod ro: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(f.path, 0o644) })
-
-	// Skip when running as root — root bypasses the DAC mode check
-	// and the write succeeds, defeating the test's premise.
-	if os.Geteuid() == 0 {
-		t.Skip("EPERM wrap test requires non-root euid to honour the chmod 0400 gate")
-	}
-
-	// Skip when the runtime environment grants
-	// CAP_DAC_OVERRIDE-equivalent on 0400 files (some GitHub Actions
-	// runner configurations admit writes to read-only files for
-	// non-root users via runner-side capabilities). Probe by writing
-	// a sentinel byte directly: if the chmod gate isn't enforced
-	// here, the backend's Write would silently succeed too, and the
-	// test's EPERM-wrap assertion is vacuous. Skipping is the
-	// correct behaviour — the wrap is meaningful only when the
-	// underlying EPERM actually fires, which it WILL on the real
-	// thinkpad_acpi.c kernel path regardless of CI's runner caps.
-	probeErr := os.WriteFile(f.path, []byte("x"), 0o644)
-	if probeErr == nil {
-		// Restore the fixture content + 0400 mode for any later
-		// test that might share state (none do today, but defensive).
-		_ = os.WriteFile(f.path, []byte(validProcFanContent), 0o644)
-		_ = os.Chmod(f.path, 0o400)
-		t.Skip("environment grants CAP_DAC_OVERRIDE-equivalent on 0400 files; EPERM wrap test does not apply here")
-	}
-
 	b := NewBackend(nil)
+	b.writeFile = func(path string, data []byte, perm os.FileMode) error {
+		return &fs.PathError{Op: "write", Path: path, Err: syscall.EPERM}
+	}
 	err := b.Write(f.makeChannel(), 128)
 	if err == nil {
-		t.Fatalf("Write on read-only file returned nil error")
+		t.Fatalf("Write with EPERM-injecting stub: err=nil, want wrapped error")
 	}
 	if !errors.Is(err, ErrFanControlDisabled) {
 		t.Errorf("Write EPERM: err=%v, want errors.Is(_, ErrFanControlDisabled)", err)
 	}
-	// Sanity: errors.Is should also walk to the underlying fs.ErrPermission
-	// so the recovery classifier's existing permission-denied probe still
-	// matches.
-	if !errors.Is(err, fs.ErrPermission) && !errors.Is(err, syscall.EACCES) {
+	// Sanity: errors.Is should also walk to the underlying
+	// fs.ErrPermission so the recovery classifier's existing
+	// permission-denied probe still matches.
+	if !errors.Is(err, fs.ErrPermission) && !errors.Is(err, syscall.EPERM) {
 		t.Errorf("Write EPERM: err=%v, want underlying permission error preserved", err)
 	}
 }
