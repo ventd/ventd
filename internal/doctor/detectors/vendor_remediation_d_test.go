@@ -182,7 +182,7 @@ func TestIsClevoFamily_VendorVariants(t *testing.T) {
 		want bool
 	}{
 		{hwdb.DMI{SysVendor: "System76, Inc."}, true},
-		{hwdb.DMI{SysVendor: "system76"}, true},   // case-insensitive
+		{hwdb.DMI{SysVendor: "system76"}, true}, // case-insensitive
 		{hwdb.DMI{SysVendor: "CLEVO"}, true},
 		{hwdb.DMI{SysVendor: "Clevo"}, true},
 		{hwdb.DMI{SysVendor: "TongFang"}, true},

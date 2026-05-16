@@ -82,7 +82,7 @@ func TestHPOmenDetector_NonHPSilent(t *testing.T) {
 		{SysVendor: "ASUSTeK COMPUTER INC.", ProductName: "ROG Strix G15"},
 		{SysVendor: "HP", ProductName: "EliteBook 840 G7"}, // HP but not Omen
 		{SysVendor: "HP", ProductName: "Pavilion x360"},    // HP but not Omen / Victus
-		{},                                                  // empty DMI
+		{}, // empty DMI
 	}
 	for _, dmi := range cases {
 		d := NewHPOmenDetector()

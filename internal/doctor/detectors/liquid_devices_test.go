@@ -32,14 +32,14 @@ func TestLiquidDeviceCatalog_AllEntriesWellFormed(t *testing.T) {
 
 func TestLookupLiquidDeviceByVID_ReturnsAllVendorEntries(t *testing.T) {
 	cases := []struct {
-		vid       string
-		atLeastN  int
+		vid      string
+		atLeastN int
 	}{
-		{"1e71", 4},  // NZXT — multiple Kraken + Smart Device entries
-		{"1b1c", 3},  // Corsair — Commander family
-		{"0c70", 2},  // Aquacomputer — D5 Next + Octo + Quadro
-		{"1044", 1},  // Gigabyte — Waterforce
-		{"dead", 0},  // unknown vendor
+		{"1e71", 4}, // NZXT — multiple Kraken + Smart Device entries
+		{"1b1c", 3}, // Corsair — Commander family
+		{"0c70", 2}, // Aquacomputer — D5 Next + Octo + Quadro
+		{"1044", 1}, // Gigabyte — Waterforce
+		{"dead", 0}, // unknown vendor
 	}
 	for _, tt := range cases {
 		got := LookupLiquidDeviceByVID(tt.vid)

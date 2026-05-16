@@ -16,11 +16,11 @@ package detectors
 //   - Kernel driver name (if any) that exposes hwmon for this device
 //   - Userspace tool fallback when no kernel driver exists
 type LiquidDevice struct {
-	VID            string // lowercased hex, e.g. "1e71"
-	PID            string // lowercased hex, e.g. "2007"
-	Name           string // marketing name
-	KernelDriver   string // empty when no in-tree driver exists
-	UserspaceTool  string // canonical userspace fallback
+	VID           string // lowercased hex, e.g. "1e71"
+	PID           string // lowercased hex, e.g. "2007"
+	Name          string // marketing name
+	KernelDriver  string // empty when no in-tree driver exists
+	UserspaceTool string // canonical userspace fallback
 }
 
 // liquidDeviceCatalog is the curated table consumed by the
