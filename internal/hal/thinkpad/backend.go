@@ -132,6 +132,13 @@ type Backend struct {
 	// subsequent level write reports the canonical EPERM separately
 	// if the gate really is closed).
 	acquired sync.Map // key: ProcPath (string), value: struct{}
+
+	// writeFile is the seam tests use to inject a failing write
+	// (e.g. to exercise the EPERM-wrap path without depending on
+	// chmod-based DAC behaviour that the CI runner's
+	// CAP_DAC_OVERRIDE-equivalent silently bypasses). Defaults to
+	// os.WriteFile in NewBackend; production code never overrides it.
+	writeFile func(path string, data []byte, perm os.FileMode) error
 }
 
 // NewBackend constructs a Backend that logs through the given slog
@@ -141,7 +148,7 @@ func NewBackend(logger *slog.Logger) *Backend {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Backend{logger: logger}
+	return &Backend{logger: logger, writeFile: os.WriteFile}
 }
 
 // Name returns the registry tag for this backend.
@@ -235,7 +242,7 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		return err
 	}
 	if _, loaded := b.acquired.LoadOrStore(st.ProcPath, struct{}{}); !loaded {
-		if err := os.WriteFile(st.ProcPath, []byte("enable\n"), 0o644); err != nil {
+		if err := b.writeFile(st.ProcPath, []byte("enable\n"), 0o644); err != nil {
 			b.logger.Debug("thinkpad: enable command failed on first write; continuing",
 				"path", st.ProcPath, "err", err)
 			// Don't propagate — many kernels accept "level N" without
@@ -246,14 +253,16 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 	}
 	level := pwmToLevel(pwm)
 	cmd := fmt.Sprintf("level %d\n", level)
-	if werr := os.WriteFile(st.ProcPath, []byte(cmd), 0o644); werr != nil {
+	if werr := b.writeFile(st.ProcPath, []byte(cmd), 0o644); werr != nil {
 		switch {
 		case errors.Is(werr, fs.ErrPermission):
 			// EPERM almost always means fan_control=0. The kernel's
 			// thinkpad_acpi.c returns -EPERM silently in this case —
 			// no dmesg, no syslog — so the typed wrap is the only
-			// signal the wizard / doctor can branch on.
-			return fmt.Errorf("%w: %s", ErrFanControlDisabled, werr)
+			// signal the wizard / doctor can branch on. Double-%w
+			// preserves the underlying syscall.EPERM chain so
+			// existing fs.ErrPermission classifiers still match.
+			return fmt.Errorf("%w: %w", ErrFanControlDisabled, werr)
 		case errors.Is(werr, os.ErrInvalid):
 			return fmt.Errorf("thinkpad: write %q to %s: %w", strings.TrimSpace(cmd), st.ProcPath, werr)
 		default:
@@ -285,14 +294,14 @@ func (b *Backend) Restore(ch hal.Channel) error {
 	if err != nil {
 		return err
 	}
-	autoErr := os.WriteFile(st.ProcPath, []byte("level auto\n"), 0o644)
+	autoErr := b.writeFile(st.ProcPath, []byte("level auto\n"), 0o644)
 	if autoErr == nil {
 		b.acquired.Delete(st.ProcPath)
 		b.logger.Info("thinkpad: restored to BIOS-managed level auto",
 			"path", st.ProcPath)
 		return nil
 	}
-	disErr := os.WriteFile(st.ProcPath, []byte("disable\n"), 0o644)
+	disErr := b.writeFile(st.ProcPath, []byte("disable\n"), 0o644)
 	if disErr == nil {
 		b.acquired.Delete(st.ProcPath)
 		b.logger.Warn("thinkpad: 'level auto' refused; fell back to 'disable'",
