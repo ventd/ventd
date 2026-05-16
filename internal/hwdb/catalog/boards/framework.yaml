@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Framework Computer board catalog.
+#
+# Framework laptops use ChromeOS-derived EC firmware. The mainline
+# `cros_ec_fan` driver (kernel 6.7+) exposes the Framework EC's
+# fan as hwmon — when loaded, ventd's existing hwmon backend
+# drives it directly. Older kernels need the userspace `ectool`
+# from upstream or the out-of-tree `framework-laptop-kmod-impostor`
+# project.
+#
+# fw-fanctrl (https://github.com/TamtamHero/fw-fanctrl) is the
+# canonical Framework-tuned curve userspace tool. It additionally
+# implements a charging-vs-discharging dual-strategy switch that
+# ventd's controller doesn't have today (T2.1's followup adds this
+# as an additive schema field).
+#
+# All entries marked verified: false. The DMI strings are pulled
+# from the published Framework support matrix.
+
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "framework-13-intel-11th-gen"
+    dmi_fingerprint:
+      sys_vendor: "Framework"
+      product_name: "Laptop"
+      board_vendor: "Framework"
+      board_name: "FRANBMCP*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "cros_ec_fan hwmon (kernel 6.7+); older kernels need ectool"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "fw-fanctrl"
+    notes: "Framework 13 Intel 11th-gen (Tiger Lake — i5-1135G7 /
+      i7-1165G7). board_name 'FRANBMCP' covers the Mainboard rev 11
+      family. fan-control surface arrived in kernel 6.7 via
+      cros_ec_fan. Pre-6.7 kernels need the ectool userspace tool."
+    citations:
+      - "https://github.com/TamtamHero/fw-fanctrl"
+      - "https://github.com/DHowett/framework-laptop-kmod-impostor (pre-6.7 kmod shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "framework-13-amd-7040"
+    dmi_fingerprint:
+      sys_vendor: "Framework"
+      product_name: "Laptop 13"
+      board_vendor: "Framework"
+      board_name: "FRANMACP*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "cros_ec_fan hwmon (kernel 6.7+ required)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "fw-fanctrl"
+    notes: "Framework 13 AMD (Ryzen 7040 series). board_name 'FRANMACP'
+      covers the AMD mainboard rev. AMD variants ship with same
+      EC as Intel boards — cros_ec_fan covers both."
+    citations:
+      - "https://frame.work/au/en/laptop13/amd"
+      - "https://github.com/TamtamHero/fw-fanctrl"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "framework-13-amd-ai-300"
+    dmi_fingerprint:
+      sys_vendor: "Framework"
+      product_name: "Laptop 13"
+      board_vendor: "Framework"
+      board_name: "FRANRACP*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "cros_ec_fan hwmon (kernel 6.10+ recommended)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "fw-fanctrl"
+    notes: "Framework 13 AMD AI 300 (Ryzen AI 300 series, Strix Point).
+      Newer mainboard rev; same EC family."
+    citations:
+      - "https://frame.work/au/en/laptop13/amd-ai-300"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "framework-16"
+    dmi_fingerprint:
+      sys_vendor: "Framework"
+      product_name: "Laptop 16"
+      board_vendor: "Framework"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "cros_ec_fan hwmon (kernel 6.7+)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "fw-fanctrl"
+    notes: "Framework 16 (Ryzen 7040 / AI 300 + optional dGPU module).
+      Dual-fan chassis; cros_ec_fan exposes both. fw-fanctrl ships
+      a Framework 16-tuned curve preset."
+    citations:
+      - "https://frame.work/au/en/laptop16"
+      - "https://github.com/TamtamHero/fw-fanctrl"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

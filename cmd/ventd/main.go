@@ -119,6 +119,17 @@ func run() error {
 		return runCalibrateAcoustic(os.Args[2:], logger)
 	}
 
+	// `ventd import-sensors-conf <path>` — T1.4 — parses an
+	// lm-sensors sensors.conf community file and emits a ventd
+	// hwdb chip-overlay YAML document. Stdout by default; `--out
+	// <path>` writes to the pending-overlay directory at
+	// /var/lib/ventd/profiles-pending/<name>.yaml alongside the
+	// existing `ventd hwdb capture` outputs.
+	if len(os.Args) >= 2 && os.Args[1] == "import-sensors-conf" {
+		logger := buildLogger("info")
+		os.Exit(runImportSensorsConf(os.Args[2:], logger))
+	}
+
 	// `ventd version` mirrors the --version flag for operators who
 	// type the subcommand instinctively. Both forms must short-circuit
 	// before any subsystem init — they MUST NOT load /etc/ventd/config.yaml

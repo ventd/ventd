@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Clevo / System76 / Tongfang board catalog.
+#
+# Clevo motherboards drive fans via the EC's port-0x68/0x6C
+# interface. Mainline Linux has no driver for this path; the
+# canonical userspace controller is `clevo-indicator`
+# (https://github.com/SkyLandTW/clevo-indicator) or the CLI fork
+# `clevo-fancontrol` (https://github.com/mmt050/clevo-fancontrol).
+# Both speak the same ACPI 4.0 §12.3 OBF/IBF handshake that
+# ventd's `internal/ec/dev_port` transport implements.
+#
+# System76 ships partly-Clevo (Bonobo / Oryx) and partly-custom
+# (Lemur / Galago) hardware. system76-acpi-dkms provides hotkey
+# + power-profile sysfs; fans on the Clevo-based models use the
+# same port-0x68 path.
+#
+# Tongfang ODM produces the chassis behind the SCHENKER / XMG /
+# Eluktronics / Origin PC brands. Same EC family.
+#
+# All entries marked verified: false. The board catalog is the
+# matcher entry point; the runtime backend (T2.4 future PR) wires
+# the EC dispatch.
+
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "system76-oryx-pro"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryx-pro"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 Oryx Pro (Clevo-based). 15.6\" / 17.3\" gaming
+      / workstation chassis. Linux-loyal user base — high-priority
+      target for the planned T2.4 Clevo backend over
+      internal/ec/dev_port."
+    citations:
+      - "https://github.com/SkyLandTW/clevo-indicator"
+      - "https://github.com/pop-os/system76-acpi-dkms"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-lemur-pro"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "lemp10"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "system76-io custom EC (not Clevo on Lemur)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "system76-power"
+    notes: "System76 Lemur Pro (lemp10, lemp11, lemp12 generations).
+      Custom System76-designed mainboard, NOT a Clevo rebrand. Fan
+      control via system76-io firmware; ventd does not drive this
+      path. system76-power-daemon owns the user-facing curve."
+    citations:
+      - "https://github.com/system76/system76-io-dkms"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-x170km-g"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "X170KM-G"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo X170KM-G barebone (17.3\" desktop-replacement,
+      Comet Lake-S). Sold under Eurocom / Sager / Origin PC EON17
+      / XMG ULTRA 17 brand names. Dual fan + dual pwm output. The
+      DMI sys_vendor on raw Clevo barebones is the literal string
+      'Notebook' — retailer-branded units override this with their
+      own vendor string."
+    citations:
+      - "https://github.com/SkyLandTW/clevo-indicator (model in supported list)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "tongfang-gm5pxxx"
+    dmi_fingerprint:
+      sys_vendor: "TongFang"
+      product_name: "GM5*"
+      board_vendor: "TongFang"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Tongfang EC, same port-0x68 family as Clevo"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Tongfang GM5 chassis (GM5MP*, GM5NP*). Sold as
+      SCHENKER VIA 15 Pro / XMG CORE 15 / Eluktronics RP-15."
+    citations:
+      - "https://www.tongfang-pc.com/ (manufacturer)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

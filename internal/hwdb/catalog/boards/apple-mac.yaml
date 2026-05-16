@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Apple Mac board catalog — Intel-era only.
+#
+# Apple Silicon (M1/M2/M3/M4) Macs have NO SMC equivalent; macOS
+# manages fans entirely through DCP firmware paths that no Linux
+# distribution exposes. Asahi Linux has its own pwmsys / asahi
+# HAL backend (internal/hal/asahi) which covers tach reads — see
+# that backend for M-series support.
+#
+# Intel Macs use the mainline `applesmc` kernel module. The hwmon
+# surface exposes per-fan `fan*_input` (tach RPM), `fan*_min`,
+# `fan*_target`, `fan*_manual`. fan_target is the RPM setpoint
+# (NOT a 0-255 PWM byte); the hwmon backend's RPM-target write
+# path drives this correctly when fans are declared via
+# fan*_target rather than pwm*.
+#
+# All entries marked verified: false. The mbpfan project
+# (https://github.com/linux-on-mac/mbpfan) is the canonical
+# userspace reference for per-model fan curves.
+
+schema_version: "1.2"
+
+board_profiles:
+
+  - id: "apple-macbookpro-15-2018"
+    dmi_fingerprint:
+      sys_vendor: "Apple Inc."
+      product_name: "MacBookPro15,1"
+      board_vendor: "Apple Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "applesmc hwmon exposes fan*_input + fan*_target (RPM, not PWM)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "mbpfan"
+      - "macfanctld"
+    notes: "MacBook Pro 15\" 2018 (Touch Bar, i7-8750H / i9-8950HK).
+      Dual-fan chassis. applesmc surfaces both as RPM-target hwmon.
+      ventd's hwmon backend can drive these via the fan*_target write
+      path when an apple-mac board profile is wired with explicit
+      RPM-target channel declarations. Marked ro_sensor_only as the
+      conservative default — operators can opt in explicitly."
+    citations:
+      - "https://github.com/linux-on-mac/mbpfan (canonical curve reference)"
+      - "https://docs.kernel.org/hwmon/applesmc.html"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbookpro-16-2019"
+    dmi_fingerprint:
+      sys_vendor: "Apple Inc."
+      product_name: "MacBookPro16,1"
+      board_vendor: "Apple Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "applesmc hwmon — RPM-target writes via fan*_target"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "mbpfan"
+    notes: "MacBook Pro 16\" 2019 (i7-9750H / i9-9880H / i9-9980HK).
+      Last big Intel MBP before the Apple Silicon transition. Heavy
+      thermal envelope; mbpfan curves recommend aggressive ramps."
+    citations:
+      - "https://github.com/linux-on-mac/mbpfan"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-27-2020"
+    dmi_fingerprint:
+      sys_vendor: "Apple Inc."
+      product_name: "iMac20,1"
+      board_vendor: "Apple Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "applesmc hwmon"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "iMac 27\" 2020 (i5-10500 / i7-10700K / i9-10910). The
+      last Intel iMac. Single rear chassis fan governed by applesmc."
+    citations:
+      - "https://docs.kernel.org/hwmon/applesmc.html"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macpro-2019"
+    dmi_fingerprint:
+      sys_vendor: "Apple Inc."
+      product_name: "MacPro7,1"
+      board_vendor: "Apple Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "applesmc hwmon"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Mac Pro 2019 (Xeon W-3200 family). The 2019 cheese-grater
+      Mac Pro is the most-fan-channel Mac in the catalogue — three
+      front intake + one rear exhaust governed by applesmc. ventd's
+      hwmon backend can drive each independently when wired with
+      explicit channel declarations."
+    citations:
+      - "https://docs.kernel.org/hwmon/applesmc.html"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

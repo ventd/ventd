@@ -142,3 +142,86 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  - id: "hp-omen-16-2024-intel"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "OMEN by HP Laptop 16-wf*"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon path — Omen EC requires patched hp-wmi"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP OMEN 16 (2024 Intel — Raptor Lake refresh). EC fan
+      control needs the out-of-tree omen-fan-control kmod patch
+      against hp-wmi or the upstream alou-S/omen-fan userspace tool.
+      Mainline hp-wmi exposes hotkeys + rfkill only — no fan-control
+      surface. Recorded as ground truth so the matcher returns
+      'unsupported' rather than falling through to a generic profile.
+      Doctor card surfaces the remediation path when this profile
+      matches."
+    citations:
+      - "https://github.com/alou-S/omen-fan (upstream userspace controller)"
+      - "https://github.com/arfelious/omen-fan-control (alternative kmod patchset)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-15-2023-amd"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "OMEN by HP Laptop 15-fb*"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon path — Omen EC requires patched hp-wmi"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP OMEN 15 (2023 AMD — Ryzen 7000 series). Same EC class
+      as the 16-wf — fan control requires out-of-tree kmod patch."
+    citations:
+      - "https://github.com/alou-S/omen-fan"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-16-2024"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "Victus by HP Laptop 16-r*"
+      board_vendor: "HP"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon path — same EC family as Omen 16"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus 16 (2024). Victus is the budget-tier Omen
+      sibling; shares the same EC family. No mainline fan-control
+      path; same omen-fan-control remediation applies."
+    citations:
+      - "https://github.com/alou-S/omen-fan (Victus 16 in supported model list)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-16"
+    verified: false
+    defaults:
+      curves: []

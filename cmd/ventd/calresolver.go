@@ -15,6 +15,7 @@ import (
 	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
+	halthinkpad "github.com/ventd/ventd/internal/hal/thinkpad"
 )
 
 // newChannelResolver returns the calibrate.ChannelResolver shared by
@@ -61,4 +62,5 @@ func registerHALBackends(logger *slog.Logger, enableGPUWrite bool) {
 	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))
 	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
 	hal.Register(halpwmsys.BackendName, halpwmsys.NewBackend(logger))
+	hal.Register(halthinkpad.BackendName, halthinkpad.NewBackend(logger))
 }
