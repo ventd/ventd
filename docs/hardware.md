@@ -121,7 +121,7 @@ state requiring iCUE to recover.
 ### Help validate
 
 If you own a Commander Core, Core XT, or Commander ST and can help
-validate, please file an issue with the output of `ventd --list-fans`.
+validate, please file an issue with the output of `ventd --list-fans-probe`.
 
 ## Reporting compatibility
 
