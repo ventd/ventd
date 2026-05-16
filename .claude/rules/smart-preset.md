@@ -83,55 +83,28 @@ Bound: internal/config/smart_test.go:dba_target_omitted_when_nil
 ## RULE-CTRL-PRESET-04: EvalDBABudget refuses ramps that push the candidate dBA strictly above the configured target; zero/negative target disables the gate.
 
 `EvalDBABudget(b AcousticBudget, deltaPWM float64) (refuse bool, predictedDBA float64)`
-is the pure-data dBA-budget gate. The gate uses linear extrapolation:
+is the pure-data dBA-budget gate using linear extrapolation:
 
 ```
 candidate_dBA = CurrentDBA + DBAPerPWM · |ΔPWM|
 refuse iff candidate_dBA > Target
 ```
 
-Refusal is on strict inequality — `candidate_dBA == Target` admits the ramp.
-A zero or negative `Target`, or a zero `DBAPerPWM`, disables the gate
-(returns false). Negative ΔPWM (cooling-down ramp) is treated as |ΔPWM| —
-a ramp's loudness impact is direction-agnostic.
+Refusal is on strict inequality (`candidate_dBA == Target` admits).
+Zero/negative `Target`, or zero `DBAPerPWM`, disables the gate. ΔPWM
+is direction-agnostic (negative ramp uses `|ΔPWM|`).
 
-The `AcousticBudget` struct carries the three values the wiring layer
-computes from the per-fan acoustic proxy (R33) plus the per-host
-calibration record (R30 K_cal):
+`BlendedController.Compute` invokes the gate after the cost gate (and
+after Path-A). On refusal: `OutputPWM = ReactivePWM`,
+`DBABudgetRefused: true`, `PredictedDBA` populated for telemetry,
+`UIState = "refused-dba"`. Unlike Path-A / PI-saturation refusals,
+the integrator continues to accumulate on dBA refusal — recovery is
+natural-condition-driven.
 
-- `Target`: the operator-resolved dBA cap from `DBATargetFor`.
-- `CurrentDBA`: the host's current total loudness in dBA, from the
-  proxy's energetic sum across grouped fans + K_cal offset.
-- `DBAPerPWM`: the candidate channel's marginal loudness rate per PWM
-  unit, from the proxy's `CostRate`.
-
-`BlendedController.Compute` calls `EvalDBABudget` after the existing
-cost gate (and after Path-A). When the gate refuses, the controller
-returns `OutputPWM = ReactivePWM`, sets `DBABudgetRefused: true`,
-populates `PredictedDBA` for telemetry, and surfaces the refusal as
-`UIState = "refused-dba"`. The integrator continues to accumulate
-(matching cost-gate semantics — no freeze on dBA refusal); recovery
-happens naturally when conditions change.
-
-The refusal cascade order in `Compute` is:
-
-  1. PI instability guards → `refused-pi`
-  2. PI saturation (anti-windup) → integrator frozen, blend continues
-  3. Path-A predicted-ΔT gate → `refused-pathA`, integrator frozen
-  4. Cost gate (benefit < cost) → `refused-cost`
-  5. dBA-budget gate (predicted dBA > target) → `refused-dba`
-
-Path-A and cost gate short-circuit the dBA check — the gate only runs
-when both upstream gates admit. That priority chain means the dBA
-gate's blast radius is limited to ramps the upstream gates already
-deemed "thermally beneficial enough"; the dBA gate is the acoustic
-veto layered on top.
-
-The wiring layer (eventual #67/#112 Manager.run refactor) populates
-`BlendedInputs.Acoustic` from per-fan R33 proxy outputs + per-host R30
-K_cal calibration. Until that wiring lands the controller behaves
-identically to v0.5.11 for any caller that leaves Acoustic at its
-zero value (Target ≤ 0 disables the gate).
+See `docs/rules-rationale/smart-preset-and-signature-persistence.md`
+for the AcousticBudget population (R33 proxy + R30 K_cal), the
+five-step refusal cascade order, and the controller-integrator
+asymmetry rationale.
 
 Bound: internal/controller/blended_test.go:TestEvalDBABudget_RefusesAboveTarget
 Bound: internal/controller/blended_test.go:admit_when_inside_budget
