@@ -130,6 +130,21 @@ var knownDriverNeeds = map[string]DriverNeed{
 		Branch:  "master",
 		Module:  "it87",
 	},
+	"msi_ec": {
+		Key:      "msi_ec",
+		ChipName: "MSI EC",
+		Explanation: "Your MSI laptop's embedded controller drives the fan but needs a " +
+			"small kernel driver that isn't included in standard Linux. " +
+			"Ventd can install it automatically — this is a one-time step.",
+		RepoURL: "https://github.com/BeardOverflow/msi-ec",
+		Branch:  "main",
+		Module:  "msi-ec",
+		// No DMITriggers entry: msi_ec is gated on the runtime hwmon
+		// signal "msi_wmi_platform present + MSI vendor" inside
+		// identifyDriverNeeds. A pure DMI trigger would propose msi_ec
+		// on MSI desktops too, and the BeardOverflow driver only
+		// supports laptop EC firmware revisions.
+	},
 	"nct6687d": {
 		Key:      "nct6687d",
 		ChipName: "NCT6687D",
@@ -771,6 +786,35 @@ func identifyDriverNeeds(boardVendor, boardName string, hwmonNames []string) []D
 		// monitor-only mode with a misleading "driver installed" log.
 		if (isMSI && !seen["nct6687d"] && !hwmonSet["msi_wmi_platform"]) || isASRock || isBiostar {
 			add("it8688e")
+		}
+	}
+
+	// MSI laptops: when the in-kernel msi_wmi_platform is loaded for
+	// tach-only readings AND the vendor is MSI, the right install path
+	// is the out-of-tree msi-ec driver (BeardOverflow/msi-ec). msi-ec
+	// exposes pwm1 + fan1_input via standard hwmon once loaded.
+	//
+	// The trigger is narrow on purpose: msi_wmi_platform is laptop-
+	// specific (the in-kernel driver registers only for MSI WMI GUIDs
+	// found on laptop firmware), so "msi_wmi_platform present + MSI
+	// vendor" is a strong "MSI laptop with no in-kernel PWM" signal.
+	// MSI desktop boards never expose msi_wmi_platform; they are
+	// covered by the nct6687d / it8688e branches above and stay
+	// unaffected by this gate.
+	//
+	// msi-ec ships a closed-set EC-firmware allowlist. On unsupported
+	// revisions modprobe binds but exposes no pwm1; the wizard's
+	// retry-loop (setup.go) treats that as ErrNoPWMChannelsAppeared,
+	// surfaces a clean monitor-only outcome, and the doctor card
+	// (added in a follow-up PR) points at BeardOverflow's issue
+	// tracker for the firmware-dump submission path. Pre-#1119, MSI
+	// laptops with msi_wmi_platform landed in a silent "no fan
+	// controllers found" dead-end with no actionable path. See
+	// #1116 for the canonical reproducer (MSI Thin GF63 12U / MS-16R8).
+	if !seen["msi_ec"] && hwmonSet["msi_wmi_platform"] {
+		vendor := strings.ToLower(boardVendor)
+		if strings.Contains(vendor, "micro-star") || strings.Contains(vendor, "msi") {
+			add("msi_ec")
 		}
 	}
 

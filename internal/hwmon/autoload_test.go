@@ -368,17 +368,53 @@ func TestIdentifyDriverNeeds(t *testing.T) {
 			wantKeys:    []string{"nct6687d"},
 		},
 		{
-			// MS-16R8 is an MSI gaming laptop (Intel i5-12450H). It
-			// exposes msi_wmi_platform in hwmon for RPM readings only;
-			// there is no ISA ITE chip to bind it87 to. Pre-fix, the
-			// MSI vendor fallback returned [it8688e] and the wizard
-			// compiled + DKMS-registered the driver before modprobe
-			// found nothing to bind, stranding the host monitor-only.
-			name:        "MSI laptop with msi_wmi_platform suppresses it8688e fallback",
+			// MS-16R8 is an MSI gaming laptop (Intel i5-12450H, Thin GF63
+			// 12U series). It exposes msi_wmi_platform in hwmon for RPM
+			// readings only; there is no ISA ITE chip to bind it87 to.
+			// Pre-#1104 the MSI vendor fallback returned [it8688e] and
+			// the wizard compiled + DKMS-registered the wrong driver
+			// before modprobe found nothing to bind, stranding the host
+			// monitor-only. Post-#1104 the fallback was suppressed but
+			// no replacement was offered, leaving the user with a silent
+			// "no fan controllers found" dead-end. #1119 adds msi_ec
+			// (BeardOverflow/msi-ec, out-of-tree DKMS) as the laptop's
+			// actual fan-control path; #1116 is the canonical reproducer.
+			name:        "MSI laptop with msi_wmi_platform proposes msi_ec",
 			boardVendor: "Micro-Star International Co., Ltd.",
 			boardName:   "MS-16R8",
 			hwmonNames:  []string{"coretemp", "msi_wmi_platform"},
-			wantKeys:    []string{},
+			wantKeys:    []string{"msi_ec"},
+		},
+		{
+			// "MSI" short vendor string (some firmware drops the long
+			// "Micro-Star International Co., Ltd." form). Must still
+			// trigger msi_ec when msi_wmi_platform is present.
+			name:        "MSI short vendor with msi_wmi_platform proposes msi_ec",
+			boardVendor: "MSI",
+			boardName:   "MS-1581",
+			hwmonNames:  []string{"coretemp", "msi_wmi_platform"},
+			wantKeys:    []string{"msi_ec"},
+		},
+		{
+			// Non-MSI host that happens to have msi_wmi_platform loaded
+			// (theoretical: shouldn't occur in practice but pin the
+			// vendor gate so a future kernel that surfaces the driver
+			// on non-MSI hardware doesn't trigger a wrong install).
+			name:        "non-MSI vendor with msi_wmi_platform does not propose msi_ec",
+			boardVendor: "ASUSTeK COMPUTER INC.",
+			boardName:   "Zephyrus G14",
+			hwmonNames:  []string{"coretemp", "msi_wmi_platform"},
+			wantKeys:    []string{"it8688e"},
+		},
+		{
+			// MSI desktop board never exposes msi_wmi_platform. The
+			// new msi_ec branch must NOT fire here; the existing
+			// nct6687d DMI trigger is the correct route.
+			name:        "MSI desktop MAG without msi_wmi_platform routes to nct6687d, not msi_ec",
+			boardVendor: "Micro-Star International Co., Ltd.",
+			boardName:   "MAG B660 TOMAHAWK WIFI DDR4 (MS-7D43)",
+			hwmonNames:  []string{"coretemp"},
+			wantKeys:    []string{"nct6687d"},
 		},
 		{
 			name:        "ASRock falls through to it8688e",
