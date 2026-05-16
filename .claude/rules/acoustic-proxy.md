@@ -138,9 +138,14 @@ returns the marginal acoustic cost in au per PWM unit. The result is
 the numerical partial derivative `Score(rpm + rpmPerPWM) - Score(rpm)`
 multiplied by the preset weighting.
 
-The cost gate (in `internal/controller/blended.go`, wired in v0.5.12
-PR-E) consumes `CostRate` to evaluate whether a candidate ramp's
-acoustic cost outweighs the predicted thermal benefit. Per R29 §5.1
+`CostRate` is **designed** to be consumed by the cost gate at
+`internal/controller/blended.go`, replacing the synthetic
+`CostFactorBalanced = 0.01°C/PWM` constant that the gate currently
+uses. **As of 2026-05-16 that wiring is not yet in place**: the
+v0.5.12 plan documented as "PR-E" never landed. The function below
+exists and is fully tested against the R29 measurement targets so the
+wire-up PR is a small additive change once HIL evidence (per-fan class
+classifier + measured dBA-PWM slopes) makes it actionable. Per R29 §5.1
 the rate is per-fan (no global k_factor) and PWM-group-aware (callers
 multiply by `+10·log10(N_fans)` when grouping data is available).
 

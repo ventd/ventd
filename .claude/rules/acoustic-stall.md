@@ -82,11 +82,13 @@ exactly `{StallSuspected, BroadbandRise, CrestExcess, KurtosisExcess,
 FiredBroadband, FiredCrest, FiredKurtosis}` — all informational. Adding
 a method or a non-allowlisted field fails the test.
 
-The package's `polarity.ChannelResult.AcousticStallSuspected bool` flag
-is the operator-visible surface; `WritePWM` (RULE-POLARITY-05) does NOT
-read this flag. A fan flagged as stall-suspected can still receive PWM
-writes — the wiring deliberately keeps stall detection out of the
-control loop in v0.5.12.
+The `polarity.ChannelResult.AcousticStallSuspected bool` field is the
+**reserved** operator-visible surface. As of 2026-05-16 the field is
+defined on the struct but has no production write site — the v0.5.12
+post-calibration soak phase that would call `Evaluate` and populate
+the flag has not yet landed. By design even when wired the flag is
+purely advisory: `WritePWM` (RULE-POLARITY-05) MUST NOT read it; a
+fan flagged as stall-suspected can still receive PWM writes.
 
 This binding doubles as a regression guard: a future PR that adds an
 "AbortFan" / "DisableChannel" / similar method to `Result` to "act on
