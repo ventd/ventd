@@ -376,6 +376,25 @@ func TestBackend_Write_EPERMWrapsAsErrFanControlDisabled(t *testing.T) {
 		t.Skip("EPERM wrap test requires non-root euid to honour the chmod 0400 gate")
 	}
 
+	// Skip when the runtime environment grants
+	// CAP_DAC_OVERRIDE-equivalent on 0400 files (some GitHub Actions
+	// runner configurations admit writes to read-only files for
+	// non-root users via runner-side capabilities). Probe by writing
+	// a sentinel byte directly: if the chmod gate isn't enforced
+	// here, the backend's Write would silently succeed too, and the
+	// test's EPERM-wrap assertion is vacuous. Skipping is the
+	// correct behaviour — the wrap is meaningful only when the
+	// underlying EPERM actually fires, which it WILL on the real
+	// thinkpad_acpi.c kernel path regardless of CI's runner caps.
+	probeErr := os.WriteFile(f.path, []byte("x"), 0o644)
+	if probeErr == nil {
+		// Restore the fixture content + 0400 mode for any later
+		// test that might share state (none do today, but defensive).
+		_ = os.WriteFile(f.path, []byte(validProcFanContent), 0o644)
+		_ = os.Chmod(f.path, 0o400)
+		t.Skip("environment grants CAP_DAC_OVERRIDE-equivalent on 0400 files; EPERM wrap test does not apply here")
+	}
+
 	b := NewBackend(nil)
 	err := b.Write(f.makeChannel(), 128)
 	if err == nil {
