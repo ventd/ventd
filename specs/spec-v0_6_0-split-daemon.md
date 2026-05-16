@@ -1,6 +1,15 @@
 # spec-v0_6_0-split-daemon — separating control-loop hardening from wizard-time root operations
 
-**Status**: draft (2026-05-02 overnight)
+> **Scaffolding removed (2026-05-16).** The Phase A broker
+> (`internal/setupbroker/`, `cmd/ventd-setup/`, `deploy/ventd-setup.service`)
+> was deleted after Phase B never landed. The split-daemon's premise — drop
+> root from `ventd.service` — was contradicted by v0.5.8.1 (#787), which
+> deliberately flipped the daemon **to** `User=root`. Reviving the
+> split-daemon requires first re-litigating the v0.5.8.1 root-flip decision.
+> This spec is kept as a forward-looking design document; the original
+> Phase A code lives in git history for anyone bringing this work back.
+
+**Status**: deferred — scaffolding removed pending v0.5.8.1 reconsideration (2026-05-16)
 **Issue**: #787
 **Closes**: many of the v0.5.8.1 wave (#777, #778, #780, #781, #783, #785, #786, #796).
 **Replaces**: the single-unit ventd.service architecture introduced before v0.5.0.

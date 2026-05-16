@@ -85,9 +85,6 @@ SyslogIdentifier=ventd
 # in the same operational class as fancontrol, thinkfan, nvidia-persistenced,
 # and most other Linux fan-control daemons.
 #
-# Long-term plan (#778): split into a hardened steady-state daemon
-# (User=ventd, full sandbox) plus a oneshot ventd-setup.service (User=root)
-# triggered only during the first-boot wizard. v0.6.0.
 User=root
 Group=root
 # AppArmorProfile= INTENTIONALLY NOT SET in v0.5.8.1 (#787). The profile
@@ -96,10 +93,7 @@ Group=root
 # Auto-attach was the load-bearing failure mode in HIL: even with the
 # unbound profile declaration, the AppArmorProfile= directive forces
 # attachment, which then DENIED legitimate /usr/bin/kmod, sudo, dkms,
-# modprobe execs during the wizard's driver-install path. The split
-# daemon in v0.6.0 (#787) re-attaches the profile on the steady-state
-# unit but routes the install path through ventd-setup.service which
-# stays unconfined.
+# modprobe execs during the wizard's driver-install path.
 
 # --- Sandbox: filesystem --------------------------------------------------
 ProtectSystem=strict
