@@ -12,6 +12,7 @@ import (
 	halgpu "github.com/ventd/ventd/internal/hal/gpu"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	halipmi "github.com/ventd/ventd/internal/hal/ipmi"
+	hallegion "github.com/ventd/ventd/internal/hal/legion"
 	halcorsair "github.com/ventd/ventd/internal/hal/liquid/corsair"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	halpwmsys "github.com/ventd/ventd/internal/hal/pwmsys"
@@ -60,6 +61,7 @@ func registerHALBackends(logger *slog.Logger, enableGPUWrite bool) {
 	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))
+	hal.Register(hallegion.BackendName, hallegion.NewBackend(logger))
 	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
 	hal.Register(halpwmsys.BackendName, halpwmsys.NewBackend(logger))
 	hal.Register(halthinkpad.BackendName, halthinkpad.NewBackend(logger))
