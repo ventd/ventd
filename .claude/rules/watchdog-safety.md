@@ -130,42 +130,31 @@ Bound: internal/watchdog/safety_test.go:wd_register_preserves_startup_origenable
 
 ## RULE-WD-PER-SYSCALL-DEADLINE: register reads + NVML resets are bounded by per-syscall deadlines so a hung driver cannot block daemon startup or restore beyond budget
 
-Per audit-pass-6 issues #1038, #1040, #1041, #1042 the watchdog's
-sysfs read and NVML reset primitives MUST run under per-syscall
-deadlines. Three call sites use the pattern:
+Three call sites use the abandon-on-deadline pattern:
 
 - **Register-time pwm_enable read** (`readPWMEnableWithDeadline` in
-  `internal/watchdog/deadline.go`) bounds the per-channel read at
-  `DefaultRegisterDeadline` (750 ms) so a hot-plug or hung chip
-  cannot block daemon startup indefinitely. On deadline the
-  goroutine is abandoned (the `os.ReadFile` keeps running inside
-  the kernel until it returns) and origEnable falls back to the
-  `SafePreDaemonEnable` path. The orphan goroutine is reaped by
-  systemd's `KillMode=process` at shutdown.
-
-- **Restore-path ctx-cancel** (`restoreOneCtx`'s pre-check + the
-  `RestoreCtx` select). The pre-#1041 contract — `restoreOneCtx`
-  pre-checks ctx before dispatching to the backend — is preserved;
-  the per-syscall write happens inside the backend's restore path;
-  on budget overrun the parent `RestoreCtx` select observes
-  `ctx.Done` and returns regardless of the inner goroutine's
-  state. systemd's `KillMode` reaps the orphan.
-
+  `internal/watchdog/deadline.go`): caps `os.ReadFile` at
+  `DefaultRegisterDeadline = 750 ms`; on deadline the goroutine is
+  abandoned and origEnable falls back to `SafePreDaemonEnable`.
+- **Restore-path ctx-cancel** (`restoreOneCtx` + `RestoreCtx`
+  select): pre-checks ctx before backend dispatch; on budget
+  overrun the parent select returns regardless of inner-goroutine
+  state.
 - **NVML reset wrapper** (`nvmlResetWithDeadline` in
-  `internal/hal/nvml/backend.go`) bounds the
-  `nvmlDeviceSetDefaultFanSpeed_v2` call at `NVMLResetDeadline`
-  (500 ms). NVML is dlopen'd at process start and exposes no
-  per-call cancellation primitive; the wrapper is the only safe
-  way to bound a hung driver's blast radius without crashing the
-  daemon. The goroutine is abandoned on deadline; the daemon
-  proceeds with its exit.
+  `internal/hal/nvml/backend.go`): caps
+  `nvmlDeviceSetDefaultFanSpeed_v2` at `NVMLResetDeadline = 500 ms`.
+  NVML exposes no per-call cancellation primitive; the wrapper is
+  the only safe way to bound a hung-driver blast radius.
 
-The pattern is `select { case res := <-done: case <-ctx.Done(): }`
-in every helper. On `<-ctx.Done()` the caller returns with a
-wrapped `context.DeadlineExceeded`; the inner goroutine continues
-to run until the kernel returns from its syscall. This is the
-same abandonment model as RULE-WD-RESTORE-BUDGET, applied
-per-syscall instead of per-channel.
+Pattern: `select { case res := <-done: case <-ctx.Done(): }`. On
+`<-ctx.Done()` the caller returns wrapped `context.DeadlineExceeded`;
+the inner goroutine continues until its kernel syscall returns and
+is then reaped by systemd's `KillMode=process` at daemon shutdown.
+Same abandonment model as RULE-WD-RESTORE-BUDGET, per-syscall
+instead of per-channel.
+
+See `docs/rules-rationale/opportunistic-soft-idle-and-watchdog-deadlines.md`
+for the audit pass-6 motivation (#1038, #1040-#1042).
 
 Bound: internal/watchdog/safety_test.go:wd_per_syscall_deadline_register_read_abandoned
 Bound: internal/watchdog/safety_test.go:wd_per_syscall_deadline_write_does_not_leak_past_parent
