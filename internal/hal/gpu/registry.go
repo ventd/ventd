@@ -1,7 +1,10 @@
 // Package gpu selects the correct HAL backend for each discovered GPU at
 // startup. NVIDIA GPUs are routed to the nvml backend via internal/nvidia.
 // AMD GPUs are routed to the amdgpu sysfs backend. Intel Arc GPUs are
-// registered as read-only sensor sources via the xe backend.
+// not registered — fan control is firmware-managed on Intel discrete
+// GPUs (no userspace pwm sysfs path). The catalogue at
+// internal/hwdb/catalog/drivers/{xe,i915}.yaml carries the
+// fan_control_capable=false declaration that the matcher consults.
 //
 // All writes are gated behind the --enable-gpu-write flag (RULE-GPU-PR2D-01).
 package gpu
