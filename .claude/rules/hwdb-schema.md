@@ -75,6 +75,8 @@ not the pwm_control string.
 Adding a name is a v1.x amendment, not a schema break.
 
 Bound: internal/hwdb/schema_test.go:Rule_HWDB_05_KnownPWMModule
+Bound: internal/hwdb/schema_test.go:Rule_HWDB_05_AllowlistAdditions
+Bound: internal/hwdb/schema_test.go:LoadEmbedded_ParsesUnderV1
 
 ## RULE-HWDB-06: PII gate via strict field validation and contributor format
 
