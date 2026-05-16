@@ -37,6 +37,7 @@ control. The bound subtest covers both consumer-class (1 200 RPM) and
 server-class (18 000 RPM) values to pin the new cap.
 
 Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_accepts_normal_rpm
+Bound: internal/hal/hwmon/safety_test.go:sentinel/fan_accepts_server_class_rpm
 
 ## RULE-SENTINEL-TEMP-CAP: temperature at or above the 150°C plausibility cap is rejected
 

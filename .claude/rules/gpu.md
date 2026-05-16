@@ -126,6 +126,7 @@ must return false.
 Bound: internal/hal/gpu/nvml/probe_test.go:TestNVML_LaptopDgpuRequiresEC
 Bound: internal/hal/gpu/nvml/probe_test.go:laptop_chassis_detected
 Bound: internal/hal/gpu/nvml/probe_test.go:desktop_chassis_not_flagged
+Bound: internal/hal/gpu/nvml/probe_test.go:laptop_write_returns_ec_error
 
 ## RULE-GPU-PR2D-07: RDNA3+ AMD GPU writes use gpu_od/fan_ctrl/fan_curve interface only — direct pwm1 writes are refused.
 

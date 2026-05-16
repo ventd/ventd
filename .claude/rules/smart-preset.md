@@ -40,6 +40,12 @@ Asymmetric strictness by intent:
   unknown-key warn-once (RULE-EXPERIMENTAL-SCHEMA-04).
 
 Bound: internal/config/smart_test.go:TestSmartConfig_ValidationBoundaries
+Bound: internal/config/smart_test.go:setpoint below 10°C rejected
+Bound: internal/config/smart_test.go:setpoint above 100°C rejected
+Bound: internal/config/smart_test.go:setpoint at exactly 10°C and 100°C accepted
+Bound: internal/config/smart_test.go:PresetWeightVector out of [0,1] rejected
+Bound: internal/config/smart_test.go:unknown preset string is non-fatal at load
+Bound: internal/config/smart_test.go:known presets accepted at load
 
 ## RULE-CTRL-PRESET-03: PresetDBATargets is the canonical R32 mapping {Silent: 25, Balanced: 32, Performance: 45} dBA; DBATargetFor honours operator override over preset default.
 
@@ -67,6 +73,12 @@ above 80 indicates a typo or wrong unit.
 
 Bound: internal/controller/blended_test.go:TestPresetDBATargets_LockedAndOverrideHonoured
 Bound: internal/config/smart_test.go:TestSmartConfig_DBATargetValidation
+Bound: internal/config/smart_test.go:nil_dba_target_accepted
+Bound: internal/config/smart_test.go:dba_target_below_10_rejected
+Bound: internal/config/smart_test.go:dba_target_above_80_rejected
+Bound: internal/config/smart_test.go:dba_target_at_boundaries_accepted
+Bound: internal/config/smart_test.go:dba_target_yaml_round_trip
+Bound: internal/config/smart_test.go:dba_target_omitted_when_nil
 
 ## RULE-CTRL-PRESET-04: EvalDBABudget refuses ramps that push the candidate dBA strictly above the configured target; zero/negative target disables the gate.
 
@@ -122,6 +134,13 @@ identically to v0.5.11 for any caller that leaves Acoustic at its
 zero value (Target ≤ 0 disables the gate).
 
 Bound: internal/controller/blended_test.go:TestEvalDBABudget_RefusesAboveTarget
+Bound: internal/controller/blended_test.go:admit_when_inside_budget
+Bound: internal/controller/blended_test.go:refuse_when_above_target
+Bound: internal/controller/blended_test.go:at_target_admits
+Bound: internal/controller/blended_test.go:zero_target_disables_gate
+Bound: internal/controller/blended_test.go:negative_target_disables_gate
+Bound: internal/controller/blended_test.go:zero_dba_per_pwm_disables_gate
+Bound: internal/controller/blended_test.go:delta_pwm_is_absolute_value
 Bound: internal/controller/blended_test.go:TestBlend_DBABudget_RefusesPredictiveAboveTarget
 Bound: internal/controller/blended_test.go:TestBlend_DBABudget_NoOpWhenZeroTarget
 Bound: internal/controller/blended_test.go:TestBlend_DBABudget_PathARefusalShortCircuitsDBA

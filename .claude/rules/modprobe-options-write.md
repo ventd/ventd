@@ -41,6 +41,11 @@ thinkpad_acpi fan_control" button on a system where the drop-in
 is already correct must be a no-op rather than a state mutation.
 
 Bound: internal/hwmon/modprobe_options_test.go:TestWriteModprobeOptionsDropIn
+Bound: internal/hwmon/modprobe_options_test.go:creates file with options line
+Bound: internal/hwmon/modprobe_options_test.go:idempotent on identical content
+Bound: internal/hwmon/modprobe_options_test.go:rewrites when options change
+Bound: internal/hwmon/modprobe_options_test.go:empty module is an error
+Bound: internal/hwmon/modprobe_options_test.go:empty options is an error
 
 ## RULE-MODPROBE-OPTIONS-03: Endpoint refuses non-POST requests AND non-allowlisted (module, options) pairs with HTTP 400.
 

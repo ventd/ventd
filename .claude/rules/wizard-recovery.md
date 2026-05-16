@@ -34,6 +34,8 @@ signing rejections also emit "FATAL: Module not found"-shaped text
 that would otherwise trip the missing-module classifier.
 
 Bound: internal/recovery/classify_test.go:TestClassify_SecureBoot
+Bound: internal/recovery/classify_test.go:from modprobe stderr
+Bound: internal/recovery/classify_test.go:from journal
 
 ## RULE-WIZARD-RECOVERY-02: Missing-headers errors classify to ClassMissingHeaders.
 
@@ -58,6 +60,8 @@ classifier returns `ClassUnknown` and the operator gets the
 generic diag-bundle remediation.
 
 Bound: internal/recovery/classify_test.go:TestClassify_DKMSBuildFailed
+Bound: internal/recovery/classify_test.go:during install phase
+Bound: internal/recovery/classify_test.go:outside install phase ⇒ unknown
 
 ## RULE-WIZARD-RECOVERY-04: AppArmor denials classify to ClassApparmorDenied across both wizard and doctor lifetimes.
 
@@ -142,6 +146,10 @@ of-scope, not as "OverDrive disabled".
 
 Bound: internal/recovery/probe_amd_test.go:TestDetectAMDOverdrive
 Bound: internal/recovery/probe_amd_test.go:TestDetectAMDOverdrive_TaintWarning
+Bound: internal/recovery/probe_amd_test.go:amdgpu not loaded — PpfeaturemaskFound=false
+Bound: internal/recovery/probe_amd_test.go:hex form with bit 14 set
+Bound: internal/recovery/probe_amd_test.go:hex form without bit 14 — default mask shape
+Bound: internal/recovery/probe_amd_test.go:decimal form is accepted
 
 ## RULE-WIZARD-RECOVERY-09: AllFailureClasses() enumerates every declared FailureClass in display order.
 
@@ -187,3 +195,6 @@ rule is the after-the-fact catch when an operator pastes a thinkfan
 error into a bug report, not the primary detection path.
 
 Bound: internal/recovery/classify_test.go:TestClassify_ThinkpadACPIDisabled
+Bound: internal/recovery/classify_test.go:thinkfan-style error string
+Bound: internal/recovery/classify_test.go:ventd pwm_enable wrap with thinkpad_acpi context
+Bound: internal/recovery/classify_test.go:kernel-only journal does NOT fire (silent EPERM)
