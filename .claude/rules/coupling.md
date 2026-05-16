@@ -146,58 +146,28 @@ Bound: internal/coupling/runtime_test.go:TestRuntime_RunStopsOnContextCancel
 
 ## RULE-CPL-WIRING-04: coupling.Shard.Update MUST be called once per controller tick per channel with φ=[T_prev, pwm_now], y=T_now; the first tick of a channel's lifetime is skipped.
 
-**v0.6.0 wiring closure**. v0.5.7 PR-B (#738) wired the coupling
-runtime's *lifecycle* (Run, AddShard, persistence) but NOT the data
-feed. `coupling.Shard.Update` had zero production callers from
-v0.5.7 through v0.5.37 — the runtime was a structurally-dead
-estimator: shards persisted to disk every minute, but every
-persisted shard always carried `n_samples=0, theta=[0,0]` because
-nothing ever called Update. RFC #1024's "smart-mode doesn't
-advance under realistic workload" verdict was the symptom; the
-ghost-code finding (issue #1033) was the root cause.
-
 `buildSmartObsBridge(obsWriter, couplingRT, marginalRT)` in
-`cmd/ventd/smart_obs_bridge.go` is the closure SmartModeBundle.ObsAppend
-is set to, replacing the legacy `buildObsAppend(obsWriter)` (which
-only persisted). The bridge:
+`cmd/ventd/smart_obs_bridge.go` is the closure
+`SmartModeBundle.ObsAppend` is set to (replacing the legacy
+`buildObsAppend`). On every tick it picks
+`T_now = maxTempReading(rec.SensorReadings)`, maintains per-channel
+`lastTemp`, and on every tick after the first calls
+`couplingRT.Shard(rec.PWMPath).Update(now, []float64{lastTemp, float64(rec.PWMWritten)}, T_now)`.
+The φ layout matches v0.5.7's NCoupled=0 reduced-model: `d=2`,
+`θ=[a, b_ii]`, model `T_now = a·T_prev + b_ii·pwm_now`.
 
-1. Persists to the observation log (unchanged from v0.5.x).
-2. Picks `T_now = maxTempReading(rec.SensorReadings)` — the
-   v0.6.0 first-cut per-channel temperature proxy. Per-channel
-   sensor binding (curve.temp_sensor → channel) is a v0.6.x
-   refinement once HIL evidence confirms the proxy is sufficient
-   for Layer-B convergence.
-3. Maintains per-channel `lastTemp` state. On the first tick of
-   a channel's lifetime there is no `T_prev` to delta against —
-   the bridge captures `lastTemp = T_now` and returns; no Update
-   call is dispatched.
-4. On every subsequent tick: calls `couplingRT.Shard(rec.PWMPath).Update(now, []float64{lastTemp, float64(rec.PWMWritten)}, T_now)`.
-   The φ layout matches v0.5.7's NCoupled=0 reduced-model: `d=2`,
-   `θ=[a, b_ii]`, model `T_now = a·T_prev + b_ii·pwm_now`.
+Graceful degradation: `couplingRT == nil` (monitor-only systems,
+RULE-CPL-WIRING-01) skips the Update feed; `couplingRT.Shard(channelID)
+== nil` (transient daemon-startup race) skips this tick.
 
-When `couplingRT == nil` (monitor-only systems, RULE-CPL-WIRING-01
-returning nil from buildCouplingRuntime), the bridge skips the
-Update feed without erroring. When `couplingRT != nil` but
-`couplingRT.Shard(channelID) == nil` (transient daemon-startup
-race before AddShard completes for every channel), the bridge
-silently skips the per-channel Update — the next tick recovers.
+Load-bearing: the unit conversion is `time.UnixMicro(rec.Ts)`.
+`controller.ObsRecord.Ts` is Unix microseconds — `time.Unix(rec.Ts, 0)`
+or `time.Unix(0, rec.Ts)` produces a wall-clock 3-6 orders of magnitude
+off. `TestSmartObsBridge_TempUnitMicroseconds` pins this.
 
-The maxTempReading proxy is the v0.6.0 deliberate-correctness-
-loss: every channel sees the same `T_now`, so `θ[0]` (the
-autoregressive coefficient) is co-estimated against a shared
-signal. `θ[1]` (b_ii self-coupling) differentiates per channel
-because each channel's pwm is independent. For first-cut Layer-B
-convergence this is sufficient — the senior review's R8 fallback
-ceiling at tier 1 (real RPM tach) is 0.85 anyway. Per-channel
-sensor binding raises the ceiling but doesn't change the
-structural correctness of the wiring.
-
-The unit conversion `time.UnixMicro(rec.Ts)` is load-bearing —
-`controller.ObsRecord.Ts` is Unix microseconds, not seconds or
-nanoseconds. The TempUnitMicroseconds subtest pins this so a
-future refactor that uses time.Unix(rec.Ts, 0) or
-time.Unix(0, rec.Ts) produces a wall-clock that's 3-6 orders of
-magnitude off, breaking every shard's snapshot timestamp.
+See `docs/rules-rationale/smart-mode-wiring.md` for the structural-
+dead-code history, the maxTempReading proxy correctness argument, and
+the v0.6.x sensor-binding refinement roadmap.
 
 Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_SecondTickFeedsLayerB
 Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_PersistAlwaysHappens

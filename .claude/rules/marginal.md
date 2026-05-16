@@ -191,49 +191,23 @@ Bound: internal/marginal/runtime_test.go:TestRuntime_DeferActivation_OnParentKap
 Spec §2.6. Mitigates R28 multi-channel aerodynamic interference
 contamination of per-channel β_0 estimates.
 
-**v0.6.0 amendment (group-aware)**. The pre-v0.6 form of this rule
-read "Δpwm_j = 0 for all j ≠ i" — every other channel had to be
-static. Phase C5 HIL evidence (RFC #1024, Phoenix's MSI Z690-A
-verdict) revealed a structural failure mode: on boards where
-multiple PWM sysfs channels are firmware-mirrored (or physically
-driven by a single PWM register that fans out to multiple headers),
-intra-mirror movement appears as cross-channel interference to the
-strict j ≠ i form. Every Layer-C admission attempt on a mirrored
-channel was rejected because the firmware-mirrored siblings ALSO
-changed PWM — even though they're operationally the same actuator.
-Phoenix's Z690-A drove CPU_Fan + Pump_Fan + Sys_Fan_1 + Sys_Fan_2
-with identical PWM values across 2479 captured samples (per the
-RULE-HWDB-PR2-15 motivating note); the v0.5.x OAT rejected every
-admission, Layer-C never advanced.
+`Runtime.SetPWMGroups([][]string)` declares operationally-co-moving
+channel sets (firmware-mirrored / register-shared headers). The OAT
+gate `oatGate(channelID)` exits early when the candidate other-channel's
+group key matches the admitting channel's group key — intra-group
+movement is excluded from the quiet-window check; cross-group movement
+still gates.
 
-`Runtime.SetPWMGroups([][]string)` declares the operationally-
-co-moving channel sets. The OAT gate `oatGate(channelID)` now
-exits early when the candidate other-channel's group key matches
-the admitting channel's group key — intra-group movement is
-excluded from the quiet-window check. Channels outside the
-group still gate normally; the cross-channel-interference
-protection is preserved for genuinely-independent channels.
+Ungrouped channels (absent from any `SetPWMGroups` input) act as size-1
+groups via the `groupKey()` fallback. The empty-map default preserves
+exact v0.5.x semantics. `SetPWMGroups` is idempotent (repeated calls
+replace, don't accumulate) and silently drops single-member entries.
+Production wires from `hwdb.BoardProfile.PWMGroups` via the catalog
+match; catalog-absent deployments behave as v0.5.x.
 
-Ungrouped channels (absent from any SetPWMGroups input) act as
-size-1 groups via the `groupKey()` fallback: `groupKey(ch)` returns
-`groupOf[ch]` when present, else `ch` itself. The
-empty-map default preserves exact v0.5.x semantics — every
-ungrouped channel still gates every other ungrouped channel.
-
-`SetPWMGroups` is idempotent (repeated calls replace, don't
-accumulate) and silently drops single-member entries (a "group of
-one" is functionally the same as no group at all). Production
-callers obtain the groups from `hwdb.BoardProfile.PWMGroups` via
-the catalog match; in catalog-data-absent deployments (the common
-case for v0.6.0 first ship — only Phoenix's Z690-A and similar
-boards need group data) the runtime continues to behave exactly as
-v0.5.x.
-
-Costs convergence speed in highly-coupled chassis; full R17
-INTERFERENCE work remains v0.7+. Group declarations are not a
-substitute for R17 — they're a targeted relaxation for the
-firmware-mirroring failure mode, scoped to known-mirrored
-topologies via the catalog overlay.
+See `docs/rules-rationale/smart-mode-wiring.md` for the Phoenix
+Z690-A firmware-mirroring failure mode that motivated the group
+amendment, and the R17 INTERFERENCE follow-up scope.
 
 Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_RejectsCrossChannelSamples
 Bound: internal/marginal/runtime_test.go:TestRuntime_OAT_IntraGroupCoMovementAdmits
@@ -279,48 +253,30 @@ Bound: cmd/ventd/main_marginal_test.go:TestBuildMarginalRuntime_RunOnce
 
 ## RULE-CMB-WIRING-04: marginal.Runtime.OnObservation MUST be called once per controller tick per channel with DeltaT = T_now - T_prev; the first tick of a channel's lifetime is skipped.
 
-**v0.6.0 wiring closure**. v0.5.8 PR-B (#742) wired the marginal
-runtime's *lifecycle* (NewRuntime, Run loop, persistence ticker)
-and v0.5.9 was supposed to wire the data feed per RULE-CMB-WIRING-03
-("v0.5.9 wires the OnObservation feed to the controller's per-tick
-path"). That data-feed wiring never landed — `marginal.Runtime.OnObservation`
-had zero production callers from v0.5.8 through v0.5.37. RFC #1024 +
-issue #1033 surface this; v0.6.0's buildSmartObsBridge closes the gap.
-
 `buildSmartObsBridge` in `cmd/ventd/smart_obs_bridge.go` calls
-`marginalRT.OnObservation(marginal.ObservationInput{...})` after
-the Layer-B Update on every tick where a per-channel `T_prev` is
-available (i.e., not the first tick). The ObservationInput fields
-map from `controller.ObsRecord`:
+`marginalRT.OnObservation(marginal.ObservationInput{...})` after the
+Layer-B Update on every tick where a per-channel `T_prev` is available.
+Field mapping from `controller.ObsRecord`:
 
-- `Now`: `time.UnixMicro(rec.Ts)` — load-bearing micros conversion.
-- `ChannelID`: `rec.PWMPath` (sysfs path, R24-stable identity).
-- `SignatureLabel`: pass-through from `rec.SignatureLabel`; fallback
-  labels (RULE-CMB-LIB-02) are filtered inside OnObservation.
-- `PWMWritten`: pass-through (the byte the controller just wrote).
-- `DeltaT`: `T_now - T_prev` where T_now is the maxTempReading proxy
-  (v0.6.0 first-cut, RULE-CPL-WIRING-04 caveat) and T_prev is the
-  same proxy from the previous tick on this channel.
-- `Load`: `0.0` for v0.6.0 first-cut. Layer-C's d=2 form
-  `φ=[1, load]` learns `θ[0]` as the intrinsic ΔT-per-PWM and
-  `θ[1]≈0` when load is constant; saturation predictions stay
-  accurate for the load-independent case. v0.6.x plumbs PSI
-  cpu.some avg10 from `idle.Capture` (same source the soft-idle
-  gate uses).
+- `Now`: `time.UnixMicro(rec.Ts)` (load-bearing micros conversion).
+- `ChannelID`: `rec.PWMPath` (R24-stable sysfs identity).
+- `SignatureLabel`: pass-through; fallback labels (RULE-CMB-LIB-02) are
+  filtered inside OnObservation.
+- `PWMWritten`: pass-through.
+- `DeltaT`: `T_now − T_prev` using the maxTempReading proxy from
+  RULE-CPL-WIRING-04.
+- `Load`: `0.0` in v0.6.0; v0.6.x plumbs PSI cpu.some avg10.
 
-The first-tick-skip is mandatory: ΔT requires T_prev which only
-exists after the lifetime baseline tick has been registered. The
-existing RULE-CMB-WIRING-03 "shards are admitted lazily on first
-observation" semantics still hold — the "first observation"
-reaching OnObservation is now what arrives on tick 2, not tick 1
-(tick 1 of a channel's lifetime is consumed by the bridge's
-internal lastTemp baseline capture).
+The first-tick-skip is mandatory: ΔT requires T_prev which only exists
+after the lifetime baseline tick. The existing RULE-CMB-WIRING-03
+"lazy admission" semantics hold — "first observation" reaching
+OnObservation is what arrives on tick 2.
 
-When `marginalRT == nil` (R1 Tier-2 BLOCK, R3 hardware-refused,
-or operator toggle disabling smart-mode), the bridge skips the
-OnObservation feed without erroring. Existing
-`marginal.Runtime`-side disable inheritance (RULE-CMB-DISABLE-01)
-continues to filter shards out at admission.
+`marginalRT == nil` (R1 Tier-2 BLOCK, R3 hardware-refused, operator
+toggle) skips the feed cleanly; RULE-CMB-DISABLE-01 filters at admission.
+
+See `docs/rules-rationale/smart-mode-wiring.md` for the structural-
+dead-code history and the v0.6.x Load-proxy refinement.
 
 Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_FirstTickSkipsUpdate
 Bound: cmd/ventd/smart_obs_bridge_test.go:TestSmartObsBridge_SecondTickFeedsLayerC
