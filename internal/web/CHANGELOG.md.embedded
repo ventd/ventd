@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- `internal/hwmon/install.go::registerDKMS` — the unsubstituted-version-placeholder detector previously matched only the sed-style `#TOKEN#` shape (e.g. it87's `#MODULE_VERSION#`, #785). [BeardOverflow/msi-ec](https://github.com/BeardOverflow/msi-ec)'s `dkms.conf` ships `PACKAGE_VERSION="@VERSION@"` (autoconf-style), which slipped through, registered DKMS literally as `msi-ec/@VERSION@`, and trapped the user in a loop: every retry tripped the new `ReasonStaleDKMSState` preflight gate, ran `dkms remove --all msi-ec/@VERSION@`, then rewrote the same broken record on the next install. Detector is now a small `isUnsubstitutedVersionPlaceholder` helper covering both `#…#` and `@…@` delimiter shapes so any future upstream shipping a sed/autoconf template gets a date-stamped synthesised version instead. Closes #1154, refs #1116.
+
 ## [v0.7.1] - 2026-05-16
 
 ### Headline
