@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/ventd/ventd/internal/hal/msiec"
 )
 
 // hwmonRootFS is the fs.FS used by Load to re-anchor hwmon paths via
@@ -1040,10 +1042,17 @@ func validate(cfg *Config) error {
 			default:
 				return fmt.Errorf("config: sensor %q: unknown metric %q", s.Name, s.Metric)
 			}
+		case "msiec":
+			if s.Path == "" {
+				return fmt.Errorf("config: sensor %q: path is required (relative to %s, e.g. cpu/realtime_temperature)", s.Name, msiec.DefaultSysfsRoot)
+			}
+			if err := msiec.ValidateSensorPath(s.Path); err != nil {
+				return fmt.Errorf("config: sensor %q: %w", s.Name, err)
+			}
 		case "":
 			return fmt.Errorf("config: sensor %q: type is required", s.Name)
 		default:
-			return fmt.Errorf("config: sensor %q: unknown type %q (want: hwmon, nvidia)", s.Name, s.Type)
+			return fmt.Errorf("config: sensor %q: unknown type %q (want: hwmon, nvidia, msiec)", s.Name, s.Type)
 		}
 		sensors[s.Name] = struct{}{}
 	}
