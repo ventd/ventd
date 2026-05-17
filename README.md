@@ -3,8 +3,8 @@
 [![CI](https://github.com/ventd/ventd/actions/workflows/ci.yml/badge.svg)](https://github.com/ventd/ventd/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ventd/ventd?sort=semver)](https://github.com/ventd/ventd/releases)
 [![Release date](https://img.shields.io/github/release-date/ventd/ventd)](https://github.com/ventd/ventd/releases)
-[![Go](https://img.shields.io/github/go-mod/go-version/ventd/ventd)](https://github.com/ventd/ventd/blob/main/go.mod)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/ventd/ventd/blob/main/LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/ventd/ventd)](https://github.comhttps://github.com/ventd/ventd/blob/main/go.mod)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.comhttps://github.com/ventd/ventd/blob/main/LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-lightgrey)](#supported-platforms)
 
 **Quieter PC, cooler PC, both — without touching a config file. ventd is a Linux fan-control daemon: install with one command, open a browser tab, click Apply. After that it runs in the background and gets better at controlling your fans the longer it watches your machine.**
@@ -24,11 +24,11 @@ Three things ventd does that no other Linux fan tool does:
 2. **It fixes itself when install goes wrong.** Secure Boot blocking the driver. Missing kernel headers. The wrong in-tree driver already loaded. A leftover DKMS state from a previous attempt. ventd's installer recognises each of these by name and shows you a one-click "fix this" button right in the wizard — generate a MOK key, install headers, blacklist a conflicting module, clear the old DKMS state, re-run. fan2go, CoolerControl, fancontrol, and thinkfan just emit an error string and leave you to Google it.
 3. **It never asks you to write YAML.** Hardware enumeration through `hwmon`, `NVML`, and a native USB stack on first boot. Calibration runs server-side and survives browser disconnect. Curve editing in a browser tab. No config file to hand-craft, no `liquidctl` Python sidecar to keep alive, no Super I/O chip names to look up. Single static binary, no runtime dependencies beyond libc.
 
-[![ventd dashboard — live fan speeds, temperatures, and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](/ventd/ventd/blob/main/docs/images/dashboard.png)
+[![ventd dashboard — live fan speeds, temperatures, and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](https://github.com/ventd/ventd/blob/main/docs/images/dashboard.png)
 
 *Dashboard: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.*
 
-[![ventd first-boot setup — step-by-step wizard, no config yet](https://github.com/ventd/ventd/raw/main/docs/images/setup.png)](/ventd/ventd/blob/main/docs/images/setup.png)
+[![ventd first-boot setup — step-by-step wizard, no config yet](https://github.com/ventd/ventd/raw/main/docs/images/setup.png)](https://github.com/ventd/ventd/blob/main/docs/images/setup.png)
 
 *First boot: a step-by-step setup wizard walks you through hardware detection, calibration, and curve review. No config file, no terminal.*
 
@@ -36,20 +36,20 @@ Three things ventd does that no other Linux fan tool does:
 
 <table>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/hardware.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/hardware.png" width="440" alt="Hardware" /></a><br /><sub>Hardware — chip → sensor tree, daemon ← chip ← sensor topology, case-shape heatmap (v0.5.14)</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/smart.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/smart.png" width="440" alt="Smart mode" /></a><br /><sub>Smart mode — continuous learning loop, per-channel confidence, recent decisions (v0.5.14)</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/hardware.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/hardware.png" width="440" alt="Hardware" /></a><br /><sub>Hardware — chip → sensor tree, daemon ← chip ← sensor topology, case-shape heatmap (v0.5.14)</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/smart.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/smart.png" width="440" alt="Smart mode" /></a><br /><sub>Smart mode — continuous learning loop, per-channel confidence, recent decisions (v0.5.14)</sub></td>
 </tr>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/curve-editor.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/curve-editor.png" width="440" alt="Curve editor" /></a><br /><sub>Curve editor — drag-to-edit with stall zone overlay</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress (v2 layout v0.5.13)</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/curve-editor.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/curve-editor.png" width="440" alt="Curve editor" /></a><br /><sub>Curve editor — drag-to-edit with stall zone overlay</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress (v2 layout v0.5.13)</sub></td>
 </tr>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based profile switching with weekly visualisation</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/settings.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/settings.png" width="440" alt="Settings" /></a><br /><sub>Settings — display, daemon, security, system, about</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based profile switching with weekly visualisation</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/settings.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/settings.png" width="440" alt="Settings" /></a><br /><sub>Settings — display, daemon, security, system, about</sub></td>
 </tr>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/login.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/login.png" width="440" alt="Sign in" /></a><br /><sub>Sign in — post-first-boot login with the same shell as setup</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/setup.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/setup.png" width="440" alt="Setup wizard" /></a><br /><sub>Setup wizard — first-boot hardware probe and calibration entry</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/login.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/login.png" width="440" alt="Sign in" /></a><br /><sub>Sign in — post-first-boot login with the same shell as setup</sub></td>
+  <td align="center"><a href="https://github.comhttps://github.com/ventd/ventd/blob/main/docs/images/setup.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/setup.png" width="440" alt="Setup wizard" /></a><br /><sub>Setup wizard — first-boot hardware probe and calibration entry</sub></td>
 </tr>
 </table>
 
@@ -93,9 +93,9 @@ ventd controls physical hardware. Two things follow from that, and both are load
 
 **Calibration cannot strand a fan at zero.** Sweeps that drive PWM to 0 are watched by a per-fan sentinel (`internal/calibrate/safety.go`) that escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12% duty — above start-PWM of nearly every fan on the market) if the zero state persists for more than two seconds. A hung calibration goroutine cannot leave a fan stopped under load.
 
-Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](https://github.com/ventd/ventd/blob/main/docs/safety.md).
+Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/safety.md).
 
-Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](https://github.com/ventd/ventd/blob/main/SECURITY.md) issue, not a regular bug.
+Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](https://github.comhttps://github.com/ventd/ventd/blob/main/SECURITY.md) issue, not a regular bug.
 
 ## Smart mode status
 
@@ -135,7 +135,7 @@ Three user-facing presets ship with the controller: **Silent**, **Balanced**, an
 
 Phase 1 (HAL foundation, hardware database) shipped in v0.3.0. Phase 2 (multi-backend support — IPMI in v0.3.1, Corsair AIO in v0.4.0, 52-board catalog and GPU vendor coverage in v0.5.0) shipped in v0.5.0. Phase 3 (smart mode) is **mostly shipped** — every layer plus the confidence-gated controller plus the operator-facing UI all landed across v0.5.4–v0.5.14. v0.6.0 closes out the remaining stabilization work and starts cross-platform.
 
-Detailed design in [specs/spec-smart-mode.md](https://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md).
+Detailed design in [specs/spec-smart-mode.md](https://github.comhttps://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md).
 
 ## Install
 
@@ -163,7 +163,7 @@ Open the printed URL. ventd serves a self-signed TLS certificate on first boot �
 * **Init systems:** systemd, OpenRC, runit
 * **Architectures:** amd64, arm64
 * **C library:** glibc and musl
-* **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require the `--enable-gpu-write` daemon flag, see [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
+* **GPU:** NVIDIA (via NVML — temperature reading works out of the box; GPU fan *writes* require the `--enable-gpu-write` daemon flag, see [NVIDIA GPU fan control](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD (via amdgpu hwmon). Intel Arc is read-only at the kernel level; monitoring only.
 * **Liquid coolers:** Corsair Commander Core / Core XT / ST (native USB HID, no liquidctl required).
 * **Server BMCs:** IPMI fan control on ASRock Rack, Supermicro, and other vendors exposing the standard IPMI fan interface.
 
@@ -186,7 +186,7 @@ The hardware below **cannot** be controlled by ventd or any Linux fan tool — t
 * AMD Instinct MI200 / MI300X — firmware-locked
 * OEM mini-PCs without in-tree EC drivers (Beelink, GMKtec, AceMagic — model-specific). v0.5.12 added a chip-probe fallback (RULE-HWDB-PR2-18) that catches IT5570 / IT8613 EC boards whose BIOS leaves DMI as `"Default string"`; many previously-unrecognised mini-PCs now bind correctly.
 
-Per-board breakdown in [docs/hardware.md](https://github.com/ventd/ventd/blob/main/docs/hardware.md). If you have one of these and ventd surfaces an unhelpful error instead of a clean monitor-only fallback, that's a bug — please file a hardware report.
+Per-board breakdown in [docs/hardware.md](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/hardware.md). If you have one of these and ventd surfaces an unhelpful error instead of a clean monitor-only fallback, that's a bug — please file a hardware report.
 
 ## How it compares
 
@@ -226,15 +226,15 @@ If your hardware is in [What ventd cannot control](#what-ventd-cannot-control), 
 
 ## Documentation
 
-* [Roadmap](https://github.com/ventd/ventd/blob/main/docs/roadmap.md)
-* [Installation guide](https://github.com/ventd/ventd/blob/main/docs/install.md)
-* [Configuration reference](https://github.com/ventd/ventd/blob/main/docs/config.md)
-* [Hardware compatibility](https://github.com/ventd/ventd/blob/main/docs/hardware.md)
-* [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)
-* [Safety model](https://github.com/ventd/ventd/blob/main/docs/safety.md)
-* [Smart mode design](https://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md)
-* [Troubleshooting](https://github.com/ventd/ventd/blob/main/docs/troubleshooting.md)
-* [Changelog](https://github.com/ventd/ventd/blob/main/CHANGELOG.md)
+* [Roadmap](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/roadmap.md)
+* [Installation guide](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/install.md)
+* [Configuration reference](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/config.md)
+* [Hardware compatibility](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/hardware.md)
+* [NVIDIA GPU fan control](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)
+* [Safety model](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/safety.md)
+* [Smart mode design](https://github.comhttps://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md)
+* [Troubleshooting](https://github.comhttps://github.com/ventd/ventd/blob/main/docs/troubleshooting.md)
+* [Changelog](https://github.comhttps://github.com/ventd/ventd/blob/main/CHANGELOG.md)
 
 ## Building from source
 
@@ -248,8 +248,8 @@ Requires Go 1.25 or later. No other build dependencies.
 
 ## License
 
-GPL-3.0. See [LICENSE](https://github.com/ventd/ventd/blob/main/LICENSE).
+GPL-3.0. See [LICENSE](https://github.comhttps://github.com/ventd/ventd/blob/main/LICENSE).
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/ventd/ventd/blob/main/CONTRIBUTING.md). Pull requests, issues, and hardware compatibility reports welcome.
+See [CONTRIBUTING.md](https://github.comhttps://github.com/ventd/ventd/blob/main/CONTRIBUTING.md). Pull requests, issues, and hardware compatibility reports welcome.

@@ -1,0 +1,56 @@
+name: lychee
+
+# Cross-reference link checker. Runs lychee in offline mode so it only
+# verifies that `.md` / `.html` files don't link to paths that don't
+# exist in the repo. External URL checking is deferred to a follow-up
+# PR (no point flaking on the network for every PR).
+#
+# The catch-all surface is the docs/rules/ engineering invariants tree
+# and the specs/ directory — the bloat audit found ghost cross-refs to
+# files that never landed (spec-03-amendment-predictive.md, etc.); this
+# gate prevents new ones from sneaking back in.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '**/*.html'
+      - '.github/workflows/lychee.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '**/*.html'
+      - '.github/workflows/lychee.yml'
+  workflow_dispatch: {}
+  # Weekly catch for link rot in long-untouched docs.
+  schedule:
+    - cron: '23 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  link-check:
+    name: link-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Lychee link check
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        with:
+          fail: true
+          args: |
+            --no-progress
+            --offline
+            --exclude-path .git
+            --exclude-path dist
+            --exclude-path internal/hwdb/nbfc/configs
+            --exclude-path internal/web/CHANGELOG.md.embedded
+            './**/*.md'

@@ -9,7 +9,7 @@ behaviour, and spec-05 authors consuming predictive thermal hints.
 
 For the full design rationale see:
 - `specs/spec-03-profile-library.md` — base spec (matcher, capture pipeline)
-- `specs/spec-03-amendment-predictive.md` — predictive hints amendment
+- `specs/spec-05-predictive-thermal.md` — predictive hints (originally planned as spec-03-amendment-predictive; consolidated into spec-05)
 
 ---
 
