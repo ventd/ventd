@@ -9,7 +9,7 @@ audio data emitted or persisted.
 The score is dimensionless (`au`) and within-host comparable. Absolute
 dBA conversion requires R30's microphone calibration (separate package).
 
-The patch spec is `docs/research/r-bundle/R33-nomic-acoustic-proxy.md`.
+The patch spec is `(research note in git history)`.
 Each rule below is bound 1:1 to a subtest under `proxy_test.go::TestR33Lock`.
 
 ## RULE-R33-LOCK-01: Score is dimensionless ("au") and within-host comparable; absolute dBA requires R30.

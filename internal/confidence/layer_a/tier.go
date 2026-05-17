@@ -5,8 +5,7 @@ package layer_a
 // Each tier represents how the channel reports RPM back to ventd, and
 // the ceiling clamps how much trust the predictive controller can
 // place in the per-channel measurement chain. Source: R8 fallback-
-// tier table in docs/research/r-bundle/R8-R12-tachless-fallback-and-
-// blended-confidence.md.
+// tier table (research note in git history).
 const (
 	TierRPMTach          uint8 = 0 // R8 §"Tier 0" — real fan*_input tach
 	TierCoupledInference uint8 = 1 // R8 §"Tier 1" — RPM inferred from coupled fan

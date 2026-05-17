@@ -6,7 +6,7 @@ Mechanical sweep for ghost-code in the ventd module — methods declared with ru
 
 Issue #1033 (smart-mode Layer-B/C had no production data feed), #1035 (11 additional smart-mode wiring gaps), and #1037 (polarity wiring dead in production) are all the same class of bug: a method with test coverage and a rule binding but no production call site. The senior review at v0.5.26 missed all 13 because the rule catalogue + lifecycle wiring tests *looked* like proof of correctness. They aren't proof; they're documentation of intent.
 
-This tool runs the mechanical sweep described in `docs/audits/2026-05-11/pass-1-callsite-sweep.md` as a runnable command. On every PR + release branch it surfaces any method whose only callers live in `_test.go` files. The allowlist captures the verified-fine ones (test fixtures, interface-dispatch satisfiers); anything not in the allowlist is a regression candidate.
+This tool runs the mechanical sweep described in `(audit note in git history)` as a runnable command. On every PR + release branch it surfaces any method whose only callers live in `_test.go` files. The allowlist captures the verified-fine ones (test fixtures, interface-dispatch satisfiers); anything not in the allowlist is a regression candidate.
 
 ## Usage
 

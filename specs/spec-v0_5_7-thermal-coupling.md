@@ -24,13 +24,13 @@
 **References:**
 - `specs/spec-smart-mode.md` §6.2 (Layer B description), §8.2
   (`conf_B` consumes Layer-B residual stream), §11 (patch sequence).
-- `docs/research/r-bundle/R9-R10-identifiability-and-shards.md` —
+- `(research note in git history)` —
   locked design of record. v0.5.7 transcribes R9 §online detector
   and R10 §sharding strategy + memory budgets verbatim.
-- `docs/research/r-bundle/ventd-R12-amendment-threshold-recalibration.md`
+- `(research note in git history)`
   — bounded-covariance directional forgetting (Bittanti–Campi 1994).
   The locked R12 tr(P) cap is applied to Layer-B updates.
-- `docs/research/r-bundle/R7-workload-signature-hash.md` — Layer-C
+- `(research note in git history)` — Layer-C
   overlay shards (v0.5.8) key on R7's signature labels; v0.5.7 does
   not consume signatures directly.
 
@@ -435,11 +435,11 @@ Layer-B's snapshot (that's v0.5.9's work).
 
 - `specs/spec-smart-mode.md` §6.2 (Layer B), §8.2 (`conf_B`
   consumption), §11 (patch sequence).
-- `docs/research/r-bundle/R9-R10-identifiability-and-shards.md` —
+- `(research note in git history)` —
   design of record. Every section verbatim.
-- `docs/research/r-bundle/ventd-R12-amendment-threshold-recalibration.md`
+- `(research note in git history)`
   — bounded-covariance R12 amendment.
-- `docs/research/r-bundle/R7-workload-signature-hash.md` (Layer-C
+- `(research note in git history)` (Layer-C
   overlay shards in v0.5.8 will key on R7 signatures).
 - Ljung, *System Identification* 2nd ed. §13.4, §14.4 (PE-d
   conditions).

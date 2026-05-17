@@ -206,7 +206,7 @@ hardware verification path required (pure schema/matcher work).
 
 - `specs/spec-15-experimental-features.md` — framework spec that
   motivates this schema bump.
-- `docs/research/2026-04-firmware-locked-fan-control.md` — research
+- `(research note in git history)` — research
   establishing the four community-known unlock paths.
 - `specs/spec-03-amendment-schema-v1.1.md` — predecessor amendment
   with the field-add pattern this amendment extends.

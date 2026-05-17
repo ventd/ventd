@@ -30,13 +30,13 @@
   (`RULE-UI-SMART-07` — Settings toggle), §5 (mockup work
   assignment).
 - `specs/spec-v0_5_4-passive-observation.md` and
-  `docs/research/r-bundle/ventd-passive-observation-log-schema.md`
+  `(research note in git history)`
   (record schema; `SignatureLabel`, `SignaturePromoted`,
   `EventFlag_SIGNATURE_PROMOTED`, `EventFlag_SIGNATURE_RETIRED`
   already reserved).
-- `docs/research/r-bundle/R7-workload-signature-hash.md` — locked
+- `(research note in git history)` — locked
   design of record. This spec consumes R7 §Q1–Q6 verbatim.
-- `docs/research/r-bundle/R8-R12-tachless-fallback-and-blended-confidence.md`
+- `(research note in git history)`
   — R12's `conf_C` consumes the residual stream this patch enables.
 
 ---
@@ -460,9 +460,9 @@ PR-B is HIL-only verification (visual critique on fc-test-ubuntu-
 - `specs/spec-12-amendment-smart-mode-rework.md` §3.5,
   `RULE-UI-SMART-07`.
 - `specs/spec-v0_5_4-passive-observation.md`.
-- `docs/research/r-bundle/R7-workload-signature-hash.md` — design
+- `(research note in git history)` — design
   of record, every section verbatim.
-- `docs/research/r-bundle/bundle-update-2026-04-28-r7r8r12r14.md`
+- `(research note in git history)`
   §1 (architectural concepts list).
-- `docs/research/r-bundle/R5-defining-idle-multi-signal-predicate.md`
+- `(research note in git history)`
   — the blocklist this patch reuses as a positive-label dictionary.

@@ -37,7 +37,7 @@ const (
 	// "stopped" on healthy hardware. R28 audit P0 (2026-05-03) raised
 	// the cap to 25 000 to admit the full real-world range without
 	// introducing a class-aware API. See
-	// docs/research/2026-05-r28-rule-audit.md for the rationale.
+	// (research note in git history) for the rationale.
 	PlausibleRPMMax = 25000
 
 	// PlausibleTempMaxCelsius is the highest temperature (in °C, post-scale)

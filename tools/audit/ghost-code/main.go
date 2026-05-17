@@ -10,7 +10,7 @@
 // like proof of correctness. They aren't.
 //
 // This tool runs the mechanical sweep described in
-// docs/audits/2026-05-11/pass-1-callsite-sweep.md as a CI gate. On
+// (audit note in git history) as a CI gate. On
 // every release branch we expect zero new ghost methods; an
 // allowlist `tools/audit/ghost-code/allowlist.txt` captures the
 // false positives + known-deferred items so the gate fires only on

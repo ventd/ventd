@@ -35,7 +35,7 @@
 // blocked-impeller chassis fan. MIMII dataset validation (AUC ≥ 0.7
 // acceptance criterion) is deferred to a separate PR.
 //
-// Design source: docs/research/r-bundle/R31-fan-stall-acoustic.md.
+// Design source: (research note in git history).
 package stall
 
 import "math"

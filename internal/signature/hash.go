@@ -1,5 +1,5 @@
 // Package signature implements v0.5.6's workload signature learning
-// per R7 (docs/research/r-bundle/R7-workload-signature-hash.md).
+// per R7 ((research note in git history)).
 //
 // The library turns a per-tick set of running processes into a
 // stable, opaque, privacy-safe label. Layer B (v0.5.7), Layer C

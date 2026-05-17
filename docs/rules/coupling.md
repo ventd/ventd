@@ -8,7 +8,7 @@ gated controller), and v0.5.10 (doctor) all consume the
 estimator's snapshot.
 
 The patch spec is `specs/spec-v0_5_7-thermal-coupling.md`. The
-design of record is `docs/research/r-bundle/R9-R10-identifiability-and-shards.md`
+design of record is `(research note in git history)`
 (346-line research doc).
 
 ## RULE-CPL-SHARD-01: Shard dimension d_B = 1 + N_coupled + 1 with N_coupled ≤ 16.

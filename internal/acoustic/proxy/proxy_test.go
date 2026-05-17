@@ -8,7 +8,7 @@ import (
 )
 
 // Each subtest below binds 1:1 to a R33-LOCK-* invariant from
-// docs/research/r-bundle/R33-nomic-acoustic-proxy.md §14.
+// (research note in git history) §14.
 
 func TestR33Lock(t *testing.T) {
 	t.Run("R33-LOCK-01_dimensionless_within_host", func(t *testing.T) {

@@ -16,8 +16,8 @@
 
 1. `internal/hal/gpu/nvml/probe.go` raises `ErrLaptopDgpuRequiresEC` with a message pointing at "spec-09 NBFC backend" (`RULE-GPU-PR2D-06`).
 2. `internal/doctor/detectors/userspace_conflict_d.go` already detects `nbfc_service.service` as a *conflicting* userspace daemon (`RULE-DOCTOR-DETECTOR-USERSPACECONFLICT`) — when this spec ships we'll be the daemon that needs to refuse to start if a foreign `nbfc_service` is running, same as we already do for `fancontrol` and `thinkfan`.
-3. `docs/research/2026-04-hwmon-generic-catalog.md` §B.13 carries a half-drafted driver-tier profile entry — `family: nbfc-linux`, `pwm_unit: percentage_0_100`, `conflicts_with_userspace: [nbfc_service]`, citation pinned at `nbfc_service.json.5.md`.
-4. `docs/research/hwmon-research.md` §10.4 declares the integration model: *"per-model config files, never assume a generic EC layout"*.
+3. `(research note in git history)` §B.13 carries a half-drafted driver-tier profile entry — `family: nbfc-linux`, `pwm_unit: percentage_0_100`, `conflicts_with_userspace: [nbfc_service]`, citation pinned at `nbfc_service.json.5.md`.
+4. `(research note in git history)` §10.4 declares the integration model: *"per-model config files, never assume a generic EC layout"*.
 5. `specs/spec-12-amendment-oot-driver-install.md`: "Framework laptops via NBFC (deferred to spec-09)".
 
 This spec turns those references into shipping code.
@@ -296,7 +296,7 @@ ventd/
 - **nbfc-linux ACPI dispatcher:** `src/ec_acpi.c` (the C reference our `internal/acpi/call.go` mirrors)
 - **Catalog license:** GPL-3.0 (same as ventd; vendoring is license-compatible)
 - **Predecessor research:**
-  - `docs/research/hwmon-research.md` §10.4 "Notebook FanControl Linux (NBFC)"
-  - `docs/research/2026-04-hwmon-generic-catalog.md` §B.13 "NBFC-Linux userspace EC"
-  - `docs/research/r-bundle/R36-oem-minipc-ec-survey.md` §3.4 "nbfc-linux"
-  - `docs/research/2026-04-userspace-fan-control-integration-survey.md`
+  - `(research note in git history)` §10.4 "Notebook FanControl Linux (NBFC)"
+  - `(research note in git history)` §B.13 "NBFC-Linux userspace EC"
+  - `(research note in git history)` §3.4 "nbfc-linux"
+  - `(research note in git history)`

@@ -33,12 +33,12 @@
 - `specs/spec-v0_5_3-envelope-cd.md` (idle gate, holdLoop,
   thresholds — primitives this patch reuses).
 - `specs/spec-v0_5_4-passive-observation.md` and
-  `docs/research/r-bundle/ventd-passive-observation-log-schema.md`
+  `(research note in git history)`
   (record schema and reader API; this patch bumps schema 1 → 2).
-- `docs/research/r-bundle/R5-defining-idle-multi-signal-predicate.md`
+- `(research note in git history)`
   (idle predicate research — `OpportunisticGate` reuses R5 hard
   preconditions verbatim, adds two signals, replaces durability).
-- `docs/research/r-bundle/envelope-c-abort-thresholds.md` (R4 abort
+- `(research note in git history)` (R4 abort
   thresholds — reused unchanged).
 
 ---
@@ -509,6 +509,6 @@ land with PR-B per current ventd UI test policy.
   (`RULE-UI-SMART-07`).
 - `specs/spec-v0_5_3-envelope-cd.md`.
 - `specs/spec-v0_5_4-passive-observation.md`.
-- `docs/research/r-bundle/R5-defining-idle-multi-signal-predicate.md`.
-- `docs/research/r-bundle/envelope-c-abort-thresholds.md`.
-- `docs/research/r-bundle/ventd-passive-observation-log-schema.md`.
+- `(research note in git history)`.
+- `(research note in git history)`.
+- `(research note in git history)`.

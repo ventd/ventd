@@ -17,7 +17,7 @@ The three signals (R31 §3):
 
 Trigger when at least 2 of the 3 fire within a single window.
 
-The patch spec is `docs/research/r-bundle/R31-fan-stall-acoustic.md`.
+The patch spec is `(research note in git history)`.
 v0.5.12 simplification: the broadband measurement uses full-spectrum RMS
 rather than R31's specified 1–2 kHz band-passed RMS. The 2-of-3 gate
 logic is structurally identical; the band-pass refinement (a 4th-order
