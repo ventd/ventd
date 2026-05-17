@@ -207,10 +207,11 @@ func buildConfig(
 
 	if cpuSensor.Path != "" {
 		cfg.Sensors = append(cfg.Sensors, config.Sensor{
-			Name:     "cpu_temp",
-			Type:     "hwmon",
-			Path:     cpuSensor.Path,
-			ChipName: cpuSensor.ChipName,
+			Name:        "cpu_temp",
+			Type:        "hwmon",
+			Path:        cpuSensor.Path,
+			ChipName:    cpuSensor.ChipName,
+			HwmonDevice: resolveStableHwmonDevice(cpuSensor.Path),
 		})
 	}
 
@@ -239,14 +240,15 @@ func buildConfig(
 		}
 
 		cfg.Fans = append(cfg.Fans, config.Fan{
-			Name:     fan.LabelHint,
-			Type:     "hwmon",
-			PWMPath:  fan.PWMPath,
-			RPMPath:  rpmPath,
-			ChipName: fan.ChipName,
-			MinPWM:   minPWM,
-			MaxPWM:   255,
-			IsPump:   isPump,
+			Name:        fan.LabelHint,
+			Type:        "hwmon",
+			PWMPath:     fan.PWMPath,
+			RPMPath:     rpmPath,
+			ChipName:    fan.ChipName,
+			HwmonDevice: resolveStableHwmonDevice(fan.PWMPath),
+			MinPWM:      minPWM,
+			MaxPWM:      255,
+			IsPump:      isPump,
 		})
 	}
 
@@ -297,6 +299,29 @@ func buildConfig(
 }
 
 func ptrU8(v uint8) *uint8 { return &v }
+
+// resolveStableHwmonDevice returns the canonical /sys/devices/... path
+// for the hwmon chip whose pwm/temp file lives at sysfsPath. The result
+// is the chip dir's `device` symlink resolved via EvalSymlinks. Used by
+// config.ResolveHwmonPaths to disambiguate between two hwmonN entries
+// that share a chip_name — common on boards where the in-kernel
+// nct6683 and the OOT nct6687 both bind and both report `name=nct6687`.
+//
+// Best-effort: any failure (synthetic test path, virtual chip without
+// a `device` symlink such as acpitz, partially-enumerated sysfs at cold
+// boot) returns "". The daemon's resolver treats empty HwmonDevice as
+// "fall back to chip_name alone", which is the pre-disambiguation
+// behaviour — strictly weaker than failing the write.
+var resolveStableHwmonDevice = func(sysfsPath string) string {
+	if sysfsPath == "" {
+		return ""
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(filepath.Dir(sysfsPath), "device"))
+	if err != nil {
+		return ""
+	}
+	return target
+}
 
 // writeConfigAtomic marshals cfg as YAML and writes to path via a
 // tmp+fsync+rename so a crash mid-write never leaves a half-written

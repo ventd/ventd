@@ -77,3 +77,5 @@ release-notes/*-dryrun.txt
 # to Phoenix's working tree. ventd-future-ideas.md (the only tracked
 # file in that dir) is the exception.
 /docs/planning/windows-port-viability-*.md
+/docs/planning/ecosystem-catalog-sweep-*.md
+/docs/planning/marketing-easywins-*.md
