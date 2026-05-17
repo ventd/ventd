@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ventd/ventd/internal/calibrate"
+	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
 
@@ -52,6 +54,20 @@ func (s managerEventSink) Emit(level, tag, text string) {
 	s.m.EmitEvent(level, tag, text)
 }
 
+// managerCalibrator adapts the Manager's CalibrationBackend (which
+// has RunSync, AllStatus, DetectRPMSensor) to the orchestrator's
+// narrower Calibrator interface. Single-sources the production
+// calibration engine with the legacy Manager.run Phase 6 path —
+// both call the same calibrate.Manager.RunSync underneath.
+type managerCalibrator struct{ m *Manager }
+
+func (c managerCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (calibrate.Result, error) {
+	if c.m == nil || c.m.cal == nil {
+		return calibrate.Result{}, fmt.Errorf("orchestrator: no CalibrationBackend wired on Manager")
+	}
+	return c.m.cal.RunSync(ctx, fan)
+}
+
 // runOrchestratorPreview executes the orchestrator phase set ahead of
 // the legacy Manager.run body. Currently registers only the Inventory
 // phase — a read-only DMI + hwmon scan whose result lands in
@@ -78,6 +94,8 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
 		orchestrator.DriverInstallPhase{},
 		orchestrator.ProbePhase{},
 		orchestrator.PolarityPhase{},
+		orchestrator.CalibratePhase{Calibrator: managerCalibrator{m: m}},
+		orchestrator.VerifyPhase{},
 		orchestrator.ApplyPhase{},
 	)
 	if err != nil {
