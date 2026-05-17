@@ -12,12 +12,48 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/marginal"
 )
+
+// displayChannelID composes the operator-visible channel_id for the
+// smart-mode JSON surfaces. The internal key (raw PWMPath) stays the
+// canonical aggregator/coupling/marginal/decision-cache key — this
+// helper only affects what the dashboard and CLI tooling see.
+//
+// Issue #998: NVML controllable channels store their PWMPath as the
+// bare GPU index (e.g. "0") since the controller's NVIDIA backend
+// addresses GPUs by integer index. Surfaced verbatim that's a
+// confusing "channel_id: 0" in the UI; the parallel sensor-side fix
+// (#927) composed sensor IDs as "gpu0:temp", "gpu0:fan_pct", etc., so
+// the controllable form to match is "gpu<idx>:fan0".
+//
+// Recognises only the bare-integer shape (the NVML signature). Any
+// channel_id containing a "/" (hwmon sysfs path) or already-composed
+// form passes through unchanged. Looks up Fan.Type via the live config
+// so a hwmon fan whose PWMPath accidentally collides with a single
+// digit doesn't get re-labelled.
+func displayChannelID(rawID string, live *config.Config) string {
+	if live == nil {
+		return rawID
+	}
+	idx, err := strconv.ParseUint(rawID, 10, 32)
+	if err != nil {
+		// Not a bare integer; safe to surface verbatim.
+		return rawID
+	}
+	for _, f := range live.Fans {
+		if f.PWMPath == rawID && f.Type == "nvidia" {
+			return fmt.Sprintf("gpu%d:fan0", idx)
+		}
+	}
+	return rawID
+}
 
 // confidence snapshot. UI renders this directly.
 type confidenceChannel struct {
@@ -77,7 +113,7 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 	for _, a := range aggSnaps {
 		la := s.layerA.Read(a.ChannelID)
 		entry := confidenceChannel{
-			ChannelID: a.ChannelID,
+			ChannelID: displayChannelID(a.ChannelID, live),
 			Wpred:     a.Wpred,
 			UIState:   a.UIState,
 			ConfA:     a.ConfA,
@@ -382,9 +418,10 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 	// refusal flags alongside Layer-C's MarginalSlope. (#790)
 	decisionsByChannel := s.decisions.LoadAll()
 
+	live := s.cfg.Load()
 	for _, a := range aggSnaps {
 		entry := smartChannelEntry{
-			ChannelID: a.ChannelID,
+			ChannelID: displayChannelID(a.ChannelID, live),
 			UIState:   a.UIState,
 			Wpred:     a.Wpred,
 		}
