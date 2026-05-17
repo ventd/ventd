@@ -9,6 +9,26 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Added
+
+- `internal/hal/msiec/sensor.go` + `internal/config/config.go::validate` + `internal/controller/controller.go::readAllSensors` — new `msiec` sensor type. The msi-ec sysfs surface exposes per-block readings the daemon previously ignored: `/sys/devices/platform/msi-ec/cpu/realtime_temperature`, `gpu/realtime_temperature`, `cpu/realtime_fan_speed`, `gpu/realtime_fan_speed`, `cpu/basic_fan_speed`. These are faster + driverless alternatives to `coretemp` (no `intel-uncore` lag) and the canonical GPU temp without the NVML init cost. `path` is a relative subpath under the msi-ec root and is checked against a fixed allowlist before any I/O fires — operators cannot point the sensor type at arbitrary sysfs leaves. Units are native to the leaf (°C for `*_temperature`, percent for `*_fan_speed`) — no millidegree scaling, distinct from `hwmon`. Sentinel/plausibility filtering is bypassed for `msiec` (the hwmon `0xFFFF` convention doesn't apply). (#1167)
+
+## [v0.7.5] - 2026-05-17
+
+### Fixed
+
+- `internal/hwmon/diagnose.go::DiagnoseHwmonAt` — startup WARN `hwmon: no PWM channels visible at startup` + "run sudo ventd --probe-modules" fired on every host where fan control lives in a non-hwmon HAL backend (msi-ec, thinkpad, ipmi, …). The diagnose path now consults `hal.Enumerate(ctx)` first; if any registered backend (other than `hwmon` itself) reports a channel with `CapWritePWM`, it logs INFO and names the backend instead. Required moving `hwmon.DiagnoseHwmon(logger)` past `registerHALBackends` in `cmd/ventd/main.go` so the registry is populated when the check fires. (#1163)
+- `cmd/ventd/main.go::runDaemonInternal` reload loop — `handleSetupReset` removes `/etc/ventd/config.yaml` and triggers a reload; the reload would then WARN `config reload failed; keeping current config`. Wizard reset is a healthy outcome, not a fault — that path now lands at INFO with `config removed (wizard reset?); daemon continues with last loaded config until restart`. Only `errors.Is(err, os.ErrNotExist)` is downgraded; malformed YAML, validation errors, disk full, and permission denied all keep the WARN level + original wording. (#1164)
+- `internal/web/selfsigned.go::EnsureSelfSignedCert` — every `tls: generated self-signed certificate ... sha256=...` log line is now followed by an INFO with browser-bypass framing (`click Advanced → Proceed to accept; the sha256 above can be verified out-of-band`) so a fresh install doesn't leave operators staring at `NET::ERR_CERT_AUTHORITY_INVALID` without guidance. (#1169)
+- `internal/web/tls_handshake_log.go` — new `tlsHandshakeWatcher` wired into `http.Server.ErrorLog`. Parses stdlib's `http: TLS handshake error from <ip:port>: <err>` lines; when the same client IP racks up ≥3 `remote error: tls: unknown certificate` failures within 30s — the classic browser-cached-old-cert pattern — emits a one-shot WARN: `tls: client rejected our certificate repeatedly; likely browser-cached old cert — user needs to accept the new cert warning`. Re-arms after the window clears so a fresh burst can re-warn. (#1169)
+- `internal/diag/detection/hwmon.go::walkHwmonAt` — the diag-collector walked `/sys/class/hwmon/hwmon*` for leaf attrs but never recursed into the backing platform-device tree. On msi-ec hosts, `cpu/realtime_temperature`, `cpu/realtime_fan_speed`, and `leds/*` never made it into Hudson's bundles. The walker now resolves each chip's `device` symlink and, when the target lives under `/sys/devices/platform/`, recursively reads non-dir attributes with max depth 3 and a 4 KiB cap per leaf. Skips `uevent`, `power/`, `subsystem`, `driver`. Non-platform devices (PCI/USB-backed chips like amdgpu) are explicitly excluded so we don't drag the whole bus tree in. (#1170)
+
+### Refs
+
+Closes #1163, #1164, #1169, #1170 — the four message / heuristic / walker cleanups that came out of HudsonPH's #1154 debug session.
+
+## [v0.7.4] - 2026-05-17
+
 ### Headline
 
 Non-hwmon HAL backends are now actually usable end-to-end. v0.7.1 → v0.7.3 fixed the install + verification dead-ends specifically for msi-ec on HudsonPH's MSI Thin GF63 12UDX (#1116 / #1154), but live-debugging on that box uncovered a deeper class of bug: three hardcoded `"is nvidia? → halnvml, else → halhwmon"` branches in code paths the wizard, controller, and dashboard all share. Every non-hwmon HAL backend ventd ships — **msiec, thinkpad, ipmi, nbfc, crosec, asahi, pwmsys, legion, corsair** (9 of 11 backends) — would hit at least one of these dead-ends. This release switches all three to registry-driven dispatch so any registered `hal.FanBackend` works without per-backend special-casing.

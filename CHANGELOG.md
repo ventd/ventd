@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Added
+
+- `internal/hal/msiec/sensor.go` + `internal/config/config.go::validate` + `internal/controller/controller.go::readAllSensors` — new `msiec` sensor type. The msi-ec sysfs surface exposes per-block readings the daemon previously ignored: `/sys/devices/platform/msi-ec/cpu/realtime_temperature`, `gpu/realtime_temperature`, `cpu/realtime_fan_speed`, `gpu/realtime_fan_speed`, `cpu/basic_fan_speed`. These are faster + driverless alternatives to `coretemp` (no `intel-uncore` lag) and the canonical GPU temp without the NVML init cost. `path` is a relative subpath under the msi-ec root and is checked against a fixed allowlist before any I/O fires — operators cannot point the sensor type at arbitrary sysfs leaves. Units are native to the leaf (°C for `*_temperature`, percent for `*_fan_speed`) — no millidegree scaling, distinct from `hwmon`. Sentinel/plausibility filtering is bypassed for `msiec` (the hwmon `0xFFFF` convention doesn't apply). (#1167)
+
 ## [v0.7.5] - 2026-05-17
 
 ### Fixed

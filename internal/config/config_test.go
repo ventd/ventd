@@ -134,6 +134,57 @@ func TestValidateRejectsHALBackendFanWithoutPWMPath(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsMsiecSensorType pins #1167: the validator must accept
+// the `msiec` sensor type for the five allowlisted relative paths under
+// /sys/devices/platform/msi-ec/ (cpu+gpu realtime temp/fan, basic_fan_speed).
+// Without these, the config the wizard writes for an MSI laptop would not
+// load even though the runtime can read the EC sysfs directly — the same
+// load-time trap class as the v0.7.4 fan-type generalisation.
+func TestValidateAcceptsMsiecSensorType(t *testing.T) {
+	paths := []string{
+		"cpu/realtime_temperature",
+		"gpu/realtime_temperature",
+		"cpu/realtime_fan_speed",
+		"gpu/realtime_fan_speed",
+		"cpu/basic_fan_speed",
+	}
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			cfg := &Config{
+				Version: CurrentVersion,
+				Sensors: []Sensor{{Name: "msi_" + p, Type: "msiec", Path: p}},
+			}
+			if err := validate(cfg); err != nil {
+				t.Fatalf("msiec sensor path %q rejected: %v", p, err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsMsiecSensorOutsideAllowlist(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"empty", ""},
+		{"absolute", "/sys/devices/platform/msi-ec/cpu/realtime_temperature"},
+		{"traversal", "../../../etc/passwd"},
+		{"unrelated leaf", "cpu/uevent"},
+		{"non-existent subdir", "leds/state"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Version: CurrentVersion,
+				Sensors: []Sensor{{Name: "bad", Type: "msiec", Path: tc.path}},
+			}
+			if err := validate(cfg); err == nil {
+				t.Fatalf("path %q should have been rejected by validator", tc.path)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsBadRPMPath(t *testing.T) {
 	cfg := &Config{
 		Version: CurrentVersion,
