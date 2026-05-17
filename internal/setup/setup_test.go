@@ -1,9 +1,7 @@
 package setup
 
 import (
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/ventd/ventd/internal/config"
 )
@@ -15,39 +13,6 @@ import (
 // coded sysfs paths, concrete calibrate.Manager) are documented with t.Skip
 // and tracked by follow-up issues.
 // ═══════════════════════════════════════════════════════════════════════════
-
-// ---------- detect/* ----------
-
-func TestDetect_EmptyHwmonReturnsFriendlyError(t *testing.T) {
-	// Invariant: usability.md — errors shown to the user must be human-
-	// readable. No sysfs paths, no Go error strings, no stack traces.
-	// In the sandbox (no /sys/class/hwmon fans), run() finishes with an
-	// error describing the situation in plain English.
-	m := newManager(t)
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	final := waitDone(t, m, 5*time.Second)
-
-	if final.Error == "" {
-		t.Fatal("expected error when no fans are present")
-	}
-
-	forbidden := []string{
-		"/sys/class/hwmon",
-		"/sys/devices",
-		"hwmon0",
-		"pwm",
-		"runtime error",
-		"goroutine",
-		"panic",
-	}
-	for _, f := range forbidden {
-		if strings.Contains(final.Error, f) {
-			t.Errorf("error contains sysfs/internal detail %q: %s", f, final.Error)
-		}
-	}
-}
 
 // ---------- calibrate/* ----------
 
@@ -102,65 +67,6 @@ func TestApply_RejectsConfigWithMinPWMZeroNoAllowStop(t *testing.T) {
 // Additional invariant tests targeting actual uncovered code paths in
 // internal/setup that DON'T require setup.go changes.
 // ═══════════════════════════════════════════════════════════════════════════
-
-// ---------- run() error message quality ----------
-
-func TestRun_NoFansErrorIsUserFacing(t *testing.T) {
-	// Invariant: usability.md — error messages must be readable by
-	// someone who has never opened a terminal. The no-fans error must
-	// describe the situation, not reference internal details.
-	m := newManager(t)
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	final := waitDone(t, m, 5*time.Second)
-
-	if final.Error == "" {
-		t.Fatal("expected non-empty error in sandbox (no fans)")
-	}
-
-	lower := strings.ToLower(final.Error)
-	if !strings.Contains(lower, "fan") {
-		t.Errorf("error does not mention 'fan': %s", final.Error)
-	}
-
-	internalDetails := []string{
-		"nil pointer",
-		"index out of range",
-		"runtime",
-		".go:",
-		"ENOENT",
-		"EIO",
-	}
-	for _, detail := range internalDetails {
-		if strings.Contains(final.Error, detail) {
-			t.Errorf("error contains internal detail %q: %s", detail, final.Error)
-		}
-	}
-}
-
-func TestRun_PhaseReachesAtLeastDetecting(t *testing.T) {
-	// Even with no fans, the wizard must advance through the detecting
-	// phase before declaring failure. This pins the minimum phase
-	// progression.
-	m := newManager(t)
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	final := waitDone(t, m, 5*time.Second)
-
-	validPhases := map[string]bool{
-		"detecting":         true,
-		"installing_driver": true,
-		"scanning_fans":     true,
-		"detecting_rpm":     true,
-		"calibrating":       true,
-		"finalizing":        true,
-	}
-	if !validPhases[final.Phase] {
-		t.Errorf("Phase = %q, want one of %v", final.Phase, validPhases)
-	}
-}
 
 // ---------- buildConfig invariants ----------
 

@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Removed
+
+- `internal/setup/setup.go::Manager.run` legacy phases 0-7 inline body (~800 lines) + the `VENTD_USE_ORCHESTRATOR` env-var gate + `SetUseOrchestrator` opt-in + `useOrchestrator` Manager field + `runOrchestratorPreview` (renamed to `runOrchestrator` and made the only path). The v0.8.x orchestrator (Inventory → ConflictHunt → DriverPlan → DriverInstall → NVML → Probe → RPMDetect → Polarity → Calibrate → Verify → Apply) is now the only wizard path; the legacy fallback safety net is gone. On orchestrator failure the bridge surfaces the failing phase's `recovery.FailureClass` + operator-facing detail via `m.errMsg` / `m.failureClass` so the existing recovery-card UI keeps working. PR#B6 of the v0.8.x sequence intended this removal but only fixed the five HIL bugs; this is the rest of the work. Tests that targeted legacy-specific invariants (`TestDetect_EmptyHwmonReturnsFriendlyError`, `TestRun_NoFansErrorIsUserFacing`, `TestRun_PhaseReachesAtLeastDetecting`, the entire `calibration_backend_test.go` fakeCalBackend suite, `TestManager_VendorDaemonShortCircuit`, `TestManager_Run_RecoversFromPanic`) removed — equivalent coverage lives in `internal/setup/orchestrator/*_test.go`. Orphaned helpers (`syncFans`, `preflightReasonToFailureClass`) deleted; the remaining helpers (`buildConfig`, `restoreExcludedChannels`, `verifyHwmonChannelSpins`, `discoverCPUTempSensor`, etc.) are now used only by tests and earmarked for removal in a follow-up cleanup PR.
+
 ## [v0.8.0] - 2026-05-18
 
 ### Headline

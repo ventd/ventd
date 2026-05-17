@@ -99,10 +99,6 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	cal.SetChannelResolver(newChannelResolver())
 	mgr := setup.New(cal, logger)
 	mgr.SetAppliedMarkerPath(setup.DefaultAppliedMarkerPath)
-	// v0.8.x default-on: route the CLI -setup path through the new
-	// phase-DAG orchestrator. VENTD_USE_ORCHESTRATOR=0 reverts to
-	// the legacy inline phase sequence as an emergency rollback.
-	mgr.SetUseOrchestrator(true)
 	// Wire the polarity prober so the wizard's Phase 5b polarity probe
 	// actually runs (RULE-POLARITY-03 |delta| < 150 RPM phantom cap).
 	// Without it, phantom channels slip through to `controls:` —

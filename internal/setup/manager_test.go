@@ -3,8 +3,8 @@ package setup
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,13 +21,26 @@ import (
 // newManager wires a Manager with the minimum dependencies needed to drive
 // the wizard from a test. The calibrate manager points at a t.TempDir()
 // path so each subtest gets an isolated checkpoint store; tests never share
-// on-disk state.
+// on-disk state. The orchestrator's state dir is also rerouted to a
+// t.TempDir so the v0.8.x phase-DAG checkpoint never touches the
+// production /var/lib/ventd/setup path during tests.
 func newManager(t *testing.T) *Manager {
 	t.Helper()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	t.Setenv("VENTD_SETUP_STATE_DIR", t.TempDir())
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	wd := watchdog.New(logger)
 	cal := calibrate.New(filepath.Join(t.TempDir(), "cal.json"), logger, wd)
-	return New(cal, logger)
+	// Route the orchestrator's hwmon/proc/powercap reads at empty
+	// temp dirs so tests run against a hardware-less sandbox even on
+	// developer/CI hosts with real fan controllers attached. Without
+	// this, the orchestrator hits /sys/class/hwmon, finds real PWM
+	// channels, and runs a real polarity probe — which is both slow
+	// and non-deterministic.
+	return NewWithRoots(cal, logger,
+		filepath.Join(t.TempDir(), "hwmon"),
+		filepath.Join(t.TempDir(), "proc"),
+		filepath.Join(t.TempDir(), "powercap"),
+	)
 }
 
 // waitDone polls Progress() until Done is true or the deadline elapses.
@@ -79,12 +92,12 @@ func TestManager_StartTransitionsToRunningThenDone(t *testing.T) {
 	if final.Running {
 		t.Errorf("Running stayed true after Done")
 	}
-	// The sandbox path: no fans → an Error. We don't pin the exact text
-	// (that lives in setup.go and may evolve), but it must be non-empty
-	// and mention "fan" so the operator can tell what failed.
-	if final.Error == "" || !strings.Contains(strings.ToLower(final.Error), "fan") {
-		t.Errorf("Error = %q, want non-empty mentioning 'fan'", final.Error)
-	}
+	// Post legacy-wizard removal: the orchestrator's ApplyPhase writes a
+	// monitor-only config in the sandbox-with-no-real-hardware case (it
+	// finds NVMLPhase's GPU fan and folds that into config.yaml). The
+	// terminal state is "applied" rather than an error, so the legacy
+	// "must mention 'fan' in Error" check no longer applies; the
+	// transition Running → Done is what this test pins.
 }
 
 // TestManager_StartTwiceWhileRunningRefuses pins the "no overlapping runs"
@@ -225,21 +238,21 @@ func TestManager_GeneratedConfigBeforeRunIsNil(t *testing.T) {
 	}
 }
 
-// TestManager_RunBlockingReturnsErrorMessage covers the CLI --setup path.
-// RunBlocking is the synchronous counterpart of Start used by the binary
-// when the wizard runs at the terminal. Errors must be propagated as a
-// regular Go error rather than swallowed.
-func TestManager_RunBlockingReturnsErrorMessage(t *testing.T) {
+// TestManager_RunBlockingMatchesProgressError covers the CLI --setup
+// path: when the orchestrator surfaces an error, RunBlocking propagates
+// the same text that Progress reports so CLI + HTTP show identical
+// output. The legacy "sandbox always errors" assumption no longer
+// holds — orchestrator writes a monitor-only config — so the test
+// asserts the equality of the two surfaces, with both empty or both
+// matching being valid outcomes.
+func TestManager_RunBlockingMatchesProgressError(t *testing.T) {
 	m := newManager(t)
 	err := m.RunBlocking()
-	if err == nil {
-		t.Fatal("RunBlocking: want error in sandbox, got nil")
-	}
-	// The wizard surfaced the no-fans error as a regular error value;
-	// the message should match Progress.Error so CLI and HTTP report
-	// identical text to the operator.
 	p := m.Progress()
-	if err.Error() != p.Error {
+	if err == nil && p.Error != "" {
+		t.Errorf("RunBlocking returned nil but Progress.Error = %q", p.Error)
+	}
+	if err != nil && err.Error() != p.Error {
 		t.Errorf("RunBlocking err = %q, Progress.Error = %q, want equal", err.Error(), p.Error)
 	}
 }
@@ -376,38 +389,13 @@ func TestManager_EmitBuildFailedDiagNoStoreIsNoOp(t *testing.T) {
 // The test injects a stub probe so the wizard short-circuits
 // deterministically without spawning systemctl or relying on a vendor
 // daemon being installed in the CI sandbox.
-func TestManager_VendorDaemonShortCircuit(t *testing.T) {
-	m := newManager(t)
-	m.SetVendorDaemonProbe(func(ctx context.Context) recovery.VendorDaemon {
-		return recovery.VendorDaemonSystem76
-	})
-
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	final := waitDone(t, m, 5*time.Second)
-
-	if got := final.FailureClass; got != string(recovery.ClassVendorDaemonActive) {
-		t.Errorf("FailureClass = %q, want %q", got, recovery.ClassVendorDaemonActive)
-	}
-	if !strings.Contains(final.Error, string(recovery.VendorDaemonSystem76)) {
-		t.Errorf("Error = %q, want it to name the detected daemon (%s)",
-			final.Error, recovery.VendorDaemonSystem76)
-	}
-	// Phase must NOT have advanced past the deferral check — no
-	// hardware enumeration should have run.
-	if final.Phase != "" && final.Phase != "detecting" {
-		// "" or "detecting" both indicate the wizard didn't get into
-		// install/scan/calibrate phases.
-		t.Errorf("Phase = %q, expected the wizard to short-circuit before phase advance", final.Phase)
-	}
-	// Remediation is populated from FailureClass via Progress(). The
-	// vendor-daemon class always returns at least the monitor-only
-	// card + the bundle escape.
-	if len(final.Remediation) < 2 {
-		t.Errorf("Remediation len = %d, want at least 2 (monitor-only + bundle)", len(final.Remediation))
-	}
-}
+// TestManager_VendorDaemonShortCircuit used the legacy Manager.run
+// Phase 0 hook (SetVendorDaemonProbe). With the legacy wizard removed,
+// vendor-daemon detection lives in the orchestrator's ConflictHuntPhase
+// and uses its own probe (recovery.DetectVendorDaemon via systemctl).
+// The Manager-level injection seam is no longer reachable; equivalent
+// coverage is in internal/setup/orchestrator/conflict_hunt_test.go
+// (TestConflictHuntPhase_VendorDaemonReturnsActiveClass et al).
 
 // TestManager_VendorDaemonProbe_NoneDoesNotShortCircuit confirms that
 // returning VendorDaemonNone (the default + ctx-cancel + nothing-found

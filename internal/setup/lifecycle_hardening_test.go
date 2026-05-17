@@ -1,10 +1,7 @@
 package setup
 
 import (
-	"context"
 	"errors"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -85,59 +82,12 @@ func TestManager_Start_AcquiresAndReleasesWizardLock(t *testing.T) {
 	rel()
 }
 
-// TestManager_Run_RecoversFromPanic pins issue #1061 (setup F4): a panic
-// inside Manager.run must be recovered so the daemon's other goroutines
-// (web server, controller, watchdog) survive. The wizard's terminal state
-// must transition to "failed" so the web UI can surface the crash instead
-// of leaving the operator with a frozen wizard.
-//
-// This test exercises the panic-recover via a direct call to run() with a
-// goroutine that panics deterministically before the wizard's real phases
-// take effect. Because run() is unexported, we drive it directly from this
-// package-internal test rather than going through Start.
-func TestManager_Run_RecoversFromPanic(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("VENTD_WIZARD_LOCK_DIR", dir)
-
-	m := newManager(t)
-
-	// Inject a panic by swapping the vendor-daemon probe — the first thing
-	// run() touches. This proves the outermost defer recovers even on a
-	// Phase-0 crash.
-	m.SetVendorDaemonProbe(func(ctx context.Context) recovery.VendorDaemon {
-		panic("simulated wizard goroutine crash")
-	})
-
-	// Track that the daemon survives by checking that the goroutine returns
-	// normally. We call run directly (the public surface Start spawns a
-	// goroutine; here we want synchronous panic-recovery observation).
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// run was set up via Start's bookkeeping in production; for this
-		// test we hand-seed the minimal state required so the deferred
-		// cleanup in run doesn't fault on a half-initialised manager.
-		m.mu.Lock()
-		m.running = true
-		m.done = false
-		m.cancel = cancel
-		m.mu.Unlock()
-		m.run(ctx, func() {})
-	}()
-	wg.Wait()
-
-	p := m.Progress()
-	if p.Phase != "failed" {
-		t.Errorf("Phase after panic = %q, want %q (web UI surfaces failed state)", p.Phase, "failed")
-	}
-	if !strings.Contains(p.Error, "wizard panic") {
-		t.Errorf("Error after panic = %q, want substring %q", p.Error, "wizard panic")
-	}
-	if !p.Done {
-		t.Error("Done after panic = false; the wizard goroutine should have completed (recovered) rather than hanging")
-	}
-}
+// TestManager_Run_RecoversFromPanic pinned issue #1061 (F4)'s panic-
+// recovery contract by injecting via SetVendorDaemonProbe — a seam
+// the legacy Manager.run touched in Phase 0. With the legacy wizard
+// removed, the orchestrator owns vendor-daemon detection through its
+// own probe (recovery.DetectVendorDaemon), and per-phase panic-recover
+// lives in orchestrator.runPhase (covered by orchestrator/orchestrator_test.go).
+// The outer Manager.run defer remains as defence-in-depth for runOrchestrator
+// bootstrap panics but is no longer exercisable from a Manager-level
+// injection seam. Test removed.
