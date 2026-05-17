@@ -410,6 +410,26 @@ func run() error {
 	defer releasePID()
 	st, stErr := state.Open(state.DefaultDir, logger)
 	if stErr != nil {
+		// Issue #1090: branch on the documented state sentinels so the
+		// operator-facing diagnostic names the actual remediation,
+		// rather than the generic "open state: ..." wrap that always
+		// resolves to ClassUnknown. The sentinels are already
+		// errors.Is-compatible; the production daemon just wasn't
+		// consulting them.
+		switch {
+		case errors.Is(stErr, state.ErrDowngrade):
+			logger.Error("ventd: refusing to start — on-disk state was written by a newer ventd",
+				"err", stErr,
+				"remediation", "reinstall the newer ventd version, or run 'ventd state reset' to discard the on-disk state")
+		case errors.Is(stErr, state.ErrCorruptState):
+			logger.Error("ventd: refusing to start — state.yaml failed to parse",
+				"err", stErr,
+				"remediation", "inspect /var/lib/ventd/state.yaml for hand-editing or partial-write damage, or run 'ventd state reset' to discard and re-bootstrap")
+		case errors.Is(stErr, state.ErrTransactionPersistFailed):
+			logger.Error("ventd: refusing to start — last transaction failed to persist",
+				"err", stErr,
+				"remediation", "check disk space (df -h /var/lib/ventd) and dmesg for I/O errors; the in-memory rollback is intact but the next start hit the same issue")
+		}
 		return fmt.Errorf("open state: %w", stErr)
 	}
 	defer func() {
