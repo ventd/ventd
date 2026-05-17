@@ -40,7 +40,7 @@ func DiagnoseHwmon(logger *slog.Logger) {
 // shipped udev rule has not applied (likely a missing udevadm
 // trigger or a custom-built rule).
 func DiagnoseHwmonAt(logger *slog.Logger, root string) {
-	pwmPaths := findPWMPathsAt(root)
+	pwmPaths := FindPWMPathsAt(root)
 	if len(pwmPaths) == 0 {
 		// #1163: on hosts where fan control lives in a non-hwmon HAL
 		// backend (msi-ec, thinkpad, ipmi, …), the suggestion to run
@@ -114,10 +114,14 @@ func DiagnoseHwmonAt(logger *slog.Logger, root string) {
 		"example", pwmPaths[0])
 }
 
-// findPWMPathsAt is the rooted variant of findPWMPaths. Globs every
+// FindPWMPathsAt is the rooted variant of findPWMPaths. Globs every
 // hwmonN/pwm<N> under root (real numeric pwm files only — pwmN_enable
 // and friends are excluded the same way findPWMPaths does it).
-func findPWMPathsAt(root string) []string {
+//
+// Exported for the v0.8.x orchestrator's ProbePhase, which scans the
+// host's PWMs against the same shape the legacy Manager.run path uses
+// so both paths converge on identical fan enumeration.
+func FindPWMPathsAt(root string) []string {
 	matches, err := filepath.Glob(filepath.Join(root, "hwmon*", "pwm[0-9]*"))
 	if err != nil {
 		return nil
