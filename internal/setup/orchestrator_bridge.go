@@ -71,7 +71,10 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
 		StateDir:  orchestratorStateRoot(),
 		Events:    managerEventSink{m: m},
 	}
-	o, err := orchestrator.New(rc, orchestrator.InventoryPhase{})
+	o, err := orchestrator.New(rc,
+		orchestrator.InventoryPhase{},
+		orchestrator.ConflictHuntPhase{AutoStop: true, AutoStopVendor: false},
+	)
 	if err != nil {
 		return fmt.Errorf("orchestrator preview: %w", err)
 	}

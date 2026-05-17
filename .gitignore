@@ -72,3 +72,8 @@ release-notes/*-dryrun.txt
 # uploaded to README by Phoenix manually. Not tracked.
 /screenshots/
 /ghost-code
+
+# Personal planning notes — dated drafts in docs/planning/ stay local
+# to Phoenix's working tree. ventd-future-ideas.md (the only tracked
+# file in that dir) is the exception.
+/docs/planning/windows-port-viability-*.md
