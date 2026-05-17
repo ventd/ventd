@@ -1077,7 +1077,22 @@ func validate(cfg *Config) error {
 		case "":
 			return fmt.Errorf("config: fan %q: type is required", f.Name)
 		default:
-			return fmt.Errorf("config: fan %q: unknown type %q (want: hwmon, nvidia)", f.Name, f.Type)
+			// Non-hwmon HAL backends (msiec, thinkpad, ipmi, nbfc,
+			// crosec, asahi, pwmsys, legion, corsair — 9 of ventd's
+			// 11 HAL backends). Accept any non-empty type with a non-
+			// empty pwm_path; the runtime backend lookup in
+			// internal/controller.New + the web fan-read path in
+			// internal/web/server.go both consult the HAL registry by
+			// this type name and fail clearly if it's not registered.
+			// Without this branch, the wizard could never produce a
+			// loadable config for any non-hwmon hardware — the bug
+			// HudsonPH hit on MSI Thin GF63 12UDX (#1116 / #1154) and
+			// the same trap would fire for every ThinkPad, every
+			// Chromebook, every server with IPMI fans, every Apple
+			// Silicon Mac, every Lenovo Legion, etc.
+			if f.PWMPath == "" {
+				return fmt.Errorf("config: fan %q: pwm_path is required for type %q", f.Name, f.Type)
+			}
 		}
 		if f.MaxPWM < f.MinPWM {
 			return fmt.Errorf("config: fan %q: max_pwm (%d) must be >= min_pwm (%d)", f.Name, f.MaxPWM, f.MinPWM)
