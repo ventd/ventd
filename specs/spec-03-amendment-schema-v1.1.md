@@ -253,7 +253,7 @@ hardware can't be controlled.
 
 ## Test plan
 
-Per .claude/rules invariant binding:
+Per docs/rules invariant binding:
 
 | Rule | Subtest |
 |---|---|

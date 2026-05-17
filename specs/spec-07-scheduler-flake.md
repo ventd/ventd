@@ -77,7 +77,7 @@ Only add a rule file if the root cause is an invariant that deserves protection.
 ### Phase C — Regression test
 
 **File (new if rule added):**
-- `.claude/rules/scheduler-stability.md`
+- `docs/rules/scheduler-stability.md`
 
 **Pattern:** regression test named `TestRegression_FedoraFlake_<short-description>` per `ventdtestmasterplan.md §11`. The reproduction harness from Phase A becomes the regression test body.
 

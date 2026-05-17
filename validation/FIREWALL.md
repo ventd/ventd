@@ -38,7 +38,7 @@ adapted to Ubuntu 24.04's UFW 0.36:
    web UI). Not scoped to `incusbr0`; they have to stay LAN-reachable
    on the host's primary interface or `ufw enable` locks remote access
    and breaks the post-install URL contract in
-   `.claude/rules/usability.md`.
+   `docs/rules/usability.md`.
 3. **Bridge opens** — `allow in on incusbr0`, `route allow in on
    incusbr0`, `route allow out on incusbr0`.
 4. **DHCP v4 + v6** on UDP/67 and UDP/547. The upstream doc calls these

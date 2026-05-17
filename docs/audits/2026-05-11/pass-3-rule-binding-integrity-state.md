@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-11
 **Baseline commit**: `f95ba76` (main after pass-3-wd)
-**Scope**: every `RULE-STATE-*` rule file in `.claude/rules/RULE-STATE-NN.md` plus `RULE-STATE-MIGRATION-V1-V2-NOOP.md` — **11 rules / 17 bindings**.
+**Scope**: every `RULE-STATE-*` rule file in `docs/rules/RULE-STATE-NN.md` plus `RULE-STATE-MIGRATION-V1-V2-NOOP.md` — **11 rules / 17 bindings**.
 
 ## Inventory
 

@@ -218,7 +218,7 @@ to know not to consume the prediction.
 
 ## 3. Invariant bindings
 
-`.claude/rules/coupling.md` binds 1:1 to subtests in
+`docs/rules/coupling.md` binds 1:1 to subtests in
 `internal/coupling/`. Enforced by `tools/rulelint
 --check-binding-uniqueness` (the v0.5.6 tooling).
 
@@ -393,7 +393,7 @@ internal/coupling/runtime_test.go       (~300 LOC)
 internal/coupling/replay.go             (~150 LOC)
 internal/coupling/replay_test.go        (~200 LOC)
 internal/coupling/snapshot.go           (~80 LOC)
-.claude/rules/coupling.md               (13 RULE-CPL-* invariants)
+docs/rules/coupling.md               (13 RULE-CPL-* invariants)
 specs/spec-v0_5_7-thermal-coupling.md   (this file)
 go.mod, go.sum                          (add gonum/v1/gonum/mat)
 ```
@@ -409,7 +409,7 @@ cmd/ventd/main.go                       (launch coupling.Runtime
 internal/controller/controller.go       (no changes — the snapshot
                                           is read by v0.5.9, not by
                                           the controller in v0.5.7)
-.claude/rules/coupling.md (extend)      (RULE-CPL-WIRING-* if any)
+docs/rules/coupling.md (extend)      (RULE-CPL-WIRING-* if any)
 ```
 
 Total LOC estimate: ~150. Smaller than v0.5.6 PR-B because v0.5.7

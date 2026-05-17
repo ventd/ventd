@@ -1,6 +1,6 @@
 # Spec 06 — Install-contract closure for v0.4.1
 
-**Masterplan IDs this covers:** Closes install-contract drift uncovered in v0.4.0 Proxmox smoke test (2026-04-25). Binds install-time invariants to the same `.claude/rules/*.md` pattern used for runtime safety.
+**Masterplan IDs this covers:** Closes install-contract drift uncovered in v0.4.0 Proxmox smoke test (2026-04-25). Binds install-time invariants to the same `docs/rules/*.md` pattern used for runtime safety.
 **Target release:** v0.4.1 (point release — fix-only, no new features).
 **Estimated session cost:** Sonnet, 2 sessions, $10–15 total. No Opus required. HIL required for AppArmor profile PR only.
 **Dependencies already green:** v0.4.0 shipped (`ventd/ventd@v0.4.0`). `cmd/ventd-ipmi` sidecar + sysusers.d/tmpfiles.d pattern from spec-01 PR 2a.
@@ -27,7 +27,7 @@ Two PRs, sequential. PR 1 fixes three pure-code drift bugs + adds the rule file.
 ### PR 1 — Install-contract invariants + three drift fixes
 
 **Files (new):**
-- `.claude/rules/install-contract.md` — 4 rules (3 active + 1 stub for AppArmor, filled in PR 2)
+- `docs/rules/install-contract.md` — 4 rules (3 active + 1 stub for AppArmor, filled in PR 2)
 - `deploy/sysusers.d-ventd.conf` — sysusers.d drop-in for `ventd` user (mirrors `sysusers.d-ventd-ipmi.conf` from spec-01 PR 2a)
 - `deploy/ventd-recover.service` — the missing unit referenced by `OnFailure=`
 - `deploy/install-contract_test.go` — unit-file parser + 4 subtests (ini parser pattern from spec-01 PR 3, no external deps)
@@ -42,7 +42,7 @@ Two PRs, sequential. PR 1 fixes three pure-code drift bugs + adds the rule file.
 **Files (deferred to PR 2):**
 - `deploy/apparmor.d/ventd` — real profile, ships with HIL validation
 
-**Invariant bindings (`.claude/rules/install-contract.md`):**
+**Invariant bindings (`docs/rules/install-contract.md`):**
 
 1. `RULE-INSTALL-01` — Every `User=` directive in `deploy/*.service` MUST have a matching entry in `deploy/sysusers.d-*.conf`. Parser fails the build if a unit references a user not declared by a shipped sysusers drop-in. **Binds to:** `TestInstallContract_UserDeclared`.
 
@@ -69,7 +69,7 @@ Two PRs, sequential. PR 1 fixes three pure-code drift bugs + adds the rule file.
 - `validation/vm-apparmor-smoke.sh` — HIL script running profile under enforce on fresh Ubuntu + Debian VM
 
 **Files (modified):**
-- `.claude/rules/install-contract.md` — RULE-INSTALL-04 flipped from stub to active
+- `docs/rules/install-contract.md` — RULE-INSTALL-04 flipped from stub to active
 - `deploy/install-contract_test.go` — `TestInstallContract_AppArmorProfileShipped` flipped from skip to active
 - `deploy/README.md` — AppArmor section added, complain-mode toggle documented
 - `deploy/ventd-ipmi.service` — confirm `AppArmorProfile=ventd-ipmi` points to shipped profile (removes spec-01 PR 2a's TODO)
@@ -152,7 +152,7 @@ Start with PR 1 only. Do not start PR 2 in the same session — PR 2 needs HIL
 on Proxmox VMs I will stand up separately.
 
 PR 1 scope:
-1. Create .claude/rules/install-contract.md with 4 RULE-INSTALL-<N> entries.
+1. Create docs/rules/install-contract.md with 4 RULE-INSTALL-<N> entries.
 2. Create deploy/sysusers.d-ventd.conf (mirror sysusers.d-ventd-ipmi.conf).
 3. Create deploy/ventd-recover.service (oneshot unit, runs cmd/ventd-recover
    binary which already exists).

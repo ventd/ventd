@@ -207,7 +207,7 @@ For the v0.5.7 (Layer B) and v0.5.8 (Layer C) implementation specs:
 - **`RULE-CONF-C-IDENTIFIABILITY-GATE`** — conf_C MUST return 0.0 when R9 classification is `unidentifiable` or `co-varying-grouped`, MUST cap at 0.5 when classification is `marginal`, MUST be 1.0 multiplier when classification is `healthy`.
 - **`RULE-CONF-MIN-AGGREGATION-WARMUP`** — w_pred MUST equal 0 when any of conf_A, conf_B, conf_C is 0. Test fixture: conf_A = 0.8, conf_B = 0.0 (warmup), conf_C = 0.0 (warmup) → w_pred = 0.
 
-These bindings live in `.claude/rules/conf-*.md` files in the v0.5.7 and v0.5.8 PRs.
+These bindings live in `docs/rules/conf-*.md` files in the v0.5.7 and v0.5.8 PRs.
 
 ---
 
@@ -236,7 +236,7 @@ These bindings live in `.claude/rules/conf-*.md` files in the v0.5.7 and v0.5.8 
 When v0.5.7 (Layer B) and v0.5.8 (Layer C) spec drafts happen (in chat, $0):
 
 1. Both specs reference R12 + this amendment as the design-of-record for confidence formulas.
-2. Both specs include the four new RULE bindings (`RULE-CONF-B-WARMUP-GATE`, `RULE-CONF-C-WARMUP-GATE`, `RULE-CONF-C-IDENTIFIABILITY-GATE`, `RULE-CONF-MIN-AGGREGATION-WARMUP`) in their `.claude/rules/` sections.
+2. Both specs include the four new RULE bindings (`RULE-CONF-B-WARMUP-GATE`, `RULE-CONF-C-WARMUP-GATE`, `RULE-CONF-C-IDENTIFIABILITY-GATE`, `RULE-CONF-MIN-AGGREGATION-WARMUP`) in their `docs/rules/` sections.
 3. v0.5.8 spec must verify R15 spec-05 amendment (bounded-covariance forgetting) is in place before merge — this is now a hard prerequisite, not a soft cross-reference.
 4. The user-facing categorical labels (Cold-start / Warming / Converged / Optimized) remain as R12 originally specified; no UI rework required in spec-12 amendments beyond what's already planned.
 5. Doctor (R13, v0.5.10) consumes the amended conf values transparently — no doctor amendment needed.

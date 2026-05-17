@@ -18,7 +18,7 @@ feature.
 | Term | Meaning |
 |---|---|
 | **Invariant** | A property that must always hold. Bound 1:1 to a named subtest so a regression fails at a predictable location. |
-| **Rule file** | A `.claude/rules/*.md` markdown file enumerating invariants. Each rule ID maps to one subtest. |
+| **Rule file** | A `docs/rules/*.md` markdown file enumerating invariants. Each rule ID maps to one subtest. |
 | **Fixture** | A reusable hardware or environment mock. Lives in `internal/testfixture/<backend>/`. |
 | **Replay test** | A regression test named after a GitHub issue number (`TestRegression_Issue<N>_*`) that encodes the bug's conditions. |
 | **Golden** | A committed reference output (YAML, JSON, diff) that tests compare against. Update via explicit `-update` flag. |
@@ -51,9 +51,9 @@ Rules:
 
 ---
 
-## 2 · Invariant binding — the `.claude/rules/*.md` pattern
+## 2 · Invariant binding — the `docs/rules/*.md` pattern
 
-Ventd has one working invariant file (`.claude/rules/hwmon-safety.md`)
+Ventd has one working invariant file (`docs/rules/hwmon-safety.md`)
 bound 1:1 to `internal/controller/safety_test.go:TestSafety_Invariants`.
 This pattern extends to every safety-critical surface.
 
@@ -490,20 +490,20 @@ more fixtures ship as backends land).
 
 ### Phase T1 — Tier promotion for current backends
 
-**T-HAL-01 | HAL | P1-HAL-01 | `internal/hal/contract_test.go` (new), `.claude/rules/hal-contract.md` (new)**
+**T-HAL-01 | HAL | P1-HAL-01 | `internal/hal/contract_test.go` (new), `docs/rules/hal-contract.md` (new)**
 Goal: HAL contract as table-driven test every backend obeys.
 DoD: `TestHAL_Contract` exercises hwmon + nvml; every new backend PR must
 add a row.
 **Priority:** HIGH — ship before any Phase 2 backend that doesn't already
 have it.
 
-**T-CAL-01 | CAL | P1-HAL-02 | `internal/calibrate/safety_test.go`, `.claude/rules/calibration-safety.md`**
+**T-CAL-01 | CAL | P1-HAL-02 | `internal/calibrate/safety_test.go`, `docs/rules/calibration-safety.md`**
 Goal: `TestCalSafety_Invariants` mirror of controller safety suite.
 DoD: existing ZeroPWMSentinel as subtests; 6 new invariants (checkpoint
 atomicity, fingerprint fence, abort, resume idempotency, pump sentinel,
 zero-during-stop-sweep).
 
-**T-WD-01 | WD | P1-HAL-01 | `internal/watchdog/safety_test.go` (new), `.claude/rules/watchdog-safety.md` (new)**
+**T-WD-01 | WD | P1-HAL-01 | `internal/watchdog/safety_test.go` (new), `docs/rules/watchdog-safety.md` (new)**
 Goal: watchdog coverage 23% → >80% via rule-bound invariants.
 DoD: 7 invariants (restore on panic, SIGTERM, ctx cancel; per-fan recovery;
 fallback on missing pwm_enable; NVIDIA reset; rpm_target writes maxRPM).
@@ -528,7 +528,7 @@ rename all covered.
 
 ### Phase T2 — New backend coverage
 
-**T-IPMI-01 | IPMI | P2-IPMI-01 | `internal/hal/ipmi/**_test.go`, `internal/testfixture/fakeipmi/**`, `.claude/rules/ipmi-safety.md`**
+**T-IPMI-01 | IPMI | P2-IPMI-01 | `internal/hal/ipmi/**_test.go`, `internal/testfixture/fakeipmi/**`, `docs/rules/ipmi-safety.md`**
 Goal: full unit + integration coverage for IPMI.
 DoD: happy path + BMC-busy retry + Supermicro/Dell/HPE matrix + daemon-exit
 fallback.
@@ -537,7 +537,7 @@ fallback.
 **T-IPMI-02 | IPMI | P2-IPMI-02 | `internal/hal/ipmi/socket_test.go`**
 Goal: socket-sidecar model verified — main unit zero-cap, sidecar one-cap.
 
-**T-LIQUID-01 | LIQUID | P2-LIQUID-01 | `internal/hal/liquid/corsair/**_test.go`, `internal/testfixture/fakeliquid/**`, `.claude/rules/liquid-safety.md`**
+**T-LIQUID-01 | LIQUID | P2-LIQUID-01 | `internal/hal/liquid/corsair/**_test.go`, `internal/testfixture/fakeliquid/**`, `docs/rules/liquid-safety.md`**
 Goal: Corsair Commander Core / Core XT / Commander Pro protocol tests.
 DoD: USB disconnect + reconnect + pump_minimum enforcement.
 **Spec:** `specs/spec-02-corsair-aio.md`.
@@ -586,7 +586,7 @@ Goal: zero-alloc assertion. Binary ≤ 8 KB amd64. LANDED.
 
 ### Phase T4 — Control algorithm
 
-**T-PI-01 | PI | P4-PI-01 | `internal/curve/pi_test.go`, `.claude/rules/pi-stability.md`**
+**T-PI-01 | PI | P4-PI-01 | `internal/curve/pi_test.go`, `docs/rules/pi-stability.md`**
 Goal: PI correctness + anti-windup + NaN fallback.
 DoD: `PropPIStability` pass; integral clamp enforced; gain bounds rejected
 out-of-range.
@@ -604,7 +604,7 @@ DoD: `PropHysteresisNoFlutter` across 10k random sensor traces.
 Goal: dither distribution + sync-break.
 DoD: `PropDitherMean` ≈ 0; adjacent fans distinct instantaneous PWM.
 
-**T-MPC-01 | MPC | P4-MPC-01 | `internal/curve/mpc_test.go`, `.claude/rules/mpc-stability.md`**
+**T-MPC-01 | MPC | P4-MPC-01 | `internal/curve/mpc_test.go`, `docs/rules/mpc-stability.md`**
 Goal: MPC feasibility + residual fallback + model persistence atomicity.
 Ships when P4-MPC-01 ships (post-PI soak).
 
@@ -648,7 +648,7 @@ DoD: ≥ 80% curve coverage; zero audible ramp events.
 Goal: drift detection on synthetic traces.
 DoD: 15/20/25% drift triggers; <5% noise doesn't.
 
-**T-PROF-SCHEMA-01 | PROF | P5-PROF-SCHEMA-01 | `internal/hwdb/schema_test.go`, `.claude/rules/hwdb-schema.md`** — NEW.
+**T-PROF-SCHEMA-01 | PROF | P5-PROF-SCHEMA-01 | `internal/hwdb/schema_test.go`, `docs/rules/hwdb-schema.md`** — NEW.
 Goal: 7 schema invariants bound.
 **Spec:** `specs/spec-03-profile-library.md`.
 
@@ -672,7 +672,7 @@ DoD: `sensor_quirks` round-trip; curve engine refuses untrusted by default.
 
 ### Phase T7 — Advanced sensing
 
-**T-ACOUSTIC-01 | ACOUSTIC | P7-ACOUSTIC-01 | `internal/acoustic/**_test.go`, `internal/testfixture/fakemic/**`, `.claude/rules/acoustic-safety.md`**
+**T-ACOUSTIC-01 | ACOUSTIC | P7-ACOUSTIC-01 | `internal/acoustic/**_test.go`, `internal/testfixture/fakemic/**`, `docs/rules/acoustic-safety.md`**
 Goal: baseline capture + FFT bounds + non-blocking capture.
 
 **T-ACOUSTIC-02 | ACOUSTIC | P7-ACOUSTIC-02 | extends above**
@@ -820,7 +820,7 @@ in every PR:
 
 | Row | Check |
 |---|---|
-| R10 | Every `.claude/rules/*.md` touched has matching subtest edits |
+| R10 | Every `docs/rules/*.md` touched has matching subtest edits |
 | R11 | Every closed issue in `Fixes:` has a `TestRegression_Issue<N>_*` |
 | R12 | Any new safety-critical function bound to a rule invariant |
 | R13 | Any new goroutine covered by a lifecycle + cancellation test |

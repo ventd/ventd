@@ -69,7 +69,7 @@ Coverage targets:
 - `internal/hwdb/nbfc/sync.go` — `make sync-nbfc-configs` driver: `gh release download v0.5.2 -R nbfc-linux/nbfc-linux`, vendor under `configs/`, rewrite `UPSTREAM`. No-op when SHAs match.
 - `internal/doctor/detectors/nbfc_match_d.go` — new detector. Reads DMI via `hwdb.ReadDMI` (re-use, do not fork — `RULE-DOCTOR-05`); calls `nbfc.Match`; emits one Doctor fact per state: `OK` "this model has a known NBFC config (control deferred to v0.8.0)", `Warning` "this laptop is not in the NBFC catalogue — contribute via $url".
 - `internal/doctor/detectors/nbfc_match_d_test.go` — table-driven: HP Pavilion 15-cs0xxx (register-only, fact = OK), HP 250 G8 (ACPI-only, fact = OK with "ACPI deferred"), arbitrary uncatalogued laptop (fact = Warning).
-- `.claude/rules/RULE-NBFC-A.md` — PR A invariants. Per `.claude/rules/README.md`, `<!-- rulelint:allow-orphan -->` markers on every `Bound:` line until B1/B2 implement.
+- `docs/rules/RULE-NBFC-A.md` — PR A invariants. Per `docs/rules/README.md`, `<!-- rulelint:allow-orphan -->` markers on every `Bound:` line until B1/B2 implement.
 - `docs/nbfc.md` — operator-facing: what NBFC support means, why we vendor not link, how upstream contribution works.
 
 **Files (modified):**
@@ -100,7 +100,7 @@ Coverage targets:
 - `internal/ec/transport_test.go`, `ec_sys_test.go`, `dev_port_test.go` — `fakeec` test fixture: backing `map[uint8]uint8` indexed by register, exercised via the `Transport` interface. The transport-impl tests stub at the syscall boundary (`os.OpenFile` seam).
 - `internal/preflight/checks/ec_sys.go` — preflight check parallel to the `thinkpad_acpi fan_control=1` pattern. Detects missing `ec_sys.write_support=1`; AutoFix dispatches via the existing `/api/hwdiag/modprobe-options-write` endpoint (extended allowlist).
 - `internal/preflight/checks/ec_sys_test.go`.
-- `.claude/rules/RULE-NBFC-B1.md` — EC-transport invariants.
+- `docs/rules/RULE-NBFC-B1.md` — EC-transport invariants.
 
 **Files (modified):**
 
@@ -129,7 +129,7 @@ Coverage targets:
 - `internal/hal/nbfc/scaling.go` — `pwmToRegister(pwm uint8, cfg FanConfiguration) uint16` and inverse. Honours `FanSpeedPercentageOverrides` (sparse mappings, e.g. percentage 0 maps to a specific non-zero "fan off" register byte on some HP Omens).
 - `internal/hal/nbfc/probe.go` — `Probe(ctx, dmi, ec) (*Backend, error)`: matches DMI → loads catalog config → opens EC transport → constructs `Backend`. Returns `nil, ErrNBFCNoMatch` if `nbfc.Match` returns no result; that is the not-an-error path.
 - `cmd/ventd/nbfc_watchdog.go` — analogue of `cmd/ventd/ipmi_watchdog.go::registerIPMIWatchdogEntries`. Walks the NBFC backend's channels and registers each with the watchdog via `RegisterIPMI`-style helper (the existing helper is generic — `RULE-WD-IPMI-ROUTING` already abstracted this).
-- `.claude/rules/RULE-NBFC-B2.md` — backend-contract invariants.
+- `docs/rules/RULE-NBFC-B2.md` — backend-contract invariants.
 
 **Files (modified):**
 
@@ -153,7 +153,7 @@ Coverage targets:
 - `internal/preflight/checks/acpi_call.go` — preflight check parallel to `ec_sys`. Detects missing module + missing DKMS install; AutoFix dispatches via the existing DKMS install pipeline (same shape as the `nct6687d` row at `internal/preflight/checks/secure_boot.go` consumes).
 - `internal/preflight/checks/acpi_call_test.go`.
 - `internal/hwdb/profiles-v1.yaml` — new driver_profile entry: `module: acpi_call`, `family: acpi-bridge`, `capability: rw_full`, `pwm_unit: -` (passthrough), `dkms_required: true`, `kernel_module_source: github.com/nix-community/acpi_call`, `conflicts_with_userspace: []`, `runtime_conflict_detection_supported: true`.
-- `.claude/rules/RULE-NBFC-B3.md` — ACPI-bridge invariants.
+- `docs/rules/RULE-NBFC-B3.md` — ACPI-bridge invariants.
 
 **Files (modified):**
 
@@ -274,7 +274,7 @@ ventd/
 │   └── spec-09-nbfc-backend.md              (this file)
 ├── docs/
 │   └── nbfc.md                              [NEW — PR A]
-├── .claude/rules/
+├── docs/rules/
 │   ├── RULE-NBFC-A.md                       [NEW — PR A]
 │   ├── RULE-NBFC-B1.md                      [NEW — PR B1]
 │   ├── RULE-NBFC-B2.md                      [NEW — PR B2]

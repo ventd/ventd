@@ -156,7 +156,7 @@ is **currently false** — branching is documented, not coded.
    `/api/hwdiag/modprobe-options-write` over the cmdline. Cmdline is
    the fallback only for kernel < 6.2.
 3. **Add `RULE-MODPROBE-OPTIONS-04`** in
-   `.claude/rules/modprobe-options-write.md`: "When kernel ≥ 6.2 AND
+   `docs/rules/modprobe-options-write.md`: "When kernel ≥ 6.2 AND
    module == it87, the recovery card MUST prefer
    `ignore_resource_conflict=1` over `acpi_enforce_resources=lax`."
 
@@ -251,7 +251,7 @@ loses tach data — acceptable for v0.5.x.
 
 1. **Keep `RULE-HWMON-SENTINEL-FAN-IMPLAUSIBLE` unconditional, 10000
    cap unchanged.**
-2. **Add a doc note** in `.claude/rules/hwmon-sentinel.md`
+2. **Add a doc note** in `docs/rules/hwmon-sentinel.md`
    acknowledging server-class >10k fans are filtered. When real HIL
    telemetry surfaces, raise to 15000 under a new
    `RULE-SENTINEL-FAN-SERVER-CAP` gated on `ClassServer`.

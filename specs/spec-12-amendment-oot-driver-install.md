@@ -231,7 +231,7 @@ ventd's matcher reads this file at startup and applies the override. The board r
 
 ## §8 — Invariants (5 new)
 
-Added to `.claude/rules/ui.md` under spec-12 PR 4 setup-flow rules. Numbering continues from RULE-UI-SETUP-01..10:
+Added to `docs/rules/ui.md` under spec-12 PR 4 setup-flow rules. Numbering continues from RULE-UI-SETUP-01..10:
 
 | Rule | Subtest | Statement |
 |---|---|---|
@@ -258,7 +258,7 @@ Added to `.claude/rules/ui.md` under spec-12 PR 4 setup-flow rules. Numbering co
 - `web/setup-driver-step.html` — step 3.5 UI fragment (loaded into existing setup.html accordion).
 - `web/setup.js` — extended to handle step-3.5 conditional flow (modify, not new).
 - `packaging/polkit/io.ventd.install-driver.policy` — polkit action definition.
-- `.claude/rules/ui-setup-driver.md` — RULE-UI-SETUP-11..15 rule files.
+- `docs/rules/ui-setup-driver.md` — RULE-UI-SETUP-11..15 rule files.
 
 **Files (modified):**
 - `internal/hwdb/profile_v1.go` (or v1_1.go if schema v1.1 ships first) — extend Driver struct with optional `FallbackInstall` field (matches the YAML extension in §5).

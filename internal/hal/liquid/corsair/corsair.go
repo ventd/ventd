@@ -2,7 +2,7 @@
 // Commander Core XT, and Commander ST USB AIO liquid-cooler controllers.
 //
 // See specs/spec-02-corsair-aio.md and specs/spec-02-amendment.md for design
-// rationale. Safety invariants are defined in .claude/rules/liquid-safety.md
+// rationale. Safety invariants are defined in docs/rules/liquid-safety.md
 // and enforced by tests in safety_test.go.
 package corsair
 

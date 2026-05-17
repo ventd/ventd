@@ -40,7 +40,7 @@ See `specs/spec-02-hidraw.md` for full scope. Summary:
 - `CGO_ENABLED=0 go build` succeeds; `ldd ventd` reports "not a dynamic
   executable".
 - Six new invariant bindings (RULE-HIDRAW-01..06) land in
-  `.claude/rules/hidraw-safety.md`.
+  `docs/rules/hidraw-safety.md`.
 - Test coverage uses synthetic sysfs fixture under `t.TempDir()` and
   socketpair-backed fake netlink — no real hidraw access in CI.
 
@@ -98,7 +98,7 @@ release-matrix split.
 
 - [ ] Commit `spec-02-hidraw.md` + `spec-02-framing-review.md` +
       this amendment to main via one docs PR
-- [ ] Create `.claude/rules/hidraw-safety.md` with six RULE-HIDRAW-*
+- [ ] Create `docs/rules/hidraw-safety.md` with six RULE-HIDRAW-*
       entries (same PR as above)
 - [ ] Update `specs/spec-02-corsair-aio.md` header to note this
       amendment applies (or inline the content)

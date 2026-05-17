@@ -3,11 +3,11 @@
 **Date**: 2026-05-11
 **Audit**: Comprehensive ghost-code sweep, third pass
 **Baseline commit**: `39e77a7` (main after all pass-1 fix PRs merged)
-**Scope**: every `## RULE-*` heading in `.claude/rules/*.md` cross-referenced against the bound subtest's actual assertions. Verifies that the test exercises the rule's **semantic load-bearing claim**, not just the API contract.
+**Scope**: every `## RULE-*` heading in `docs/rules/*.md` cross-referenced against the bound subtest's actual assertions. Verifies that the test exercises the rule's **semantic load-bearing claim**, not just the API contract.
 
 ## Method
 
-1. Total rule headings: **358** across **37** rule files (`rg -c '^## RULE-' .claude/rules/`).
+1. Total rule headings: **358** across **37** rule files (`rg -c '^## RULE-' docs/rules/`).
 2. `tools/rulelint` already verifies structural binding (the bound file exists, the subtest name is matched by a `t.Run(...)` literal or top-level test name). Pass-3 starts where rulelint stops.
 3. For each rule, read the rule text — extract the **load-bearing behavioural claim** (the verb-phrase about a specific call site, ordering, or invariant). Then read the bound subtest and verify that a regression which **removed the claim's load-bearing dispatch** would fail the test.
 4. Full Pass-3 across 358 rules is a multi-day effort. This sub-pass scopes to the **5 RULE-*-WIRING-* rules added by #1068** because they are the freshest wiring work and the highest-risk class — they make claims about specific call sites in `Manager.run`, `runShardLoop`, `runDaemonInternal`, and `buildSmartObsBridge`. A regression in any of those callers regenerates the same RFC #1024 "smart-mode doesn't advance" symptom #1068 was supposed to fix.

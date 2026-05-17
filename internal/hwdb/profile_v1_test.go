@@ -815,7 +815,7 @@ driver_profiles:
 
 // TestRuleHwdbPR2_15 verifies RULE-HWDB-PR2-15: pwm_groups validates
 // that channel is non-empty, fans is non-empty, and fan ids are unique.
-// Bound: see .claude/rules/hwdb-pr2-15.md
+// Bound: see docs/rules/hwdb-pr2-15.md
 func TestRuleHwdbPR2_15(t *testing.T) {
 	t.Run("TestRuleHwdbPR2_15", func(t *testing.T) {
 		// Happy path: a board with two pwm_groups loads cleanly.
@@ -855,7 +855,7 @@ func TestRuleHwdbPR2_15(t *testing.T) {
 
 // TestRuleHwdbPR2_16 verifies RULE-HWDB-PR2-16: blacklist_before_install
 // rejects empty entries and duplicates; happy path loads cleanly.
-// Bound: see .claude/rules/hwdb-pr2-16.md
+// Bound: see docs/rules/hwdb-pr2-16.md
 func TestRuleHwdbPR2_16(t *testing.T) {
 	t.Run("TestRuleHwdbPR2_16", func(t *testing.T) {
 		// Happy: two distinct modules loads cleanly.
@@ -878,7 +878,7 @@ func TestRuleHwdbPR2_16(t *testing.T) {
 
 // TestRuleHwdbPR2_17 verifies RULE-HWDB-PR2-17: kernel_version range
 // requires dotted-numeric strings and Min <= Max when both set.
-// Bound: see .claude/rules/hwdb-pr2-17.md
+// Bound: see docs/rules/hwdb-pr2-17.md
 func TestRuleHwdbPR2_17(t *testing.T) {
 	t.Run("TestRuleHwdbPR2_17", func(t *testing.T) {
 		// Happy: a valid range loads cleanly.

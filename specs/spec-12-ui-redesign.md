@@ -110,7 +110,7 @@ PR 8 batches three pages because they share patterns (read-mostly admin surfaces
 - `web/index.html` — copy from mockup bundle, wire to existing API for the version+uptime footer.
 - `web/index.css` — copy from mockup bundle.
 - `internal/web/ui_tokens_test.go` — RULE-UI-01 no-CDN static analysis.
-- `.claude/rules/ui.md` — RULE-UI-01..04 invariants for PR 1 scope.
+- `docs/rules/ui.md` — RULE-UI-01..04 invariants for PR 1 scope.
 
 **Files (modified):**
 - `internal/web/router.go` — serve `/shared/*` static asset path.
@@ -128,7 +128,7 @@ PR 8 batches three pages because they share patterns (read-mostly admin surfaces
 
 **Files (modified):**
 - `internal/web/router.go` — register `/devices`, `/api/v1/chips`, `/api/v1/fans`.
-- `.claude/rules/ui.md` — extend with RULE-UI-DEVICES-01..03.
+- `docs/rules/ui.md` — extend with RULE-UI-DEVICES-01..03.
 
 ### PR 3 — Dashboard
 
@@ -143,7 +143,7 @@ PR 8 batches three pages because they share patterns (read-mostly admin surfaces
 
 **Files (modified):**
 - `internal/web/router.go` — register `/dashboard`, `/api/v1/dashboard`.
-- `.claude/rules/ui.md` — extend with RULE-UI-DASHBOARD-01..04.
+- `docs/rules/ui.md` — extend with RULE-UI-DASHBOARD-01..04.
 - `CHANGELOG.md` — v0.5.0 entry update.
 
 ### PR 4 — Setup flow (folds spec-11)
@@ -169,19 +169,19 @@ PR 8 batches three pages because they share patterns (read-mostly admin surfaces
 - `internal/web/router.go` — register `/setup/*`, `/api/v1/setup/*`, plus setup-needed redirect middleware (`/` → `/setup/` when state ≠ complete; exempts `/api/*`, `/healthz`, `/setup/*`, `/shared/*`).
 - `internal/calibration/probe.go` — add optional progress callback channel (backward-compatible).
 - `internal/config/defaults.go` — `setup.enabled: true`, `setup.force_complete: false`.
-- `.claude/rules/ui.md` — extend with RULE-UI-SETUP-01..10.
+- `docs/rules/ui.md` — extend with RULE-UI-SETUP-01..10.
 - `docs/setup.md` — user-facing setup reference.
 - `CHANGELOG.md` — v0.5.0 entry update.
 
 ### PRs 5-8 — file lists deferred to per-release planning
 
-For PRs 5-8 the file pattern is the same: copy mockup HTML/CSS, author new JS for real API, add backend handler + test, register route, extend `.claude/rules/ui.md`. Detailed file lists drafted at the time of each release to avoid drift.
+For PRs 5-8 the file pattern is the same: copy mockup HTML/CSS, author new JS for real API, add backend handler + test, register route, extend `docs/rules/ui.md`. Detailed file lists drafted at the time of each release to avoid drift.
 
 ---
 
 ## 5 · Invariant bindings
 
-All bindings live in `.claude/rules/ui.md` (single file, sectioned by PR). Each rule binds 1:1 to a subtest per `tools/rulelint`.
+All bindings live in `docs/rules/ui.md` (single file, sectioned by PR). Each rule binds 1:1 to a subtest per `tools/rulelint`.
 
 ### Global UI rules (PR 1)
 

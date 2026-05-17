@@ -739,7 +739,7 @@ internal/controller/controller.go         — emitObservation() walks
                                               int16 millidegrees with ±32767
                                               clamp, keys by SensorIDFor
 internal/controller/controller_test.go    — TestEmitObservation_Populates...
-.claude/rules/observation.md              — add RULE-OBS-SENSOR-01
+docs/rules/observation.md              — add RULE-OBS-SENSOR-01
 release-notes/v0.5.8.1.md
 CHANGELOG.md
 ```
@@ -799,8 +799,8 @@ internal/config/config.go           (extend)
 internal/config/config_test.go      — 2 RULE-CTRL-PRESET-* tests
 
 specs/spec-v0_5_9-confidence-controller.md  (this doc)
-.claude/rules/{confa,aggregator,ctrl-pi,ctrl-blend,ctrl-preset,ctrl-cost,ui-conf}.md
-.claude/RULE-INDEX.md (regenerated)
+docs/rules/{confa,aggregator,ctrl-pi,ctrl-blend,ctrl-preset,ctrl-cost,ui-conf}.md
+docs/rules/INDEX.md (regenerated)
 ```
 
 ### 6.3 PR-B — main.go wiring + status endpoint (~250 LOC, 3 tests)
@@ -823,7 +823,7 @@ web/settings.{html,css,js}                (extend)
   - Smart-mode panel: preset radio (Silent/Balanced/Performance)
   - Per-channel "use predictive" toggle (default on)
 
-.claude/rules/marginal.md                 (extend with RULE-CTRL-WIRING-*)
+docs/rules/marginal.md                 (extend with RULE-CTRL-WIRING-*)
 ```
 
 ### 6.4 PR-C (optional, deferred to v0.5.10) — UI polish + reduced-motion

@@ -304,7 +304,7 @@ func argsort(xs []float64) []int {
 // (au/PWM) is the partial derivative dS/dPWM around the operating
 // point, scaled by the smart-mode preset multiplier.
 //
-// Bound: see .claude/rules/acoustic-proxy.md::RULE-ACOUSTIC-COSTRATE
+// Bound: see docs/rules/acoustic-proxy.md::RULE-ACOUSTIC-COSTRATE
 func TestCostRate(t *testing.T) {
 	t.Run("CaseFanSlope_MatchesR29Measurement", func(t *testing.T) {
 		// R29 §3.2 measured Phoenix's MSI Z690-A chassis fans at

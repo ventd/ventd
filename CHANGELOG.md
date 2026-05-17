@@ -37,7 +37,7 @@ MSI laptops with `msi_wmi_platform` (tach-only, no in-kernel PWM) now get the ou
   - `levelToPWM(level uint8) uint8` — inverse, centred on each level's quantisation band so write→read→compare round-trips are stable.
   - `parseProcFan` — multi-line `key:\tvalue` parser tolerant of missing speed; rejects out-of-range / non-numeric / non-keyword levels with `ErrInvalidProcFanResponse`.
   - Sentinels: `ErrFanControlDisabled`, `ErrProcFanAbsent`, `ErrInvalidProcFanResponse`.
-- `.claude/rules/RULE-HAL-THINKPAD.md` — 11 bound rules covering pwm/level quantisation, parseProcFan, Read empty-by-construction, enable-then-level write sequence, EPERM-as-typed-error wrap, level-auto-with-disable-fallback restore, Enumerate idempotence + ctx-cancel, Close idempotence, opaque-type guards.
+- `docs/rules/RULE-HAL-THINKPAD.md` — 11 bound rules covering pwm/level quantisation, parseProcFan, Read empty-by-construction, enable-then-level write sequence, EPERM-as-typed-error wrap, level-auto-with-disable-fallback restore, Enumerate idempotence + ctx-cancel, Close idempotence, opaque-type guards.
 - `internal/hal/thinkpad/backend_test.go` — exhaustive 256-value PWM sweep + boundary tables, hermetic via `t.TempDir()` procfs fixtures.
 
 ### Changed
@@ -94,12 +94,12 @@ Two HIL-evidence gates that had been shipping write paths default-off "until fie
 ### Internals
 
 - Auto-memory: `feedback-dont-default-writes-off.md` codifies the rule for future HAL backend work.
-- Rule files touched: `.claude/rules/liquid-safety.md` (RULE-LIQUID-03 + RULE-LIQUID-06 rewritten), `.claude/rules/RULE-NBFC-B2.md` (gate prose deleted, rule renamed), `.claude/rules/gpu-pr2d-01.md` (clarifies non-HIL framing).
+- Rule files touched: `docs/rules/liquid-safety.md` (RULE-LIQUID-03 + RULE-LIQUID-06 rewritten), `docs/rules/RULE-NBFC-B2.md` (gate prose deleted, rule renamed), `docs/rules/gpu-pr2d-01.md` (clarifies non-HIL framing).
 - v0.6.0 ship-trail in `internal/web/CHANGELOG.md.embedded` is preserved verbatim — the v0.6.0 release-notes still describe what shipped then. v0.6.1 is an Added/Changed entry on top.
 
 ### Senior review pass
 
-The kept gates (`--enable-gpu-write` for genuine R515+ driver constraints; `--allow-server-probe` for BMC fan-curve conflicts; `--enable-amd-overdrive` for `amdgpu.ppfeaturemask` kernel-taint; `--enable-soak-excitation` for synthetic Δpwm driver) are NOT HIL-evidence gates — each protects against a real underlying constraint distinct from "hardware tested in fleet yet?". Their flags stay. The audit covered `internal/`, `cmd/`, `specs/`, and `.claude/rules/` for any HIL-evidence-gated path.
+The kept gates (`--enable-gpu-write` for genuine R515+ driver constraints; `--allow-server-probe` for BMC fan-curve conflicts; `--enable-amd-overdrive` for `amdgpu.ppfeaturemask` kernel-taint; `--enable-soak-excitation` for synthetic Δpwm driver) are NOT HIL-evidence gates — each protects against a real underlying constraint distinct from "hardware tested in fleet yet?". Their flags stay. The audit covered `internal/`, `cmd/`, `specs/`, and `docs/rules/` for any HIL-evidence-gated path.
 
 ## [v0.6.0] - 2026-05-16
 
@@ -127,7 +127,7 @@ Two load-bearing wins land in one tag: (1) smart-mode field-validation closes �
 
 ### Internals
 
-- New rule files: `.claude/rules/RULE-NBFC-A.md`, `.claude/rules/RULE-NBFC-B1.md`, `.claude/rules/RULE-NBFC-B2.md`, `.claude/rules/RULE-NBFC-B3.md`. Twenty-two new bound subtests across the four files.
+- New rule files: `docs/rules/RULE-NBFC-A.md`, `docs/rules/RULE-NBFC-B1.md`, `docs/rules/RULE-NBFC-B2.md`, `docs/rules/RULE-NBFC-B3.md`. Twenty-two new bound subtests across the four files.
 - Rulelint passes at 401 rule(s), 683 bound(s) verified — zero errors; only pre-existing unclaimed-subtest warnings remain.
 - Modprobe options allowlist extended: `ec_sys → write_support=1` joins `thinkpad_acpi → fan_control=1`. Three new bound subtests in `internal/hwmon/modprobe_options_test.go`.
 
@@ -197,7 +197,7 @@ Smart-mode field-validation fixes — both halves of the RFC #1024 closure: soft
 
 ### Internals
 
-- New `RULE-OPP-IDLE-SOFT-MODE` in `.claude/rules/opportunistic.md` — bound to six subtests in `internal/idle/opportunistic_test.go` covering the load-bearing single-shot guarantee (< 500 ms wall-clock vs ~600 s strict loop), the soft PSI ceiling refusal, the canonical RFC #1024 "soft admits where strict refuses" case at `cpu.some avg60 = 3 %`, mode-constant pinning (zero-value must stay soft), and the nil-baseline first-call admit branch.
+- New `RULE-OPP-IDLE-SOFT-MODE` in `docs/rules/opportunistic.md` — bound to six subtests in `internal/idle/opportunistic_test.go` covering the load-bearing single-shot guarantee (< 500 ms wall-clock vs ~600 s strict loop), the soft PSI ceiling refusal, the canonical RFC #1024 "soft admits where strict refuses" case at `cpu.some avg60 = 3 %`, mode-constant pinning (zero-value must stay soft), and the nil-baseline first-call admit branch.
 - `RULE-OPP-IDLE-01` amended — durability constant applies in `ModeStrictIdle` only; constant and strict-mode behaviour preserved as operator escape-hatch contract. `RULE-OPP-IDLE-02` amended + second binding added (soft and strict modes both enforce input-IRQ delta refusal; soft uses caller-owned baseline).
 - `RULE-CMB-OAT-01` amended for the v0.6.0 group-aware form; pre-v0.6 "j ≠ i" form replaced with "j NOT IN i's PWM group". Five new binding subtests under the amended rule cover intra-group co-movement admit, extra-group movement still rejects, ungrouped channels behave as size-1 groups (v0.5.x semantics preserved), single-member groups silently dropped, and SetPWMGroups idempotency.
 
@@ -222,8 +222,8 @@ Setup-wizard hardening pass — closes two HIL-discovered bugs that landed phant
 
 ### Internals
 
-- New `RULE-CAL-DETECT-STABILITY` in `.claude/rules/calibration-safety.md` — bound to `internal/calibrate/stddev_test.go` (3 subtests: known-values, below-threshold-admits, above-threshold-refuses).
-- New `RULE-SETUP-PHANTOM-VERIFY` in `.claude/rules/setup.md` — bound to `internal/setup/phantom_verify_test.go` (2 subtests: full coverage of admit/refuse/error/ctx-cancel + origPWM-restored-on-all-exit-paths).
+- New `RULE-CAL-DETECT-STABILITY` in `docs/rules/calibration-safety.md` — bound to `internal/calibrate/stddev_test.go` (3 subtests: known-values, below-threshold-admits, above-threshold-refuses).
+- New `RULE-SETUP-PHANTOM-VERIFY` in `docs/rules/setup.md` — bound to `internal/setup/phantom_verify_test.go` (2 subtests: full coverage of admit/refuse/error/ctx-cancel + origPWM-restored-on-all-exit-paths).
 
 ### Senior review pass
 
@@ -293,7 +293,7 @@ Item A4 of the v0.6.0 ship plan — the test-fixture infrastructure the senior r
 
 Helpers are explicit (test calls them between backend operations) because the fake is file-backed and the production hwmon backend reads/writes via `os.ReadFile`/`os.WriteFile` directly — there is no interception point on the read or write path.
 
-Bound to new `RULE-FAKEHWMON-QUIRK-HELPERS` in `.claude/rules/hwmon-sentinel.md` with 8 leaf subtests in `internal/testfixture/fakehwmon/quirks_test.go`.
+Bound to new `RULE-FAKEHWMON-QUIRK-HELPERS` in `docs/rules/hwmon-sentinel.md` with 8 leaf subtests in `internal/testfixture/fakehwmon/quirks_test.go`.
 
 ### Fixed
 
@@ -569,7 +569,7 @@ The chicken-and-egg loop that made every install.sh fix require an external manu
 ## [v0.5.19] - 2026-05-04
 
 ### Headline
-- **Doctor surface, live in the web UI** (#957, spec-10, **closes v0.6 prereq #2**) — the runtime detector pack that's been shipping in `internal/doctor/detectors/` since v0.5.10 (12+ detectors, all spec-bound under `.claude/rules/doctor.md`) finally gets a web view. New `/doctor` page + `/api/v1/doctor` endpoint render Severity-grouped Fact cards (Blocker / Warning / Error / OK) plus a separate panel for detector-level errors. MVP detector set covers `container_postboot`, `dkms_status`, `battery_transition`, `gpu_readiness`, `permissions`, `experimental_flags`. Per-Server cache (5 s TTL) so a multi-tab dashboard doesn't fan out into N detector re-runs per poll. Topbar rollup pill colours by worst severity. Sidebar gains a new "Diagnostics" section with the Doctor entry. Baseline-requiring detectors (kernel_update, hwmon_swap, apparmor_profile_drift, dmi_fingerprint, calibration_freshness, modules_load, kmod_loaded, ec_locked_laptop, polarity_flip) land in a follow-up.
+- **Doctor surface, live in the web UI** (#957, spec-10, **closes v0.6 prereq #2**) — the runtime detector pack that's been shipping in `internal/doctor/detectors/` since v0.5.10 (12+ detectors, all spec-bound under `docs/rules/doctor.md`) finally gets a web view. New `/doctor` page + `/api/v1/doctor` endpoint render Severity-grouped Fact cards (Blocker / Warning / Error / OK) plus a separate panel for detector-level errors. MVP detector set covers `container_postboot`, `dkms_status`, `battery_transition`, `gpu_readiness`, `permissions`, `experimental_flags`. Per-Server cache (5 s TTL) so a multi-tab dashboard doesn't fan out into N detector re-runs per poll. Topbar rollup pill colours by worst severity. Sidebar gains a new "Diagnostics" section with the Doctor entry. Baseline-requiring detectors (kernel_update, hwmon_swap, apparmor_profile_drift, dmi_fingerprint, calibration_freshness, modules_load, kmod_loaded, ec_locked_laptop, polarity_flip) land in a follow-up.
 - **Smart-mode quietness preset + dBA override on /settings** (#956, **closes v0.6 prereq #3 surface**) — operators can finally pick Silent / Balanced / Performance from the UI instead of hand-editing `config.yaml`. The cost-gate primitives (`PresetDBATargets`, `EvalDBABudget`) have been live since v0.5.12; this PR closes the operator-facing gap. Also exposes a numeric dBA budget override (range 10–80 dBA, server-side validated) so an operator can pick Balanced controller behaviour while capping noise at a custom budget. Round-trips through the existing `/api/v1/config` PUT path; no new endpoint needed.
 - **Predicted next-tick ΔT on the dashboard hero forecast** (#958, **closes v0.6 prereq #3 wiring**) — the dashboard hero forecast (shipped in #945) showed Layer-C's per-+1-PWM marginal rate, a useful but abstract signal. v0.5.19 wires the controller's actual decision pipeline through to the dashboard: every tick, the BlendedResult (output PWM + reactive PWM + refusal flags) lands in a per-channel `DecisionCache`, the `/api/v1/smart/channels` API exposes it, and the dashboard sub-line now reads `↓ 0.45 °C predicted · ΔPWM +12 · last 60 s` — what the controller is actually about to do, what the model thinks will happen. Falls back to the per-rate display when no decision exists yet (fresh daemon / monitor-only / channel just admitted).
 
@@ -740,7 +740,7 @@ v0.5.12 closes the R28-R36 acoustic implementation arc that began in v0.5.11. Th
 
 ### Changed — workflow hygiene + collaboration discipline
 - **Full friction audit** (#864) — concurrency cancel-in-progress on every workflow, `paths-ignore` for docs/.claude/CHANGELOG to skip CI on doc-only PRs, `make pre-push` target wrapping `scripts/ci-local.sh`, branch-cleanup workflow sweeping merged branches >7 days, attribution-lint CI gate (`.github/workflows/no-ai-attribution.yml`) blocking AI footers at the line-anchored regex level, HIL smoke workflow scaffolded, RULE-INDEX.md un-tracked (now generated locally; was a serial rebase-conflict source), `release-changelog.yml` auto-CHANGELOG workflow + `cliff.toml` retired in favour of manual CHANGELOG entries per release.
-- **Collaboration audit** (#862) — `.claude/rules/collaboration.md` rewritten end-to-end: standing-delegations section pre-authorises `git tag` / `goreleaser release` / branch deletion / rebase / flake-rerun, CI-flake threshold raised 20→45 min (5-distro × race matrix takes 25-40 min on green), design-conflict-based rebase-escalation replaces count-based, `gh pr merge --auto` + `scripts/dev/{prs,wait-and-merge}.sh` documented, GraphQL `updatePullRequest` workaround for the `gh pr edit --body` projects-classic deprecation captured.
+- **Collaboration audit** (#862) — `docs/rules/collaboration.md` rewritten end-to-end: standing-delegations section pre-authorises `git tag` / `goreleaser release` / branch deletion / rebase / flake-rerun, CI-flake threshold raised 20→45 min (5-distro × race matrix takes 25-40 min on green), design-conflict-based rebase-escalation replaces count-based, `gh pr merge --auto` + `scripts/dev/{prs,wait-and-merge}.sh` documented, GraphQL `updatePullRequest` workaround for the `gh pr edit --body` projects-classic deprecation captured.
 - **Rule staleness pass** (#865) — removed setup-token from web-ui.md + usability.md (eliminated in v0.5.8.1 #765/#794, first-boot is password-set-on-empty-auth.json now), removed NixOS from supported-distros pending modprobe.d-fragment work, attribution.md adds the CI gate as the enforcement reference.
 
 ### Honest framing
@@ -858,7 +858,7 @@ v0.5.12 closes the R28-R36 acoustic implementation arc that began in v0.5.11. Th
 
 ### Changed
 - Redesign every page on the new design system (#704)
-- CC sessions now load `.claude/RULE-INDEX.md` instead of fanning out across all rule files. Rules are read on demand via `go run ./tools/rule-index`. Reduces session preload by ~24-48k tokens. (#686)
+- CC sessions now load `docs/rules/INDEX.md` instead of fanning out across all rule files. Rules are read on demand via `go run ./tools/rule-index`. Reduces session preload by ~24-48k tokens. (#686)
 
 ### Fixed
 - First-boot apparmor + listen + sd_notify so fresh installs actually work (#702)
@@ -954,7 +954,7 @@ v0.5.12 closes the R28-R36 acoustic implementation arc that began in v0.5.11. Th
 ### Changed
 - Extract sysfs/procfs roots into Manager for testability (#163)- FanBackend interface (#247)- Drive via hal.FanBackend (P1-HAL-02) (#262)
 ### Chore
-- Bump actions/cache from 4 to 5 (#83)- Add CC issue-logger shell library (#137)- Issue and pull-request templates (#150)- Makefile + fix feature.yml label and PR template refs (#154)- Gofmt sweep + CI gate (#156)- Delete empty t.Run pass-through stubs left by #163 (#175)- Track .claude/rules/*.md in version control (#218)- Ignore .cowork/ outside the cowork/state branch (#236)- Event-sourced state + dashboard (#248)- Bump Go toolchain to go1.25.9 (closes 17 stdlib CVEs) (#270)
+- Bump actions/cache from 4 to 5 (#83)- Add CC issue-logger shell library (#137)- Issue and pull-request templates (#150)- Makefile + fix feature.yml label and PR template refs (#154)- Gofmt sweep + CI gate (#156)- Delete empty t.Run pass-through stubs left by #163 (#175)- Track docs/rules/*.md in version control (#218)- Ignore .cowork/ outside the cowork/state branch (#236)- Event-sourced state + dashboard (#248)- Bump Go toolchain to go1.25.9 (closes 17 stdlib CVEs) (#270)
 ### Documentation
 - Add v0.3.0 plan (#110)- Correct reboot-survival gate reference to #111 (#113)- Mark v0.3.0 CI-matrix gate as landed in #114 (#117)- Expand v0.3 plan and draft v0.4 plan (#120)- Record v0.3 controller-safety fixes in CHANGELOG, COVERAGE, v0.3 plan (#127)- Record Batch 2 fixes and API metadata work (#157)- Record setup.Manager root extraction (#163) (#166)- Cross-link rig reboot-PASS tracker #167 (#169)- Refresh internal/setup after #163 lands (#170)- Document non-linux contributor workflow (#205)- CHANGELOG narrative for Phase 2 UI + refresh stale systemd unit comment (#213)- Add public roadmap (#237)- Add hardware-report issue template (#238)- Add regression-test checkbox to PR template (T0-META-03) (#240)- Add CLAUDE.md priming Claude Code for Cowork task activation (#243)- Correct feature list to shipped capability; add roadmap section (#264)- Finalize v0.3.0 release notes
 ### Fixed

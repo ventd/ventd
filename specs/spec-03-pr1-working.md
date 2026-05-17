@@ -43,7 +43,7 @@ to schema v1.
   populated
 - `internal/hwdb/testdata/invalid_*.yaml` — one fixture per failing
   rule (9 files)
-- `.claude/rules/hwdb-schema.md` — RULE-HWDB-01..09 with `Bound:` lines
+- `docs/rules/hwdb-schema.md` — RULE-HWDB-01..09 with `Bound:` lines
 - `docs/hwdb-schema.md` — human-readable schema reference + storage
   layout + frozen fingerprint tuple
 
@@ -61,8 +61,8 @@ to schema v1.
 
 ### 2.3 Existing files to read first (do not modify)
 
-- `.claude/rules/hwmon-safety.md` — rule file format reference
-- `.claude/rules/install-contract.md` — rule file format reference
+- `docs/rules/hwmon-safety.md` — rule file format reference
+- `docs/rules/install-contract.md` — rule file format reference
   (recently shipped, freshest example)
 - `tools/rulelint/main.go` (or wherever rulelint lives) — confirms the
   `Bound:` line parser shape so new rules don't trip the linter
@@ -311,7 +311,7 @@ The test in `migrate_test.go` walks `supportedVersions`, asserts that
 for every `v > 1` there is a `migrators[v]` registered. This is
 RULE-HWDB-07's binding.
 
-## 9. Invariant rules — `.claude/rules/hwdb-schema.md`
+## 9. Invariant rules — `docs/rules/hwdb-schema.md`
 
 Numbering: PR 1 ships 01..09. The base spec reserved 08..10 for PR 4
 capture; PR 4 will ship those. To avoid number collision, the
@@ -509,7 +509,7 @@ Under `## [Unreleased]`, `### Added`:
   `/var/lib/ventd/platform/<fingerprint>/` and the user-mode fallback
   at `$XDG_STATE_HOME/ventd/`. Reserved layout for capture (PR 4)
   and predictive (spec-05) writes.
-- `.claude/rules/hwdb-schema.md` with invariants RULE-HWDB-01..09 each
+- `docs/rules/hwdb-schema.md` with invariants RULE-HWDB-01..09 each
   bound 1:1 to a subtest under `TestSchema_Invariants` or
   `TestMigrate_ChainIntegrity`.
 ```
@@ -533,7 +533,7 @@ If Outcome A from §3 fired (fingerprint tuple changed), also add under
 - [ ] `go test -race -run TestMigrate_ChainIntegrity ./internal/hwdb/`
       passes.
 - [ ] `go run ./tools/rulelint` shows zero orphans, zero missing
-      bindings. (`.claude/rules/hwdb-schema.md` resolves cleanly.)
+      bindings. (`docs/rules/hwdb-schema.md` resolves cleanly.)
 - [ ] `golangci-lint run ./internal/hwdb/...` passes.
 - [ ] `goleak` integration in test main confirms zero goroutine leaks
       (the package already uses goleak; new tests must remain clean).
@@ -578,7 +578,7 @@ PR 1 commit body should mention that two follow-up issues exist:
   `spec-03`
 
 Phoenix files these issues; CC drafts text in the PR description but
-does not run `gh issue create`. (Per `.claude/rules/collaboration.md`:
+does not run `gh issue create`. (Per `docs/rules/collaboration.md`:
 issue creation is a Phoenix-only action.)
 
 ## 14. Token-cost expectation
@@ -591,7 +591,7 @@ transcription of this document into Go + YAML + Markdown:
 - ~120 LOC `fingerprint_test.go` (golden + each-field-varies)
 - ~60 LOC `migrate.go` (skeleton + registry)
 - ~40 LOC `migrate_test.go` (chain integrity)
-- ~150 lines `.claude/rules/hwdb-schema.md` (paste from §9.1)
+- ~150 lines `docs/rules/hwdb-schema.md` (paste from §9.1)
 - ~200 lines `docs/hwdb-schema.md`
 - 9 fixture YAML files, ~10-30 lines each
 - `profiles.yaml` migration (small)

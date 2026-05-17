@@ -27,7 +27,7 @@ func baseProbes() Probes {
 
 // TestPreflightOOT exercises every Reason in the chain. Each subtest binds
 // 1:1 to a RULE-PREFLIGHT-* invariant in
-// .claude/rules/preflight-comprehensive.md. Adding a probe means adding a
+// docs/rules/preflight-comprehensive.md. Adding a probe means adding a
 // subtest here; rulelint blocks the merge otherwise.
 func TestPreflightOOT(t *testing.T) {
 	nd := DriverNeed{

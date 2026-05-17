@@ -186,7 +186,7 @@ The full amendment file `spec-05-amendment-smart-mode-rework.md` would contain:
    - LSTM/GPR remains rejected
    - eBPF/motif-mining remain post-v1.0
    - Telemetry ring buffer 7-day default unchanged
-7. New invariant binding: `RULE-PREDICT-MODEL-R9-COMPAT`, `RULE-PREDICT-MODEL-R12-COMPAT`, `RULE-PREDICT-WORKLOAD-R7-COMPAT` — three new rules in `.claude/rules/predict-*.md` enforcing alignment with the locked R-items
+7. New invariant binding: `RULE-PREDICT-MODEL-R9-COMPAT`, `RULE-PREDICT-MODEL-R12-COMPAT`, `RULE-PREDICT-WORKLOAD-R7-COMPAT` — three new rules in `docs/rules/predict-*.md` enforcing alignment with the locked R-items
 8. Cost: amendment itself is $0 chat work; net effect on v0.5.7/v0.5.8/v0.5.9 implementation is **cost-neutral** (R-items already define the work; amendment removes spec-05 redundancies).
 
 ---
@@ -194,7 +194,7 @@ The full amendment file `spec-05-amendment-smart-mode-rework.md` would contain:
 ## Conclusions actionable now
 
 1. **Draft `spec-05-amendment-smart-mode-rework.md` as a chat artifact before v0.5.7 implementation begins.** This is $0 chat work; produces an amendment file analogous to spec-04-amendment-predictive.md and spec-12-amendment-smart-mode-rework.md.
-2. **Three new rule bindings** in `.claude/rules/predict-*.md` will need subtests during v0.5.7/v0.5.8/v0.5.9 implementation. Rulelint will catch missing subtests; CC prompts for those patches must reference the amendment.
+2. **Three new rule bindings** in `docs/rules/predict-*.md` will need subtests during v0.5.7/v0.5.8/v0.5.9 implementation. Rulelint will catch missing subtests; CC prompts for those patches must reference the amendment.
 3. **No retroactive work needed on v0.5.0.1, v0.5.1, v0.5.2, v0.5.3, v0.5.4, v0.5.5, v0.5.6.** The amendment touches only Layer B, Layer C, controller, and persistence — none of which ship before v0.5.7.
 4. **Amendment removes scope from spec-05** more than it adds: deletes parallel persistence layout, deletes bespoke signature scheme, rescinds four Opus consults, defers Phase 2/3 to post-v1.0. Net cost-of-implementation goes down.
 5. **One open coordination point with spec-12 amendment:** the `aggressiveness` knob name decision and its mapping to IMC λ. Cleanest resolution: `aggressiveness` is internal-only (debug socket exposed), user-facing knob is the smart-mode preset (`Silent / Balanced / Perf`), preset → λ multiplier table lives in spec-12 amendment §UI-preset-mappings. Confirm during spec-12 amendment finalization.

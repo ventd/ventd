@@ -12,12 +12,12 @@ func testRoot(name string) string {
 }
 
 // stageFixture builds a minimal repo root in t.TempDir().
-// rulesContent is written to .claude/rules/example.md.
+// rulesContent is written to docs/rules/example.md.
 // If testContent is non-empty it is written to pkg/somefile_test.go.
 func stageFixture(t *testing.T, rulesContent, testContent string) string {
 	t.Helper()
 	root := t.TempDir()
-	rulesDir := filepath.Join(root, ".claude", "rules")
+	rulesDir := filepath.Join(root, "docs", "rules")
 	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

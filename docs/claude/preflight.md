@@ -60,7 +60,7 @@ Summary:
 | remote | Wrong GitHub remote | Run `git remote -v` and verify `origin` is `git@github.com:ventd/ventd.git` |
 | branch | On `main` branch | `git checkout -b <name> origin/main` and commit your changes on the new branch |
 | spec | Spec file not committed | `git add specs/<spec-id>.md && git commit` |
-| rulelint | Rule binding errors | Run `tools/rulelint` to see details; fix .claude/rules/ bindings |
+| rulelint | Rule binding errors | Run `tools/rulelint` to see details; fix docs/rules/ bindings |
 
 ## Exit code 2 warnings (advisory)
 

@@ -21,7 +21,7 @@ import (
 // finishes within updateOutcomeWatchTimeout, no outcome is captured
 // (the operator can re-poll).
 //
-// Bound rule: RULE-WEB-UPDATE-STATUS-FIDELITY in .claude/rules/web-ui.md.
+// Bound rule: RULE-WEB-UPDATE-STATUS-FIDELITY in docs/rules/web-ui.md.
 //
 // The watcher exists because v0.5.x's POST /api/v1/update/apply path
 // replied 202 "scheduled" even when the transient unit was about to

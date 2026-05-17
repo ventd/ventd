@@ -328,7 +328,7 @@ Tests should use deterministic seed data, not random. This tool is for *manual* 
 
 ## Subtest mapping
 
-Each RULE binds to a Go subtest (1:1 per `.claude/rules/profile-submit.md`):
+Each RULE binds to a Go subtest (1:1 per `docs/rules/profile-submit.md`):
 
 | Rule | Subtest |
 |---|---|

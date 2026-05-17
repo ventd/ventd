@@ -18,7 +18,7 @@ import (
 )
 
 // TestLiquidSafety_Invariants contains one subtest per RULE-LIQUID-* binding.
-// Subtest names must match the Bound: lines in .claude/rules/liquid-safety.md
+// Subtest names must match the Bound: lines in docs/rules/liquid-safety.md
 // character-for-character so that rulelint can verify them.
 func TestLiquidSafety_Invariants(t *testing.T) {
 

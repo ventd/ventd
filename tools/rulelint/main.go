@@ -188,7 +188,7 @@ func run(root string, w io.Writer) int {
 }
 
 func runWithOptions(root string, w io.Writer, opts runOptions) int {
-	rulesDir := filepath.Join(root, ".claude", "rules")
+	rulesDir := filepath.Join(root, "docs", "rules")
 	rules, parseErrs := parseRulesDir(rulesDir)
 
 	var forwardErrs []string

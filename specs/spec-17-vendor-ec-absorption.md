@@ -38,7 +38,7 @@ Each upstream falls into one of three absorption modes, chosen by what the upstr
 The upstream is a kernel module ventd doesn't drive directly today, but recognising it lets the wizard propose the right install + the doctor surface report capability. Pattern: `internal/hwdb/catalog/drivers/<module>.yaml`. No write code.
 
 ### Mode B — full HAL backend (driver row + `internal/hal/<vendor>/` + RULE-HAL-<VENDOR>-*)
-The upstream exposes a stable userspace surface (sysfs / procfs / `/dev/<dev>`) ventd can drive end-to-end. Pattern: mirror `internal/hal/thinkpad/` exactly — one Go package per vendor, contract-test conformance via `internal/hal/contract_test.go`, restore-on-exit through the watchdog, EBUSY handling, sentinel rejection. Each backend ships with a `.claude/rules/RULE-HAL-<VENDOR>.md` binding ≥10 subtests to enforce the contract.
+The upstream exposes a stable userspace surface (sysfs / procfs / `/dev/<dev>`) ventd can drive end-to-end. Pattern: mirror `internal/hal/thinkpad/` exactly — one Go package per vendor, contract-test conformance via `internal/hal/contract_test.go`, restore-on-exit through the watchdog, EBUSY handling, sentinel rejection. Each backend ships with a `docs/rules/RULE-HAL-<VENDOR>.md` binding ≥10 subtests to enforce the contract.
 
 ### Mode C — config-corpus vendoring (mirror `internal/hwdb/nbfc/`)
 The upstream is a config corpus (JSON / YAML / C# dictionary) covering per-model fan-curve byte arrays or named strategies. Pattern: `internal/hwdb/<vendor>/{embed,schema,match,allowlists}.go` + `configs/*.json` + `UPSTREAM` manifest + `LICENSE.upstream`. Loader follows `nbfc.LoadCatalog` shape exactly. JSONC tolerance (RULE-NBFC-CATALOG-JSONC-01) re-used where the upstream uses non-strict JSON.
@@ -64,8 +64,8 @@ The `hal.FanBackend` contract (RULE-HAL-001..008) is shaped around a `Write(ch, 
 Deliverables (single PR):
 - `internal/hal/legion/{backend,backend_test,curve,curve_test}.go` — implements both `hal.FanBackend` (state-switcher) and `hal.CurveSink` (10-point debugfs `/sys/kernel/debug/legion/fancurve` upload). Restore writes `level: 0` (BIOS auto resumes) on every exit path via the watchdog.
 - `internal/hal/curve_sink.go` — defines the `CurveSink` interface + `CurvePoint{TempC, PWM}` struct + the controller-side dispatch helper `CurveOrPerTick(backend, channel, curve, pwm)` so the apply path picks the right primitive without each call site re-implementing the type-assertion dance.
-- `.claude/rules/RULE-HAL-LEGION.md` with ≥12 bound subtests covering: state-switcher bucket boundaries, curve-upload payload format, debugfs write atomicity (single open + write + commit), `force=1` modparam absence graceful-degrade, EC chip-id mismatch tolerance, restore on every exit path, CurveSink interface conformance, write-during-no-curve fallback to state-switcher.
-- `.claude/rules/RULE-HAL-CURVE-SINK.md` — defines the controller-side contract: a backend that implements CurveSink MUST honour per-tick Write calls too (state-switcher fallback); Apply MUST call WriteCurve before any per-tick Writes; a backend that returns nil from WriteCurve has committed the curve and the controller MAY skip per-tick Writes for that channel.
+- `docs/rules/RULE-HAL-LEGION.md` with ≥12 bound subtests covering: state-switcher bucket boundaries, curve-upload payload format, debugfs write atomicity (single open + write + commit), `force=1` modparam absence graceful-degrade, EC chip-id mismatch tolerance, restore on every exit path, CurveSink interface conformance, write-during-no-curve fallback to state-switcher.
+- `docs/rules/RULE-HAL-CURVE-SINK.md` — defines the controller-side contract: a backend that implements CurveSink MUST honour per-tick Write calls too (state-switcher fallback); Apply MUST call WriteCurve before any per-tick Writes; a backend that returns nil from WriteCurve has committed the curve and the controller MAY skip per-tick Writes for that channel.
 - Controller-side wiring in `internal/controller/blended.go` (apply path) to dispatch via CurveSink when supported.
 - Driver row at `internal/hwdb/catalog/drivers/legion_hwmon.yaml` — upgrade from the spec-03-scope-C shape to PR-2 schema `driver_profiles[]` v1.2 + add `fan_control_via: "curve_sink"` to declare the backend.
 - Wire into `cmd/ventd/calresolver.go::registerHALBackends`.
@@ -156,7 +156,7 @@ The PR-7 HP backport variant carries an extra surface: when the running kernel i
 Every Mode B HAL backend ships with:
 1. ≥10 unit subtests in `internal/hal/<vendor>/backend_test.go` covering: enumerate idempotent, read no-mutation, write faithful (or vendor-quantised), restore safe on unopened, caps stable, role deterministic, close idempotent, write-second-call no-op, EBUSY handling, sentinel rejection. The thinkpad backend is the template.
 2. Contract-test conformance via `internal/hal/contract_test.go`'s table — add a new entry per backend.
-3. RULE family of ≥10 rules in `.claude/rules/RULE-HAL-<VENDOR>.md`, each `Bound:` to a subtest above. `tools/rulelint` enforces 1:1.
+3. RULE family of ≥10 rules in `docs/rules/RULE-HAL-<VENDOR>.md`, each `Bound:` to a subtest above. `tools/rulelint` enforces 1:1.
 
 Every Mode C corpus ingest ships with:
 1. The `nbfc`-shape `LoadCatalog` + `Match` + `classifyControlMode` triple, each with subtests pinning the exhaustive coverage.

@@ -1,6 +1,6 @@
 package ipmi_test
 
-// safety_test.go binds every rule in .claude/rules/ipmi-safety.md to a
+// safety_test.go binds every rule in docs/rules/ipmi-safety.md to a
 // named subtest. Do not delete a subtest without either (a) deleting the
 // matching rule or (b) replacing it with a stronger test that still covers
 // the same invariant.
@@ -22,7 +22,7 @@ import (
 
 // TestIPMISafety_Invariants is the rule-to-test index for the IPMI backend
 // safety-critical command path. Each subtest binds one invariant from
-// .claude/rules/ipmi-safety.md.
+// docs/rules/ipmi-safety.md.
 func TestIPMISafety_Invariants(t *testing.T) {
 	// sendRecvAdapter bridges fakeipmi.Fake.Respond to the ipmi.WithSendRecv
 	// hook. req = [netfn, cmd, data...]; resp is a 128-byte buffer the adapter

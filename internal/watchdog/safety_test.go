@@ -1,6 +1,6 @@
 package watchdog
 
-// safety_test.go binds every rule in .claude/rules/watchdog-safety.md to a
+// safety_test.go binds every rule in docs/rules/watchdog-safety.md to a
 // named subtest inside TestWDSafety_Invariants. The rule-lint under
 // tools/rulelint walks the Bound: markers in the rules file and fails CI
 // if any named subtest here goes missing.
@@ -36,7 +36,7 @@ import (
 
 // TestWDSafety_Invariants is the rule-to-test index for the watchdog
 // safety envelope. Each subtest binds one invariant from
-// .claude/rules/watchdog-safety.md. Do not delete or rename a subtest
+// docs/rules/watchdog-safety.md. Do not delete or rename a subtest
 // without updating the Bound: line of the matching rule.
 func TestWDSafety_Invariants(t *testing.T) {
 	// ─── RULE-WD-RESTORE-EXIT ──────────────────────────────────────────

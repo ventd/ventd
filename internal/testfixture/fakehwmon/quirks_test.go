@@ -16,7 +16,7 @@ import (
 // tests) can rely on the file-system effect.
 //
 // Bound rule: RULE-FAKEHWMON-QUIRK-HELPERS in
-// .claude/rules/hwmon-sentinel.md (multi-rule family file).
+// docs/rules/hwmon-sentinel.md (multi-rule family file).
 func TestRULE_FAKEHWMON_QUIRK_HELPERS(t *testing.T) {
 	t.Run("inject_sentinel_rpm_writes_65535_to_fan_input", func(t *testing.T) {
 		f := New(t, &Options{

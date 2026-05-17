@@ -51,8 +51,8 @@ ventd refuses to serve plaintext HTTP on non-loopback listens — see
 `Web.RequireTransportSecurity()` in `internal/config/config.go`. The
 first-boot flow auto-generates a self-signed cert under `/etc/ventd/`
 (`cmd/ventd/main.go:132-162`) and serves HTTPS on `0.0.0.0:9999`. That
-is the documented security posture per `.claude/rules/web-ui.md` and
-`.claude/rules/usability.md`: the daemon is LAN-reachable by default,
+is the documented security posture per `docs/rules/web-ui.md` and
+`docs/rules/usability.md`: the daemon is LAN-reachable by default,
 so the setup wizard (admin password + token in flight) has to run over
 TLS even before the operator has configured anything. `-k` is
 necessary because the cert has no trust chain; it is not laziness —

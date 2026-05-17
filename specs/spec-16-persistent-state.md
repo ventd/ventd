@@ -386,7 +386,7 @@ files are not user-readable without group membership.
 
 ---
 
-## 9. Invariant bindings (RULE-STATE-* in `.claude/rules/`)
+## 9. Invariant bindings (RULE-STATE-* in `docs/rules/`)
 
 | Rule ID | Statement |
 |---|---|
@@ -531,7 +531,7 @@ controller convergence. Explicit not-applicable declared per
 
 - Spec drafting (chat): $0 (this document).
 - CC implementation (Sonnet, single tight PR): **$15-25 estimate**.
-- Bindings to .claude/rules/: included in PR scope.
+- Bindings to docs/rules/: included in PR scope.
 - Synthetic CI tests: included in PR scope.
 - HIL verification: post-merge, Phoenix manual on Proxmox.
 

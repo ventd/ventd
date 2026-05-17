@@ -76,7 +76,7 @@ func assertHasValue(t *testing.T, u map[string][]string, key, want string) {
 }
 
 // TestSidecarUnit_MinimalPrivilege verifies that deploy/ventd-ipmi.service
-// applies the minimal-privilege profile from .claude/rules/ipmi-safety.md:
+// applies the minimal-privilege profile from docs/rules/ipmi-safety.md:
 // exactly one device grant (/dev/ipmi0 rw), a single capability
 // (CAP_SYS_RAWIO), and the full filesystem+network hardening set.
 func TestSidecarUnit_MinimalPrivilege(t *testing.T) {

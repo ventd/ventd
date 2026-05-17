@@ -7,7 +7,7 @@ Tracks Claude Code spend per PR for ventd, used to estimate future spec PRs.
 1. Before drafting a CC prompt, find the closest analogue PR below
 2. Use its actual cost as the baseline
 3. Pad 50% only if the new PR touches existing committed scaffolding (sysusers, units, install scripts, packaging, release pipeline)
-4. Tight specs with `.claude/rules` bindings + drift triage in chat collapse CC ~10× vs exploratory specs
+4. Tight specs with `docs/rules` bindings + drift triage in chat collapse CC ~10× vs exploratory specs
 
 ## Calibration data
 

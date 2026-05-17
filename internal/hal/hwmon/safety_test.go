@@ -1,7 +1,7 @@
 package hwmon
 
 // safety_test.go binds every sentinel-related rule in
-// .claude/rules/hwmon-safety.md to a named subtest. The goal is that a
+// docs/rules/hwmon-safety.md to a named subtest. The goal is that a
 // regression in any one sentinel invariant fails in CI at a predictable
 // location with a predictable name.
 //
@@ -58,7 +58,7 @@ func channelForPWM(pwmPath string) hal.Channel {
 
 // TestSafety_SentinelInvariants is the rule-to-test index for sentinel
 // rejection in the hwmon backend. Each subtest binds one sentinel-related
-// invariant from .claude/rules/hwmon-safety.md.
+// invariant from docs/rules/hwmon-safety.md.
 func TestSafety_SentinelInvariants(t *testing.T) {
 
 	// ---------- RULE-HWMON-SENTINEL-FAN ----------

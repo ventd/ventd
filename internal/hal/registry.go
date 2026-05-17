@@ -15,7 +15,7 @@ import (
 // owns it.
 //
 // Backends are registered explicitly from main (not via init() — the
-// project convention in .claude/rules/go-conventions.md forbids
+// project convention in docs/rules/go-conventions.md forbids
 // package-level init). The task prompt suggested "Register in init()";
 // the deviation is called out in the task PR body.
 var (

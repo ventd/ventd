@@ -134,7 +134,7 @@ Add the following to PR 1 DoD:
 
 **Modified files:**
 - `docs/hwdb-schema.md` — add storage layout section + predictive_hints field reference.
-- `.claude/rules/hwdb-schema.md` — add RULE-HWDB-11, -12, and clarify RULE-HWDB-13 scope.
+- `docs/rules/hwdb-schema.md` — add RULE-HWDB-11, -12, and clarify RULE-HWDB-13 scope.
 - `internal/hwdb/schema.go` — add `PredictiveHints` struct with `omitempty` JSON/YAML tags.
 
 **Out of scope (still):**

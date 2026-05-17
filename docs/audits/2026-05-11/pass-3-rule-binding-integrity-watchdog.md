@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-11
 **Baseline commit**: `f95ba76` (main after pass-3-cmb)
-**Scope**: every `RULE-WD-*` heading in `.claude/rules/watchdog-safety.md` — **11 rules / 16 bindings** (3 new families from #1070).
+**Scope**: every `RULE-WD-*` heading in `docs/rules/watchdog-safety.md` — **11 rules / 16 bindings** (3 new families from #1070).
 
 ## Findings
 

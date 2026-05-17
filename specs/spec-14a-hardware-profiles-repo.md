@@ -297,6 +297,6 @@ After this PR: the repo is ready to receive profile contributions, but ventd doe
 
 ## Subtests / RULE bindings
 
-This spec is for the **upstream repo**, not ventd code, so it doesn't generate `.claude/rules/*.md` bindings. Validation is enforced by JSON Schema + CI in the upstream repo, which is its own test layer.
+This spec is for the **upstream repo**, not ventd code, so it doesn't generate `docs/rules/*.md` bindings. Validation is enforced by JSON Schema + CI in the upstream repo, which is its own test layer.
 
 The ventd-side rules (RULE-PROF-CONSUME-NN for fetching, parsing, caching) live in spec-14b.

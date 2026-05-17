@@ -47,7 +47,7 @@ Single PR. Mostly read-only code paths reusing existing hwdb + calibration store
 - `internal/doctor/checks/gpu.go` — NVML present? amdgpu controllable? Check driver versions against minimum supported.
 - `internal/doctor/runner_test.go` — synthetic-fixture subtests, one per check. Bind to RULE-DOCTOR-* invariants.
 - `internal/doctor/bios_known_bad.go` — known-bad BIOS regex/string list with `(vendor, BIOS string regex, severity, message)` tuples. Maintained alongside catalog.
-- `.claude/rules/doctor.md` — RULE-DOCTOR-01..10 invariants.
+- `docs/rules/doctor.md` — RULE-DOCTOR-01..10 invariants.
 - `docs/doctor.md` — user-facing reference: how to read the output, severity meanings, exit codes, JSON schema.
 
 **Files (modified):**
@@ -62,7 +62,7 @@ Single PR. Mostly read-only code paths reusing existing hwdb + calibration store
 - `web/*` — spec-11 consumes doctor output, no doctor-side web work.
 - BIOS-write paths — doctor is read-only.
 
-### Invariant bindings (`.claude/rules/doctor.md`)
+### Invariant bindings (`docs/rules/doctor.md`)
 
 1. `RULE-DOCTOR-01` — Doctor is read-only. No code path may write to `/sys`, `/dev`, or `/var/lib/ventd/` from `internal/doctor/`. Bound by static analysis subtest that greps the package for `os.OpenFile` with write flags. **Binds to:** `TestDoctor_ReadOnly`.
 

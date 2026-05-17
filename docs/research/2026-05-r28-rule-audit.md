@@ -1,6 +1,6 @@
 # R28 rule-file audit — 2026-05-03
 
-**Scope:** every `.claude/rules/RULE-*.md` plus the topic-grouped rule files
+**Scope:** every `docs/rules/RULE-*.md` plus the topic-grouped rule files
 (hwmon-safety, hwmon-sentinel, hwdb-pr2-*, calibration-pr2b-*, opportunistic,
 signature, coupling, marginal, signguard, confidence-*, blended-controller,
 preflight-comprehensive, preflight-orchestrator, wizard-gates, wizard-recovery,
@@ -76,8 +76,8 @@ package paths declared.
 
 - **Rule name:** `RULE-HWMON-SENTINEL-FAN-IMPLAUSIBLE` (in `hwmon-sentinel.md`) and
   `RULE-HWMON-SENTINEL-FAN` (in `hwmon-safety.md`)
-- **File:** `.claude/rules/hwmon-sentinel.md` (lines 14-21);
-  `.claude/rules/hwmon-safety.md` (lines 113-121)
+- **File:** `docs/rules/hwmon-sentinel.md` (lines 14-21);
+  `docs/rules/hwmon-safety.md` (lines 113-121)
 - **Defect class:** `wrong-threshold`
 - **Current text:** "any RPM value above `PlausibleRPMMax` (10000) MUST be rejected …"
 - **Correct text:** Plausibility cap should be 25000 RPM (covers Delta TFC1212DE
@@ -122,8 +122,8 @@ package paths declared.
 ### 2.2 Missing RULE-PUMPFLOOR-20 (AIO pump 60% PWM floor) — hardware-damaging gap
 
 - **Rule name:** `RULE-PUMPFLOOR-20_PumpClassFloor` (proposed)
-- **File:** would live in `.claude/rules/hwmon-safety.md` (extending RULE-HWMON-PUMP-FLOOR)
-  or new `.claude/rules/pump-class-detect.md`
+- **File:** would live in `docs/rules/hwmon-safety.md` (extending RULE-HWMON-PUMP-FLOOR)
+  or new `docs/rules/pump-class-detect.md`
 - **Defect class:** `missing-rule`
 - **Current text:** RULE-HWMON-PUMP-FLOOR exists but only fires when the channel
   is *already* configured `is_pump: true` in `config.yaml`. It does NOT
@@ -149,7 +149,7 @@ package paths declared.
   routed through nct6775).
 - **Severity:** **P0** — physical hardware damage potential.
 - **Suggested fix:** Land RULE-PUMPFLOOR-20 per R28 §3 S2-3 spec.
-  - New file `.claude/rules/pump-class-detect.md` with one rule.
+  - New file `docs/rules/pump-class-detect.md` with one rule.
   - New file `internal/hal/hwmon/pump_class.go` exporting
     `DetectPumpClass(channel) (isPump bool, reason string)`.
   - Extend `internal/calibrate/safety.go` with a pump-floor check. Extend
@@ -160,7 +160,7 @@ package paths declared.
 ### 2.3 Missing RULE-THERMABORT-21 (thermal throttle during sweep) — wrong calibration outcome under load
 
 - **Rule name:** `RULE-THERMABORT-21_ThermalZoneAbortDuringSweep` (proposed)
-- **File:** would live in `.claude/rules/envelope.md` (a new file, since the
+- **File:** would live in `docs/rules/envelope.md` (a new file, since the
   existing `RULE-ENVELOPE-*.md` are per-rule). Extension of RULE-ENVELOPE-04.
 - **Defect class:** `missing-rule`
 - **Current text:** RULE-ENVELOPE-04 (dT/dt) and RULE-ENVELOPE-05 (T_abs)
@@ -195,7 +195,7 @@ package paths declared.
 ### 3.1 Missing RULE-STICTION-15 — sleeve-bearing rotor stiction not detected
 
 - **Rule name:** `RULE-STICTION-15_RotorStiction_SpinUpPulse` (proposed)
-- **File:** would extend `.claude/rules/calibration-safety.md`
+- **File:** would extend `docs/rules/calibration-safety.md`
 - **Defect class:** `missing-rule`
 - **Current text:** No rule covers "RPM stays at 0 with PWM > stall threshold
   for 3+ seconds" → spin-up pulse → re-check.
@@ -211,7 +211,7 @@ package paths declared.
 ### 3.2 Missing RULE-MONOTONICITY-16 — non-monotonic Smart-Fan EC reinterpretation
 
 - **Rule name:** `RULE-MONOTONICITY-16_RefuseNonMonotonicCurve` (proposed)
-- **File:** would extend `.claude/rules/calibration-safety.md`
+- **File:** would extend `docs/rules/calibration-safety.md`
 - **Defect class:** `missing-rule`
 - **Current text:** RULE-CAL-DETECT-* rules detect *correlation* (does RPM
   rise with PWM at all?) but not *monotonicity* across the full sweep.
@@ -231,7 +231,7 @@ package paths declared.
 ### 3.3 Missing RULE-DUMMYTACH-18 — synthesised tach detection
 
 - **Rule name:** `RULE-DUMMYTACH-18_FakeTachOnPWMZero` (proposed)
-- **File:** would extend `.claude/rules/calibration-safety.md`
+- **File:** would extend `docs/rules/calibration-safety.md`
 - **Defect class:** `missing-rule`
 - **Current text:** ZeroPWMSentinel covers the time-bound (RULE-CAL-ZERO-FIRES);
   RULE-CALIB-PR2B-03 detects ambiguous polarity → phantom. Neither catches
@@ -250,8 +250,8 @@ package paths declared.
 ### 3.4 Missing RULE-EXPERIMENTAL-AMD-OVERDRIVE-05 — RDNA3 zero-range fan_curve
 
 - **Rule name:** `RULE-EXPERIMENTAL-AMD-OVERDRIVE-05_RDNA3ZeroRangeRefuse` (proposed)
-- **File:** would extend `.claude/rules/experimental-amd-overdrive-04.md` or new
-  `.claude/rules/experimental-amd-overdrive-05.md`
+- **File:** would extend `docs/rules/experimental-amd-overdrive-04.md` or new
+  `docs/rules/experimental-amd-overdrive-05.md`
 - **Defect class:** `missing-rule`
 - **Current text:** RULE-EXPERIMENTAL-AMD-OVERDRIVE-04 covers RDNA4 (Navi 48,
   PCI 0x7550) on kernel <6.15. R28-master §5.7 calls out a sibling case:
@@ -278,7 +278,7 @@ package paths declared.
 ### 3.5 RULE-PROBE-02 (virt detection ≥3 sources) — recall gap on MicroVM/Firecracker
 
 - **Rule name:** `RULE-PROBE-02`
-- **File:** `.claude/rules/RULE-PROBE-02.md`
+- **File:** `docs/rules/RULE-PROBE-02.md`
 - **Defect class:** `wrong-threshold`
 - **Current text:** Three sources: DMI vendor match, `systemd-detect-virt --vm`,
   `/sys/hypervisor`. Threshold 3 → set `Virtualised=true`.
@@ -307,7 +307,7 @@ package paths declared.
 ### 3.6 RULE-CAL-ZERO-DURATION (2 s) — too short for some NAS HDDs
 
 - **Rule name:** `RULE-CAL-ZERO-DURATION`
-- **File:** `.claude/rules/calibration-safety.md`
+- **File:** `docs/rules/calibration-safety.md`
 - **Defect class:** `wrong-threshold`
 - **Current text:** "ZeroPWMMaxDuration must equal 2 * time.Second."
 - **Correct text:** 2 s is correct for fans (rotor inertia ≪ 1 s; 2 s catches
@@ -335,7 +335,7 @@ package paths declared.
 ### 3.7 RULE-CALIB-PR2B-01/02/03 — 200 RPM polarity threshold may be too tight on quiet PWM fans
 
 - **Rule name:** `RULE-CALIB-PR2B-01` / `-02` / `-03`
-- **File:** `.claude/rules/calibration-pr2b-01.md`, `-02.md`, `-03.md`
+- **File:** `docs/rules/calibration-pr2b-01.md`, `-02.md`, `-03.md`
 - **Defect class:** `wrong-threshold`
 - **Current text:** Normal polarity at `rpmAtHigh - rpmAtLow >= 200`;
   inverted at `rpmAtLow - rpmAtHigh >= 200`; ambiguous (phantom) below
@@ -361,7 +361,7 @@ package paths declared.
 ### 3.8 RULE-IDLE-04 (PSI primary, /proc/loadavg fallback) — fallback now near-dead in 2026
 
 - **Rule name:** `RULE-IDLE-04`
-- **File:** `.claude/rules/RULE-IDLE-04.md`
+- **File:** `docs/rules/RULE-IDLE-04.md`
 - **Defect class:** `obsolete-invariant` (low-grade)
 - **Current text:** PSI primary when `/proc/pressure/cpu` exists; fallback to
   `/proc/loadavg` when not (kernel <4.20 or `CONFIG_PSI=n`).
@@ -393,7 +393,7 @@ package paths declared.
 ### 4.1 RULE-EXPERIMENTAL-AMD-OVERDRIVE-01/02/03 — kernel-taint warning not in bound contract
 
 - **Rule name:** `RULE-EXPERIMENTAL-AMD-OVERDRIVE-01`, `-02`, `-03`
-- **File:** `.claude/rules/experimental-amd-overdrive-01.md` / `-02.md` / `-03.md`
+- **File:** `docs/rules/experimental-amd-overdrive-01.md` / `-02.md` / `-03.md`
 - **Defect class:** `obsolete-invariant`
 - **Current text:** Doctor check reports `flags.AMDOverdrive` active state
   + ppfeaturemask value. No mention of kernel taint.
@@ -414,7 +414,7 @@ package paths declared.
 ### 4.2 RULE-WIZARD-RECOVERY-10 (ThinkPad) — narrow regex pinned to thinkfan English
 
 - **Rule name:** `RULE-WIZARD-RECOVERY-10`
-- **File:** `.claude/rules/wizard-recovery.md` (the rule body §RULE-WIZARD-RECOVERY-10)
+- **File:** `docs/rules/wizard-recovery.md` (the rule body §RULE-WIZARD-RECOVERY-10)
 - **Defect class:** `over-specified`
 - **Current text:** Matches `Module thinkpad_acpi doesn't seem to support
   fan_control` (thinkfan stderr) and ventd's pwm_enable wrap shape. Documented
@@ -436,7 +436,7 @@ package paths declared.
 ### 4.3 RULE-PROBE-03 (container ≥2 sources) — Podman/nspawn on cgroup v2 covered, but k0s/microk8s edge cases?
 
 - **Rule name:** `RULE-PROBE-03`
-- **File:** `.claude/rules/RULE-PROBE-03.md`
+- **File:** `docs/rules/RULE-PROBE-03.md`
 - **Defect class:** `wrong-threshold` (low-grade; possibly fine as-is)
 - **Current text:** 4 sources scored, threshold 2.
 - **Correct text:** R28 row 23 ("Container detection extension Podman + systemd-nspawn")
@@ -453,7 +453,7 @@ package paths declared.
 ### 4.4 RULE-HWMON-SENTINEL-TEMP-CAP (150°C) — industrial probe sensors legitimately read 200°C
 
 - **Rule name:** `RULE-HWMON-SENTINEL-TEMP-CAP`
-- **File:** `.claude/rules/hwmon-sentinel.md`
+- **File:** `docs/rules/hwmon-sentinel.md`
 - **Defect class:** `wrong-threshold`
 - **Current text:** "any temperature ≥150°C is rejected as plausibility-cap
   failure."
@@ -473,7 +473,7 @@ package paths declared.
 ### 4.5 RULE-HWMON-SENTINEL-TEMP-FLOOR (-273.15°C) — correct and complete
 
 - **Rule name:** `RULE-HWMON-SENTINEL-TEMP-FLOOR`
-- **File:** `.claude/rules/hwmon-sentinel.md`
+- **File:** `docs/rules/hwmon-sentinel.md`
 - **Defect class:** none — confirmed correct
 - **Current text:** "−273.15°C floor; values at/below absolute zero are
   rejected as sentinel/underflow."
@@ -489,7 +489,7 @@ package paths declared.
 ### 4.6 RULE-ENVELOPE-14 (PWM readback ±2 LSB) — extension to t+1/t+5/t+15 needed (R28 S2-1, S2-2)
 
 - **Rule name:** `RULE-ENVELOPE-14`
-- **File:** `.claude/rules/RULE-ENVELOPE-14.md`
+- **File:** `docs/rules/RULE-ENVELOPE-14.md`
 - **Defect class:** `over-specified` (single readback) +
   `missing-rule` (RULE-ENVELOPE-14b, -14c)
 - **Current text:** "PWM readback after each step write must match the
@@ -515,7 +515,7 @@ package paths declared.
 ### 4.7 RULE-IPMI-3 (HPE iLO Advanced required) — could be over-specified in error string
 
 - **Rule name:** `RULE-IPMI-3`
-- **File:** `.claude/rules/ipmi-safety.md`
+- **File:** `docs/rules/ipmi-safety.md`
 - **Defect class:** `over-specified`
 - **Current text:** "non-nil error whose message contains the substring
   'iLO Advanced'."
@@ -536,7 +536,7 @@ package paths declared.
 ### 4.8 RULE-NVML-HELPER-EXIT-01 — exit code 4 magic number undocumented
 
 - **Rule name:** `RULE-NVML-HELPER-EXIT-01`
-- **File:** `.claude/rules/nvml-helper.md`
+- **File:** `docs/rules/nvml-helper.md`
 - **Defect class:** `over-specified`
 - **Current text:** "Exit code 4 → `(false, nil)` for unsupported policy."
 - **Correct text:** Exit code 4 is a magic number with no on-disk
@@ -556,7 +556,7 @@ package paths declared.
 ### 4.9 RULE-OPP-PROBE-12 (probe grid 8 PWM units below 96, 16 above) — magic numbers, but justified in spec
 
 - **Rule name:** `RULE-OPP-PROBE-12`
-- **File:** `.claude/rules/opportunistic.md`
+- **File:** `docs/rules/opportunistic.md`
 - **Defect class:** `over-specified` (false alarm — defensible)
 - **Current text:** "8 raw PWM units between 0-96, 16 raw PWM units between 97-255."
 - **Correct text:** The split is documented in spec §6.4 / R8 (low-end
@@ -571,7 +571,7 @@ package paths declared.
 ### 4.10 RULE-SIG-LIB-05 (128 buckets) — magic number; check against R20 telemetry
 
 - **Rule name:** `RULE-SIG-LIB-05`
-- **File:** `.claude/rules/signature.md`
+- **File:** `docs/rules/signature.md`
 - **Defect class:** `stale-binding` (low-grade; depends on whether R20 ran)
 - **Current text:** "128 buckets, weighted-LRU eviction with τ=14 d half-life."
 - **Correct text:** R7 §Q5 calibrated 128 from a "realistic per-user
