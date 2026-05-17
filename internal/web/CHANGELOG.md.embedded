@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- `internal/hwmon/install_steps.go::stepVerify` — the post-modprobe install verification only polled `/sys/class/hwmon/` for `pwm*` files. For drivers whose control surface lives outside hwmon (msi-ec → `/sys/devices/platform/msi-ec/fan_mode`), this always failed, returned `ErrNoPWMChannelsAppeared`, and the wizard's chip-mismatch handler unloaded the (working) module. Net effect for HudsonPH and every other MSI laptop user on v0.7.2: msi-ec built and signed correctly, modprobed successfully, then got immediately unloaded by ventd before Phase 4 HAL discovery could see it. `stepVerify` now also consults `hal.Backend(c.Driver.HALBackend).Enumerate` when the new `DriverNeed.HALBackend` field is set, accepting any `CapWritePWM` channel as a successful install. The msi-ec catalog entry sets `HALBackend: "msiec"` to opt in; hwmon-shaped drivers (it87, nct6687d) leave the field empty and keep their existing hwmon-only verification unchanged. Closes the third dead-end in the #1154 chain (after #1156 fixed DKMS placeholder substitution and #1158 added the HAL backend itself).
+
 ### Headline
 
 MSI laptops can now actually have their fans driven by ventd. The v0.7.1 routing work (#1120) + #1156 (DKMS placeholder fix) got the out-of-tree BeardOverflow/msi-ec module installed and loaded; this release closes the second dead-end in the chain — the calibration "no controllable fans found" monitor-only fallback that fired on every MSI laptop because msi-ec exposes mode-switching at `/sys/devices/platform/msi-ec/fan_mode` rather than the hwmon-style `pwm1` surface the setup wizard's discovery walked. Hudson's MSI Thin GF63 12UDX / MS-16R8 (issue #1154) is the canonical reproducer; CONF_G2_6 firmware group `E16R8IMS.117` exposes the `auto/silent/advanced` mode set this backend now drives.
