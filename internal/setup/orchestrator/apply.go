@@ -34,21 +34,34 @@ type ApplyArtifact struct {
 // ApplyPhase succeeds the wizard is done and the daemon can take
 // control on next reload.
 //
-// First-cut monitor-only contract (PR#B3): consumes ProbeArtifact +
-// PolarityArtifact to build a minimal config with Fans listed but no
-// Controls + no Curves. The daemon loads this and operates in
-// monitor-only mode (no PWM writes) until the operator adds Curves
-// + Controls via the web UI or the next-PR CalibratePhase produces
-// a fuller config.
+// Full-control contract (PR#B4): consumes ProbeArtifact +
+// PolarityArtifact + CalibrateArtifact + VerifyArtifact + a
+// discovered CPU sensor to build a working ACTIVE-CONTROL config
+// with Sensors + Fans + Curves + Controls. The daemon loads this
+// and starts driving fans immediately — Goal 4 of the rework is met
+// the moment Apply succeeds.
 //
-// Fans with polarity == "phantom" are excluded (they're not safely
-// writable). Fans with polarity == "unknown" are included but
-// flagged in the artifact — the daemon's polarity-aware WritePWM
-// refuses to write to "unknown" channels until polarity is resolved.
+// Fallback to monitor-only: when no CPU sensor is discoverable, or
+// when CalibrateArtifact is missing entirely, ApplyPhase writes a
+// config with Fans listed but no Controls. The daemon still loads
+// it and reports temps/RPMs in the dashboard; operators add curves
+// later via the web UI.
+//
+// Fan exclusion rules:
+//   - polarity == "phantom"                  → exclude (no PWM surface)
+//   - verify reclassified as phantom         → exclude (post-cal proof)
+//   - calibration skipped/failed             → include with safe defaults
+//   - polarity == "unknown"                  → include; daemon's polarity-
+//     aware WritePWM refuses to
+//     drive until polarity resolves
 type ApplyPhase struct {
 	// ConfigPath overrides DefaultConfigPath. Used by tests to write
 	// to t.TempDir().
 	ConfigPath string
+
+	// HwmonRoot overrides "/sys/class/hwmon" for sensor discovery.
+	// Tests inject a fixture root.
+	HwmonRoot string
 }
 
 // Name identifies this phase in the checkpoint store and the wizard UI.
@@ -84,7 +97,39 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		polByPath[r.PWMPath] = r.Polarity
 	}
 
-	cfg := buildMonitorOnlyConfig(probeArt, polByPath)
+	// CalibrateArtifact is best-effort: missing/failed → use safe
+	// heuristic PWM bounds for every fan rather than failing apply.
+	calByPath := map[string]CalibrateFanResult{}
+	if calArt, calErr := loadCalibrateArtifact(rc); calErr == nil {
+		for _, r := range calArt.Results {
+			calByPath[r.PWMPath] = r
+		}
+	}
+
+	// VerifyArtifact is best-effort: missing → no fans are
+	// reclassified as phantom by verify.
+	verifyPhantom := map[string]bool{}
+	if verifyArt, verifyErr := loadVerifyArtifact(rc); verifyErr == nil {
+		for _, r := range verifyArt.Results {
+			if r.Phantom {
+				verifyPhantom[r.PWMPath] = true
+			}
+		}
+	}
+
+	// Sensor discovery: a working active-control config needs at
+	// least one temperature source. No sensor → fall back to
+	// monitor-only (Controls remains empty).
+	hwmonRoot := p.HwmonRoot
+	if hwmonRoot == "" {
+		hwmonRoot = rc.HwmonRoot
+	}
+	if hwmonRoot == "" {
+		hwmonRoot = "/sys/class/hwmon"
+	}
+	cpuSensor := DiscoverCPUSensor(hwmonRoot)
+
+	cfg := buildConfig(probeArt, polByPath, calByPath, verifyPhantom, cpuSensor)
 	monitorOnly := len(cfg.Controls) == 0
 
 	if err := writeConfigAtomic(path, cfg); err != nil {
@@ -111,13 +156,26 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	return Outcome{Status: StatusSuccess, Artifact: raw}
 }
 
-// buildMonitorOnlyConfig produces the minimum config that the daemon
-// can load. Fans are listed (so they show up in the dashboard) but
-// no Curves / Controls are written — operators add those via the
-// web UI when they're ready to enable active control.
+// buildConfig assembles the daemon-loadable config from every prior
+// phase's artifact. When all prerequisites are met (probe fans,
+// polarity resolved, calibration data, CPU sensor discovered), the
+// resulting config has Sensors + Fans + Curves + Controls and the
+// daemon starts active control on next reload — meeting Goal 4 of
+// the rework.
 //
-// Phantom fans are excluded because they have no usable PWM surface.
-func buildMonitorOnlyConfig(probeArt ProbeArtifact, polByPath map[string]string) *config.Config {
+// Degraded paths:
+//   - No CPU sensor          → no Curves/Controls (monitor-only)
+//   - Calibration missing    → fan included with safe heuristic PWM bounds
+//     (StartPWM=80, MaxPWM=255), curve still wired
+//   - Polarity phantom OR    → fan excluded entirely
+//     verify phantom
+func buildConfig(
+	probeArt ProbeArtifact,
+	polByPath map[string]string,
+	calByPath map[string]CalibrateFanResult,
+	verifyPhantom map[string]bool,
+	cpuSensor DiscoveredSensor,
+) *config.Config {
 	cfg := &config.Config{
 		Version:      1,
 		PollInterval: config.Duration{Duration: 2 * time.Second},
@@ -127,24 +185,75 @@ func buildMonitorOnlyConfig(probeArt ProbeArtifact, polByPath map[string]string)
 		},
 	}
 
+	if cpuSensor.Path != "" {
+		cfg.Sensors = append(cfg.Sensors, config.Sensor{
+			Name:     "cpu_temp",
+			Type:     "hwmon",
+			Path:     cpuSensor.Path,
+			ChipName: cpuSensor.ChipName,
+		})
+	}
+
 	for _, fan := range probeArt.Fans {
-		polarity := polByPath[fan.PWMPath]
-		if polarity == "phantom" {
+		if polByPath[fan.PWMPath] == "phantom" || verifyPhantom[fan.PWMPath] {
 			continue
 		}
+
+		minPWM := uint8(80)
+		if cal, ok := calByPath[fan.PWMPath]; ok && cal.StartPWM > 0 {
+			minPWM = cal.StartPWM
+		}
+		isPump := false
+		if cal, ok := calByPath[fan.PWMPath]; ok {
+			isPump = cal.IsPump
+		}
+
 		cfg.Fans = append(cfg.Fans, config.Fan{
 			Name:     fan.LabelHint,
 			Type:     "hwmon",
 			PWMPath:  fan.PWMPath,
 			RPMPath:  fan.RPMPath,
 			ChipName: fan.ChipName,
-			MinPWM:   80, // safe default; controller refuses 0 unless AllowStop
+			MinPWM:   minPWM,
 			MaxPWM:   255,
+			IsPump:   isPump,
+		})
+	}
+
+	// Active control only when we have BOTH a sensor and at least
+	// one fan. Otherwise stay monitor-only.
+	if cpuSensor.Path == "" || len(cfg.Fans) == 0 {
+		return cfg
+	}
+
+	// Default curve: linear ramp from 40°C → MinPWM equivalent up to
+	// 80°C → 100% PWM. The daemon's curve evaluator interpolates
+	// linearly between points. One shared curve is the simplest
+	// working default; operators relabel/tweak in the web UI.
+	cfg.Curves = []config.CurveConfig{
+		{
+			Name:   "default",
+			Type:   "linear",
+			Sensor: "cpu_temp",
+			Points: []config.CurvePoint{
+				{Temp: 40, PWMPct: ptrU8(20)},
+				{Temp: 60, PWMPct: ptrU8(50)},
+				{Temp: 80, PWMPct: ptrU8(100)},
+			},
+		},
+	}
+
+	for _, f := range cfg.Fans {
+		cfg.Controls = append(cfg.Controls, config.Control{
+			Fan:   f.Name,
+			Curve: "default",
 		})
 	}
 
 	return cfg
 }
+
+func ptrU8(v uint8) *uint8 { return &v }
 
 // writeConfigAtomic marshals cfg as YAML and writes to path via a
 // tmp+fsync+rename so a crash mid-write never leaves a half-written
