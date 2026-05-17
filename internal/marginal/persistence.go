@@ -231,7 +231,7 @@ func deserialiseSymDense(b []byte, n int) (*mat.SymDense, error) {
 		for j := i; j < n; j++ {
 			var v float64
 			if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("decode P[%d,%d]: %w", i, j, err)
 			}
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				return nil, fmt.Errorf("non-finite P[%d,%d]", i, j)

@@ -146,3 +146,26 @@ func patchOnDiskBucket(t *testing.T, path string, fn func(*Bucket)) {
 		t.Fatalf("write back: %v", err)
 	}
 }
+
+// TestDeserialiseSymDense_NonFinitePayloadIncludesRowCol pins issue #1091:
+// errors surfacing from the upper-triangle decode loop must name the
+// (row, col) of the offending element so corrupt-payload triage doesn't
+// degrade to "one generic decode error per shard." The non-finite branch
+// already carried row/col context; the new binary.Read wrap added in this
+// fix matches its shape.
+func TestDeserialiseSymDense_NonFinitePayloadIncludesRowCol(t *testing.T) {
+	// d=2 upper triangle = 3 elements × 8 bytes = 24 bytes.
+	// Place NaN at element [0,1] (bytes 8..15).
+	buf := make([]byte, 24)
+	binary.LittleEndian.PutUint64(buf[0:8], math.Float64bits(0.0))
+	binary.LittleEndian.PutUint64(buf[8:16], math.Float64bits(math.NaN()))
+	binary.LittleEndian.PutUint64(buf[16:24], math.Float64bits(0.0))
+
+	_, err := deserialiseSymDense(buf, 2)
+	if err == nil {
+		t.Fatal("want error for NaN at [0,1], got nil")
+	}
+	if !strings.Contains(err.Error(), "P[0,1]") {
+		t.Errorf("non-finite error lost row/col context: %v", err)
+	}
+}
