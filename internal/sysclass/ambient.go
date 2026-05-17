@@ -30,11 +30,29 @@ var ambientLabelKeywords = []string{"ambient", "intake", "inlet", "sio", "systin
 
 // admissibilityBlocklist are label substrings that disqualify a sensor from the
 // lowest-at-idle heuristic (§3.3 admissibility filter).
+//
+// Issue #1162: Intel's Dynamic Platform & Thermal Framework (DPTF)
+// surfaces as a /sys/class/thermal/thermal_zone* with a sensor that
+// reports near-zero values when the policy engine isn't actively
+// running — it's a power-management policy device, not a physical
+// temperature sensor. Every Intel laptop ≥10th gen with intel_dptf
+// loaded otherwise wins the lowest-at-idle race with a ~0 °C reading
+// and subsequent envelope probes trip "ambient reading outside
+// [10,50]°C, probe deferred". Block the known DPTF ACPI HIDs and the
+// proc_thermal virtual zone explicitly; acpitz is intentionally NOT
+// blocked because it's firmware-derived but reports real physical
+// temperatures.
 var admissibilityBlocklist = []string{
 	"package", "junction", "vrm", "drivetemp",
 	"cpu", "gpu", "core", "tdie", "tctl", "tccd",
 	"coolant", "pump", "liquid",
 	"nvme", "ssd", "hdd",
+	// Intel DPTF policy-engine surfaces (issue #1162).
+	"int3400",                          // DPTF manager (the one Hudson's box hit)
+	"int3403",                          // DPTF satellite (TPCH/CPU package proxy)
+	"intc1041", "intc10a0", "intc10b0", // newer DPTF generations
+	"dptf", // catch-all for vendor-labeled DPTF zones
+	"tcpu", // proc_thermal_pci virtual zone
 }
 
 // identifyAmbient resolves an ambient temperature sensor from the probe result.
