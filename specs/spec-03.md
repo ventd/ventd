@@ -7,7 +7,7 @@
 
 - [spec-03-profile-library.md](spec-03-profile-library.md) — primary spec (schema v1, matcher, seed entries)
 - [spec-03-amendment-pwm-controllability.md](spec-03-amendment-pwm-controllability.md) — PR 2a amendment: comprehensive PWM controllability schema
-- [spec-03-amendment-predictive.md](spec-03-amendment-predictive.md) — predictive thermal hints
+- [spec-05-predictive-thermal.md](spec-05-predictive-thermal.md) — predictive thermal hints (originally drafted as spec-03-amendment-predictive; consolidated into spec-05)
 - [spec-03-amendment.md](spec-03-amendment.md) — general amendments
 - [spec-03-pr1-working.md](spec-03-pr1-working.md) — PR 1 working document (schema freeze, RULE-HWDB-01..09)
 

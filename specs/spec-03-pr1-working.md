@@ -2,9 +2,10 @@
 
 **Status:** PR-1 scope frozen 2026-04-25. This document supersedes the
 PR-1 sections of `specs/spec-03-profile-library.md` +
-`specs/spec-03-amendment-predictive.md` for the duration of PR 1
-implementation. After PR 1 merges, the originals stand as written for
-PR 2/3/4 scope.
+`specs/spec-05-predictive-thermal.md` (originally planned as
+`spec-03-amendment-predictive.md`; consolidated into spec-05) for the
+duration of PR 1 implementation. After PR 1 merges, the originals
+stand as written for PR 2/3/4 scope.
 
 **Why this document exists:** the base spec, the predictive amendment,
 and the v0.4.1 hwmon-research §17.22 stall-speed finding all contribute
