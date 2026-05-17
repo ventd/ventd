@@ -26,6 +26,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwdiag"
 	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -1100,6 +1101,55 @@ func (m *Manager) run(ctx context.Context, release func()) {
 				})
 			}
 		}
+	}
+
+	// Discover non-hwmon HAL backends (msi-ec, thinkpad, nbfc, ipmi,
+	// crosec, asahi, …). These expose channels via hal.Enumerate but
+	// don't appear under /sys/class/hwmon so the discoverHwmonControls
+	// pass above misses them entirely. Without this branch, a host
+	// with msi-ec loaded but no in-kernel PWM (Hudson's MSI Thin GF63
+	// 12UDX in #1154 — msi_wmi_platform exposes RPM only) hits the
+	// "no controllable fans found" monitor-only dead-end immediately
+	// after the OOT driver installs successfully.
+	//
+	// The hwmon and nvml backends are skipped here because their
+	// channels are already surfaced through the dedicated paths above
+	// (and discoverHwmonControls applies wizard-specific filters that
+	// hal.Enumerate doesn't replicate — sentinel rejection, fan_target
+	// classification, etc.). Every other backend with at least one
+	// CapWritePWM channel produces a FanState with DetectPhase=found,
+	// matching the nvidia path's "no Phase 5 RPM detection needed —
+	// the backend reports RPM directly through hal.Reading".
+	//
+	// Enumeration failures are demoted to a warn-and-continue: an
+	// individual backend failing to enumerate doesn't justify
+	// breaking discovery for the rest of the host's surfaces.
+	halCtx, halCancel := context.WithTimeout(ctx, 5*time.Second)
+	halChannels, halErr := hal.Enumerate(halCtx)
+	halCancel()
+	if halErr != nil {
+		m.logger.Warn("setup: hal.Enumerate failed; non-hwmon HAL channels skipped", "err", halErr)
+	}
+	for _, ch := range halChannels {
+		backendName, _, _ := strings.Cut(ch.ID, ":")
+		if backendName == "hwmon" || backendName == "nvml" {
+			// Already covered by discoverHwmonControls / nvidia loop.
+			continue
+		}
+		if ch.Caps&hal.CapWritePWM == 0 {
+			// Read-only channels can't be calibrated; the watchdog
+			// covers Restore on graceful exit. No FanState needed.
+			continue
+		}
+		initial = append(initial, FanState{
+			Name:        fmt.Sprintf("%s/%s", backendName, filepath.Base(ch.ID)),
+			Type:        backendName,
+			PWMPath:     strings.TrimPrefix(ch.ID, backendName+":"),
+			DetectPhase: "found",
+			CalPhase:    "pending",
+		})
+		m.logger.Info("setup: HAL backend channel discovered",
+			"backend", backendName, "channel_id", ch.ID, "role", ch.Role)
 	}
 
 	// v0.5.12 redesign: populate chip_name from the FIRST hwmon
