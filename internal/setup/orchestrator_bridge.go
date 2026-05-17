@@ -10,13 +10,13 @@ import (
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
 
-// orchestratorEnvVar gates the v0.8.x phase-DAG executor. While set,
-// Manager.run invokes runOrchestratorPreview before the legacy phase
-// sequence so we can exercise the new framework on HIL hosts without
-// risking a regression to the production wizard path.
+// orchestratorEnvVar gates the v0.8.x phase-DAG executor.
 //
-// When all legacy phases have been migrated (target: v0.8.1 PR#B2),
-// this gate flips default-on and the legacy code is deleted.
+// As of PR#B5, the orchestrator is the DEFAULT wizard path —
+// orchestratorEnabled() returns true unless the env var is
+// explicitly set to "0". The legacy Manager.run inline phase
+// sequence runs only when VENTD_USE_ORCHESTRATOR=0 (emergency
+// rollback escape hatch). The legacy code is retired in PR#B6.
 const orchestratorEnvVar = "VENTD_USE_ORCHESTRATOR"
 
 // orchestratorStateDir is the production location for orchestrator
@@ -24,11 +24,28 @@ const orchestratorEnvVar = "VENTD_USE_ORCHESTRATOR"
 // for HIL fixtures and integration tests.
 const orchestratorStateDir = "/var/lib/ventd/setup"
 
-// orchestratorEnabled returns true when the preview gate is set. Pulled
-// out as a helper so tests can stub via t.Setenv without re-implementing
-// the trim/equality logic.
-func orchestratorEnabled() bool {
-	return os.Getenv(orchestratorEnvVar) == "1"
+// SetUseOrchestrator opts the Manager into the v0.8.x orchestrator
+// path. Production main.go calls this with true so the orchestrator
+// is the default wizard for installed daemons; tests leave it false
+// so the legacy phase sequence runs unchanged. The env var
+// VENTD_USE_ORCHESTRATOR=0 can be set by an operator to override
+// back to legacy as an emergency rollback.
+//
+// Removed in PR#B6 along with the legacy phase code.
+func (m *Manager) SetUseOrchestrator(v bool) {
+	m.mu.Lock()
+	m.useOrchestrator = v
+	m.mu.Unlock()
+}
+
+// orchestratorEnabled returns true when this Manager instance opted
+// into the orchestrator AND the operator has not explicitly opted out
+// via VENTD_USE_ORCHESTRATOR=0.
+func (m *Manager) orchestratorEnabled() bool {
+	m.mu.Lock()
+	on := m.useOrchestrator
+	m.mu.Unlock()
+	return on && os.Getenv(orchestratorEnvVar) != "0"
 }
 
 // orchestratorStateRoot returns the effective state directory: the
@@ -68,18 +85,39 @@ func (c managerCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (cali
 	return c.m.cal.RunSync(ctx, fan)
 }
 
+// managerRPMDetector adapts the Manager's CalibrationBackend (which
+// implements DetectRPMSensor) to the orchestrator's narrower
+// RPMDetector interface. Single-sources the production heuristic
+// with the legacy Manager.run Phase 5 — both call the same
+// calibrate.Manager.DetectRPMSensor underneath.
+type managerRPMDetector struct{ m *Manager }
+
+func (r managerRPMDetector) Detect(fan *config.Fan) (calibrate.DetectResult, error) {
+	if r.m == nil || r.m.cal == nil {
+		return calibrate.DetectResult{}, fmt.Errorf("orchestrator: no CalibrationBackend wired on Manager")
+	}
+	return r.m.cal.DetectRPMSensor(fan)
+}
+
 // runOrchestratorPreview executes the orchestrator phase set ahead of
-// the legacy Manager.run body. Currently registers only the Inventory
-// phase — a read-only DMI + hwmon scan whose result lands in
-// /var/lib/ventd/setup/state.json. The legacy phase sequence runs
-// afterwards regardless of orchestrator outcome; the preview's role
-// is to prove the framework in the field, not to replace the wizard.
+// the legacy Manager.run body. As of PR#B5 it is the DEFAULT wizard
+// path; the legacy sequence runs only when the orchestrator fails or
+// when VENTD_USE_ORCHESTRATOR=0 (emergency rollback).
 //
-// Returns a non-nil error only when the orchestrator itself fails to
-// bootstrap (e.g. cannot create the state directory). A failing
-// preview phase is logged via the orchestrator's own event sink and
-// returns nil so the legacy path still runs.
-func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
+// Return contract (used by Manager.run to decide whether to short-
+// circuit the legacy phases):
+//
+//	applied=true,  err=nil:   ApplyPhase succeeded; wizard is done
+//	applied=false, err=nil:   ApplyPhase did NOT succeed (a prior phase
+//	                          failed or the artifact is missing); the
+//	                          legacy fallback runs
+//	applied=false, err!=nil:  orchestrator bootstrap failed (e.g. mkdir
+//	                          state dir); the legacy fallback runs
+//
+// The legacy fallback is the v0.8.x safety net. PR#B6 removes it
+// once HIL coverage proves the orchestrator handles every supported
+// hardware shape.
+func (m *Manager) runOrchestratorPreview(ctx context.Context) (applied bool, err error) {
 	rc := &orchestrator.RunContext{
 		Logger:    m.logger,
 		HwmonRoot: m.hwmonRoot,
@@ -87,22 +125,35 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
 		StateDir:  orchestratorStateRoot(),
 		Events:    managerEventSink{m: m},
 	}
-	o, err := orchestrator.New(rc,
+	o, oerr := orchestrator.New(rc,
 		orchestrator.InventoryPhase{},
 		orchestrator.ConflictHuntPhase{AutoStop: true, AutoStopVendor: false},
 		orchestrator.DriverPlanPhase{},
 		orchestrator.DriverInstallPhase{},
+		orchestrator.NVMLPhase{},
 		orchestrator.ProbePhase{},
+		orchestrator.RPMDetectPhase{Detector: managerRPMDetector{m: m}},
 		orchestrator.PolarityPhase{},
 		orchestrator.CalibratePhase{Calibrator: managerCalibrator{m: m}},
 		orchestrator.VerifyPhase{},
 		orchestrator.ApplyPhase{},
 	)
-	if err != nil {
-		return fmt.Errorf("orchestrator preview: %w", err)
+	if oerr != nil {
+		return false, fmt.Errorf("orchestrator preview: %w", oerr)
 	}
-	if _, err := o.Run(ctx); err != nil {
-		return fmt.Errorf("orchestrator preview run: %w", err)
+	outs, runErr := o.Run(ctx)
+	if runErr != nil {
+		return false, fmt.Errorf("orchestrator preview run: %w", runErr)
 	}
-	return nil
+	// Wizard is "applied" only when ApplyPhase ran AND succeeded.
+	// Any earlier-phase failure short-circuits Run, so an ApplyPhase
+	// success outcome is the unambiguous signal we can short-circuit
+	// the legacy fallback.
+	for _, out := range outs {
+		if out.Phase == (orchestrator.ApplyPhase{}).Name() &&
+			out.Status == orchestrator.StatusSuccess {
+			return true, nil
+		}
+	}
+	return false, nil
 }

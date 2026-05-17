@@ -117,6 +117,24 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		}
 	}
 
+	// RPMDetectArtifact is best-effort: missing → ApplyPhase uses
+	// ProbeArtifact's same-index pairing without overrides.
+	rpmOverrides := map[string]string{}
+	if rpmArt, rpmErr := loadRPMDetectArtifact(rc); rpmErr == nil {
+		for _, r := range rpmArt.Results {
+			if r.Improved && r.ResolvedRPM != "" {
+				rpmOverrides[r.PWMPath] = r.ResolvedRPM
+			}
+		}
+	}
+
+	// NVMLArtifact is best-effort: missing or empty → no NVIDIA
+	// fans in the config (non-NVIDIA host or no GPU fans visible).
+	var nvmlFans []NVMLGPUFan
+	if nvmlArt, nvmlErr := loadNVMLArtifact(rc); nvmlErr == nil {
+		nvmlFans = nvmlArt.Fans
+	}
+
 	// Sensor discovery: a working active-control config needs at
 	// least one temperature source. No sensor → fall back to
 	// monitor-only (Controls remains empty).
@@ -129,7 +147,7 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	}
 	cpuSensor := DiscoverCPUSensor(hwmonRoot)
 
-	cfg := buildConfig(probeArt, polByPath, calByPath, verifyPhantom, cpuSensor)
+	cfg := buildConfig(probeArt, polByPath, calByPath, verifyPhantom, rpmOverrides, nvmlFans, cpuSensor)
 	monitorOnly := len(cfg.Controls) == 0
 
 	if err := writeConfigAtomic(path, cfg); err != nil {
@@ -174,6 +192,8 @@ func buildConfig(
 	polByPath map[string]string,
 	calByPath map[string]CalibrateFanResult,
 	verifyPhantom map[string]bool,
+	rpmOverrides map[string]string,
+	nvmlFans []NVMLGPUFan,
 	cpuSensor DiscoveredSensor,
 ) *config.Config {
 	cfg := &config.Config{
@@ -208,15 +228,38 @@ func buildConfig(
 			isPump = cal.IsPump
 		}
 
+		// Prefer RPMDetectPhase's detected path when ProbePhase
+		// couldn't pair a same-index tach (split-chip fan/tach
+		// configurations on some AMD boards).
+		rpmPath := fan.RPMPath
+		if rpmPath == "" {
+			if override, ok := rpmOverrides[fan.PWMPath]; ok {
+				rpmPath = override
+			}
+		}
+
 		cfg.Fans = append(cfg.Fans, config.Fan{
 			Name:     fan.LabelHint,
 			Type:     "hwmon",
 			PWMPath:  fan.PWMPath,
-			RPMPath:  fan.RPMPath,
+			RPMPath:  rpmPath,
 			ChipName: fan.ChipName,
 			MinPWM:   minPWM,
 			MaxPWM:   255,
 			IsPump:   isPump,
+		})
+	}
+
+	// Append NVIDIA GPU fans (PWMPath is the GPU index encoded as
+	// a string; the daemon's nvidia HAL backend uses it to address
+	// the right GPU via NVML).
+	for _, gf := range nvmlFans {
+		cfg.Fans = append(cfg.Fans, config.Fan{
+			Name:    gf.Label,
+			Type:    "nvidia",
+			PWMPath: fmt.Sprintf("%d", gf.Index),
+			MinPWM:  30,  // GPU fans default min is safer than CPU fans (avoid stall)
+			MaxPWM:  100, // NVML uses percent, not byte
 		})
 	}
 
