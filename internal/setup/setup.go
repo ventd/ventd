@@ -904,6 +904,20 @@ func (m *Manager) run(ctx context.Context, release func()) {
 		}
 	}()
 
+	// ── Orchestrator preview gate (v0.8.x) ─────────────────────────────────
+	//
+	// VENTD_USE_ORCHESTRATOR=1 invokes the new phase-DAG executor
+	// before the legacy sequence below. Currently runs Inventory only
+	// (read-only DMI + hwmon scan); checkpoint at
+	// /var/lib/ventd/setup/state.json. Failure is logged + ignored
+	// so a preview bug never blocks the production wizard.
+	if orchestratorEnabled() {
+		if err := m.runOrchestratorPreview(ctx); err != nil {
+			m.logger.Warn("orchestrator preview failed; legacy wizard continues",
+				"err", err)
+		}
+	}
+
 	// ── Phase 0: vendor-daemon deferral check ───────────────────────────────
 	//
 	// R28 Agent G's #1 architectural finding: Linux-first OEM laptops
