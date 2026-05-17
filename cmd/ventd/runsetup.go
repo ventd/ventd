@@ -88,7 +88,14 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// production --enable-gpu-write flag only gates daemon-time GPU
 	// writes (RULE-GPU-PR2D-01).
 	registerHALBackends(logger, false)
-	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
+	// v0.8.x: calibration.json moved to /var/lib/ventd/setup/. Migrate any
+	// legacy file before constructing the manager so the wizard reads from
+	// the new canonical location. See calibrate.MigrateLegacyPath.
+	if err := calibrate.MigrateLegacyPath(calibrate.DefaultCalibrationPath, calibrate.LegacyCalibrationPath, logger); err != nil {
+		logger.Warn("calibrate: legacy path migration failed; setup continues with new path",
+			"err", err)
+	}
+	cal := calibrate.New(calibrate.DefaultCalibrationPath, logger, wd)
 	cal.SetChannelResolver(newChannelResolver())
 	mgr := setup.New(cal, logger)
 	mgr.SetAppliedMarkerPath(setup.DefaultAppliedMarkerPath)

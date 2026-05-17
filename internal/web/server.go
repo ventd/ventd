@@ -1556,6 +1556,14 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	if err := s.setup.ClearApplied(); err != nil {
 		s.logger.Warn("setup reset: clear applied marker failed", "err", err)
 	}
+	// 3. v0.8.x: wipe /var/lib/ventd/setup/ — the canonical orchestrator
+	// state dir holding calibration.json + checkpoint state.json. Failure
+	// is logged but not fatal; the directory is recreated by the next
+	// daemon start so this is a self-healing path. (Goal 3 of the
+	// v0.8.x wizard rework: no stale state carried into the fresh wizard.)
+	if err := wipeOrchestratorStateDir(s.logger); err != nil {
+		s.logger.Warn("setup reset: orchestrator state dir wipe failed", "err", err)
+	}
 	s.logger.Info("setup: config removed; triggering reload (daemon continues until next restart)", "path", s.configPath)
 
 	w.Header().Set("Connection", "close")
@@ -1621,6 +1629,12 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 		if err := os.Remove(s.authPath); err != nil && !os.IsNotExist(err) {
 			s.logger.Warn("factory reset: remove auth.json failed (continuing)", "err", err, "path", s.authPath)
 		}
+	}
+	// 5. v0.8.x: wipe /var/lib/ventd/setup/ — same as handleSetupReset
+	// step 3. Goal 3 of the wizard rework: stale state never carried
+	// forward into the fresh wizard.
+	if err := wipeOrchestratorStateDir(s.logger); err != nil {
+		s.logger.Warn("factory reset: orchestrator state dir wipe failed", "err", err)
 	}
 	s.logger.Info("factory reset: full state wipe complete; triggering reload", "config", s.configPath, "auth", s.authPath)
 

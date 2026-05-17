@@ -235,6 +235,13 @@ func sevRank(s Severity) int {
 const (
 	IDCalibrationFutureSchema = "calibration.future_schema"
 
+	// IDCalibrationHardwareChanged is emitted by the v3 calibration loader
+	// when the persisted envelope's hardware identity does not match the
+	// live host's identity. Triggered by motherboard swap, hwmon chip add
+	// / remove, or an OOT driver install that surfaced a new chip. The
+	// records are dropped and the UI surfaces an autorecal card.
+	IDCalibrationHardwareChanged = "calibration.hardware_changed"
+
 	// Tier 0.5 — out-of-tree module fallback chain.
 	IDOOTKernelHeadersMissing = "oot.kernel_headers_missing"
 	IDOOTDKMSMissing          = "oot.dkms_missing"
