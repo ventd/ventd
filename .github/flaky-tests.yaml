@@ -75,3 +75,19 @@ flaky:
             Roadmap fix is clock injection (Stage 1.5 PR-8); registry entry
             is removed once that lands.
     since: 2026-05-11
+  - test: github.com/ventd/ventd/internal/setup:TestCalibrate_CtxCancelStopsRunSync
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: 100ms sleep at calibration_backend_test.go:211 before Abort()
+            races against the wizard reaching the calibration phase on
+            shared GHA Ubuntu runners. Test passes on alpine/arch/debian/
+            fedora and ubuntu-22.04 in PR #1160; fails on ubuntu-latest
+            and ubuntu-arm64 ~30% of runs. RunSync never enters its
+            ctx.Done() wait if the wizard's earlier phases (hwmon scan,
+            HAL enumerate added in #1158, RPM detect) take longer than
+            100ms to complete, so the test asserts gotCtxErr=true on a
+            ctx that RunSync never received. Same timing class as the
+            other ubuntu-runner-only flakes above. Roadmap fix is
+            clock injection (Stage 1.5 PR-8) + a started-signal channel
+            instead of the 100ms sleep heuristic; registry entry
+            is removed once either lands.
+    since: 2026-05-17

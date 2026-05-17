@@ -71,6 +71,69 @@ func TestValidateLeavesNvidiaFanAlone(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsHALBackendFanTypes pins the v0.7.4 fix for #1116 /
+// #1154 — every non-hwmon HAL backend ventd ships must produce a
+// loadable config when the wizard writes one. Without this, the
+// validator's old "want: hwmon, nvidia" rejection trapped every MSI
+// laptop, every ThinkPad, every Chromebook, every IPMI server, every
+// Apple Silicon Mac, every Lenovo Legion, etc. behind a load-config
+// error — even after #1156 fixed DKMS install and #1158 + #1159 fixed
+// the wizard's discovery + verification pipeline.
+//
+// The validator's job here is type+pwm_path shape only — runtime backend
+// lookup is the gate that actually checks the type names a registered
+// hal.FanBackend. Test cases mirror the BackendName constants in each
+// internal/hal/<backend>/ package.
+func TestValidateAcceptsHALBackendFanTypes(t *testing.T) {
+	cases := []struct {
+		fanType string
+		pwmPath string
+	}{
+		{"msiec", "/sys/devices/platform/msi-ec"},  // BeardOverflow/msi-ec — MSI laptops
+		{"thinkpad", "/proc/acpi/ibm/fan"},         // thinkpad_acpi procfs — Lenovo ThinkPad
+		{"ipmi", "0"},                              // BMC fan channel — Dell/HPE/Supermicro
+		{"nbfc", "fan0"},                           // NBFC catalogue — any laptop with an EC entry
+		{"crosec", "fan0"},                         // Chromebook EC
+		{"asahi", "fan0"},                          // Apple Silicon Macs (M1/M2 Linux)
+		{"pwmsys", "/sys/class/pwm/pwmchip0/pwm0"}, // generic pwmchip sysfs
+		{"legion", "/sys/class/leds/legion::fan0"}, // Lenovo Legion ec module
+		{"corsair", "/dev/hidraw3"},                // Corsair Hydro/Commander Pro
+	}
+	for _, tc := range cases {
+		t.Run(tc.fanType, func(t *testing.T) {
+			cfg := &Config{
+				Version: CurrentVersion,
+				Fans: []Fan{
+					{Name: "fan", Type: tc.fanType, PWMPath: tc.pwmPath, MinPWM: 64, MaxPWM: 255},
+				},
+			}
+			if err := validate(cfg); err != nil {
+				t.Fatalf("type=%q pwm_path=%q rejected: %v", tc.fanType, tc.pwmPath, err)
+			}
+		})
+	}
+}
+
+func TestValidateRejectsHALBackendFanWithoutPWMPath(t *testing.T) {
+	// Defence in depth: the runtime lookup will fail later anyway, but
+	// catching empty pwm_path at load time gives a clear error message
+	// rather than a subtle no-backend-channel-matches failure two
+	// minutes later when the controller starts polling.
+	cfg := &Config{
+		Version: CurrentVersion,
+		Fans: []Fan{
+			{Name: "fan", Type: "msiec", PWMPath: "", MinPWM: 64, MaxPWM: 255},
+		},
+	}
+	err := validate(cfg)
+	if err == nil {
+		t.Fatal("expected rejection for HAL backend fan with empty pwm_path")
+	}
+	if !strings.Contains(err.Error(), "pwm_path is required") {
+		t.Errorf("error message should mention pwm_path; got: %v", err)
+	}
+}
+
 func TestValidateRejectsBadRPMPath(t *testing.T) {
 	cfg := &Config{
 		Version: CurrentVersion,

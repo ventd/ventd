@@ -394,10 +394,30 @@ func New(
 		piState:            make(map[string]curve.PIState),
 		fatalErr:           make(chan error, 1),
 	}
-	if fanType == "nvidia" {
+	// Backend dispatch:
+	//   - "nvidia" / "hwmon" / ""  → the two legacy in-tree backends
+	//     constructed with the controller's own logger so the hot path
+	//     never touches the global registry.
+	//   - any other type           → look up by name in the HAL registry
+	//     (registered at startup by cmd/ventd/calresolver.go). Covers
+	//     msiec, thinkpad, ipmi, nbfc, crosec, asahi, pwmsys, legion,
+	//     corsair — every non-hwmon HAL backend ventd ships.
+	// Falls back to hwmon when the type names an unregistered backend so
+	// legacy configs and typos still surface a clear error at first read,
+	// rather than nil-panic-ing the controller goroutine.
+	switch fanType {
+	case "nvidia":
 		c.backend = halnvml.NewBackend(c.logger)
-	} else {
+	case "hwmon", "":
 		c.backend = halhwmon.NewBackend(c.logger)
+	default:
+		if be, ok := hal.Backend(fanType); ok {
+			c.backend = be
+		} else {
+			c.logger.Warn("controller: unknown fan type, falling back to hwmon",
+				"fan_type", fanType, "pwm_path", pwmPath)
+			c.backend = halhwmon.NewBackend(c.logger)
+		}
 	}
 	for _, o := range opts {
 		o(c)
@@ -1023,6 +1043,27 @@ func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
 			Caps:   hal.CapRead | hal.CapWritePWM | hal.CapRestore,
 			Opaque: halnvml.State{Index: c.pwmPath},
 		}, nil
+	}
+	if c.fanType != "hwmon" && c.fanType != "" {
+		// Non-hwmon HAL backends (msiec, thinkpad, ipmi, nbfc, crosec,
+		// asahi, pwmsys, legion, corsair, …) carry per-channel state
+		// that varies by backend — msi-ec embeds the per-board
+		// WritableModes set; thinkpad embeds the procfs path; NBFC
+		// embeds the EC transport + config — so we can't construct it
+		// inline like hwmon/nvml. Defer to the backend's Enumerate to
+		// build a properly-populated channel and look it up by ID.
+		// Enumerate cost is dominated by a single stat or sysfs read
+		// per backend; negligible at controller tick rate.
+		chs, err := c.backend.Enumerate(context.Background())
+		if err != nil {
+			return hal.Channel{}, fmt.Errorf("controller: %s enumerate: %w", c.fanType, err)
+		}
+		for _, ch := range chs {
+			if ch.ID == c.pwmPath {
+				return ch, nil
+			}
+		}
+		return hal.Channel{}, fmt.Errorf("controller: %s channel %q not found (driver loaded?)", c.fanType, c.pwmPath)
 	}
 	caps := hal.CapRead | hal.CapRestore
 	rpmTarget := fan.ControlKind == "rpm_target"

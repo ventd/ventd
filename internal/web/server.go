@@ -25,6 +25,7 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/grub"
+	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
@@ -1041,12 +1042,54 @@ func (s *Server) buildStatus() statusResponse {
 
 	for _, fan := range live.Fans {
 		var pwm uint8
+		var rpm int
+		var rpmKnown bool
 		var err error
-		if fan.Type == "nvidia" {
+		switch fan.Type {
+		case "nvidia":
 			idx, _ := strconv.ParseUint(fan.PWMPath, 10, 32)
 			pwm, err = nvidia.ReadFanSpeed(uint(idx))
-		} else {
+		case "hwmon", "":
 			pwm, err = hwmon.ReadPWM(fan.PWMPath)
+			// Hwmon RPM is read separately below for backwards compat
+			// with chips that expose tach on a different path than pwm.
+		default:
+			// Non-hwmon HAL backends (msiec, thinkpad, ipmi, nbfc,
+			// crosec, asahi, pwmsys, legion, corsair). Defer to the
+			// backend's Read so the dashboard reflects whatever each
+			// backend reports — for msi-ec that's the centred-PWM
+			// equivalent of the current fan_mode; for thinkpad it's
+			// the procfs level mapped to PWM; backends that don't
+			// expose RPM (msi-ec, NBFC EC bus) report Reading.RPM=0
+			// and the dashboard renders "—" rather than fabricating
+			// a number.
+			if be, ok := hal.Backend(fan.Type); ok {
+				chs, enumErr := be.Enumerate(context.Background())
+				if enumErr != nil {
+					err = fmt.Errorf("hal: enumerate %s: %w", fan.Type, enumErr)
+				} else {
+					found := false
+					for _, ch := range chs {
+						if ch.ID == fan.PWMPath {
+							r, readErr := be.Read(ch)
+							if readErr != nil {
+								err = fmt.Errorf("hal: read %s: %w", fan.Type, readErr)
+							} else if r.OK {
+								pwm = r.PWM
+								rpm = int(r.RPM)
+								rpmKnown = r.RPM > 0
+							}
+							found = true
+							break
+						}
+					}
+					if !found {
+						err = fmt.Errorf("hal: %s channel %q not enumerated (driver loaded?)", fan.Type, fan.PWMPath)
+					}
+				}
+			} else {
+				err = fmt.Errorf("hal: backend %q not registered", fan.Type)
+			}
 		}
 		if err != nil {
 			s.logger.Warn("web: fan read failed", "fan", fan.Name, "err", err)
@@ -1056,17 +1099,29 @@ func (s *Server) buildStatus() statusResponse {
 			PWM:  pwm,
 			Duty: float64(pwm) / 255.0 * 100.0,
 		}
-		if fan.Type != "nvidia" {
+		switch fan.Type {
+		case "nvidia":
+			// nvidia exposes RPM via the same nvml call as fan speed; no
+			// separate read needed and nvml-driven channels don't have an
+			// RPM-tach sysfs path.
+		case "hwmon", "":
 			var rpmErr error
-			var rpm int
+			var hrpm int
 			if fan.RPMPath != "" {
-				rpm, rpmErr = hwmon.ReadRPMPath(fan.RPMPath)
+				hrpm, rpmErr = hwmon.ReadRPMPath(fan.RPMPath)
 			} else {
-				rpm, rpmErr = hwmon.ReadRPM(fan.PWMPath)
+				hrpm, rpmErr = hwmon.ReadRPM(fan.PWMPath)
 			}
 			// Reject sentinel RPM values — they must not appear in the UI
 			// as if the fan is spinning at 65535 RPM.
-			if rpmErr == nil && !halhwmon.IsSentinelRPM(rpm) {
+			if rpmErr == nil && !halhwmon.IsSentinelRPM(hrpm) {
+				fs.RPM = &hrpm
+			}
+		default:
+			// HAL-backend RPM was already populated above (or left 0 when
+			// the backend doesn't measure RPM — e.g. msi-ec reports a
+			// percentage we deliberately don't fabricate as RPM).
+			if rpmKnown {
 				fs.RPM = &rpm
 			}
 		}
