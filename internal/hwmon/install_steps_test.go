@@ -1,0 +1,210 @@
+package hwmon
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"testing"
+
+	"github.com/ventd/ventd/internal/hal"
+)
+
+// fakeHALBackend is a minimal hal.FanBackend used by the stepVerify
+// HAL-fallback tests. Only Enumerate is meaningful — the install
+// pipeline calls only that path. Read/Write/Restore/Close return
+// zero values so the interface is satisfied without producing
+// surprising state during a test that goes off-script.
+type fakeHALBackend struct {
+	name     string
+	channels []hal.Channel
+	enumErr  error
+}
+
+func (b *fakeHALBackend) Name() string                          { return b.name }
+func (b *fakeHALBackend) Close() error                          { return nil }
+func (b *fakeHALBackend) Read(hal.Channel) (hal.Reading, error) { return hal.Reading{}, nil }
+func (b *fakeHALBackend) Write(hal.Channel, uint8) error        { return nil }
+func (b *fakeHALBackend) Restore(hal.Channel) error             { return nil }
+func (b *fakeHALBackend) Enumerate(_ context.Context) ([]hal.Channel, error) {
+	return b.channels, b.enumErr
+}
+
+// withEmptyHwmonPoll swaps stepVerifyHwmonPoll for a stub returning no
+// pwm paths and restores the original on cleanup. Required because test
+// hosts may have real hwmon devices (the homelab dev box does; CI
+// runners typically don't), and the HAL-fallback contract is only
+// observable when the hwmon poll returns empty.
+func withEmptyHwmonPoll(t *testing.T) {
+	t.Helper()
+	orig := stepVerifyHwmonPoll
+	stepVerifyHwmonPoll = func() []string { return nil }
+	t.Cleanup(func() { stepVerifyHwmonPoll = orig })
+}
+
+func TestStepVerify_FallsBackToHALBackend(t *testing.T) {
+	// Drive stepVerify's hwmon poll to empty so the HAL-fallback branch
+	// is the load-bearing decision. Without this swap, dev hosts with
+	// real motherboards would short-circuit on hwmon hits and the test
+	// would silently pass for the wrong reason.
+
+	t.Run("HAL backend with one CapWritePWM channel accepts install", func(t *testing.T) {
+		withEmptyHwmonPoll(t)
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		hal.Register("fakemsiec", &fakeHALBackend{
+			name: "fakemsiec",
+			channels: []hal.Channel{
+				{
+					ID:     "/sys/devices/platform/fakemsiec",
+					Role:   hal.RoleCPU,
+					Caps:   hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+					Opaque: struct{}{},
+				},
+			},
+		})
+		var loggedLines []string
+		c := PipelineConfig{
+			Driver: DriverNeed{
+				Key:        "fakemsiec_driver",
+				Module:     "fakemsiec",
+				HALBackend: "fakemsiec",
+			},
+			Logger: slog.New(slog.DiscardHandler),
+			Log:    func(s string) { loggedLines = append(loggedLines, s) },
+		}
+		if err := stepVerify(c); err != nil {
+			t.Fatalf("stepVerify: %v", err)
+		}
+		// Confirm the success log mentions the backend so operators see
+		// the non-hwmon route in the journal, not just generic success.
+		joined := strings.Join(loggedLines, "\n")
+		if !strings.Contains(joined, "fakemsiec backend") {
+			t.Errorf("expected log line to mention 'fakemsiec backend', got:\n%s", joined)
+		}
+	})
+
+	t.Run("HAL backend with zero CapWritePWM channels still rejects", func(t *testing.T) {
+		withEmptyHwmonPoll(t)
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		// Channel exists but is read-only — not a controllable surface.
+		hal.Register("fakemsiec_readonly", &fakeHALBackend{
+			name: "fakemsiec_readonly",
+			channels: []hal.Channel{
+				{ID: "x", Caps: hal.CapRead, Opaque: struct{}{}},
+			},
+		})
+		c := PipelineConfig{
+			Driver: DriverNeed{
+				Key:        "fakemsiec_readonly_driver",
+				Module:     "fakemsiec_readonly",
+				HALBackend: "fakemsiec_readonly",
+			},
+			Logger: slog.New(slog.DiscardHandler),
+			Log:    func(string) {},
+		}
+		err := stepVerify(c)
+		if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+			t.Errorf("want ErrNoPWMChannelsAppeared, got %v", err)
+		}
+	})
+
+	t.Run("HAL backend not registered still rejects (no panic)", func(t *testing.T) {
+		withEmptyHwmonPoll(t)
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		c := PipelineConfig{
+			Driver: DriverNeed{
+				Key:        "missing_backend_driver",
+				Module:     "missing",
+				HALBackend: "this-backend-does-not-exist",
+			},
+			Logger: slog.New(slog.DiscardHandler),
+			Log:    func(string) {},
+		}
+		err := stepVerify(c)
+		if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+			t.Errorf("want ErrNoPWMChannelsAppeared, got %v", err)
+		}
+	})
+
+	t.Run("HAL backend Enumerate error treated as no channels", func(t *testing.T) {
+		withEmptyHwmonPoll(t)
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		hal.Register("fakemsiec_errorbackend", &fakeHALBackend{
+			name:    "fakemsiec_errorbackend",
+			enumErr: errors.New("simulated enumerate failure"),
+		})
+		c := PipelineConfig{
+			Driver: DriverNeed{
+				Key:        "errorbackend_driver",
+				Module:     "errorbackend",
+				HALBackend: "fakemsiec_errorbackend",
+			},
+			Logger: slog.New(slog.DiscardHandler),
+			Log:    func(string) {},
+		}
+		err := stepVerify(c)
+		if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+			t.Errorf("want ErrNoPWMChannelsAppeared, got %v", err)
+		}
+	})
+
+	t.Run("driver with empty HALBackend keeps existing hwmon-only behaviour", func(t *testing.T) {
+		withEmptyHwmonPoll(t)
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		// Register a backend that WOULD say yes — but Driver.HALBackend
+		// is empty so it must NOT be consulted. This pins the
+		// regression-safety contract: hwmon-shaped drivers (it87,
+		// nct6687d) are unchanged.
+		hal.Register("would_accept_but_not_consulted", &fakeHALBackend{
+			name: "would_accept_but_not_consulted",
+			channels: []hal.Channel{
+				{ID: "y", Caps: hal.CapWritePWM, Opaque: struct{}{}},
+			},
+		})
+		c := PipelineConfig{
+			Driver: DriverNeed{
+				Key:        "it8688e_like",
+				Module:     "it87",
+				HALBackend: "", // hwmon-shaped driver
+			},
+			Logger: slog.New(slog.DiscardHandler),
+			Log:    func(string) {},
+		}
+		err := stepVerify(c)
+		if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+			t.Errorf("want ErrNoPWMChannelsAppeared (hwmon-only check), got %v", err)
+		}
+	})
+}
+
+func TestHalBackendChannelCount(t *testing.T) {
+	t.Run("unregistered backend returns 0", func(t *testing.T) {
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		if n := halBackendChannelCount("absent"); n != 0 {
+			t.Errorf("got %d, want 0", n)
+		}
+	})
+
+	t.Run("counts only CapWritePWM channels", func(t *testing.T) {
+		hal.Reset()
+		t.Cleanup(hal.Reset)
+		hal.Register("mixed", &fakeHALBackend{
+			name: "mixed",
+			channels: []hal.Channel{
+				{ID: "ro", Caps: hal.CapRead, Opaque: struct{}{}},
+				{ID: "w1", Caps: hal.CapWritePWM, Opaque: struct{}{}},
+				{ID: "w2", Caps: hal.CapWritePWM | hal.CapRestore, Opaque: struct{}{}},
+				{ID: "rpm", Caps: hal.CapWriteRPMTarget, Opaque: struct{}{}},
+			},
+		})
+		if n := halBackendChannelCount("mixed"); n != 2 {
+			t.Errorf("got %d, want 2 (only CapWritePWM channels counted)", n)
+		}
+	})
+}

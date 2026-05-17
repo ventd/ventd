@@ -88,6 +88,20 @@ type DriverNeed struct {
 	// trigger matching is sufficient. Never causes auto-modprobe — a diagnostic
 	// is surfaced and the user clicks to try loading.
 	DMITriggers []DMITrigger `json:"-"`
+	// HALBackend names a non-hwmon hal.FanBackend the install pipeline
+	// should consult when the post-modprobe hwmon-pwm verification finds
+	// nothing. Required for drivers that expose their control surface
+	// outside /sys/class/hwmon (msi-ec → /sys/devices/platform/msi-ec,
+	// thinkpad_acpi → /proc/acpi/ibm/fan, etc.). Empty for the hwmon-
+	// shaped drivers (it87, nct6687d) whose surfaces stepVerify already
+	// finds via findPWMPaths.
+	//
+	// Without this hint, stepVerify always rejects the install for HAL-
+	// backed drivers with ErrNoPWMChannelsAppeared, the wizard treats it
+	// as a chip-mismatch, unloads the (working) module, and reports
+	// "no controllable fans found" — the silent dead-end #1116 / #1154
+	// HudsonPH hit on the MSI Thin GF63 12UDX.
+	HALBackend string `json:"hal_backend,omitempty"`
 }
 
 // DMITrigger is a conjunction of substring matches against DMIInfo fields.
@@ -139,6 +153,13 @@ var knownDriverNeeds = map[string]DriverNeed{
 		RepoURL: "https://github.com/BeardOverflow/msi-ec",
 		Branch:  "main",
 		Module:  "msi-ec",
+		// msi-ec exposes fan control at /sys/devices/platform/msi-ec/fan_mode,
+		// NOT under /sys/class/hwmon. Without this hint stepVerify never
+		// finds the surface, fails the install with ErrNoPWMChannelsAppeared,
+		// and the wizard unloads the (working) module thinking it's a
+		// chip-mismatch. Must match the BackendName constant exported by
+		// internal/hal/msiec.
+		HALBackend: "msiec",
 		// No DMITriggers entry: msi_ec is gated on the runtime hwmon
 		// signal "msi_wmi_platform present + MSI vendor" inside
 		// identifyDriverNeeds. A pure DMI trigger would propose msi_ec

@@ -1,6 +1,7 @@
 package hwmon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ventd/ventd/internal/hal"
 )
 
 // ErrNoPWMChannelsAppeared is returned by stepVerify when the driver loaded
@@ -284,6 +287,15 @@ func stepPersist(c PipelineConfig) error {
 // for at least one controllable PWM. Extracted from install.go:131-142;
 // keeps the same timing so existing test fixtures don't need to change.
 //
+// When the driver declares a HALBackend (msi-ec → "msiec", future
+// thinkpad → "thinkpad", etc.) and the hwmon poll comes up empty, fall
+// back to that backend's Enumerate. msi-ec's control surface lives at
+// /sys/devices/platform/msi-ec/fan_mode rather than under
+// /sys/class/hwmon, so the hwmon-only check would otherwise always fail
+// for it — the silent dead-end #1116 / #1154 surfaced. The HAL-backed
+// check is gated on DriverNeed.HALBackend so hwmon-shaped drivers
+// (it87, nct6687d) keep their existing behaviour unchanged.
+//
 // On failure the returned error wraps ErrNoPWMChannelsAppeared so the
 // probe-then-pick caller in internal/setup can detect the chip-mismatch
 // case and retry with the next driver candidate. Real install failures
@@ -293,14 +305,55 @@ func stepVerify(c PipelineConfig) error {
 	var pwmPaths []string
 	for i := 0; i < 6; i++ {
 		time.Sleep(250 * time.Millisecond)
-		pwmPaths = findPWMPaths()
+		pwmPaths = stepVerifyHwmonPoll()
 		if countControllablePWM(pwmPaths) > 0 {
 			c.Log(fmt.Sprintf("Found %d controllable fan channel(s).",
 				countControllablePWM(pwmPaths)))
 			return nil
 		}
+		if c.Driver.HALBackend != "" {
+			if n := halBackendChannelCount(c.Driver.HALBackend); n > 0 {
+				c.Log(fmt.Sprintf("Found %d controllable fan channel(s) via %s backend.",
+					n, c.Driver.HALBackend))
+				return nil
+			}
+		}
 	}
 	return fmt.Errorf("%w (chip-mismatch — your board may use a different chip variant)", ErrNoPWMChannelsAppeared)
+}
+
+// stepVerifyHwmonPoll is a test seam over findPWMPaths so stepVerify's
+// HAL-fallback contract can be exercised on test hosts that happen to
+// have real hwmon devices present (CI runners, dev machines with
+// motherboards exposing pwm1). Production always uses findPWMPaths;
+// tests in install_steps_test.go swap this var inside t.Cleanup-scoped
+// blocks.
+var stepVerifyHwmonPoll = findPWMPaths
+
+// halBackendChannelCount returns the number of CapWritePWM channels the
+// named HAL backend currently enumerates. Returns 0 when the backend is
+// not registered, the enumerate call errors, or no writable channels are
+// present. Used by stepVerify to accept the install when a driver's
+// control surface lives outside /sys/class/hwmon — see HALBackend on
+// DriverNeed.
+func halBackendChannelCount(backendName string) int {
+	be, ok := hal.Backend(backendName)
+	if !ok {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	chs, err := be.Enumerate(ctx)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, ch := range chs {
+		if ch.Caps&hal.CapWritePWM != 0 {
+			count++
+		}
+	}
+	return count
 }
 
 // copyFile is a small portable file-copy helper. The upstream Makefile's
