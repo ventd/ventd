@@ -274,6 +274,50 @@ func TestRULE_SYSCLASS_03_AmbientFallbackChain(t *testing.T) {
 			t.Errorf("Reading: got %v, want 25.0", amb.Reading)
 		}
 	})
+
+	// Issue #1162: Intel DPTF policy-engine zones report near-zero
+	// values when the engine is idle. The lowest-at-idle heuristic
+	// otherwise wins with them on every Intel laptop ≥10th gen,
+	// trips the envelope sanity check at AMBIENT-IMPLAUSIBLE-TOO-COLD,
+	// and the wizard's probe defers indefinitely. Block the known
+	// DPTF labels and verify a real labeled sensor on the same probe
+	// still wins.
+	t.Run("step2_skips_dptf_sensors", func(t *testing.T) {
+		cases := []struct{ label string }{
+			{"INT3400 Thermal"},  // Hudson's MSI GF63 case
+			{"INT3403 Thermal"},  // DPTF satellite
+			{"INTC1041 Thermal"}, // newer DPTF
+			{"INTC10A0 Thermal"},
+			{"TCPU"},
+			{"acme-dptf-zone"},
+		}
+		for _, c := range cases {
+			r := emptyResult()
+			withSensor(r, c.label, 0.05)       // DPTF idle reading
+			withSensor(r, "Board Temp", 28.0)  // real sensor
+			withSensor(r, "CPU Package", 62.0) // blocked by existing rules
+			amb := identifyAmbient(r, d)
+			if amb.Source != AmbientLowestAtIdle {
+				t.Errorf("%s: Source = %v, want AmbientLowestAtIdle", c.label, amb.Source)
+			}
+			if amb.Reading != 28.0 {
+				t.Errorf("%s: Reading = %v, want 28.0 (DPTF zone should have been blocked)", c.label, amb.Reading)
+			}
+		}
+	})
+
+	// Issue #1162 negative: acpitz is firmware-derived but reports
+	// physical temperatures, so the blocklist deliberately does NOT
+	// include it. Pin that behaviour so a future cleanup doesn't
+	// accidentally over-block.
+	t.Run("step2_does_not_skip_acpitz", func(t *testing.T) {
+		r := emptyResult()
+		withSensor(r, "acpitz", 24.0)
+		amb := identifyAmbient(r, d)
+		if amb.Source != AmbientLowestAtIdle {
+			t.Errorf("acpitz wrongly blocked: Source = %v, want AmbientLowestAtIdle", amb.Source)
+		}
+	})
 }
 
 // TestRULE_SYSCLASS_04_AmbientBoundsRefusal verifies that AmbientBoundsOK
