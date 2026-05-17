@@ -32,6 +32,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
+	"github.com/ventd/ventd/internal/lastfatal"
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
@@ -70,6 +71,12 @@ func main() {
 	if err := run(); err != nil {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 		logger.Error("ventd: fatal", "err", err)
+		// Issue #1165: persist a one-line summary so the next
+		// successful start (or an operator running ventd --health)
+		// can name what went wrong. Without this, restart-looping
+		// daemons hit systemd's "Start request repeated too quickly"
+		// with no surface other than `journalctl -u ventd`.
+		lastfatal.Write(lastfatal.DefaultDir, version, err)
 		os.Exit(1)
 	}
 }
@@ -410,6 +417,10 @@ func run() error {
 			logger.Error("state close", "err", err)
 		}
 	}()
+	// Issue #1165: startup has progressed past the modes the last-
+	// fatal sentinel covers (config load, state.Open). Any sentinel
+	// from a prior boot would lie if it survived — clear it.
+	lastfatal.Clear(lastfatal.DefaultDir)
 	// Run the catalog-less hardware probe on first boot. Subsequent starts
 	// consult the persisted wizard outcome directly (RULE-PROBE-08).
 	if _, ok, _ := probe.LoadWizardOutcome(st.KV); !ok {
