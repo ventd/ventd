@@ -187,3 +187,55 @@ func TestEmitObservation_RPMMinusOneOnBackendError(t *testing.T) {
 		t.Errorf("ObsRecord.RPM on failed Read = %d, want -1 (tach-unavailable sentinel)", captured.RPM)
 	}
 }
+
+// TestEmitObservation_SentinelCarryForwardEmitsRecord pins issue #1045:
+// the sentinel-carry-forward branch in tick() must emit an observation
+// record after it re-writes lastPWM. Without it, every sensor-sentinel
+// glitch tick was invisible to the smart-mode Layer-B / Layer-C
+// fallback-tier classifier even though a real PWM byte was committed to
+// the channel, breaking the observation continuity those layers depend on.
+func TestEmitObservation_SentinelCarryForwardEmitsRecord(t *testing.T) {
+	ff := newFakeFan(t)
+	// Tick 1: a valid temp seeds lastPWM via the normal write path.
+	if err := os.WriteFile(ff.tempPath, []byte("60000\n"), 0o600); err != nil {
+		t.Fatalf("seed temp: %v", err)
+	}
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+
+	var records []*ObsRecord
+	appendFn := func(rec *ObsRecord) { records = append(records, rec) }
+
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	c := New(
+		"cpu fan", "cpu_curve",
+		ff.pwmPath, "hwmon",
+		cfgAtomicPtr(cfg), wd, &stubCal{}, logger,
+		WithObservation(appendFn, func() string { return "carry-fwd" }),
+	)
+	c.tick()
+	if len(records) != 1 {
+		t.Fatalf("after tick 1 (valid temp): got %d obs records, want 1", len(records))
+	}
+	firstPWM := records[0].PWMWritten
+	if firstPWM == 0 {
+		t.Fatal("tick 1 PWM was 0; cannot distinguish carry-forward write")
+	}
+
+	// Tick 2: inject sentinel temperature → carry-forward branch.
+	// 255500 mC (255.5 °C) trips hwmon.IsSentinelSensorVal.
+	if err := os.WriteFile(ff.tempPath, []byte("255500\n"), 0o600); err != nil {
+		t.Fatalf("seed sentinel: %v", err)
+	}
+	c.tick()
+
+	if len(records) != 2 {
+		t.Fatalf("after tick 2 (sentinel carry-forward): got %d obs records, want 2 (issue #1045: branch was silent)", len(records))
+	}
+	if got := records[1].PWMWritten; got != firstPWM {
+		t.Errorf("carry-forward obs PWMWritten = %d, want %d (= lastPWM from tick 1)", got, firstPWM)
+	}
+	if got := records[1].SignatureLabel; got != "carry-fwd" {
+		t.Errorf("carry-forward obs SignatureLabel = %q, want %q", got, "carry-fwd")
+	}
+}
