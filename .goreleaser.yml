@@ -272,8 +272,10 @@ nfpms:
         dst: /etc/ventd/config.example.yaml
         type: config
     scripts:
+      preinstall: scripts/preinstall.sh
       postinstall: scripts/postinstall.sh
       preremove: scripts/preremove.sh
+      postremove: scripts/postremove.sh
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
