@@ -77,6 +77,8 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
 		orchestrator.DriverPlanPhase{},
 		orchestrator.DriverInstallPhase{},
 		orchestrator.ProbePhase{},
+		orchestrator.PolarityPhase{},
+		orchestrator.ApplyPhase{},
 	)
 	if err != nil {
 		return fmt.Errorf("orchestrator preview: %w", err)
