@@ -53,4 +53,5 @@ jobs:
             --exclude-path dist
             --exclude-path internal/hwdb/nbfc/configs
             --exclude-path internal/web/CHANGELOG.md.embedded
+            --exclude-path CHANGELOG.md
             './**/*.md'

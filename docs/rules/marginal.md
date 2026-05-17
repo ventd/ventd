@@ -7,7 +7,7 @@ signature; v0.5.9's confidence-gated controller uses it to refuse
 ramps that pay full acoustic cost for zero thermal benefit.
 
 The patch spec is `specs/spec-v0_5_8-marginal-benefit.md`. The
-design of record is `docs/research/r-bundle/R9-R10-identifiability-and-shards.md`
+design of record is `(research note in git history)`
 (R10 §10.1 locks `d_C = 2`; R10 §10.7 locks the prior-seeding
 machinery from Layer B). R11 §0 locks the saturation thresholds.
 

@@ -1,7 +1,7 @@
 // Package coupling implements v0.5.7's Layer B per-channel thermal-
 // coupling estimator per spec-v0_5_7-thermal-coupling.md and the
 // locked R9+R10 research at
-// docs/research/r-bundle/R9-R10-identifiability-and-shards.md.
+// (research note in git history).
 //
 // Each Shard estimates the per-channel ARX-with-exogenous-input model
 //

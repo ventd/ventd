@@ -153,7 +153,7 @@ three concrete implementations (`SupermicroIPMIProbe`,
 `DellIPMIProbe`, `HPEIPMIProbe`) covering Supermicro OEM, Dell
 firmware-locked, and HPE profile-only channels. Pass-2 of the
 comprehensive code audit
-(`docs/audits/2026-05-11/pass-2-interface-conformance.md`)
+(`(audit note in git history)`)
 identified the surface as fully dead in production. v0.5.39
 deleted the dead surface per option 2 from the audit
 recommendation.

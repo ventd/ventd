@@ -8,7 +8,7 @@ The validity probe answers "is this channel valid for control?"
 calibration proper runs. The boundary with `internal/calibrate/`
 (legacy V-model sweep) and `internal/probe/` (catalog-less primary
 path) is documented at
-`docs/research/r-bundle/smart-mode-handoff.md` and pinned by
+`(research note in git history)` and pinned by
 RULE-PKG-VALIDITY-PROBE-BOUNDARY (free-form note, no test).
 
 Each rule below binds 1:1 to a subtest. If a rule text is edited,

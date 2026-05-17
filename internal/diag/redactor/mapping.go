@@ -1,6 +1,6 @@
 // Package redactor implements the ventd diagnostic bundle privacy redactor.
 // It strips identifying information from bundle content per the threat model
-// in docs/research/2026-04-diag-privacy-threat-model.md.
+// in (research note in git history).
 package redactor
 
 import (

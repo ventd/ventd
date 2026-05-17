@@ -17,7 +17,7 @@
 //   - No network or external process state. The package is hermetically
 //     testable from byte slices.
 //
-// Design source: docs/research/r-bundle/R30-mic-calibration.md.
+// Design source: (research note in git history).
 package capture
 
 import (

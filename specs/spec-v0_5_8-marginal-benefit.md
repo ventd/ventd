@@ -27,21 +27,21 @@
 - `specs/spec-smart-mode.md` §6.3 (Layer C description), §7.1
   (saturation refusal in objective), §7.2 (preset interaction),
   §8.2 (`conf_C` consumption), §11 (patch sequence).
-- `docs/research/r-bundle/R9-R10-identifiability-and-shards.md` —
+- `(research note in git history)` —
   locked design of record. v0.5.8 transcribes R10 §10.1 (Layer-C
   parametric form `d_C = 2`), R10 §10.7 (overlay shard activation
   + prior seeding from Layer-B), R9 §9.5 (per-signature detection
   actions table).
-- `docs/research/r-bundle/R11-sensor-noise-floor-thresholds.md` —
+- `(research note in git history)` —
   R11 §0 locks the canonical saturation threshold: ΔT < **2 °C**
   over **20 writes** (= 2 s at 10 Hz fast loop, OR 3 reads at
   ~1 read/min for HDD/NAS slow loop). v0.5.8 references R11 §0
   directly rather than restating the constant in this spec.
-- `docs/research/r-bundle/R7-workload-signature-hash.md` — R7
+- `(research note in git history)` — R7
   §Q5 caps the signature library at 128 buckets with weighted-LRU
   eviction (τ=14d). The v0.5.8 shard map inherits the same cap
   per channel.
-- `docs/research/r-bundle/ventd-R12-amendment-threshold-recalibration.md`
+- `(research note in git history)`
   — bounded-covariance directional forgetting. The locked R12
   tr(P) cap is applied to Layer-C updates exactly as it is to
   Layer-B updates.

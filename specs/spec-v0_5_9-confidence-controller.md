@@ -40,34 +40,34 @@ absorbs its scope per spec-smart-mode §10.1).
 **References:**
 - `specs/spec-smart-mode.md` §6, §7, §8, §10.1 (spec-04 subsumption),
   §11 (patch sequence), §12 (HIL strategy), §16 (success criteria).
-- `docs/research/r-bundle/R8-R12-tachless-fallback-and-blended-confidence.md`
+- `(research note in git history)`
   — R8 fallback tier table, R12 §Q1 confidence-product formula,
   R12 §Q3 LPF/Lipschitz/drift-decay smoothness machinery, R12 §Q5
   drift handling, R12 §Q6 active-signature collapse + global gate,
   R12 §Q7 doctor surface contract, R12 §Q8 persistence-of-inputs.
-- `docs/research/r-bundle/R9-R10-identifiability-and-shards.md` —
+- `(research note in git history)` —
   R9 identifiability (used to gate `conf_B` and refuse PI on
   unidentifiable shards), R10 §10.4/§10.5 shard architecture.
-- `docs/research/r-bundle/R11-sensor-noise-floor-thresholds.md` —
+- `(research note in git history)` —
   saturation thresholds, noise floor values used in `conf_A`
   residual normalisation.
-- `docs/research/r-bundle/ventd-R12-amendment-threshold-recalibration.md`
+- `(research note in git history)`
   — R12 amendment Drift 2 (warmup admit subsumes sample_count),
   Drift 4 (covariance term entry value).
-- `docs/research/r-bundle/ventd-R13-doctor-depth.md` — R13 §1 surface
+- `(research note in git history)` — R13 §1 surface
   contract for confidence breakdown.
-- `docs/research/r-bundle/ventd-R15-spec-05-audit.md` — R15 §104
+- `(research note in git history)` — R15 §104
   KV namespace convention `smart/conf-A/<channel>` mirrors v0.5.7
   `smart/shard-B/` and v0.5.8 `smart/shard-C/`.
-- `docs/research/r-bundle/ventd-R16-anomaly-detection-unsupervised.md`
+- `(research note in git history)`
   — R16 sets `drift_flag` on a per-layer EWMA-residual basis;
   v0.5.9's aggregator must accept `drift_flag` from a future R16
   consumer without code change.
-- `docs/research/r-bundle/ventd-R18-acoustic-objective-no-mic.md` —
+- `(research note in git history)` —
   v0.5.9 acoustic cost stub `cost = k·|ΔRPM|` is R18's degenerate
   SLEW_TERM. `Config.Smart.PresetWeightVector` reserved for R18
   forward-compat.
-- `docs/research/r-bundle/ventd-R19-battery-aware-portables.md` —
+- `(research note in git history)` —
   R19 will overlay `preset_weight_vector` with battery-modulation
   vector in v0.7+; v0.5.9's preset enum is the surface that
   swap targets.

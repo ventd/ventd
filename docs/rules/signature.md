@@ -11,7 +11,7 @@ opt-in.
 
 The patch spec is `specs/spec-v0_5_6-workload-signatures.md`.
 The design of record is
-`docs/research/r-bundle/R7-workload-signature-hash.md` (869 lines,
+`(research note in git history)` (869 lines,
 exhaustive). v0.5.6 transcribes R7; rules in this file restate R7's
 locks.
 

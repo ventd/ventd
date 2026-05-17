@@ -15,7 +15,7 @@
 //   - The persisted Result carries derived measurements (K_cal offset,
 //     dBFS levels, mic identity hash) — no raw audio bytes.
 //
-// Design source: docs/research/r-bundle/R30-mic-calibration.md.
+// Design source: (research note in git history).
 package runner
 
 import (

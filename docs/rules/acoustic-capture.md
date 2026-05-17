@@ -11,7 +11,7 @@ The package is consumed by the v0.5.12 PR-D `ventd calibrate --acoustic`
 CLI subcommand which spawns ffmpeg for the actual ALSA capture. This
 package never opens an audio device and never persists raw audio.
 
-The patch spec is `docs/research/r-bundle/R30-mic-calibration.md`.
+The patch spec is `(research note in git history)`.
 Each rule below is bound 1:1 to a subtest under `capture_test.go`.
 
 ## RULE-ACOUSTIC-CAPTURE-01: Parse accepts only 16-bit PCM mono 48 kHz WAVs.

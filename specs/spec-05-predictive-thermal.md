@@ -5,7 +5,7 @@
 **Masterplan IDs this covers:** NEW track P4-PREDICT-{01..04}, supersedes the notional P4-MPC-01 for v1.0.
 **Target release:** v0.7.0 – v1.0.0 (four-phase rollout, see §9).
 **Estimated session cost:** Sonnet, ~25–40 sessions over 3–6 months, $12–25 each. Four Opus consults ($3–6 each).
-**Research source:** `docs/research/2026-04-predictive-thermal.md` (filed as non-binding research).
+**Research source:** `(research note in git history)` (filed as non-binding research).
 
 ---
 
