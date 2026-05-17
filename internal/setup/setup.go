@@ -1436,14 +1436,17 @@ func (m *Manager) run(ctx context.Context, release func()) {
 
 		// Demote to monitor-only when every controllable channel is phantom
 		// (Dell PE 14G firmware-locked, HPE iLO5 profile-only, etc.).
-		allPhantom := true
-		for _, f := range fans {
-			if f.Type == "hwmon" && f.DetectPhase == "found" && f.PolarityPhase != "phantom" {
-				allPhantom = false
-				break
-			}
-		}
-		if allPhantom {
+		if isAllPhantom(fans) {
+			// Issue #1058 (F1): hand every probed hwmon channel back to BIOS
+			// auto BEFORE returning monitor-only. RULE-SETUP-NO-ORPHANED-
+			// CHANNELS — without this call, every channel the polarity
+			// probe touched sits at pwm_enable=1 with whatever PWM the
+			// probe last wrote (often 0 or a sweep mid-value). Result on
+			// the operator's box: fans stuck at minimum or off until next
+			// daemon exit, with no diagnostic surface. doneFans is empty
+			// here (calibration hasn't run), so restoreExcludedChannels
+			// hands back every probed hwmon channel.
+			restoreExcludedChannels(fans, nil, m.logger)
 			m.mu.Lock()
 			m.errMsg = "All fan channels are firmware-locked or unresponsive. " +
 				"Ventd will run in monitor-only mode — temperatures are visible " +
@@ -1898,6 +1901,36 @@ func readSysfsUint8(path string) (uint8, error) {
 
 func writeSysfsUint8(path string, v uint8) error {
 	return os.WriteFile(path, []byte(strconv.Itoa(int(v))), 0o644)
+}
+
+// isAllPhantom reports whether the wizard should demote to monitor-only.
+//
+// True iff no fan in fans is independently controllable:
+//   - hwmon: counts as controllable when detected (found OR heuristic) AND
+//     not classified phantom by the polarity probe. "heuristic" detect
+//     means PWM works but no RPM correlate — open-loop control is still
+//     real fan control, so it must NOT trigger the monitor-only path
+//     (issue #1058 sibling concern).
+//   - nvidia: inherently controllable via NVML — no phantom failure mode,
+//     no polarity probe. A host with only NVIDIA fans (headless GPU
+//     compute box, no exposed SuperIO) must not be demoted to monitor-
+//     only despite a working GPU fan controller (issue #1059).
+//
+// Other backends (msiec, thinkpad, ipmi, nbfc, …) are out of scope for
+// this branch — they're not produced by Phase 5's hwmon-centric
+// detect/polarity probes that feed this decision.
+func isAllPhantom(fans []FanState) bool {
+	for _, f := range fans {
+		switch f.Type {
+		case "nvidia":
+			return false
+		case "hwmon":
+			if (f.DetectPhase == "found" || f.DetectPhase == "heuristic") && f.PolarityPhase != "phantom" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // restoreExcludedChannels enforces RULE-SETUP-NO-ORPHANED-CHANNELS.
