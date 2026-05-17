@@ -22,7 +22,7 @@
 // dBA-PWM curves) are not implemented in this package — they live in
 // the controller layer that consumes Score().
 //
-// Bound rules: see .claude/rules/acoustic-proxy.md (R33-LOCK-01 .. -15).
+// Bound rules: see docs/rules/acoustic-proxy.md (R33-LOCK-01 .. -15).
 package proxy
 
 import (
@@ -268,7 +268,7 @@ func Score(f Fan) float64 {
 // PresetMultiplier is the cost-gate weighting that the smart-mode preset
 // applies to per-PWM acoustic cost. v0.5.9 ships these as the canonical
 // values for Silent / Balanced / Performance per
-// .claude/rules/blended-controller.md::RULE-CTRL-COST-01.
+// docs/rules/blended-controller.md::RULE-CTRL-COST-01.
 type PresetMultiplier float64
 
 const (

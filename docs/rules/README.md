@@ -1,4 +1,4 @@
-# .claude/rules — invariant rule files
+# docs/rules — invariant rule files
 
 Each `*.md` file in this directory defines a set of safety invariants for a
 specific package or subsystem. Every rule is 1:1 with a subtest; `tools/rulelint`

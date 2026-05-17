@@ -49,7 +49,7 @@ The three groups whose failure implies a user-visible safety regression:
 | Group | File(s) | What it pins |
 |-------|---------|--------------|
 | `safety_watchdog` | `internal/watchdog/{watchdog_restore,restore_matrix}_test.go` | Every daemon-exit restore path. Panic-in-entry-N does not abort entries N+1..end. Deregister is LIFO. |
-| `safety_controller` | `internal/controller/safety_test.go` (`TestSafety_Invariants`) | 12 named subtests, one per rule in `.claude/rules/hwmon-safety.md`. |
+| `safety_controller` | `internal/controller/safety_test.go` (`TestSafety_Invariants`) | 12 named subtests, one per rule in `docs/rules/hwmon-safety.md`. |
 | `safety_calibrate` | `internal/calibrate/{calibrate,detect,safety}_test.go` | Abort restores PWM to pre-calibration value. Detect refuses nvidia fans, handles missing fan*_input, rejects concurrent calls. |
 
 ### Handler contracts (`internal/web`)
@@ -168,4 +168,4 @@ Known flake: `internal/config/TestLoadForStartup_RetryEventuallySucceeds` is occ
 - `docs/TESTING.md` — six named workflows for automated diagnosis, failing-test → file-to-open cheat sheet, ground rules for adding tests.
 - `COVERAGE.md` — historical coverage snapshots and gap-tracking issue references (#132, #133, #163, #177).
 - `scripts/diagnose-tests.sh` — diagnostic runner source.
-- `.claude/rules/hwmon-safety.md` — the 12 safety rules bound 1:1 to `TestSafety_Invariants` subtests.
+- `docs/rules/hwmon-safety.md` — the 12 safety rules bound 1:1 to `TestSafety_Invariants` subtests.

@@ -31,7 +31,7 @@ func (s *scriptedPrompter) Print(line string) { s.out.WriteString(line + "\n") }
 
 // Each subtest below is the bound implementation of one
 // RULE-PREFLIGHT-ORCH-* invariant in
-// .claude/rules/preflight-orchestrator.md.
+// docs/rules/preflight-orchestrator.md.
 
 func TestOrchestrator(t *testing.T) {
 	t.Run("RULE-PREFLIGHT-ORCH-01_blocker_with_no_fix_returns_error", func(t *testing.T) {

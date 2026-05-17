@@ -97,4 +97,4 @@ Additional residue from pass-1 that wasn't covered by the merged fix PRs:
 
 ## Next
 
-Pass 3 — rule↔binding integrity sweep. Read every RULE in `.claude/rules/` and verify the bound subtest exercises the invariant the rule text describes (not just that the subtest exists). Pass 2 only checks declared dispatch surfaces; Pass 3 closes the gap where a test passes by exercising a narrower path than the rule promises.
+Pass 3 — rule↔binding integrity sweep. Read every RULE in `docs/rules/` and verify the bound subtest exercises the invariant the rule text describes (not just that the subtest exists). Pass 2 only checks declared dispatch surfaces; Pass 3 closes the gap where a test passes by exercising a narrower path than the rule promises.

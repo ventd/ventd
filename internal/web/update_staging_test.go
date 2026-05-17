@@ -11,7 +11,7 @@ import (
 // install.sh used by the in-UI updater on disk before systemd-run
 // spawns the transient ventd-update.service.
 //
-// The bound rule lives in .claude/rules/web-ui.md.
+// The bound rule lives in docs/rules/web-ui.md.
 //
 // History: v0.5.26 staged via os.CreateTemp("", ...), which on
 // systemd hosts with PrivateTmp=yes (every modern ventd install)

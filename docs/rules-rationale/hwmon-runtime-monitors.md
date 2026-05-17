@@ -4,7 +4,7 @@ This document carries the historical context + design exposition for two
 high-touch hwmon runtime monitors: the EBUSY rate-tracking ladder
 (RULE-HWMON-EBUSY-RATE-OBSERVABILITY) and the hwmon-swap watchdog
 (RULE-HWMON-SWAP-MONITOR). The invariants themselves live in
-`.claude/rules/hwmon-safety.md`.
+`docs/rules/hwmon-safety.md`.
 
 ## EBUSY rate ladder (RULE-HWMON-EBUSY-RATE-OBSERVABILITY)
 

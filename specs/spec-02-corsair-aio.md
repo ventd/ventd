@@ -103,9 +103,9 @@ func Watch(ctx context.Context, matchers []Matcher) (<-chan Event, error)
 - `internal/hal/liquid/corsair/devices.go` (new — VID/PID table)
 - `internal/hal/liquid/corsair/safety.go` (new — pump_minimum sentinel)
 - `internal/hal/liquid/corsair/corsair_test.go` (new)
-- `internal/hal/liquid/corsair/safety_test.go` (new — bound to `.claude/rules/liquid-safety.md`)
+- `internal/hal/liquid/corsair/safety_test.go` (new — bound to `docs/rules/liquid-safety.md`)
 - `internal/testfixture/fakehid/corsair.go` (new — scripted Commander Core / Core XT / Commander Pro response set, ported from `MockCommanderCoreDevice`)
-- `.claude/rules/liquid-safety.md` (new)
+- `docs/rules/liquid-safety.md` (new)
 
 **Devices in scope for v0.4.0:**
 
@@ -133,9 +133,9 @@ Exclude iCUE LINK System Hub for v0.4.0 — its protocol is substantially differ
 - `Caps.HasRPMTarget = false` (Corsair exposes PWM only via the ventd path, not RPM closed-loop).
 - `Restore()` writes per-channel firmware-curve mode — hands control back to BIOS/device default. **Never leave pumps at low PWM on exit.**
 
-**Safety invariants (`.claude/rules/liquid-safety.md`):**
+**Safety invariants (`docs/rules/liquid-safety.md`):**
 
-Five rules, 1:1 with five subtests in `safety_test.go:TestLiquidSafety_Invariants`. Format must match `.claude/rules/hwmon-safety.md` exactly — CC reads that file first and mirrors format.
+Five rules, 1:1 with five subtests in `safety_test.go:TestLiquidSafety_Invariants`. Format must match `docs/rules/hwmon-safety.md` exactly — CC reads that file first and mirrors format.
 
 1. `RULE-LIQUID-01`: Pump channel PWM never falls below `pump_minimum` (default 50). Config-overridable per device. Enforced in the HAL write path, not in the controller.
    **Bound:** `internal/hal/liquid/corsair/safety_test.go:TestLiquidSafety_Invariants/PumpMinimumFloor`
@@ -238,7 +238,7 @@ Five rules, 1:1 with five subtests in `safety_test.go:TestLiquidSafety_Invariant
 
 - [ ] PR 1 merged: `internal/hal/usbbase/` + `internal/testfixture/fakehid/` green.
 - [ ] Opus consult complete; `specs/spec-02-framing-review.md` committed.
-- [ ] PR 2 merged: `internal/hal/liquid/corsair/` + `.claude/rules/liquid-safety.md` green; 5 invariants bound.
+- [ ] PR 2 merged: `internal/hal/liquid/corsair/` + `docs/rules/liquid-safety.md` green; 5 invariants bound.
 - [ ] PR 3 merged: `deploy/90-ventd-liquid.rules` + udev tests green.
 - [ ] PR 4 merged: VID gate + hwdb + `docs/hardware.md` + CHANGELOG honest-alpha bullet.
 - [ ] `tools/rulelint` green across the repo — no orphan rules or subtests.
@@ -273,7 +273,7 @@ Then starts a fresh CC session and pastes the prompt for the target PR.
 
 ```
 Read /home/phoenix/ventd/specs/spec-02-corsair-aio.md, PR 1 section only.
-Then read .claude/rules/hwmon-safety.md for rule-file format reference
+Then read docs/rules/hwmon-safety.md for rule-file format reference
 (do not edit it).
 
 Create branch feat/spec-02-pr1-usbbase from main. All work on this branch.
@@ -306,20 +306,20 @@ Read /home/phoenix/ventd/specs/spec-02-corsair-aio.md, PR 2 section.
 Read /home/phoenix/ventd/specs/spec-02-framing-review.md — the Opus
 consult output. This is the authoritative struct layout; do not deviate
 without pausing and asking.
-Read .claude/rules/hwmon-safety.md for rule-file format reference.
+Read docs/rules/hwmon-safety.md for rule-file format reference.
 
 Create branch feat/spec-02-pr2-corsair from main (main must include the
 PR 1 squash commit — verify with git log --oneline -3 before starting).
 
 Deliver: internal/hal/liquid/{liquid.go, corsair/{corsair.go, protocol.go,
 devices.go, safety.go, corsair_test.go, safety_test.go}}, extension of
-internal/testfixture/fakehid/corsair.go, and .claude/rules/liquid-safety.md.
+internal/testfixture/fakehid/corsair.go, and docs/rules/liquid-safety.md.
 
 Constraints:
 - Every opcode constant in protocol.go carries a // ref: commander_core.md §N.N
   comment. No bare opcodes.
 - safety_test.go:TestLiquidSafety_Invariants has exactly 5 subtests,
-  1:1 with RULE-LIQUID-01..05 in .claude/rules/liquid-safety.md.
+  1:1 with RULE-LIQUID-01..05 in docs/rules/liquid-safety.md.
 - Every goroutine-using test uses goleak.VerifyNone(t) in a defer.
 - No concurrent writes to a single fakehid Corsair device — enforce in the
   backend, test the enforcement.

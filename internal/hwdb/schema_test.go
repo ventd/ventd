@@ -9,7 +9,7 @@ import (
 
 // TestSchema_Invariants verifies all nine RULE-HWDB-* invariants via fixture
 // files in testdata/. Each subtest name matches exactly one Bound: line in
-// .claude/rules/hwdb-schema.md.
+// docs/rules/hwdb-schema.md.
 func TestSchema_Invariants(t *testing.T) {
 	t.Run("Rule_HWDB_01_RequiredFields", func(t *testing.T) {
 		cases := []struct {

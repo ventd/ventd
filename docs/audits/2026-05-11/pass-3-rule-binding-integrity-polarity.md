@@ -3,7 +3,7 @@
 **Date**: 2026-05-11
 **Audit**: Comprehensive ghost-code sweep, third pass
 **Baseline commit**: `e49ac20`
-**Scope**: every `RULE-POLARITY-*` rule across `.claude/rules/RULE-POLARITY-*.md` — 11 rules.
+**Scope**: every `RULE-POLARITY-*` rule across `docs/rules/RULE-POLARITY-*.md` — 11 rules.
 
 ## Findings
 

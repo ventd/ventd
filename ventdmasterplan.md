@@ -295,7 +295,7 @@ Rationale: per-vendor PRs ship independently, three release posts, failure
 isolation.
 Goal: Corsair Commander Core / Core XT / Commander Pro via USB HID.
 DoD: `ventd --list-fans` enumerates the pump + case fans with correct role
-classification; `.claude/rules/liquid-safety.md` invariants bound.
+classification; `docs/rules/liquid-safety.md` invariants bound.
 > Spec: `specs/spec-02-corsair-aio.md`.
 
 **P2-LIQUID-01b | LIQUID | P2-LIQUID-01 | same files**
@@ -374,7 +374,7 @@ matrix, ranked leverage÷cost descending):
 **P4-PI-01 | CTRL | P1-HOT-01 | `internal/curve/pi.go` (new), `internal/controller/controller.go`, `internal/config/config.go`**
 Goal: PI curve with anti-windup, NaN fallback, IntegralClamp.
 See spec for full control law + invariants.
-DoD: `.claude/rules/pi-stability.md` with 7 bound invariants; `PropPIStability`
+DoD: `docs/rules/pi-stability.md` with 7 bound invariants; `PropPIStability`
 passes 10k random plants.
 
 **P4-HYST-01 | CTRL | P1-HOT-01 | `internal/controller/controller.go`**
@@ -463,7 +463,7 @@ for the schema-freeze opus consult and the 25-entry seed target.
 
 **P5-PROF-SCHEMA-01 | PROF | P1-FP-01 | `internal/hwdb/schema.go` (new)**
 Goal: freeze v1 schema for `profiles.yaml`. Opus consult before implementation.
-DoD: 7 bound invariants in `.claude/rules/hwdb-schema.md`; schema documented
+DoD: 7 bound invariants in `docs/rules/hwdb-schema.md`; schema documented
 in `docs/hwdb-schema.md`.
 
 **P5-PROF-MATCH-01 | PROF | P5-PROF-SCHEMA-01 | `internal/hwdb/match.go`**
@@ -572,7 +572,7 @@ Every PR must satisfy, non-negotiable:
 - `gofmt -d .` returns nothing.
 - Safety invariants preserved — watchdog.Restore paths, PWM clamping,
   pwm_enable save/restore unchanged unless the PR explicitly targets them.
-- `.claude/rules/*.md` files stay bound to their subtests (enforced by
+- `docs/rules/*.md` files stay bound to their subtests (enforced by
   meta-lint CI).
 - CHANGELOG updated under `## [Unreleased]`.
 - Single-static-binary preserved (no CGO, NVML stays dlopen).
@@ -689,7 +689,7 @@ Simplified from the old 17-row Cowork checklist. The rows that survived:
 | R7 | No secrets, credentials, or real hardware fingerprints committed |
 | R8 | Public API unchanged unless the PR targets it |
 | R9 | CHANGELOG updated under `## [Unreleased]` |
-| R10 | Every `.claude/rules/*.md` touched has matching subtest edits |
+| R10 | Every `docs/rules/*.md` touched has matching subtest edits |
 | R11 | Every closed issue in `Fixes:` has a `TestRegression_Issue<N>_*` |
 | R12 | New safety-critical function bound to a rule invariant |
 | R13 | New goroutine has documented lifecycle (ctx or stop channel) |

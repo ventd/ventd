@@ -84,7 +84,7 @@ type fakeNBFCBackend struct {
 	restoreCalls atomic.Int32
 }
 
-func (f *fakeNBFCBackend) Name() string                                { return halnbfc.BackendName }
+func (f *fakeNBFCBackend) Name() string                                       { return halnbfc.BackendName }
 func (f *fakeNBFCBackend) Enumerate(_ context.Context) ([]hal.Channel, error) { return f.channels, nil }
 func (f *fakeNBFCBackend) Read(_ hal.Channel) (hal.Reading, error) {
 	return hal.Reading{OK: false}, nil

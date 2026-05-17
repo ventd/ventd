@@ -8,7 +8,7 @@ import (
 )
 
 // Each subtest binds 1:1 to a RULE-PREFLIGHT-DISPATCH-* invariant in
-// .claude/rules/preflight-orchestrator.md.
+// docs/rules/preflight-orchestrator.md.
 
 func TestDistroDispatch(t *testing.T) {
 	t.Run("RULE-PREFLIGHT-DISPATCH-01_debian_uses_apt", func(t *testing.T) {

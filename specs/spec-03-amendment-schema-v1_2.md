@@ -145,7 +145,7 @@ Steps 1-3 are this amendment. Step 4 ships in the same release. Steps
 
 ## Test plan
 
-Per .claude/rules invariant binding:
+Per docs/rules invariant binding:
 
 | Rule | Subtest |
 |---|---|

@@ -8,8 +8,8 @@ on:
       - '*.md'
       - 'CHANGELOG.md'
       - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
+      - 'docs/rules/**'
+      - 'docs/rules/INDEX.md'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -17,8 +17,8 @@ on:
       - '*.md'
       - 'CHANGELOG.md'
       - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
+      - 'docs/rules/**'
+      - 'docs/rules/INDEX.md'
 
 # Cancel any in-progress run on the same branch when a new push lands.
 # Saves CI minutes when iterating on lint fixes, and avoids the
@@ -109,7 +109,7 @@ jobs:
           # Alpine uses the upstream Go 1.25 tarball rather than apk's
           # `go` package (which lags behind and refuses to build a
           # go.mod with `go 1.25.0`). The race detector needs cgo, and
-          # .claude/rules/usability.md requires the binary stay
+          # docs/rules/usability.md requires the binary stay
           # libc-only — so we build with CGO_ENABLED=0 and skip -race
           # on this row. Race coverage comes from the other three
           # distros; Alpine's job is to prove the code compiles and

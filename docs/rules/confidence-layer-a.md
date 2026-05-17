@@ -4,7 +4,7 @@ These invariants govern the per-channel `conf_A` estimator in
 `internal/confidence/layer_a/`. v0.5.9's confidence-gated controller
 collapses `conf_A`, `conf_B` (Layer-B coupling), and `conf_C`
 (Layer-C marginal) into a single per-channel `w_pred` weight via the
-aggregator described in `.claude/rules/confidence-aggregator.md`
+aggregator described in `docs/rules/confidence-aggregator.md`
 (landing in a sibling sub-PR).
 
 The patch spec is `specs/spec-v0_5_9-confidence-controller.md` §2.4

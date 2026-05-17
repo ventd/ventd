@@ -24,30 +24,21 @@ cover.html
 /TODO.md
 /REVIEW.md
 /REVIEW-FINDINGS.md
-/AGENTS.md
 /exampleui.png
 /issue1.png
+
+# AI-assistant configuration is per-machine. Engineering invariants
+# previously under .claude/rules/ now live at docs/rules/ as plain
+# engineering docs; tools/rulelint enforces them in CI.
+/CLAUDE.md
+/AGENTS.md
+/GEMINI.md
+/COPILOT.md
+.claude/
 
 # Internal dev tooling
 /scripts/provision-test-vms.sh
 securitytodo.md
-
-# Claude Code session files — ignore everything under .claude/ except the shared rule files, templates, scripts, and skills
-# .claude/ — track shared (rules, templates, scripts, skills), ignore local
-.claude/*
-!.claude/hooks/
-!.claude/rules/
-!.claude/templates/
-!.claude/scripts/
-!.claude/skills/
-!.claude/settings.json
-!.claude/commands/
-!.claude/RULE-INDEX.md
-.claude/settings.local.json
-.claude/sessions/
-!.claude/rules/
-.claude/rules/*
-!.claude/rules/*.md
 
 # Real cross-distro smoke config — contains Proxmox API token
 /scripts/cross-distro-smoke.config.sh

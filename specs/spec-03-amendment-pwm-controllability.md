@@ -566,7 +566,7 @@ board_profiles:
 
 ## 18. Invariant bindings (RULE-HWDB-* extensions for PR 2)
 
-The following new rules MUST be added to `.claude/rules/` as part of PR 2a, with 1:1 subtest mapping:
+The following new rules MUST be added to `docs/rules/` as part of PR 2a, with 1:1 subtest mapping:
 
 | Rule ID | Statement |
 |---|---|

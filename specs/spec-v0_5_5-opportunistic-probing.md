@@ -264,7 +264,7 @@ Specifically:
 
 ## 3. Invariant bindings
 
-`.claude/rules/opportunistic.md` binds 1:1 to subtests in
+`docs/rules/opportunistic.md` binds 1:1 to subtests in
 `internal/probe/opportunistic/` and `internal/idle/`. Enforced by
 `tools/rulelint`.
 
@@ -464,7 +464,7 @@ internal/observation/record_test.go         (modify: add v2 tests)
 internal/config/config.go                   (modify: add toggle field)
 internal/config/config_test.go              (modify: round-trip toggle)
 cmd/ventd/main.go                           (modify: launch scheduler)
-.claude/rules/opportunistic.md
+docs/rules/opportunistic.md
 specs/spec-v0_5_5-opportunistic-probing.md  (this file)
 ```
 
@@ -482,7 +482,7 @@ web/dashboard.html        (modify: add probe pill div)
 web/dashboard.js          (modify: poll status endpoint, render pill)
 web/dashboard.css         (modify: pill styling)
 internal/web/server.go    (modify: add handleOpportunisticStatus)
-.claude/rules/opportunistic.md (extend with RULE-OPP-UI-*)
+docs/rules/opportunistic.md (extend with RULE-OPP-UI-*)
 ```
 
 Total LOC estimate: ~250 LOC.

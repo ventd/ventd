@@ -23,7 +23,7 @@ PR 3 tests the privilege boundary.
 
 ### PR 1 — Test coverage [MERGED 2026-04-23]
 
-Added `fakeipmi` fixture scaffolding and the 7 safety invariant subtests bound to `.claude/rules/ipmi-safety.md`. All rules landed at commit 357b233: RULE-IPMI-1 (Supermicro X11 happy path), RULE-IPMI-2 (Dell R750 happy path), RULE-IPMI-3 (HPE iLO license required), RULE-IPMI-4 (unknown vendor refuses write), RULE-IPMI-5 (BMC busy retry), RULE-IPMI-6 (ioctl timeout no goroutine leak), RULE-IPMI-7 (restore on exit all channels). Rule-lint green; no orphan subtests.
+Added `fakeipmi` fixture scaffolding and the 7 safety invariant subtests bound to `docs/rules/ipmi-safety.md`. All rules landed at commit 357b233: RULE-IPMI-1 (Supermicro X11 happy path), RULE-IPMI-2 (Dell R750 happy path), RULE-IPMI-3 (HPE iLO license required), RULE-IPMI-4 (unknown vendor refuses write), RULE-IPMI-5 (BMC busy retry), RULE-IPMI-6 (ioctl timeout no goroutine leak), RULE-IPMI-7 (restore on exit all channels). Rule-lint green; no orphan subtests.
 
 ### PR 2 — Author the ventd-ipmi privileged sidecar
 
@@ -93,7 +93,7 @@ Rationale: P2-IPMI-02 shipped `deploy/ventd-ipmi.service` and an AF_UNIX socket 
 ## Definition of done
 
 - [ ] `go test -race ./internal/hal/ipmi/...` passes locally and in CI.
-- [ ] `go test -run TestIPMISafety_Invariants ./internal/hal/ipmi/...` passes; every subtest maps 1:1 to a `RULE-IPMI-<N>` in `.claude/rules/ipmi-safety.md`. ✓ PR 1 done.
+- [ ] `go test -run TestIPMISafety_Invariants ./internal/hal/ipmi/...` passes; every subtest maps 1:1 to a `RULE-IPMI-<N>` in `docs/rules/ipmi-safety.md`. ✓ PR 1 done.
 - [ ] `.github/workflows/rule-lint.yml` (or whatever T-META-01 lints are called) still green — no orphan rules, no orphan subtests. ✓ PR 1 done.
 - [ ] PR 2: `cmd/ventd-ipmi` builds with `CGO_ENABLED=0`; proto round-trip tests pass; `deploy/ventd-ipmi.service` parses under `systemd-analyze verify`.
 - [ ] PR 3: direct-ioctl fallback removed from `backend.go`; privilege-boundary tests pass or gated with docs.

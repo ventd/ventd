@@ -5,7 +5,7 @@
 `/root/ventd-tests/tools/**`, `/root/ventd-tests/web/**` (JS/CSS/HTML), and
 `/root/ventd-tests/deploy/`. Excluded by parallel-agent rules:
 `internal/hwdb/profiles-v1.yaml`, `internal/hwmon/autoload.go`, the eight R28
-decision-log items, and `.claude/rules/*.md`.
+decision-log items, and `docs/rules/*.md`.
 **Toolchain notes:** `go vet ./...` passes clean. No `golangci-lint` /
 `staticcheck` / `deadcode` binaries are installed in this sandbox; this audit
 relies on manual `grep`-based call-site verification, plus reading the
@@ -81,7 +81,7 @@ S = under 30 min, M = 1-3 hrs, L = 3+ hrs. No L-class items found.
 In approximate ROI order. Every entry is S or low-M.
 
 1. **Delete `internal/coupling/signguard/`** (212 lines incl. test).
-   No importers; the rule file `.claude/rules/signguard.md` and its
+   No importers; the rule file `docs/rules/signguard.md` and its
    bound subtests would also need to be removed or marked
    `<!-- rulelint:allow-orphan -->` until v0.5.8's actual integration
    PR lands. Effort: S. **(Verify with the parallel rules-audit agent
@@ -137,7 +137,7 @@ In approximate ROI order. Every entry is S or low-M.
 - **Current state:** Implements R27's wrong-direction polarity-prior
   detector. The package has a complete API (`NewDetector`, `Add`,
   `Confirmed`, `VoteWindow`, `VoteThreshold`, `NoiseFloorDelta`) and a
-  rule file (`.claude/rules/signguard.md`) with three bound subtests.
+  rule file (`docs/rules/signguard.md`) with three bound subtests.
   Zero production importers — `grep -r 'ventd/internal/coupling/signguard'
   internal/ cmd/ tools/` returns nothing.
 - **Proposed change:** Delete the package and the rule file together,
@@ -473,7 +473,7 @@ Single mechanical PR. Reviewable in 30 minutes. No behaviour change.
 
 - Delete `cmd/cowork-query/` (566 LOC) — confirm with Phoenix first.
 - Delete `internal/coupling/signguard/` (212 LOC) + amend
-  `.claude/rules/signguard.md` (or add `<!-- rulelint:allow-orphan -->`
+  `docs/rules/signguard.md` (or add `<!-- rulelint:allow-orphan -->`
   per the docs-first workflow).
 - Delete `internal/doctor/` (125 LOC) + reassign
   RULE-EXPERIMENTAL-AMD-OVERDRIVE-03 binding to

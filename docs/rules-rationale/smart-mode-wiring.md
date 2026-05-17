@@ -2,9 +2,9 @@
 
 This document carries the historical backstory + design exposition for the
 v0.6.0 "wiring closure" rules. The invariants themselves live in
-`.claude/rules/coupling.md`, `.claude/rules/marginal.md`,
-`.claude/rules/smart-mode-wiring-1035.md`, and
-`.claude/rules/confidence-layer-a.md`. Read this doc when you need to
+`docs/rules/coupling.md`, `docs/rules/marginal.md`,
+`docs/rules/smart-mode-wiring-1035.md`, and
+`docs/rules/confidence-layer-a.md`. Read this doc when you need to
 understand *why* the wiring landed shaped the way it did; the rule files
 carry the *what* and *how*.
 

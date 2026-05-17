@@ -1,8 +1,8 @@
 # dBA budget gate + signature persistence eviction — rationale
 
 This document carries the design exposition for:
-- RULE-CTRL-PRESET-04 (in `.claude/rules/smart-preset.md`)
-- RULE-SIG-PERSIST-03 (in `.claude/rules/signature.md`)
+- RULE-CTRL-PRESET-04 (in `docs/rules/smart-preset.md`)
+- RULE-SIG-PERSIST-03 (in `docs/rules/signature.md`)
 
 ## dBA budget gate (RULE-CTRL-PRESET-04)
 

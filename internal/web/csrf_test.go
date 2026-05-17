@@ -41,7 +41,7 @@ func newCSRFServer(t *testing.T) *Server {
 // the session's bound CSRF token. Safe methods bypass the check.
 //
 // Bound rule: RULE-WEB-CSRF-TOKEN-REQUIRED-ON-STATE-CHANGE in
-// .claude/rules/web-ui.md.
+// docs/rules/web-ui.md.
 func TestRULE_WEB_CSRF_TOKEN_REQUIRED_ON_STATE_CHANGE(t *testing.T) {
 	t.Run("post_without_csrf_header_is_rejected_403", func(t *testing.T) {
 		// Authenticated POST without X-CSRF-Token MUST return 403.
@@ -162,7 +162,7 @@ func TestRULE_WEB_CSRF_TOKEN_REQUIRED_ON_STATE_CHANGE(t *testing.T) {
 // TestRULE_WEB_COOKIE_SAMESITE_STRICT pins the v0.5.31 flip from
 // SameSite=Lax to SameSite=Strict on the session cookie.
 //
-// Bound rule: RULE-WEB-COOKIE-SAMESITE-STRICT in .claude/rules/web-ui.md.
+// Bound rule: RULE-WEB-COOKIE-SAMESITE-STRICT in docs/rules/web-ui.md.
 func TestRULE_WEB_COOKIE_SAMESITE_STRICT(t *testing.T) {
 	t.Run("session_cookie_samesite_strict", func(t *testing.T) {
 		rr := httptest.NewRecorder()
@@ -204,7 +204,7 @@ func TestRULE_WEB_COOKIE_SAMESITE_STRICT(t *testing.T) {
 // oversized payloads MUST surface as 413 Request Entity Too Large
 // when handlers attempt to read or decode the body.
 //
-// Bound rule: RULE-WEB-BODY-SIZE-CAP-1MIB in .claude/rules/web-ui.md.
+// Bound rule: RULE-WEB-BODY-SIZE-CAP-1MIB in docs/rules/web-ui.md.
 func TestRULE_WEB_BODY_SIZE_CAP_1MIB(t *testing.T) {
 	t.Run("oversized_post_to_authed_route_returns_413", func(t *testing.T) {
 		// PUT /api/v1/config with a 2 MiB body MUST return 413,

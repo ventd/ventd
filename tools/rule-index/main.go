@@ -1,4 +1,4 @@
-// rule-index walks .claude/rules/*.md and emits .claude/RULE-INDEX.md.
+// rule-index walks docs/rules/*.md and emits docs/rules/INDEX.md.
 // Run with --check to exit 1 when the index is stale (used in CI).
 package main
 
@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	defaultRulesDir  = ".claude/rules"
-	defaultIndexPath = ".claude/RULE-INDEX.md"
+	defaultRulesDir  = "docs/rules"
+	defaultIndexPath = "docs/rules/INDEX.md"
 )
 
 type ruleEntry struct {
@@ -196,7 +196,7 @@ func countFamilies(rules []ruleEntry) int {
 
 func emit(buf *bytes.Buffer, rules []ruleEntry, freeForm []freeFormEntry) {
 	fmt.Fprint(buf, "# Rule Index\n\n")
-	fmt.Fprint(buf, "Canonical map of `.claude/rules/*.md`.\n")
+	fmt.Fprint(buf, "Canonical map of `docs/rules/*.md`.\n")
 	fmt.Fprint(buf, "Read this file first; open a specific rule file only when the full text is needed.\n")
 	fmt.Fprint(buf, "Regenerate with: `go run ./tools/rule-index`\n\n")
 	fmt.Fprint(buf, "---\n\n")

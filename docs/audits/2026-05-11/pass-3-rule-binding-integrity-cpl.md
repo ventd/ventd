@@ -3,7 +3,7 @@
 **Date**: 2026-05-11
 **Audit**: Comprehensive ghost-code sweep, third pass
 **Baseline commit**: `e49ac20` (main after #1067/#1068/#1069/#1070 + pass-2 + pass-3 smart-mode-wiring sub-pass)
-**Scope**: every `RULE-CPL-*` heading in `.claude/rules/coupling.md` (Layer-B coupling) — 15 rules. The 16th RULE-CPL match (`RULE-CPL-IDENT-WIRING-04` in `.claude/rules/smart-mode-wiring-1035.md`) was already audited in the previous sub-pass and filed as WEAK under #1075.
+**Scope**: every `RULE-CPL-*` heading in `docs/rules/coupling.md` (Layer-B coupling) — 15 rules. The 16th RULE-CPL match (`RULE-CPL-IDENT-WIRING-04` in `docs/rules/smart-mode-wiring-1035.md`) was already audited in the previous sub-pass and filed as WEAK under #1075.
 
 ## Method (recap)
 

@@ -51,7 +51,7 @@ of the subset of Linux hidraw required by ventd USB backends. Corsair
 
 ## Invariant bindings
 
-Bindings land in `.claude/rules/hidraw-safety.md`. 1:1 subtest mapping
+Bindings land in `docs/rules/hidraw-safety.md`. 1:1 subtest mapping
 enforced by tools/rulelint.
 
 - **RULE-HIDRAW-01** — enumeration MUST filter to `BUS_USB` (0x03).

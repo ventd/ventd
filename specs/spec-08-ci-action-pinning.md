@@ -1,6 +1,6 @@
 # Spec 08 — CI action pinning via rulelint pattern
 
-**Masterplan IDs this covers:** CI supply-chain hygiene. Extends the `.claude/rules/` invariant-binding pattern to `.github/workflows/*.yml` third-party action references.
+**Masterplan IDs this covers:** CI supply-chain hygiene. Extends the `docs/rules/` invariant-binding pattern to `.github/workflows/*.yml` third-party action references.
 **Target release:** v0.4.1 (co-ships with spec-06).
 **Estimated session cost:** Sonnet, 1 session, $5–8. No Opus required. No HIL — pure Go tool + YAML walker.
 **Dependencies already green:** `tools/rulelint` pattern established; `meta-lint.yml` CI job exists.
@@ -16,28 +16,28 @@ v0.4.0 release cycle had two action-pinning failures:
 
 Meta-lesson: SHA-pinning is only valuable if the SHA is *correct*. A corrupt SHA is strictly worse than an unpinned action — the former silently fails, the latter runs the latest.
 
-Project convention: machine-enforced invariants live in `.claude/rules/*.md` + `tools/rulelint`. Action-pinning policy belongs in the same shape.
+Project convention: machine-enforced invariants live in `docs/rules/*.md` + `tools/rulelint`. Action-pinning policy belongs in the same shape.
 
 ## Scope — what this session produces
 
 One PR. Three artefacts.
 
 **Files (new):**
-- `.claude/rules/ci-action-pinning.md` — RULE-CI-01..03 with Bound: lines pointing to rulelint-style checks
+- `docs/rules/ci-action-pinning.md` — RULE-CI-01..03 with Bound: lines pointing to rulelint-style checks
 - `tools/actionpincheck/main.go` — walker over `.github/workflows/*.yml`, enforces the rules
 - `tools/actionpincheck/main_test.go` — golden-input fixtures for each rule
 - `docs/ci-action-pinning.md` — policy reference for contributors
 
 **Files (modified):**
 - `.github/workflows/meta-lint.yml` — add `actionpincheck` as a new step after rulelint
-- `tools/rulelint/rules_test.go` (or wherever rulelint's rule-discovery runs) — add `ci-action-pinning.md` to the rulelint-aware rule file list (only needed if rulelint has a hardcoded list; most likely it globs `.claude/rules/*.md`)
+- `tools/rulelint/rules_test.go` (or wherever rulelint's rule-discovery runs) — add `ci-action-pinning.md` to the rulelint-aware rule file list (only needed if rulelint has a hardcoded list; most likely it globs `docs/rules/*.md`)
 - `CHANGELOG.md` — v0.4.1 entry
 
 **Out of scope for this PR but enabled by it:**
 - Fixing pinning of existing workflows — separate follow-up PR once the checker is green against an audit list.
 - Auto-updating pins via Dependabot — not chosen (manual bumps decided 2026-04-25 per user preference).
 
-## Invariant bindings (`.claude/rules/ci-action-pinning.md`)
+## Invariant bindings (`docs/rules/ci-action-pinning.md`)
 
 1. **RULE-CI-01** — Every `uses: <owner>/<repo>@<ref>` line in `.github/workflows/*.yml` MUST pin `<ref>` to either a 40-char SHA or a version tag starting with `v`. Branch names (`main`, `master`) reject. Short SHAs reject. **Rationale:** pin-to-SHA is the strong policy; pin-to-v-tag is acceptable-with-tradeoff for first-party and widely-used third-party actions (actions/checkout, actions/setup-go). **Binds to:** `TestActionPinCheck_RefFormat`.
 
@@ -82,7 +82,7 @@ for each file in filepath.Glob(".github/workflows/*.yml"):
 - [ ] `go test -race ./tools/actionpincheck/...` passes.
 - [ ] `go run ./tools/actionpincheck .github/workflows/*.yml` runs clean against a known-good fixture; runs dirty with clear diagnostic against known-bad fixtures.
 - [ ] `.github/workflows/meta-lint.yml` has `actionpincheck` step after `rulelint` step; CI job green.
-- [ ] `.claude/rules/ci-action-pinning.md` has RULE-CI-01..03 each with `Bound:` line.
+- [ ] `docs/rules/ci-action-pinning.md` has RULE-CI-01..03 each with `Bound:` line.
 - [ ] `tools/rulelint` run locally shows no orphans, no missing bindings.
 - [ ] `docs/ci-action-pinning.md` present; contributor policy documented.
 - [ ] **Explicitly NOT in DoD:** fixing existing pin violations in `.github/workflows/*.yml`. This PR adds the checker. Fixing existing violations is a separate follow-up PR opened same day as this merges (CC handles it as a rapid second session, likely $2–4).
@@ -108,12 +108,12 @@ for each file in filepath.Glob(".github/workflows/*.yml"):
 ```
 Read /home/claude/specs/spec-08-ci-action-pinning.md end to end. Then read:
 - tools/rulelint/main.go (or wherever rulelint lives — the pattern to mirror)
-- .claude/rules/hwmon-safety.md (invariant file format)
+- docs/rules/hwmon-safety.md (invariant file format)
 - .github/workflows/meta-lint.yml (the CI job to extend)
 - .github/workflows/release.yml (an action-heavy workflow to test against)
 
 Single PR. Create:
-1. .claude/rules/ci-action-pinning.md with RULE-CI-01..03 each bound to a
+1. docs/rules/ci-action-pinning.md with RULE-CI-01..03 each bound to a
    subtest name.
 2. tools/actionpincheck/main.go — YAML walker, <200 LOC target, stdlib +
    yaml.v3 only (confirm yaml.v3 already in go.mod; if not, ask before adding).

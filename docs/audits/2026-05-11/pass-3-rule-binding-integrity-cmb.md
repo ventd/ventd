@@ -3,7 +3,7 @@
 **Date**: 2026-05-11
 **Audit**: Comprehensive ghost-code sweep, third pass
 **Baseline commit**: `e49ac20` (main after pass-3 smart-mode-wiring + pass-3-cpl)
-**Scope**: every `RULE-CMB-*` heading in `.claude/rules/marginal.md` (Layer-C marginal-benefit) — 26 rules.
+**Scope**: every `RULE-CMB-*` heading in `docs/rules/marginal.md` (Layer-C marginal-benefit) — 26 rules.
 
 ## Findings
 

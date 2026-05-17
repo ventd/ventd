@@ -1,9 +1,9 @@
 # Soft-idle gate + watchdog per-syscall deadlines — rationale
 
 This document carries the historical context + design exposition for:
-- RULE-OPP-IDLE-SOFT-MODE (in `.claude/rules/opportunistic.md`)
-- RULE-WD-PER-SYSCALL-DEADLINE (in `.claude/rules/watchdog-safety.md`)
-- RULE-WD-PRIOR-CRASH-FALLBACK (in `.claude/rules/watchdog-safety.md`)
+- RULE-OPP-IDLE-SOFT-MODE (in `docs/rules/opportunistic.md`)
+- RULE-WD-PER-SYSCALL-DEADLINE (in `docs/rules/watchdog-safety.md`)
+- RULE-WD-PRIOR-CRASH-FALLBACK (in `docs/rules/watchdog-safety.md`)
 
 ## Why the soft-idle gate exists (RULE-OPP-IDLE-SOFT-MODE)
 

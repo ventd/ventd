@@ -45,7 +45,7 @@ ssh phoenix@192.168.7.222 'cat /sys/class/dmi/id/board_vendor /sys/class/dmi/id/
 ## Architecture reference
 
 - `internal/hal/` — hardware abstraction layer. All backends implement `FanBackend`. Contract enforced by `TestHAL_Contract`.
-- `internal/controller/` — control loop. Safety invariants bound to `.claude/rules/hwmon-safety.md` via `TestSafety_Invariants`.
+- `internal/controller/` — control loop. Safety invariants bound to `docs/rules/hwmon-safety.md` via `TestSafety_Invariants`.
 - `internal/calibrate/` — PWM sweep + fingerprint-resumable calibration.
 - `internal/watchdog/` — exit-path restoration of pre-ventd `pwm_enable`.
 - `internal/web/` — HTTP API, auth, dashboard UI.

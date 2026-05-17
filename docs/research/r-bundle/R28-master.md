@@ -146,7 +146,7 @@ LOC estimates, and HIL/test plans.
   - `internal/envelope/envelope.go` — extend `probeStep` with delayed re-reads
   - `internal/envelope/envelope_test.go` — table-driven test, inject EC that
     reverts at t+5
-  - `.claude/rules/envelope.md` — append RULE-ENVELOPE-14b
+  - `docs/rules/envelope.md` — append RULE-ENVELOPE-14b
 - **HIL:** MAG B850 / X870E (issue #826 reference); confirm three-sample
   divergence detection.
 - **Test plan:** unit test injects writeFunc that returns the written value
@@ -161,7 +161,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/envelope/envelope.go` — add expectedRPM(pwm, polynomial) helper
   - `internal/envelope/envelope_test.go`
-  - `.claude/rules/envelope.md`
+  - `docs/rules/envelope.md`
 - **HIL:** Gigabyte X670/B650 with Smart Fan 6 active.
 - **Test plan:** seed an EC stub that accepts register writes 0–79 but pegs
   RPM at the 96-PWM equivalent; assert deviation detected before the sweep
@@ -174,7 +174,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/hal/hwmon/pump_class.go` (new) — header-name + RPM-range heuristic
   - `internal/controller/safety_test.go` — extend RULE-HWMON-PUMP-FLOOR
-  - `.claude/rules/hwmon-safety.md` — amend
+  - `docs/rules/hwmon-safety.md` — amend
 - **HIL:** Corsair iCUE Commander (already in spec-02), Aquacomputer D5 Next.
 - **Test plan:** synthetic channel labelled "AIO_PUMP" with curve output 30%;
   assert clamp to 60%. Inverse: labelled "CHA_FAN1" passes through.
@@ -187,7 +187,7 @@ LOC estimates, and HIL/test plans.
   - `internal/recovery/probe_oem_minipc.go` (new)
   - `internal/recovery/classify.go` — add ClassOEMMiniPCNoDriver
   - `internal/recovery/classify_test.go`
-  - `.claude/rules/wizard-recovery.md`
+  - `docs/rules/wizard-recovery.md`
 - **HIL:** Beelink SER7 (Phoenix arr stack); MINISFORUM MS-01.
 - **Test plan:** DMI fixture for each of {Beelink, MINISFORUM, GMK,
   AceMagic, Topton, GEEKOM, AOOSTAR, CWWK}; assert classifier returns
@@ -201,7 +201,7 @@ LOC estimates, and HIL/test plans.
   - `internal/hal/gpu/nvml/probe.go` — extend writable-capability probe
   - `internal/hal/gpu/amdgpu/probe.go` — same for ROCm
   - `internal/hal/gpu/nvml/probe_test.go`
-  - `.claude/rules/gpu-pr2d-09.md` (new)
+  - `docs/rules/gpu-pr2d-09.md` (new)
 - **HIL:** none required (synthetic NVML name fixture).
 - **Test plan:** inject NVML deviceName="NVIDIA H100 PCIe" → assert
   capability `ro_unsupported` + reason "datacenter_gpu_firmware_locked".
@@ -213,7 +213,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/calibrate/stiction.go` (new)
   - `internal/calibrate/calibrate_test.go`
-  - `.claude/rules/calibration-safety.md`
+  - `docs/rules/calibration-safety.md`
 - **HIL:** thinkfan #58 reference (older ThinkPad). Synthetic-only is OK.
 - **Test plan:** seed RPM samples with stddev<1 over 3s + PWM moving;
   assert spin-up pulse (PWM=255 for 4s) fires, then resume sweep; if RPM
@@ -262,7 +262,7 @@ LOC estimates, and HIL/test plans.
   - `internal/diag/redactor/primitives.go` — three new primitives
   - `internal/diag/redactor/redactor_test.go`
   - `internal/diag/bundle.go` — add denylist paths
-  - `.claude/rules/diag-pr2c-11.md`/`12.md`/`13.md` (new)
+  - `docs/rules/diag-pr2c-11.md`/`12.md`/`13.md` (new)
 - **HIL:** none required (synthetic fixture for each cred type).
 - **Test plan:** seed bundle with `tskey-auth-…`, `TunnelSecret`,
   `PrivateKey=…`; assert all three are redacted in the assembled tarball
@@ -275,7 +275,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/web/server.go` — add middleware
   - `internal/web/headers_test.go` (new)
-  - `.claude/rules/ui.md`
+  - `docs/rules/ui.md`
 - **HIL:** none required; HTTP test handler.
 - **Test plan:** assert every response carries CSP, X-Content-Type-Options,
   Referrer-Policy, Permissions-Policy. HSTS only when TLS active.
@@ -287,7 +287,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/web/auth.go` — add per-account counter
   - `internal/web/auth_test.go`
-  - `.claude/rules/web-ui.md`
+  - `docs/rules/web-ui.md`
 - **Test plan:** ten failed logins within 15 min → soft lockout; backoff
   formula 2^n capped at 30s; verify per-account, not per-IP.
 
@@ -324,7 +324,7 @@ LOC estimates, and HIL/test plans.
 - **Files:**
   - `internal/envelope/envelope.go` — add thermal_zone polling per step
   - `internal/envelope/envelope_test.go`
-  - `.claude/rules/envelope.md`
+  - `docs/rules/envelope.md`
 - **HIL:** any AMD desktop under load.
 - **Test plan:** stub thermal_zone returning 90°C on third step; assert
   abort with reason `thermal_throttle_during_sweep`; assert next retry

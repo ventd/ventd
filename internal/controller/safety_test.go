@@ -1,6 +1,6 @@
 package controller
 
-// safety_test.go binds every rule in .claude/rules/hwmon-safety.md to a
+// safety_test.go binds every rule in docs/rules/hwmon-safety.md to a
 // named subtest. The goal is that a regression in any one invariant
 // fails in CI at a predictable location with a predictable name.
 //
@@ -83,7 +83,7 @@ func TestRegression_Issue460_SentinelRejection(t *testing.T) {
 
 // TestSafety_Invariants is the rule-to-test index for the controller
 // safety-critical write path. Each subtest binds one invariant from
-// .claude/rules/hwmon-safety.md. Do not delete a subtest without
+// docs/rules/hwmon-safety.md. Do not delete a subtest without
 // either (a) deleting the rule it pins or (b) replacing it with a
 // stronger test that still covers the same invariant.
 func TestSafety_Invariants(t *testing.T) {

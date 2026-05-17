@@ -762,7 +762,7 @@ func TestRULE_STATE_12_FreeSpaceGuard(t *testing.T) {
 // intact across the version bump while exercising the migration
 // mechanism end-to-end so any future real migration drops in cleanly.
 //
-// The bound rule lives in .claude/rules/RULE-STATE-MIGRATION-V1-V2-NOOP.md.
+// The bound rule lives in docs/rules/RULE-STATE-MIGRATION-V1-V2-NOOP.md.
 func TestRULE_STATE_MIGRATION_V1_V2_NOOP(t *testing.T) {
 	t.Run("v1_to_v2_migrator_is_registered", func(t *testing.T) {
 		// Pin that the v1→v2 entry exists in the migrations map.

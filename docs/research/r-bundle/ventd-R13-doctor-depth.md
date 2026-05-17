@@ -334,7 +334,7 @@ internal/doctor/
 
 ---
 
-## 9. Invariant bindings — `.claude/rules/doctor.md`
+## 9. Invariant bindings — `docs/rules/doctor.md`
 
 Renumbered for v0.5.10. Inherits some shelved spec-10 rules verbatim (the structural ones), introduces new rules for recovery-surface model.
 

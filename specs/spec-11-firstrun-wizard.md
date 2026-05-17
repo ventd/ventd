@@ -39,7 +39,7 @@ Two PRs. PR 1 is the wizard infrastructure + doctor integration. PR 2 is the cal
 - `internal/web/wizard.go` — HTTP handlers under `/wizard/*` and `/api/wizard/*`.
 - `internal/web/wizard_state.go` — wizard state tracker (`needed`, `in_progress`, `complete`) persisted to `/var/lib/ventd/wizard-state.json`.
 - `internal/web/wizard_test.go` — handler tests, state-transition tests.
-- `.claude/rules/wizard.md` — RULE-WIZARD-01..06 invariants for PR 1.
+- `docs/rules/wizard.md` — RULE-WIZARD-01..06 invariants for PR 1.
 - `docs/wizard.md` — user-facing wizard reference.
 
 **Files (modified):**
@@ -59,7 +59,7 @@ When wizard is enabled AND wizard-state is not `complete`, all GET requests to n
 
 Once wizard-state flips to `complete`, redirect middleware deactivates and the redirect path returns to normal.
 
-### PR 1 invariant bindings (`.claude/rules/wizard.md`)
+### PR 1 invariant bindings (`docs/rules/wizard.md`)
 
 1. `RULE-WIZARD-01` — Wizard state is forward-only. Once `complete`, it does not revert to `in_progress` or `needed` automatically. Recovery from `complete` to `needed` requires explicit `ventd wizard reset` CLI command (out of scope — file as v0.5.x follow-up). **Binds to:** `TestWizardState_ForwardOnly`.
 
@@ -86,9 +86,9 @@ Once wizard-state flips to `complete`, redirect middleware deactivates and the r
 **Files (modified):**
 - `internal/calibration/probe.go` — add an optional progress callback channel (callers can subscribe to per-channel results as they complete). Backward-compatible: existing CLI invocation still works without callback.
 - `internal/web/wizard.go` (from PR 1) — register PR 2 routes.
-- `.claude/rules/wizard.md` (from PR 1) — extend with RULE-WIZARD-07..10.
+- `docs/rules/wizard.md` (from PR 1) — extend with RULE-WIZARD-07..10.
 
-### PR 2 invariant bindings (extension of `.claude/rules/wizard.md`)
+### PR 2 invariant bindings (extension of `docs/rules/wizard.md`)
 
 7. `RULE-WIZARD-07` — Calibration step uses `internal/calibration` directly. No reimplementation. Progress streaming is a new channel, not a new probe path. **Binds to:** `TestWizard_CalibrationShared`.
 

@@ -37,7 +37,7 @@ Details in §9. Each group has its own DoD.
 - 1.2 **Long-horizon anticipation.** ventd recognises launch of known thermally-heavy workloads (compile, game, backup, VM boot, encode) and pre-warms fans.
 - 1.3 **Zero config.** No user-specified workload→profile mapping. The mapping is learned.
 - 1.4 **Safe by default.** A non-overrideable hard safety envelope runs in parallel with all learned components. Model divergence demotes to the conservative per-platform curve.
-- 1.5 **Preserve ventd ethos.** Pure Go (CGO_ENABLED=0), linear-history conventional commits, `.claude/rules/*.md` invariants 1:1 with subtests, lightweight daemon.
+- 1.5 **Preserve ventd ethos.** Pure Go (CGO_ENABLED=0), linear-history conventional commits, `docs/rules/*.md` invariants 1:1 with subtests, lightweight daemon.
 
 ## 2. Non-goals
 
@@ -100,7 +100,7 @@ Physics-derived, clamped after every RLS update:
 
 - R (thermal resistance): [R_min_physical, R_max_physical] per fan-zone family
 - C (thermal capacitance): [C_min, C_max] per CPU die-area class
-- K_c, τ_I: bounded from spec-04 `.claude/rules/pi-stability.md` RULE-PI-04
+- K_c, τ_I: bounded from spec-04 `docs/rules/pi-stability.md` RULE-PI-04
 - Feed-forward gains: bounded such that `pwm_ff` alone cannot exceed 80 % of max PWM under any realistic `dP/dt`
 
 ## 5. Long-horizon model (Phase 2, v0.9.0)
@@ -159,7 +159,7 @@ Three layers, checked at PWM write time in this order:
 
     if temp > T_crit - 5: pwm = PWM_MAX
 
-Runs in its own goroutine with its own sensor read path; cannot be disabled by any higher-layer component. Separate `.claude/rules/predict-safety.md` binding.
+Runs in its own goroutine with its own sensor read path; cannot be disabled by any higher-layer component. Separate `docs/rules/predict-safety.md` binding.
 
 ### 6.2 Layer B — conservative fallback curve (RULE-PREDICT-SAFETY-02)
 
@@ -325,14 +325,14 @@ TRACE: every RLS step (off by default, dev-only).
 - [ ] v1.0 release audit: all 4 Phase groups stable in shadow/live for 30 days on phoenix-desktop + miniPC HIL.
 - [ ] Docs: end-user "how it works" page, contributor "how to add a new signal source" page.
 
-## 10. Invariants — `.claude/rules/` files
+## 10. Invariants — `docs/rules/` files
 
 Four new rule files, each 1:1 with subtests (per tools/rulelint):
 
-- `.claude/rules/predict-signal.md` — signal acquisition contract (RULE-PREDICT-SIG-01..N)
-- `.claude/rules/predict-model.md` — ARX/RLS correctness (RULE-PREDICT-MODEL-01..N)
-- `.claude/rules/predict-safety.md` — safety envelope (RULE-PREDICT-SAFETY-01..06+)
-- `.claude/rules/predict-workload.md` — exec signature + motif contracts (RULE-PREDICT-WORKLOAD-01..N)
+- `docs/rules/predict-signal.md` — signal acquisition contract (RULE-PREDICT-SIG-01..N)
+- `docs/rules/predict-model.md` — ARX/RLS correctness (RULE-PREDICT-MODEL-01..N)
+- `docs/rules/predict-safety.md` — safety envelope (RULE-PREDICT-SAFETY-01..06+)
+- `docs/rules/predict-workload.md` — exec signature + motif contracts (RULE-PREDICT-WORKLOAD-01..N)
 
 Exact rule enumeration frozen at Group-A PR 1 after Opus consult 1 (see §12).
 
@@ -362,7 +362,7 @@ Exact rule enumeration frozen at Group-A PR 1 after Opus consult 1 (see §12).
 **Purpose:** Review the safety-envelope three-layer design and the shadow-mode promotion gate. Specifically:
 - Is the §6.5 promotion gate rigorous enough, or do we need a closed-loop Nyquist margin check?
 - Is Page-Hinkley the right drift detector vs. ADWIN for this signal class?
-- Are the four `.claude/rules/predict-*` file names and scopes stable?
+- Are the four `docs/rules/predict-*` file names and scopes stable?
 
 ### Consult 2 — before Phase 1 PR 1
 **Purpose:** Review the VFF-RLS implementation plan and IMC-PI tuning rule.
@@ -420,7 +420,7 @@ Before any group: confirm the Opus consult for that group has been
 run and committed to docs/control-theory-notes.md. Do not start
 group N without group N-1 DoD green and tagged.
 
-For all groups, .claude/rules/predict-*.md are authoritative. Every
+For all groups, docs/rules/predict-*.md are authoritative. Every
 RULE-<N> line maps to a subtest. The T-META-01 lint will fail the
 PR if this mapping breaks.
 

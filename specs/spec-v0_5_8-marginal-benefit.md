@@ -558,8 +558,8 @@ internal/marginal/                (new)
                                     OAT gate + κ-deferred activation +
                                     ShardCount API
   runtime_test.go
-.claude/rules/marginal.md         — RULE-CMB-* bindings
-.claude/rules/signguard.md        — RULE-SGD-* bindings
+docs/rules/marginal.md         — RULE-CMB-* bindings
+docs/rules/signguard.md        — RULE-SGD-* bindings
 specs/spec-v0_5_8-marginal-benefit.md  (this doc)
 ```
 
@@ -583,7 +583,7 @@ cmd/ventd/main.go                       (launch marginal.Runtime
 internal/controller/controller.go       (no changes — Layer-C snapshot
                                           read by v0.5.9, not v0.5.8)
 internal/config/config.go               (add SmartMarginalBenefitDisabled)
-.claude/rules/marginal.md (extend)      (RULE-CMB-WIRING-*)
+docs/rules/marginal.md (extend)      (RULE-CMB-WIRING-*)
 ```
 
 Mirror v0.5.7 PR-B's "wiring-only, no UI" scope. v0.5.10 doctor

@@ -3,7 +3,7 @@
 `scripts/cross-distro-smoke.sh` drives a Proxmox host through a full clone →
 install → smoke → destroy cycle for every distro in the release matrix. It is
 how a ventd release is certified against the distros listed in
-[usability.md](../.claude/rules/usability.md): Ubuntu/Debian, Fedora,
+[usability.md](../docs/rules/usability.md): Ubuntu/Debian, Fedora,
 Arch, openSUSE, Void, Alpine.
 
 The harness runs on the dev host and talks to Proxmox over the REST API —

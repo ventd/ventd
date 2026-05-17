@@ -1,8 +1,9 @@
 name: no-ai-attribution
 
 # Hard CI gate: every commit message and the PR body must be free of
-# AI-attribution markers. This repo ships under a single human author
-# per .claude/rules/attribution.md.
+# AI-attribution markers. This repo ships under a single human author;
+# whatever tooling produces a patch, the public surface reads as the
+# human author's work.
 #
 # Runs in <3 seconds. Fires early in the matrix so failures surface fast.
 
@@ -59,13 +60,13 @@ jobs:
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
           # Only scan added/modified files (M, A) — not deletions.
-          # Exclude .claude/rules/ where the *rule itself* may legitimately
+          # Exclude docs/rules/ where the *rule itself* may legitimately
           # mention attribution (the no-ai-attribution rule must be allowed
           # to say the words "Claude" and "AI" while forbidding them
           # elsewhere).
-          changed=$(git diff --name-only --diff-filter=AM "${base}" "${head}" | grep -vE '^(\.claude/rules/|\.github/workflows/no-ai-attribution\.yml$)' || true)
+          changed=$(git diff --name-only --diff-filter=AM "${base}" "${head}" | grep -vE '^(docs/rules/|\.github/workflows/no-ai-attribution\.yml$)' || true)
           if [ -z "$changed" ]; then
-            echo "No tracked-file content changes outside .claude/rules/."
+            echo "No tracked-file content changes outside docs/rules/."
             exit 0
           fi
           if echo "$changed" | xargs -r grep -niE \

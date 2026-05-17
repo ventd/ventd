@@ -15,7 +15,7 @@ import (
 // Confirmed returns true when the channel's b_ii sign vote carries a
 // 5/7 majority match for the expected cooling-fan polarity. The
 // detector treats false as "polarity has flipped or hasn't gathered
-// enough data" — see sign-guard rules in `.claude/rules/signguard.md`.
+// enough data" — see sign-guard rules in `docs/rules/signguard.md`.
 type SignguardSnapshotter interface {
 	Confirmed(channelID string) bool
 }

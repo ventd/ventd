@@ -244,7 +244,7 @@ before any further board adds.
   (`internal/hwdb/schema.go` `Hardware` and `FanMeta`).
 - **Current value:** Pump channels are indistinguishable from fan
   channels at the catalog level. The runtime `RULE-HWMON-PUMP-FLOOR`
-  rule exists in `.claude/rules/hwmon-safety.md` but only fires when
+  rule exists in `docs/rules/hwmon-safety.md` but only fires when
   the per-channel config has `is_pump: true` set — a flag the catalog
   has no way to populate from chip / board metadata.
 - **Correct value:** Per R28-master Finding 5 + S2-3, ventd should

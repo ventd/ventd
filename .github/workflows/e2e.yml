@@ -23,8 +23,8 @@ on:
       - '*.md'
       - 'CHANGELOG.md'
       - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
+      - 'docs/rules/**'
+      - 'docs/rules/INDEX.md'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -32,8 +32,8 @@ on:
       - '*.md'
       - 'CHANGELOG.md'
       - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
+      - 'docs/rules/**'
+      - 'docs/rules/INDEX.md'
 
 permissions:
   contents: read

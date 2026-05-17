@@ -1,6 +1,6 @@
 // package hal_test pins the FanBackend contract invariants for every backend
 // that ships today. Each subtest corresponds to one rule in
-// .claude/rules/hal-contract.md; the names must match exactly so rulelint
+// docs/rules/hal-contract.md; the names must match exactly so rulelint
 // can verify the binding.
 //
 // Adding a new backend: append a backendCase to the cases slice in
@@ -128,7 +128,7 @@ func readPWMInt(t *testing.T, ch hal.Channel) int {
 }
 
 // TestHAL_Contract is the rule-to-test index for the FanBackend interface.
-// Each subtest name binds one invariant from .claude/rules/hal-contract.md.
+// Each subtest name binds one invariant from docs/rules/hal-contract.md.
 func TestHAL_Contract(t *testing.T) {
 	cases := []backendCase{hwmonBackendCase(), nvmlBackendCase()}
 

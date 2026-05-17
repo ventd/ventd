@@ -390,7 +390,7 @@ chore(probe): correct RULE-PROBE-06 to closed-set invariant
 
 This commit:
 
-- Edits `.claude/rules/RULE-PROBE-06.md` with the corrected statement.
+- Edits `docs/rules/RULE-PROBE-06.md` with the corrected statement.
 - Edits the bound subtest to assert closed-set membership rather
   than equality to `"unknown"`.
 - Adds a comment in the rule file noting the correction reason.

@@ -8,8 +8,8 @@ on:
       - '*.md'
       - 'CHANGELOG.md'
       - 'LICENSE'
-      - '.claude/rules/**'
-      - '.claude/RULE-INDEX.md'
+      - 'docs/rules/**'
+      - 'docs/rules/INDEX.md'
 
 # Cancel in-progress runs on the same branch when a new push lands.
 # main is exempted so back-to-back merges don't cancel each other.

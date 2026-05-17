@@ -8,7 +8,7 @@ fan-control daemon has real limitations, documented below.
 
 The image is **not published to a registry**. Build it yourself from
 this directory. Pushing to Docker Hub / GHCR is a Phoenix-only
-action; see `.claude/rules/collaboration.md`.
+action; see `docs/rules/collaboration.md`.
 
 ## Repository layout
 
@@ -177,7 +177,7 @@ detection. ventd will then rely on its 5-minute periodic rescan (see
 rescan (safety net, 5 min) and a [uevent] stream"). Pulling a fan
 cable, hot-plugging an AIO, or a driver rebind can take up to 5
 minutes to be picked up. No PWM is written to a missing fan in the
-meantime; the safety envelope in `.claude/rules/hwmon-safety.md`
+meantime; the safety envelope in `docs/rules/hwmon-safety.md`
 (ENOENT/EIO graceful skip) is preserved.
 
 Document this degradation to your users before choosing bridged
@@ -239,7 +239,7 @@ That is a ~2-minute worst-case detection window rather than 2
 seconds. If you need faster fault detection, use the native install.
 
 None of this changes the hardware-safety envelope documented in
-`.claude/rules/hwmon-safety.md`: PWM clamp, pump floor, allow_stop
+`docs/rules/hwmon-safety.md`: PWM clamp, pump floor, allow_stop
 gate, and watchdog-on-exit restore are enforced by the in-binary
 controller regardless of how ventd is packaged.
 

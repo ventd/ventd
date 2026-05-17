@@ -81,7 +81,7 @@ not by v0.5.4.
   shape (no `map[string]interface{}` anywhere on the write path) plus
   a runtime sanity check at `Writer.New()` that asserts no excluded
   field name appears among the registered field set.
-- `RULE-OBS-*` invariant bindings in `.claude/rules/observation.md`,
+- `RULE-OBS-*` invariant bindings in `docs/rules/observation.md`,
   1:1 with subtests, enforced by `tools/rulelint`.
 - Synthetic CI tests per schema doc §8.1 (all 9 cases).
 - HIL validation script wired to run on Proxmox host 192.168.7.10
@@ -120,7 +120,7 @@ not by v0.5.4.
 
 ## 3. Invariant bindings
 
-`.claude/rules/observation.md` binds 1:1 to subtests in
+`docs/rules/observation.md` binds 1:1 to subtests in
 `internal/observation/`. Enforced by `tools/rulelint`.
 
 | Rule | Binding |
@@ -302,7 +302,7 @@ In addition to §2.2:
 
 10. **Privacy exclusion list expansion.** If a future patch adds a
     new excluded category, that patch updates schema doc §6.1 AND
-    `.claude/rules/observation.md` AND the runtime sanity check in
+    `docs/rules/observation.md` AND the runtime sanity check in
     one PR. v0.5.4 does not pre-bake categories beyond the schema
     doc §6.1 list.
 
@@ -322,7 +322,7 @@ internal/observation/reader_test.go
 internal/observation/rotation.go
 internal/observation/rotation_test.go
 internal/observation/schema.go
-.claude/rules/observation.md
+docs/rules/observation.md
 specs/spec-v0_5_4-passive-observation.md   (this file)
 validation/observation-hil.sh              (Proxmox 48h soak script)
 ```
@@ -343,7 +343,7 @@ No new dependencies. msgpack already vendored for R7.
 - CC implementation (Sonnet, single tight PR): **$10–20** per schema
   doc §11.7. Within the $10–20 estimate already in
   `spec-smart-mode.md` §13 cost projection table.
-- Bindings to `.claude/rules/observation.md`: included in PR scope.
+- Bindings to `docs/rules/observation.md`: included in PR scope.
 - Synthetic CI tests: included in PR scope.
 - HIL verification: post-merge, Phoenix manual on Proxmox 192.168.7.10.
 

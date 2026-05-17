@@ -217,7 +217,7 @@ to R7, not to this patch's spec.
 
 ## 3. Invariant bindings
 
-`.claude/rules/signature.md` binds 1:1 to subtests in
+`docs/rules/signature.md` binds 1:1 to subtests in
 `internal/signature/`, `internal/proc/`, and the controller tests.
 Enforced by `tools/rulelint`.
 
@@ -411,7 +411,7 @@ internal/signature/disable.go            (R1/R3 inheritance gates)
 internal/proc/walker.go
 internal/proc/walker_test.go
 internal/idle/blocklist.go               (extract from preconditions.go)
-.claude/rules/signature.md
+docs/rules/signature.md
 specs/spec-v0_5_6-workload-signatures.md (this file)
 go.mod, go.sum                            (add github.com/dchest/siphash)
 ```
@@ -428,7 +428,7 @@ internal/config/config.go                (SignatureLearningDisabled field)
 web/settings.html                        (new toggle in Smart mode section)
 web/settings.js                          (read/write toggle, grey-out on manual mode)
 web/settings.css                         (re-uses v0.5.5 .set-toggle slider)
-.claude/rules/signature.md (extend)      (RULE-SIG-CTRL-*, RULE-SIG-UI-*)
+docs/rules/signature.md (extend)      (RULE-SIG-CTRL-*, RULE-SIG-UI-*)
 ```
 
 Total LOC estimate: ~250.

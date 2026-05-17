@@ -26,7 +26,7 @@ Four PRs. PR 1 and 2 can run in parallel sessions. PR 3 depends on 1+2. PR 4 is 
 - `internal/hwdb/schema_test.go` (new — golden-file tests against fixture YAML)
 - `internal/hwdb/profiles.yaml` (update to schema v1)
 - `docs/hwdb-schema.md` (new — human-readable schema reference)
-- `.claude/rules/hwdb-schema.md` (new — schema invariants bound to `TestSchema_Invariants`)
+- `docs/rules/hwdb-schema.md` (new — schema invariants bound to `TestSchema_Invariants`)
 
 **Schema v1 fields per profile entry:**
 ```yaml
@@ -60,7 +60,7 @@ Four PRs. PR 1 and 2 can run in parallel sessions. PR 3 depends on 1+2. PR 4 is 
   verified: true                         # manual review flag
 ```
 
-**Schema invariants (`.claude/rules/hwdb-schema.md`):**
+**Schema invariants (`docs/rules/hwdb-schema.md`):**
 1. `RULE-HWDB-01`: Every entry has `id`, `schema_version`, `fingerprint`, `hardware`. Missing fields reject at load time.
 2. `RULE-HWDB-02`: `id` is unique across the file. Duplicate IDs reject at load.
 3. `RULE-HWDB-03`: `schema_version` matches the parser's supported versions. Unknown version rejects with a migration hint.
@@ -134,7 +134,7 @@ Four PRs. PR 1 and 2 can run in parallel sessions. PR 3 depends on 1+2. PR 4 is 
 5. No network. No PR. No background HTTP call. Ever. The user takes the file and does what they want with it. An explicit `ventd --submit-profile <id>` CLI flag is P5-PROF-03 (future spec) — not in scope here.
 6. Fuzz target: `FuzzAnonymise` — 100 sample inputs with randomly embedded PII patterns. DoD: zero leakage across all 100 samples.
 
-**Safety invariants (extend `.claude/rules/hwdb-schema.md`):**
+**Safety invariants (extend `docs/rules/hwdb-schema.md`):**
 - `RULE-HWDB-08`: Capture writes go to `/var/lib/ventd/profiles-pending/` only. Never to the live `profiles.yaml` at runtime.
 - `RULE-HWDB-09`: Capture cannot run if PII anonymiser fails to initialise. Fail closed.
 - `RULE-HWDB-10`: No capture file ever contains a field not in the schema v1 allowlist.
@@ -155,7 +155,7 @@ Budget one hour. Walk out with: final schema frozen, a written migration policy,
 ### PR 1
 - [ ] `go test -race ./internal/hwdb/...` passes.
 - [ ] Schema v1 documented in `docs/hwdb-schema.md` with an example entry.
-- [ ] `.claude/rules/hwdb-schema.md` has 7 invariants, all bound.
+- [ ] `docs/rules/hwdb-schema.md` has 7 invariants, all bound.
 - [ ] Load test: a malformed YAML fails with a clear error message naming the bad field and the line number.
 
 ### PR 2

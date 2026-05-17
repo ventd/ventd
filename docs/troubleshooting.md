@@ -173,7 +173,7 @@ with `set -euo pipefail`. To extend:
 
 When a new failure class burns more than 3 round-trips, add a hint for
 it and commit. The script accretes pattern-recognition the same way
-the `.claude/rules/*.md` files accrete invariants.
+the `docs/rules/*.md` files accrete invariants.
 
 ## File inventory shipped by this bundle
 
