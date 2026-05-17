@@ -8,7 +8,6 @@ implicit preconditions, so mid-install failures surfaced as cryptic
 errors. This pack pins twelve new probe contracts plus an ordering
 invariant that keeps `KERNEL_TOO_NEW` deterministic.
 
-The patch spec lives in `/root/.claude/plans/here-is-a-draft-curious-sutton.md`.
 Each rule binds 1:1 to a subtest in
 `internal/hwmon/ootpreflight_test.go`. `tools/rulelint` blocks the
 merge if a rule lacks its bound test.

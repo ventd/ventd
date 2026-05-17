@@ -16,8 +16,7 @@ Both surfaces resolve to the same `FailureClass` enum + `Remediation`
 catalogue, so adding a new failure class only requires touching this
 package — both UIs pick up the new entry on the next build.
 
-The patch spec is `specs/spec-wizard-recovery.md` (drafted alongside
-this rule file). Each rule binds 1:1 to a subtest in
+Each rule binds 1:1 to a subtest in
 `internal/recovery/classify_test.go`. `tools/rulelint` blocks the
 merge if a rule lacks its bound test.
 

@@ -6,8 +6,8 @@ setup orchestration invariant suite, the `autoload.go` parser +
 driver-need heuristic coverage added alongside this snapshot, and the
 setup-Manager sysfs/procfs root extraction that closed #131 (#163).
 
-> **Diagnostic suite added 2026-04-17** — see `docs/TESTING.md` and
-> `scripts/diagnose-tests.sh`. New test files push watchdog from
+> **Diagnostic suite added 2026-04-17** — see `scripts/diagnose-tests.sh`.
+> New test files push watchdog from
 > 23.2 % → 85.5 %, add fuzz seeds for `config.Parse` and the
 > `sensors-detect` parser, and fill the `handleDetectRPM` /
 > `handleCalibrateAbort` / `handleSetupStatus` handler gap. The

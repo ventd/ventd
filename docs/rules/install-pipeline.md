@@ -5,8 +5,7 @@ replaced the legacy `make install` (which atomically did
 cp + depmod + modprobe and made deferred signing impossible on
 Secure Boot enforcing systems). The pipeline lives in
 `internal/hwmon/install_steps.go`; orphan-state cleanup lives in
-`internal/hwmon/cleanup.go`. The patch spec is at
-`/root/.claude/plans/here-is-a-draft-curious-sutton.md`.
+`internal/hwmon/cleanup.go`.
 
 Each rule binds 1:1 to a subtest in
 `internal/hwmon/cleanup_test.go` (cleanup contracts) plus the

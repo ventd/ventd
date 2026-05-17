@@ -5,7 +5,6 @@ iterative install-time orchestrator + per-check catalogue. Each rule
 below binds 1:1 to a subtest. `tools/rulelint` blocks the merge if a
 rule lacks its bound test.
 
-The patch spec is `/root/.claude/plans/tingly-twirling-duckling.md`.
 The runtime entry point is the `ventd preflight` subcommand; install-
 time integration is in `scripts/install.sh`.
 
