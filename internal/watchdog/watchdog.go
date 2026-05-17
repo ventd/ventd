@@ -15,6 +15,7 @@ import (
 
 	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halmsiec "github.com/ventd/ventd/internal/hal/msiec"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwmon"
 )
@@ -153,6 +154,7 @@ type Watchdog struct {
 	// the test suite asserts on that logger's buffer.
 	hwmonBe *halhwmon.Backend
 	nvmlBe  *halnvml.Backend
+	msiecBe *halmsiec.Backend
 }
 
 func New(logger *slog.Logger) *Watchdog {
@@ -160,6 +162,7 @@ func New(logger *slog.Logger) *Watchdog {
 		logger:  logger,
 		hwmonBe: halhwmon.NewBackend(logger),
 		nvmlBe:  halnvml.NewBackend(logger),
+		msiecBe: halmsiec.NewBackend(logger),
 	}
 }
 
@@ -187,6 +190,12 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 
 	switch {
 	case fanType == "nvidia":
+		e.origEnable = -1
+	case fanType == halmsiec.BackendName:
+		// msi-ec exposes mode-switching at /sys/devices/platform/msi-ec/
+		// fan_mode — there is no hwmon-style pwm_enable file. Skip the
+		// read and let restoreOne dispatch through the msi-ec backend's
+		// "auto" write at exit time. Mirrors the nvidia branch above.
 		e.origEnable = -1
 	case fanType == "ipmi":
 		// IPMI channels carry their restore primitive in
@@ -516,7 +525,8 @@ func (w *Watchdog) restoreOne(e entry) {
 		}
 		return
 	}
-	if e.fanType == "nvidia" {
+	switch e.fanType {
+	case "nvidia":
 		be = w.nvmlBe
 		ch = hal.Channel{
 			ID:     e.pwmPath,
@@ -524,7 +534,20 @@ func (w *Watchdog) restoreOne(e entry) {
 			Caps:   hal.CapRestore,
 			Opaque: halnvml.State{Index: e.pwmPath},
 		}
-	} else {
+	case halmsiec.BackendName:
+		// msi-ec Restore writes "auto" to fan_mode. The backend's
+		// Enumerate-time WritableModes list is not needed at restore
+		// time (Restore writes the fixed string "auto"), so we
+		// construct the channel state with an empty WritableModes
+		// slice — the backend's Restore path does not consult it.
+		be = w.msiecBe
+		ch = hal.Channel{
+			ID:     e.pwmPath,
+			Role:   hal.RoleCPU,
+			Caps:   hal.CapRestore,
+			Opaque: halmsiec.State{SysfsRoot: e.pwmPath},
+		}
+	default:
 		be = w.hwmonBe
 		caps := hal.CapRestore
 		if e.rpmTarget {
