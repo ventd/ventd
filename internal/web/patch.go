@@ -33,14 +33,14 @@ type CurvePatch struct {
 
 // applyConfigPatch merges non-nil fields from patch into a deep copy of
 // current. Curve patches are matched by name; an unknown name is an error.
+//
+// Issue #978: uses config.Clone() rather than a hand-rolled shallow
+// copy + selective deep-copy. The pre-Clone pattern only deep-copied
+// Curves/Sensors/Fans and silently aliased Controls/Profiles/Smart
+// with the live pointer — a latent race waiting on a future caller
+// that mutated any non-deep-copied field.
 func applyConfigPatch(current *config.Config, patch *ConfigPatch) (*config.Config, error) {
-	merged := *current
-	merged.Curves = make([]config.CurveConfig, len(current.Curves))
-	copy(merged.Curves, current.Curves)
-	merged.Sensors = make([]config.Sensor, len(current.Sensors))
-	copy(merged.Sensors, current.Sensors)
-	merged.Fans = make([]config.Fan, len(current.Fans))
-	copy(merged.Fans, current.Fans)
+	merged := *current.Clone()
 
 	for _, cp := range patch.Curves {
 		if cp.Name == "" {

@@ -95,6 +95,18 @@ type IdleConfig struct {
 	AllowOverride bool `yaml:"allow_override,omitempty" json:"allow_override,omitempty"`
 }
 
+// Config is the in-memory shape of /etc/ventd/config.yaml.
+//
+// Concurrency contract (issue #978): instances handed out by
+// atomic.Pointer[Config].Load() are READ-ONLY. Any caller that needs
+// to mutate fields MUST first call Clone() to obtain an unshared
+// deep copy, mutate the clone, and Store the new pointer. The
+// pre-Clone shallow-copy-then-selective-deep-copy pattern (used
+// historically by the web layer's applyProfile + applyConfigPatch)
+// silently aliased Fans/Curves/Sensors/etc. between the live and
+// the in-flight pointers — a concurrent reader iterating the live
+// slice while a writer mutated the same backing array under the
+// in-flight pointer was the latent race.
 type Config struct {
 	Version       int                `yaml:"version" json:"version"`
 	PollInterval  Duration           `yaml:"poll_interval" json:"poll_interval"`
@@ -263,6 +275,111 @@ func (c *Config) AcousticOptimisationEnabled() bool {
 		return true
 	}
 	return *c.AcousticOptimisation
+}
+
+// Clone returns a deep copy of c. Callers that need to mutate a
+// Config loaded from atomic.Pointer[Config] MUST call Clone first so
+// the live pointer's slices and maps stay unaliased — issue #978.
+//
+// Every slice, map, and pointer field is fresh-allocated. Inner
+// slices/maps (Curve.Sources, Curve.Points, Profile.Bindings) are
+// deep-copied so a clone-then-mutate of any nested container is
+// safe. Value-typed fields (Web, Hwmon, HWDB, Experimental, Envelope,
+// Idle, Smart, Diag, and the *bool toggles) are copied by the shallow
+// struct assignment plus an explicit *bool dereference for
+// AcousticOptimisation.
+//
+// nil-safe: Clone(nil) returns nil so callers can chain without a
+// guard.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	out := *c // shallow value copy — covers scalars, embedded structs
+
+	// Slices: re-allocate then copy. Inner slices in CurveConfig are
+	// re-allocated below.
+	if c.Sensors != nil {
+		out.Sensors = make([]Sensor, len(c.Sensors))
+		copy(out.Sensors, c.Sensors)
+	}
+	if c.Fans != nil {
+		out.Fans = make([]Fan, len(c.Fans))
+		copy(out.Fans, c.Fans)
+	}
+	if c.Curves != nil {
+		out.Curves = make([]CurveConfig, len(c.Curves))
+		for i, cv := range c.Curves {
+			cv2 := cv
+			if cv.Sources != nil {
+				cv2.Sources = make([]string, len(cv.Sources))
+				copy(cv2.Sources, cv.Sources)
+			}
+			if cv.Points != nil {
+				cv2.Points = make([]CurvePoint, len(cv.Points))
+				copy(cv2.Points, cv.Points)
+			}
+			// PI-curve *float64 / *uint8 fields are leaf pointers
+			// from validate(); deep-copy each so a clone can be
+			// mutated without writing through to the live config.
+			cv2.MinPWMPct = clonePtrUint8(cv.MinPWMPct)
+			cv2.MaxPWMPct = clonePtrUint8(cv.MaxPWMPct)
+			cv2.ValuePct = clonePtrUint8(cv.ValuePct)
+			cv2.Setpoint = clonePtrFloat64(cv.Setpoint)
+			cv2.Kp = clonePtrFloat64(cv.Kp)
+			cv2.Ki = clonePtrFloat64(cv.Ki)
+			cv2.IntegralClamp = clonePtrFloat64(cv.IntegralClamp)
+			cv2.FeedForward = clonePtrUint8(cv.FeedForward)
+			out.Curves[i] = cv2
+		}
+	}
+	if c.Controls != nil {
+		out.Controls = make([]Control, len(c.Controls))
+		for i, ctl := range c.Controls {
+			ctl2 := ctl
+			ctl2.ManualPWM = clonePtrUint8(ctl.ManualPWM)
+			out.Controls[i] = ctl2
+		}
+	}
+	if c.Profiles != nil {
+		out.Profiles = make(map[string]Profile, len(c.Profiles))
+		for k, p := range c.Profiles {
+			p2 := p
+			if p.Bindings != nil {
+				p2.Bindings = make(map[string]string, len(p.Bindings))
+				for bk, bv := range p.Bindings {
+					p2.Bindings[bk] = bv
+				}
+			}
+			out.Profiles[k] = p2
+		}
+	}
+	out.AcousticOptimisation = clonePtrBool(c.AcousticOptimisation)
+	return &out
+}
+
+func clonePtrUint8(p *uint8) *uint8 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func clonePtrFloat64(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func clonePtrBool(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // Profile groups a named set of fan→curve bindings so an operator can

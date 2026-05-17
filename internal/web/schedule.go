@@ -185,17 +185,19 @@ func (s *Server) applyProfile(name string) (*config.Config, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown profile: %s", name)
 	}
-	next := *live
+	// Issue #978: Clone before mutating. The pre-Clone shallow copy
+	// only re-allocated Controls and silently aliased Fans/Curves/
+	// Profiles/etc. with the live pointer — any later writer racing
+	// a concurrent reader would have corrupted live state.
+	next := live.Clone()
 	next.ActiveProfile = name
-	next.Controls = make([]config.Control, len(live.Controls))
-	copy(next.Controls, live.Controls)
 	for i := range next.Controls {
 		if curve, hit := profile.Bindings[next.Controls[i].Fan]; hit {
 			next.Controls[i].Curve = curve
 		}
 	}
-	s.cfg.Store(&next)
-	return &next, nil
+	s.cfg.Store(next)
+	return next, nil
 }
 
 // now returns the server's notion of the current instant. The atomic
