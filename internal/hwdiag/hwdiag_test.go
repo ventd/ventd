@@ -26,13 +26,22 @@ func TestSetReplacesByID(t *testing.T) {
 	}
 }
 
-func TestSetEmptyIDPanics(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Errorf("expected panic on empty ID")
-		}
-	}()
-	NewStore().Set(Entry{})
+// Set with an empty Entry.ID used to panic. Per the operator-facing
+// risk (Set is called from many subsystems; a single bad caller
+// shouldn't take down the daemon), it now logs at WARN and drops
+// the call. The store remains empty so callers' tests still surface
+// the bug — the operator just gets a journal warning instead of a
+// crashed daemon.
+func TestSet_EmptyIDLogsAndDrops(t *testing.T) {
+	s := NewStore()
+	s.Set(Entry{})
+	snap := s.Snapshot(Filter{})
+	if len(snap.Entries) != 0 {
+		t.Errorf("Set with empty ID should drop the entry; got %d entries", len(snap.Entries))
+	}
+	if rev := s.Revision(); rev != 0 {
+		t.Errorf("Set with empty ID should not bump revision; got %d", rev)
+	}
 }
 
 func TestRemoveAndClearComponent(t *testing.T) {
