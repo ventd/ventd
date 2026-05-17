@@ -51,67 +51,17 @@ func TestDetect_EmptyHwmonReturnsFriendlyError(t *testing.T) {
 
 // ---------- calibrate/* ----------
 
-func TestCalibrate_AbortRestoresPWMWithin2s(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 7 — calibration must be
-	// interruptible; original PWM must be restored on abort.
-	//
-	// Testing this requires a fake calibrate.Manager that records
-	// WritePWM calls. The current Manager holds a concrete
-	// *calibrate.Manager; extracting an interface would be a setup.go
-	// change.
-	//
-	// The abort→PWM-restore path is tested in internal/calibrate's own
-	// suite and in the controller safety tests (#118). This test
-	// documents the gap at the setup orchestration level.
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable abort-restore")
-}
-
-func TestCalibrate_PanicRestoresPWM(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 4 — watchdog Restore() must fire
-	// on any exit path including panics.
-	//
-	// run() defers cleanup but does not recover panics from within the
-	// calibration goroutines. If a calibration goroutine panics, the
-	// deferred watchdog restore in that goroutine fires only if the
-	// calibrate.Manager wires it. Testing this requires injecting a
-	// panicking calibration step.
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable panic-restore")
-}
-
-func TestCalibrate_CtxCancelRestoresPWM(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 7 — context cancellation must
-	// restore original PWM.
-	//
-	// Same structural constraint as the abort test: requires a fake
-	// calibrate.Manager.
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable ctx-cancel-restore")
-}
-
-func TestCalibrate_NeverWritesZeroWithoutAllowStop(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 1 — never PWM=0 without
-	// allow_stop: true.
-	//
-	// The allow_stop field doesn't exist yet (#126). Once it lands, the
-	// calibration sweep must respect it. For now, buildConfig never
-	// produces MinPWM=0 for a non-pump fan (TestBuildConfig_
-	// UncalibratedFanGetsSafeFloor pins MinPWM=20 fallback).
-	//
-	// The runtime PWM=0 gate was fixed in #124 for the controller; the
-	// setup-time assertion requires the calibrate.Manager interface
-	// extraction from #131.
-	t.Skip("tracked by #126: allow_stop field + #132: calibrate.Manager interface")
-}
-
-func TestCalibrate_PumpNeverBelowPumpMinimum(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 6 — pump fans have a hard floor
-	// at PumpMinimum; calibration must never write below it.
-	//
-	// buildConfig already enforces this at config-generation time
-	// (TestBuildConfig_PumpFloorNeverBelowMinPumpPWM). The calibration-
-	// time assertion requires the calibrate.Manager interface
-	// extraction (#131).
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable pump-floor enforcement")
-}
+// The five tests previously skipped here (TestCalibrate_AbortRestoresPWMWithin2s,
+// TestCalibrate_PanicRestoresPWM, TestCalibrate_CtxCancelRestoresPWM,
+// TestCalibrate_NeverWritesZeroWithoutAllowStop, TestCalibrate_PumpNeverBelowPumpMinimum)
+// are now exercised in calibration_backend_test.go via the CalibrationBackend
+// seam introduced for #132. The two MinPWM/pump-floor invariants live at the
+// buildConfig layer and are pinned by TestBuildConfig_NeverProducesMinPWMZero
+// + TestBuildConfig_PumpFloorNeverBelowMinPumpPWM — they were misframed at the
+// calibrate-call layer (the cfgFan handed to RunSync intentionally carries
+// 0/255 bounds because calibration is what finds the real floor; the floor
+// then lands in the generated config, which is where the safety contract is
+// enforced).
 
 // ---------- apply/* ----------
 
@@ -144,21 +94,9 @@ func TestApply_RejectsConfigWithMinPWMZeroNoAllowStop(t *testing.T) {
 
 // ---------- detect_rpm/* ----------
 
-func TestDetectRPM_ENOENTSkipNotCrash(t *testing.T) {
-	// Invariant: hwmon-safety.md rule 5 — handle ENOENT gracefully
-	// (log and skip, don't crash).
-	//
-	// The RPM detection path in run() calls m.cal.DetectRPMSensor which
-	// reads from real sysfs. On error, run() sets DetectPhase="none" and
-	// logs, which is the correct graceful-skip. Testing this code path
-	// requires a fake calibrate.Manager.
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable RPM detection errors")
-}
-
-func TestDetectRPM_EIOSkipNotCrash(t *testing.T) {
-	// Same constraint as ENOENT — needs calibrate.Manager fake.
-	t.Skip("tracked by #132: extract calibrate.Manager interface for testable RPM detection errors")
-}
+// TestDetectRPM_ENOENTSkipNotCrash and TestDetectRPM_EIOSkipNotCrash
+// are now exercised in calibration_backend_test.go via the
+// CalibrationBackend seam introduced for #132.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Additional invariant tests targeting actual uncovered code paths in
