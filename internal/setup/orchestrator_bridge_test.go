@@ -12,34 +12,32 @@ import (
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
 
-// TestOrchestratorBridge_EnvGateOff verifies the preview path is a no-op
-// when VENTD_USE_ORCHESTRATOR is unset: no state directory is created,
-// no checkpoint file appears.
-func TestOrchestratorBridge_EnvGateOff(t *testing.T) {
-	if orchestratorEnabled() {
-		t.Skip("test requires VENTD_USE_ORCHESTRATOR unset; appears set in environment")
-	}
-	stateDir := t.TempDir()
-	t.Setenv("VENTD_SETUP_STATE_DIR", stateDir)
-
+// TestOrchestratorBridge_SetUseOrchestratorOptIn verifies that
+// production callers opt the Manager into the orchestrator path via
+// SetUseOrchestrator(true). Tests that don't call it stay on the
+// legacy phase sequence.
+func TestOrchestratorBridge_SetUseOrchestratorOptIn(t *testing.T) {
+	t.Setenv("VENTD_USE_ORCHESTRATOR", "")
 	m := newBridgeTestManager(t)
+	if m.orchestratorEnabled() {
+		t.Error("default Manager (no SetUseOrchestrator) should run legacy path")
+	}
+	m.SetUseOrchestrator(true)
+	if !m.orchestratorEnabled() {
+		t.Error("after SetUseOrchestrator(true), orchestrator path should be enabled")
+	}
+}
 
-	// Calling runOrchestratorPreview manually would always run it;
-	// instead, exercise the gate. With the env var unset, the gate
-	// MUST short-circuit before any orchestrator boot.
-	if orchestratorEnabled() {
-		t.Fatal("orchestratorEnabled() should be false here")
+// TestOrchestratorBridge_EnvGateOptOut verifies the emergency
+// rollback escape hatch: VENTD_USE_ORCHESTRATOR=0 forces back to
+// the legacy path even when the Manager opted in.
+func TestOrchestratorBridge_EnvGateOptOut(t *testing.T) {
+	t.Setenv("VENTD_USE_ORCHESTRATOR", "0")
+	m := newBridgeTestManager(t)
+	m.SetUseOrchestrator(true)
+	if m.orchestratorEnabled() {
+		t.Error("VENTD_USE_ORCHESTRATOR=0 must override SetUseOrchestrator(true)")
 	}
-
-	// Confirm no state file would have been touched by listing the dir.
-	entries, err := os.ReadDir(stateDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("stateDir should be empty when gate is off; got %d entries", len(entries))
-	}
-	_ = m
 }
 
 // TestOrchestratorBridge_PreviewRunWritesCheckpoint exercises the
@@ -61,7 +59,7 @@ func TestOrchestratorBridge_PreviewRunWritesCheckpoint(t *testing.T) {
 	m := newBridgeTestManager(t)
 	m.hwmonRoot = filepath.Dir(hwmonRoot) // = .../sys/class/hwmon
 
-	if err := m.runOrchestratorPreview(context.Background()); err != nil {
+	if _, err := m.runOrchestratorPreview(context.Background()); err != nil {
 		t.Fatalf("runOrchestratorPreview: %v", err)
 	}
 
@@ -101,7 +99,7 @@ func TestOrchestratorBridge_PreviewEventsFlowToManagerRing(t *testing.T) {
 	m := newBridgeTestManager(t)
 	m.hwmonRoot = filepath.Dir(hwmonRoot)
 
-	if err := m.runOrchestratorPreview(context.Background()); err != nil {
+	if _, err := m.runOrchestratorPreview(context.Background()); err != nil {
 		t.Fatalf("runOrchestratorPreview: %v", err)
 	}
 

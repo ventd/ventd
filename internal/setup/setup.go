@@ -216,6 +216,14 @@ type Manager struct {
 	// no goroutine plumbing or per-subscriber channel; the bounded
 	// ring + cursor poll is the whole transport.
 	events []Event
+
+	// useOrchestrator routes Manager.run through the v0.8.x phase-
+	// DAG orchestrator instead of the legacy inline phase sequence.
+	// Production main.go calls SetUseOrchestrator(true) so the new
+	// path is the default for installed daemons; tests leave it false
+	// so the legacy phase code stays unchanged. Removed in PR#B6
+	// along with the legacy phase code.
+	useOrchestrator bool
 }
 
 // Default path roots used when the Manager is constructed via New. Exported
@@ -907,14 +915,28 @@ func (m *Manager) run(ctx context.Context, release func()) {
 	// ── Orchestrator preview gate (v0.8.x) ─────────────────────────────────
 	//
 	// VENTD_USE_ORCHESTRATOR=1 invokes the new phase-DAG executor
-	// before the legacy sequence below. Currently runs Inventory only
-	// (read-only DMI + hwmon scan); checkpoint at
-	// /var/lib/ventd/setup/state.json. Failure is logged + ignored
-	// so a preview bug never blocks the production wizard.
-	if orchestratorEnabled() {
-		if err := m.runOrchestratorPreview(ctx); err != nil {
-			m.logger.Warn("orchestrator preview failed; legacy wizard continues",
+	// before the legacy sequence below.
+	//
+	// As of PR#B5 the orchestrator is the default path. When it
+	// reaches ApplyPhase successfully it returns true and Manager.run
+	// EXITS — the legacy phases below do not run. The legacy code
+	// is kept as the VENTD_USE_ORCHESTRATOR=0 emergency-rollback
+	// fallback and is removed entirely in PR#B6.
+	//
+	// Orchestrator bootstrap failures (state-dir mkdir, etc.) or
+	// per-phase failures fall through to the legacy path so a single
+	// bug in the new code can't strand the wizard.
+	if m.orchestratorEnabled() {
+		if applied, err := m.runOrchestratorPreview(ctx); err != nil {
+			m.logger.Warn("orchestrator failed; falling back to legacy wizard",
 				"err", err)
+		} else if applied {
+			m.mu.Lock()
+			m.phase = "applied"
+			m.phaseMsg = "Wizard complete via orchestrator path"
+			m.applied = true
+			m.mu.Unlock()
+			return
 		}
 	}
 

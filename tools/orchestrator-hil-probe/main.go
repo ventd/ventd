@@ -66,11 +66,14 @@ func main() {
 		Events:    stdoutSink{},
 	}
 
-	// Read-only phases only. Polarity/Calibrate/Verify/Apply would
-	// drive real fans and write /etc/ventd/config.yaml.
+	// Read-only phases only. NVMLPhase calls nvidia.Init then
+	// Shutdown (safe to call on any host — fails silently on non-
+	// NVIDIA hardware). Polarity/Calibrate/Verify/Apply would
+	// drive real fans and write /etc/ventd/config.yaml — excluded.
 	o, err := orchestrator.New(rc,
 		orchestrator.InventoryPhase{},
 		orchestrator.ConflictHuntPhase{AutoStop: false, AutoStopVendor: false},
+		orchestrator.NVMLPhase{},
 		orchestrator.ProbePhase{},
 	)
 	if err != nil {
