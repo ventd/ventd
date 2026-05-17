@@ -74,6 +74,7 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) error {
 	o, err := orchestrator.New(rc,
 		orchestrator.InventoryPhase{},
 		orchestrator.ConflictHuntPhase{AutoStop: true, AutoStopVendor: false},
+		orchestrator.ProbePhase{},
 	)
 	if err != nil {
 		return fmt.Errorf("orchestrator preview: %w", err)
