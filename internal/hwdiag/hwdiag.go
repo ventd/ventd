@@ -8,6 +8,7 @@
 package hwdiag
 
 import (
+	"log/slog"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -109,9 +110,19 @@ func NewStore() *Store {
 // store's clock if the caller didn't supply one. Always bumps revision so
 // UI pollers can detect the change even when the only diff is the timestamp
 // (a probe re-running is a signal worth showing).
+//
+// An empty Entry.ID is a programmer error in the caller; it would also be
+// invalid as a map key (every Set with empty ID would clobber the same
+// "" slot). Rather than panic the daemon process — a real risk because
+// Set is called from many subsystems and a single misbehaved caller would
+// take everyone down — we log at WARN level, drop the call, and let the
+// daemon proceed. The caller's tests still catch the bug because no entry
+// shows up in the store after a Set with empty ID.
 func (s *Store) Set(e Entry) {
 	if e.ID == "" {
-		panic("hwdiag: Set called with empty Entry.ID")
+		slog.Warn("hwdiag: Set called with empty Entry.ID; entry dropped",
+			"component", e.Component, "summary", e.Summary)
+		return
 	}
 	if e.Timestamp.IsZero() {
 		e.Timestamp = s.now()
