@@ -151,9 +151,14 @@ func inferRole(displayName string) hal.ChannelRole {
 	return hal.RoleUnknown
 }
 
+// BackendName is the registry tag applied to channels produced by this
+// backend. Matches the sibling pattern of internal/hal/{ipmi,nvml,
+// thinkpad,legion,hwmon,...}.
+const BackendName = "nbfc"
+
 // Name returns the stable backend identifier used in
-// `hal.Register("nbfc", ...)`.
-func (b *Backend) Name() string { return "nbfc" }
+// `hal.Register(BackendName, ...)`.
+func (b *Backend) Name() string { return BackendName }
 
 // Enumerate returns the channel slice constructed at New time. The
 // nbfc catalogue is static across the backend's lifetime; hot-plug
