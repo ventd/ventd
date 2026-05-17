@@ -7,50 +7,18 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/recovery"
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
-
-// orchestratorEnvVar gates the v0.8.x phase-DAG executor.
-//
-// As of PR#B5, the orchestrator is the DEFAULT wizard path —
-// orchestratorEnabled() returns true unless the env var is
-// explicitly set to "0". The legacy Manager.run inline phase
-// sequence runs only when VENTD_USE_ORCHESTRATOR=0 (emergency
-// rollback escape hatch). The legacy code is retired in PR#B6.
-const orchestratorEnvVar = "VENTD_USE_ORCHESTRATOR"
 
 // orchestratorStateDir is the production location for orchestrator
 // checkpoint + per-phase state. Overridable via VENTD_SETUP_STATE_DIR
 // for HIL fixtures and integration tests.
 const orchestratorStateDir = "/var/lib/ventd/setup"
 
-// SetUseOrchestrator opts the Manager into the v0.8.x orchestrator
-// path. Production main.go calls this with true so the orchestrator
-// is the default wizard for installed daemons; tests leave it false
-// so the legacy phase sequence runs unchanged. The env var
-// VENTD_USE_ORCHESTRATOR=0 can be set by an operator to override
-// back to legacy as an emergency rollback.
-//
-// Removed in PR#B6 along with the legacy phase code.
-func (m *Manager) SetUseOrchestrator(v bool) {
-	m.mu.Lock()
-	m.useOrchestrator = v
-	m.mu.Unlock()
-}
-
-// orchestratorEnabled returns true when this Manager instance opted
-// into the orchestrator AND the operator has not explicitly opted out
-// via VENTD_USE_ORCHESTRATOR=0.
-func (m *Manager) orchestratorEnabled() bool {
-	m.mu.Lock()
-	on := m.useOrchestrator
-	m.mu.Unlock()
-	return on && os.Getenv(orchestratorEnvVar) != "0"
-}
-
 // orchestratorStateRoot returns the effective state directory: the
 // VENTD_SETUP_STATE_DIR env var when set, otherwise orchestratorStateDir.
-// Tests inject a t.TempDir() so the preview never writes to the
+// Tests inject a t.TempDir() so the orchestrator never writes to the
 // production /var/lib/ventd path.
 func orchestratorStateRoot() string {
 	if s := os.Getenv("VENTD_SETUP_STATE_DIR"); s != "" {
@@ -61,15 +29,13 @@ func orchestratorStateRoot() string {
 
 // managerEventSink adapts Manager.EmitEvent to the orchestrator's
 // EventSink interface so orchestrator phases surface activity-feed
-// lines through the same SSE ring buffer the legacy phases use.
+// lines through the same SSE ring buffer.
 //
 // In addition to the activity-feed pipe, it intercepts the
-// orchestrator's "starting phase" / "phase completed" markers and
-// maps them onto Manager.phase / phase_msg so the web UI's
-// /api/setup/status polling shows progress. Without this hook the
-// orchestrator-driven wizard runs to completion correctly but the
-// UI status panel stays empty (operator sees "stuck wizard" while
-// phases are actually progressing).
+// orchestrator's "starting phase" markers and maps them onto
+// Manager.phase / phase_msg so the web UI's /api/setup/status polling
+// shows progress. Without this hook the wizard runs to completion
+// correctly but the UI status panel stays empty.
 type managerEventSink struct{ m *Manager }
 
 func (s managerEventSink) Emit(level, tag, text string) {
@@ -83,9 +49,7 @@ func (s managerEventSink) Emit(level, tag, text string) {
 }
 
 // orchestratorPhaseLabel maps an orchestrator phase Name() to the
-// terse label the web UI shows in the progress indicator. Mirrors
-// the legacy Manager.run setPhase calls so the UI reads identical
-// status regardless of which path drove the wizard.
+// terse label the web UI shows in the progress indicator.
 func orchestratorPhaseLabel(phase string) string {
 	switch phase {
 	case "inventory":
@@ -146,9 +110,7 @@ func orchestratorPhaseMsg(phase string) string {
 
 // managerCalibrator adapts the Manager's CalibrationBackend (which
 // has RunSync, AllStatus, DetectRPMSensor) to the orchestrator's
-// narrower Calibrator interface. Single-sources the production
-// calibration engine with the legacy Manager.run Phase 6 path —
-// both call the same calibrate.Manager.RunSync underneath.
+// narrower Calibrator interface.
 type managerCalibrator struct{ m *Manager }
 
 func (c managerCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (calibrate.Result, error) {
@@ -160,9 +122,7 @@ func (c managerCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (cali
 
 // managerRPMDetector adapts the Manager's CalibrationBackend (which
 // implements DetectRPMSensor) to the orchestrator's narrower
-// RPMDetector interface. Single-sources the production heuristic
-// with the legacy Manager.run Phase 5 — both call the same
-// calibrate.Manager.DetectRPMSensor underneath.
+// RPMDetector interface.
 type managerRPMDetector struct{ m *Manager }
 
 func (r managerRPMDetector) Detect(fan *config.Fan) (calibrate.DetectResult, error) {
@@ -172,25 +132,15 @@ func (r managerRPMDetector) Detect(fan *config.Fan) (calibrate.DetectResult, err
 	return r.m.cal.DetectRPMSensor(fan)
 }
 
-// runOrchestratorPreview executes the orchestrator phase set ahead of
-// the legacy Manager.run body. As of PR#B5 it is the DEFAULT wizard
-// path; the legacy sequence runs only when the orchestrator fails or
-// when VENTD_USE_ORCHESTRATOR=0 (emergency rollback).
+// runOrchestrator runs the full v0.8.x phase set. On ApplyPhase success
+// the wizard transitions to the "applied" state; on any phase failure
+// (or orchestrator bootstrap failure) m.errMsg + m.failureClass are
+// populated from the failing outcome so the recovery card surfaces the
+// right remediation.
 //
-// Return contract (used by Manager.run to decide whether to short-
-// circuit the legacy phases):
-//
-//	applied=true,  err=nil:   ApplyPhase succeeded; wizard is done
-//	applied=false, err=nil:   ApplyPhase did NOT succeed (a prior phase
-//	                          failed or the artifact is missing); the
-//	                          legacy fallback runs
-//	applied=false, err!=nil:  orchestrator bootstrap failed (e.g. mkdir
-//	                          state dir); the legacy fallback runs
-//
-// The legacy fallback is the v0.8.x safety net. PR#B6 removes it
-// once HIL coverage proves the orchestrator handles every supported
-// hardware shape.
-func (m *Manager) runOrchestratorPreview(ctx context.Context) (applied bool, err error) {
+// This replaces the legacy Manager.run inline phase 0-7 sequence; the
+// orchestrator is now the only wizard path.
+func (m *Manager) runOrchestrator(ctx context.Context) {
 	rc := &orchestrator.RunContext{
 		Logger:    m.logger,
 		HwmonRoot: m.hwmonRoot,
@@ -212,21 +162,65 @@ func (m *Manager) runOrchestratorPreview(ctx context.Context) (applied bool, err
 		orchestrator.ApplyPhase{},
 	)
 	if oerr != nil {
-		return false, fmt.Errorf("orchestrator preview: %w", oerr)
+		m.mu.Lock()
+		m.errMsg = fmt.Sprintf("orchestrator bootstrap failed: %v", oerr)
+		m.failureClass = recovery.ClassUnknown
+		m.phase = "failed"
+		m.phaseMsg = "Setup could not start. Send a diagnostic bundle so we can investigate."
+		m.mu.Unlock()
+		return
 	}
 	outs, runErr := o.Run(ctx)
 	if runErr != nil {
-		return false, fmt.Errorf("orchestrator preview run: %w", runErr)
+		m.mu.Lock()
+		m.errMsg = fmt.Sprintf("orchestrator run failed: %v", runErr)
+		m.failureClass = recovery.ClassUnknown
+		m.phase = "failed"
+		m.phaseMsg = "Setup crashed unexpectedly. Send a diagnostic bundle so we can investigate."
+		m.mu.Unlock()
+		return
 	}
-	// Wizard is "applied" only when ApplyPhase ran AND succeeded.
-	// Any earlier-phase failure short-circuits Run, so an ApplyPhase
-	// success outcome is the unambiguous signal we can short-circuit
-	// the legacy fallback.
+	// ApplyPhase Success is the unambiguous "wizard is applied" signal.
+	// Any earlier-phase failure short-circuits Run; o.Run returns the
+	// outcomes-so-far with the failing one last.
 	for _, out := range outs {
 		if out.Phase == (orchestrator.ApplyPhase{}).Name() &&
 			out.Status == orchestrator.StatusSuccess {
-			return true, nil
+			m.mu.Lock()
+			m.phase = "applied"
+			m.phaseMsg = "Wizard complete"
+			m.applied = true
+			m.mu.Unlock()
+			return
 		}
 	}
-	return false, nil
+	// Wizard failed before ApplyPhase succeeded. The last outcome
+	// carries the recovery class + operator-facing detail that the
+	// failing phase populated; surface them so the web UI's recovery
+	// card has the right shape.
+	if len(outs) == 0 {
+		m.mu.Lock()
+		m.errMsg = "orchestrator returned no outcomes"
+		m.failureClass = recovery.ClassUnknown
+		m.phase = "failed"
+		m.phaseMsg = "Setup produced no result. Send a diagnostic bundle so we can investigate."
+		m.mu.Unlock()
+		return
+	}
+	last := outs[len(outs)-1]
+	detail := last.Detail
+	if detail == "" {
+		detail = fmt.Sprintf("phase %q ended with status %q", last.Phase, last.Status)
+	}
+	cls := last.Class
+	if cls == "" {
+		cls = recovery.ClassUnknown
+	}
+	m.mu.Lock()
+	m.errMsg = detail
+	m.failureClass = cls
+	// Don't overwrite phase here — managerEventSink already set it to
+	// the phase that was running when failure landed; that's what the
+	// recovery card classifier wants to see.
+	m.mu.Unlock()
 }

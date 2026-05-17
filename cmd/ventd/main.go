@@ -940,13 +940,6 @@ func runDaemonInternal(
 	// Setup wizard manager: handles first-boot fan discovery and calibration via web UI.
 	setupMgr := setupmgr.New(cal, logger)
 	setupMgr.SetDiagnosticStore(diagStore)
-	// v0.8.x default-on: route wizard starts through the new phase-
-	// DAG orchestrator. Operators can revert to the legacy path by
-	// setting VENTD_USE_ORCHESTRATOR=0 in the systemd environment
-	// file as an emergency rollback. The legacy code is removed in
-	// PR#B6 of the wizard rework, at which point this call + the
-	// env-gate disappear entirely.
-	setupMgr.SetUseOrchestrator(true)
 	// Wire the polarity prober so the wizard's Phase 5b polarity probe
 	// actually runs. Without this, the prober is nil and the entire
 	// `if prober != nil { ... }` block at internal/setup/setup.go:1097

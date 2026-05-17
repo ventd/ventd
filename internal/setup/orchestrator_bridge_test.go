@@ -12,38 +12,11 @@ import (
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
 
-// TestOrchestratorBridge_SetUseOrchestratorOptIn verifies that
-// production callers opt the Manager into the orchestrator path via
-// SetUseOrchestrator(true). Tests that don't call it stay on the
-// legacy phase sequence.
-func TestOrchestratorBridge_SetUseOrchestratorOptIn(t *testing.T) {
-	t.Setenv("VENTD_USE_ORCHESTRATOR", "")
-	m := newBridgeTestManager(t)
-	if m.orchestratorEnabled() {
-		t.Error("default Manager (no SetUseOrchestrator) should run legacy path")
-	}
-	m.SetUseOrchestrator(true)
-	if !m.orchestratorEnabled() {
-		t.Error("after SetUseOrchestrator(true), orchestrator path should be enabled")
-	}
-}
-
-// TestOrchestratorBridge_EnvGateOptOut verifies the emergency
-// rollback escape hatch: VENTD_USE_ORCHESTRATOR=0 forces back to
-// the legacy path even when the Manager opted in.
-func TestOrchestratorBridge_EnvGateOptOut(t *testing.T) {
-	t.Setenv("VENTD_USE_ORCHESTRATOR", "0")
-	m := newBridgeTestManager(t)
-	m.SetUseOrchestrator(true)
-	if m.orchestratorEnabled() {
-		t.Error("VENTD_USE_ORCHESTRATOR=0 must override SetUseOrchestrator(true)")
-	}
-}
-
-// TestOrchestratorBridge_PreviewRunWritesCheckpoint exercises the
-// preview path directly (independent of the env gate) and asserts that
-// state.json lands with an inventory outcome.
-func TestOrchestratorBridge_PreviewRunWritesCheckpoint(t *testing.T) {
+// TestOrchestratorBridge_RunWritesCheckpoint exercises the bridge
+// directly: runOrchestrator drives the full phase set against a
+// minimal hwmon fixture and the inventory outcome lands in state.json
+// so a future resume can pick up where the wizard left off.
+func TestOrchestratorBridge_RunWritesCheckpoint(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("VENTD_SETUP_STATE_DIR", stateDir)
 
@@ -59,9 +32,7 @@ func TestOrchestratorBridge_PreviewRunWritesCheckpoint(t *testing.T) {
 	m := newBridgeTestManager(t)
 	m.hwmonRoot = filepath.Dir(hwmonRoot) // = .../sys/class/hwmon
 
-	if _, err := m.runOrchestratorPreview(context.Background()); err != nil {
-		t.Fatalf("runOrchestratorPreview: %v", err)
-	}
+	m.runOrchestrator(context.Background())
 
 	statePath := filepath.Join(stateDir, "state.json")
 	b, err := os.ReadFile(statePath)
@@ -82,10 +53,10 @@ func TestOrchestratorBridge_PreviewRunWritesCheckpoint(t *testing.T) {
 	}
 }
 
-// TestOrchestratorBridge_PreviewEventsFlowToManagerRing confirms phases
+// TestOrchestratorBridge_EventsFlowToManagerRing confirms phases
 // emit through Manager.EmitEvent so the SSE ring buffer picks them up
 // (no separate channel plumbing required).
-func TestOrchestratorBridge_PreviewEventsFlowToManagerRing(t *testing.T) {
+func TestOrchestratorBridge_EventsFlowToManagerRing(t *testing.T) {
 	t.Setenv("VENTD_SETUP_STATE_DIR", t.TempDir())
 
 	hwmonRoot := filepath.Join(t.TempDir(), "sys", "class", "hwmon", "hwmon0")
@@ -99,9 +70,7 @@ func TestOrchestratorBridge_PreviewEventsFlowToManagerRing(t *testing.T) {
 	m := newBridgeTestManager(t)
 	m.hwmonRoot = filepath.Dir(hwmonRoot)
 
-	if _, err := m.runOrchestratorPreview(context.Background()); err != nil {
-		t.Fatalf("runOrchestratorPreview: %v", err)
-	}
+	m.runOrchestrator(context.Background())
 
 	events, _ := m.EventsSince(0)
 	if len(events) == 0 {
@@ -135,8 +104,8 @@ func outcomeKeys(st orchestrator.State) []string {
 }
 
 // newBridgeTestManager builds a Manager with the minimum wiring needed
-// for the bridge tests: a stub CalibrationBackend (unused by preview)
-// and a discard logger.
+// for the bridge tests: a stub CalibrationBackend (unused by orchestrator
+// for inventory) and a discard logger.
 func newBridgeTestManager(t *testing.T) *Manager {
 	t.Helper()
 	cb := calibrate.New(t.TempDir(), slog.Default(), nil)
