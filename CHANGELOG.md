@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Added
+
+- `internal/hal/msiec/firmware_catalogue.go` + `firmware_diagnose.go` + `firmware_pin.go` + `internal/hwmon/install_steps.go::stepVerify` — msi-ec firmware-pin escape hatch. The upstream `BeardOverflow/msi-ec` driver carries a per-firmware allowlist (CONF_G* groups in `msi-ec.c`'s ALLOWED_FW_G* tables); when the EC reports a firmware string not in any group, the driver loads but refuses the platform device, leaving `/sys/devices/platform/msi-ec/fan_mode` absent. The driver exposes a `firmware=<rev>` modparam that forces the closest catalogued config regardless of the actual firmware string. ventd now ships the full 336-firmware / 21-group catalogue (extracted from upstream `msi-ec.c` via `tools/gen-msiec-firmware-catalogue/extract.py`) and: parses the canonical `msi_ec: Firmware version is not supported: '<rev>'` line from journalctl -k / dmesg; ranks closest-catalogue candidates by board-family prefix + lexical distance; writes pin files to `/etc/modprobe.d/ventd-msiec-firmware-pin.conf` after validating the firmware string against a strict shape regex (refuses shell metachars, newlines, paths). `stepVerify` now consults the diagnose helper when the driver is `msi-ec` and surfaces an `ErrFirmwareNotCatalogued` that still unwraps to `ErrNoPWMChannelsAppeared` (so setup's retry loop is unaffected) but carries `DetectedFirmware` + ranked `Suggestions` for the wizard's recovery card. The wizard UI integration that consumes these is a separate ticket. (#1168)
+
 ## [v0.7.5] - 2026-05-17
 
 ### Fixed
