@@ -148,7 +148,7 @@ type Manager struct {
 	installLog     []string
 	result         *config.Config
 	profile        *HWProfile
-	cal            *calibrate.Manager
+	cal            CalibrationBackend
 	logger         *slog.Logger
 	cancel         context.CancelFunc // fired by Abort; nil until Start wires it
 	diagStore      *hwdiag.Store      // optional; when non-nil, preflight blockers are emitted here
@@ -365,7 +365,18 @@ func (m *Manager) fireCalibrationComplete(at time.Time) {
 // /var/lib/ventd/.setup-applied or pick up a marker left by a sibling
 // test (which would make ProgressNeeded test cases bleed into each
 // other on hosts where the directory is writable).
-func New(cal *calibrate.Manager, logger *slog.Logger) *Manager {
+// CalibrationBackend is the minimal calibrate.Manager surface that
+// setup.Manager consumes. Extracted from the concrete type so tests
+// can inject a fake that records calls, panics, returns synthetic
+// errors, etc. without standing up a real calibration pipeline (#132).
+// `*calibrate.Manager` satisfies it implicitly.
+type CalibrationBackend interface {
+	AllStatus() []calibrate.Status
+	DetectRPMSensor(fan *config.Fan) (calibrate.DetectResult, error)
+	RunSync(ctx context.Context, fan *config.Fan) (calibrate.Result, error)
+}
+
+func New(cal CalibrationBackend, logger *slog.Logger) *Manager {
 	return NewWithRoots(cal, logger, defaultHwmonRoot, defaultProcRoot, defaultPowercapRoot)
 }
 
@@ -389,7 +400,7 @@ const DefaultAppliedMarkerPath = defaultAppliedMarkerPath
 // /sys/class/hwmon, /proc, and /sys/class/powercap so a fixture tree can
 // stand in for the real kernel interfaces. Production code uses New; this
 // exists so hardware-discovery code paths remain testable.
-func NewWithRoots(cal *calibrate.Manager, logger *slog.Logger, hwmonRoot, procRoot, powercapRoot string) *Manager {
+func NewWithRoots(cal CalibrationBackend, logger *slog.Logger, hwmonRoot, procRoot, powercapRoot string) *Manager {
 	return &Manager{
 		cal:                 cal,
 		logger:              logger,
@@ -1384,6 +1395,25 @@ func (m *Manager) run(ctx context.Context, release func()) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			// Per-goroutine panic recover. The outer run()'s recover
+			// only catches panics in the main goroutine; if RunSync
+			// (or any future call inside this body) panics here, the
+			// process would otherwise crash. We log, mark the fan
+			// errored, and let wg.Wait progress so the wizard reaches
+			// its terminal state instead of taking the daemon down.
+			defer func() {
+				if r := recover(); r != nil {
+					m.mu.Lock()
+					fans[idx].CalPhase = "error"
+					fans[idx].Error = fmt.Sprintf("calibration crashed: %v", r)
+					snapshot := make([]FanState, len(fans))
+					copy(snapshot, fans)
+					m.fans = snapshot
+					m.mu.Unlock()
+					m.logger.Error("setup: calibration goroutine panic recovered",
+						"fan", fans[idx].Name, "panic", r)
+				}
+			}()
 			f := fans[idx]
 			cfgFan := &config.Fan{
 				Name:    f.Name,
