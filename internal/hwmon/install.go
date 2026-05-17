@@ -162,14 +162,16 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 				pkgVersion = strings.Trim(v, `"`)
 			}
 		}
-		// Some upstream OOT-driver dkms.conf files (e.g. it87) ship with
-		// PACKAGE_VERSION="#MODULE_VERSION#" as a sed-substitution
-		// template that the upstream Makefile fills in. ventd's install
-		// path doesn't run that step, so the literal placeholder leaks
-		// into `dkms add` and ends up in the source path. Detect any
-		// `#TOKEN#`-shaped value and fall back to a synthesised version
-		// so DKMS register actually succeeds (#785).
-		if strings.HasPrefix(pkgVersion, "#") && strings.HasSuffix(pkgVersion, "#") {
+		// Some upstream OOT-driver dkms.conf files ship PACKAGE_VERSION
+		// as a sed-substitution template the upstream Makefile fills in.
+		// ventd downloads the repo as a tarball and never runs that step,
+		// so the literal placeholder leaks into `dkms add` and ends up in
+		// the source path. Two delimiter shapes are seen in the wild:
+		//   - "#MODULE_VERSION#" (frankcrawford/it87, #785)
+		//   - "@VERSION@"        (BeardOverflow/msi-ec, #1154)
+		// Detect either and fall back to a date-stamped synthesised
+		// version so DKMS register actually succeeds.
+		if isUnsubstitutedVersionPlaceholder(pkgVersion) {
 			synthesised := time.Now().UTC().Format("2006.01.02")
 			logger.Info("DKMS: replacing unsubstituted version placeholder",
 				"raw", pkgVersion, "substituted", synthesised)
@@ -210,10 +212,33 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 	}
 }
 
+// isUnsubstitutedVersionPlaceholder reports whether s looks like an
+// unsubstituted dkms.conf PACKAGE_VERSION value. Two delimiter shapes
+// are seen in OOT-driver repos ventd downloads as tarballs without
+// running their upstream Makefile:
+//
+//   - "#TOKEN#"   — sed-style (e.g. frankcrawford/it87 #MODULE_VERSION#, #785)
+//   - "@TOKEN@"   — autoconf-style (e.g. BeardOverflow/msi-ec @VERSION@, #1154)
+//
+// Real version strings (SemVer, date-stamps, git tags) never start with
+// these delimiters, so a prefix/suffix match is sufficient. The inner
+// token must be non-empty so "##" / "@@" don't slip through as no-ops.
+func isUnsubstitutedVersionPlaceholder(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	first, last := s[0], s[len(s)-1]
+	if first != last {
+		return false
+	}
+	return first == '#' || first == '@'
+}
+
 // rewriteDKMSVersion edits dkms.conf in place, replacing any
 // `PACKAGE_VERSION="..."` line with the supplied version string. Used
-// when the upstream OOT-driver ships an unsubstituted `#MODULE_VERSION#`
-// placeholder that ventd has to fill in itself (#785).
+// when the upstream OOT-driver ships an unsubstituted version
+// placeholder that ventd has to fill in itself (see
+// isUnsubstitutedVersionPlaceholder, #785 + #1154).
 func rewriteDKMSVersion(confPath, version string) error {
 	data, err := os.ReadFile(confPath)
 	if err != nil {
