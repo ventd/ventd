@@ -65,4 +65,9 @@ func registerHALBackends(logger *slog.Logger, enableGPUWrite bool) {
 	hal.Register(halnvml.BackendName, halnvml.NewBackend(logger))
 	hal.Register(halpwmsys.BackendName, halpwmsys.NewBackend(logger))
 	hal.Register(halthinkpad.BackendName, halthinkpad.NewBackend(logger))
+	// NBFC is probe-shaped: needs DMI + EC transport, may return any
+	// of five benign sentinels. registerNBFCBackend dispatches them
+	// to the right log severity and only calls hal.Register on a
+	// clean construction. See cmd/ventd/nbfc_wire.go.
+	registerNBFCBackend(logger, "/")
 }

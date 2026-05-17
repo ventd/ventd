@@ -831,6 +831,10 @@ func runDaemonInternal(
 	// command stays in the IPMI backend; the watchdog only routes the
 	// call from its canonical exit path.
 	registerIPMIWatchdogEntries(wd, logger)
+	// NBFC channels also use a closure-based Restore path; route them
+	// through the same generic watchdog primitive so RULE-WD-RESTORE-EXIT
+	// covers laptop EC fans on every documented shutdown path.
+	registerNBFCWatchdogEntries(wd, logger)
 	// Always restore pwm_enable=2 when runDaemon exits — covers graceful shutdown.
 	// Controller panic recovery also calls wd.Restore() before returning an error.
 	defer wd.Restore()
