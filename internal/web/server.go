@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -140,6 +141,13 @@ type Server struct {
 	// flag and last observed scheduled winner. Zero value is ready
 	// to use; see internal/web/schedule.go for the semantics.
 	schedState scheduleState
+	// schedTickMu serialises scheduleTick. Production has only one
+	// scheduler goroutine so contention is zero; the mutex exists to
+	// preserve the "one tick's load-compute-store sequence is atomic
+	// relative to other ticks" invariant when tests drive ticks from
+	// the test goroutine in parallel with the production goroutine
+	// (issue #812 race).
+	schedTickMu sync.Mutex
 	// schedIntervalNS is the scheduler's tick period in nanoseconds,
 	// accessed atomically because tests override it after New() has
 	// already launched the scheduler goroutine. Zero falls back to

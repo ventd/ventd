@@ -237,7 +237,16 @@ func (s *Server) runScheduler() {
 // scheduleTick runs one pass of the scheduler: compute winner,
 // maybe-apply. Broken out from runScheduler so tests can drive ticks
 // deterministically without reaching into the goroutine.
+//
+// Holds schedTickMu for the full load-compute-store sequence so a
+// second concurrent tick (test goroutine + production goroutine
+// overlap, the issue #812 race) cannot interleave its winner-
+// computation with another tick's apply. Production has only one
+// scheduler goroutine so contention is zero; the mutex is defence
+// against any caller that drives a tick from a second goroutine.
 func (s *Server) scheduleTick() {
+	s.schedTickMu.Lock()
+	defer s.schedTickMu.Unlock()
 	now := s.now()
 	live := s.cfg.Load()
 	scheds := parsedSchedules(live, s.logger)
