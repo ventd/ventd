@@ -492,11 +492,20 @@ func TestWDSafety_Invariants(t *testing.T) {
 			filepath.Join(fake.Root, "hwmon0", "pwm3"),
 		}
 
-		// Swap restoreOneImpl to simulate a hung backend on one path.
 		stop := make(chan struct{})
 		t.Cleanup(func() { close(stop) })
-		orig := restoreOneImpl
-		restoreOneImpl = func(w *Watchdog, e entry) {
+
+		var buf bytes.Buffer
+		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		w.Register(fastPaths[0], "hwmon")
+		w.Register(hungPath, "hwmon")
+		w.Register(fastPaths[1], "hwmon")
+		// Issue #1178: per-instance seam, set BEFORE Register's
+		// downstream RestoreCtx ever reads it. Hung-path stub blocks
+		// until the test's deferred close(stop); fast paths fall
+		// through to the real restoreOne, exercising the deadline-
+		// exceeded vs successful-restore mix the rule requires.
+		w.SetRestoreOneFnForTest(func(e entry) {
 			if e.pwmPath == hungPath {
 				select {
 				case <-stop:
@@ -504,15 +513,9 @@ func TestWDSafety_Invariants(t *testing.T) {
 				}
 				return
 			}
-			orig(w, e)
-		}
-		t.Cleanup(func() { restoreOneImpl = orig })
+			w.restoreOne(e)
+		})
 
-		var buf bytes.Buffer
-		w := New(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
-		w.Register(fastPaths[0], "hwmon")
-		w.Register(hungPath, "hwmon")
-		w.Register(fastPaths[1], "hwmon")
 		for _, p := range append(fastPaths, hungPath) {
 			// Perturb to manual mode (1) so the post-Restore read
 			// proves a write back to BIOS auto (2) actually happened.

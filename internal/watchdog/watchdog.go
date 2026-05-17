@@ -28,13 +28,33 @@ import (
 // rather than systemd's belt-and-braces SIGKILL + ventd-recover.
 const DefaultRestoreBudget = 1800 * time.Millisecond
 
-// restoreOneImpl is the swappable seam used by restoreOneCtx so
-// tests can inject a stub that simulates a hung backend, exercising
-// the deadline-exceeded branch of RestoreCtx without needing a
-// real /sys driver wedge. Production always points at the
-// (*Watchdog).restoreOne method (the existing per-entry restore +
-// panic-recover envelope, unchanged in behaviour).
-var restoreOneImpl = func(w *Watchdog, e entry) { w.restoreOne(e) }
+// SetRestoreOneFnForTest installs a per-instance override for the
+// per-entry restore call. Tests use this to simulate a hung backend
+// (exercising RestoreCtx's deadline-exceeded branch) without needing a
+// real /sys driver wedge. Production never calls this — the nil
+// default falls through to (*Watchdog).restoreOne, the unchanged
+// per-entry restore + panic-recover envelope.
+//
+// Issue #1178: per-instance rather than a package-global var. The
+// previous global-swap pattern raced the race detector against
+// goroutines that had read the seam before the cleanup fired; the
+// per-instance field lives and dies with the test's own Watchdog, so
+// there is no shared mutable state across tests.
+func (w *Watchdog) SetRestoreOneFnForTest(fn func(e entry)) {
+	w.mu.Lock()
+	w.restoreOneFn = fn
+	w.mu.Unlock()
+}
+
+func (w *Watchdog) loadRestoreOneFn() func(e entry) {
+	w.mu.Lock()
+	fn := w.restoreOneFn
+	w.mu.Unlock()
+	if fn == nil {
+		return w.restoreOne
+	}
+	return fn
+}
 
 // SafePreDaemonEnable is the fallback origEnable value Register uses
 // when the live pwm_enable read returns 1 (manual) — typically a
@@ -155,6 +175,13 @@ type Watchdog struct {
 	hwmonBe *halhwmon.Backend
 	nvmlBe  *halnvml.Backend
 	msiecBe *halmsiec.Backend
+	// restoreOneFn is the per-instance swappable seam used by
+	// restoreOneCtx. nil → use the default (*Watchdog).restoreOne.
+	// Issue #1178: per-instance rather than a package-global var so
+	// the test fixture's swap+cleanup is scoped to the test's own
+	// Watchdog and the race detector can prove the seam never escapes
+	// the test's lifecycle.
+	restoreOneFn func(e entry)
 }
 
 func New(logger *slog.Logger) *Watchdog {
@@ -482,7 +509,7 @@ func (w *Watchdog) restoreOneCtx(ctx context.Context, e entry) {
 			"err", err)
 		return
 	}
-	restoreOneImpl(w, e)
+	w.loadRestoreOneFn()(e)
 }
 
 // restoreOne dispatches a single entry's restore to the appropriate
