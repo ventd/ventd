@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/ventd/ventd/internal/hal"
 )
 
 // recordCapture is a slog.Handler that captures every Record so tests
@@ -313,3 +315,62 @@ func TestDiagnoseHwmon_RootMissingDoesNotPanic(t *testing.T) {
 
 // (the package's existing distro_test.go already provides a
 // `contains` helper; we reuse it rather than redeclaring.)
+
+func TestDiagnoseHwmon_HALBackendPWMDowngradesToInfo(t *testing.T) {
+	// #1163: when sysfs has no pwm channels but a non-hwmon HAL backend
+	// (msi-ec, thinkpad, ipmi, …) exposes a CapWritePWM channel, the
+	// "no PWM visible" condition is benign — fan control will happen
+	// via the HAL backend. The diagnose path must INFO + name the
+	// backend instead of WARN-ing about modprobe.
+	hal.Reset()
+	t.Cleanup(hal.Reset)
+	hal.Register("fakemsiec", &fakeHALBackend{
+		name: "fakemsiec",
+		channels: []hal.Channel{{
+			ID:   "/sys/devices/platform/fakemsiec",
+			Role: hal.RoleCPU,
+			Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+		}},
+	})
+
+	h := &recordCapture{}
+	DiagnoseHwmonAt(slog.New(h), t.TempDir())
+
+	if _, ok := findRecord(h.snapshot(), "hwmon: no PWM channels visible at startup"); ok {
+		t.Fatal("WARN must be suppressed when a HAL backend exposes CapWritePWM")
+	}
+	r, ok := findRecord(h.snapshot(), "hwmon: no PWM via sysfs; fan control will use HAL backend")
+	if !ok {
+		t.Fatalf("missing HAL-fallback INFO; records=%d", len(h.snapshot()))
+	}
+	if r.Level != slog.LevelInfo {
+		t.Errorf("level: got %v, want INFO", r.Level)
+	}
+	backends, _ := attrValue(r, "backends")
+	if !contains(backends.String(), "fakemsiec") {
+		t.Errorf("backends attr missing fakemsiec: %q", backends.String())
+	}
+}
+
+func TestDiagnoseHwmon_HALHwmonBackendIgnored(t *testing.T) {
+	// The hwmon HAL backend reflects the same sysfs surface this
+	// diagnostic is checking; treating it as a fallback would mask
+	// every "really no PWM" case. Verify it's excluded.
+	hal.Reset()
+	t.Cleanup(hal.Reset)
+	hal.Register("hwmon", &fakeHALBackend{
+		name: "hwmon",
+		channels: []hal.Channel{{
+			ID:   "/sys/class/hwmon/hwmon3/pwm1",
+			Role: hal.RoleCase,
+			Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+		}},
+	})
+
+	h := &recordCapture{}
+	DiagnoseHwmonAt(slog.New(h), t.TempDir())
+
+	if _, ok := findRecord(h.snapshot(), "hwmon: no PWM channels visible at startup"); !ok {
+		t.Fatal("expected WARN to fire when only the hwmon HAL backend reports channels")
+	}
+}

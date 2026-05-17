@@ -87,6 +87,12 @@ func EnsureSelfSignedCert(certPath, keyPath string, logger *slog.Logger) (finger
 	logger.Info("tls: generated self-signed certificate",
 		"cert", certPath, "key", keyPath,
 		"sha256", fp, "expires", tmpl.NotAfter.Format(time.RFC3339))
+	// Operator-facing follow-up so a fresh install doesn't leave
+	// people staring at NET::ERR_CERT_AUTHORITY_INVALID without
+	// guidance, and so the SHA-256 above has a verification path
+	// (#1169). Distinct INFO line so it survives separate from the
+	// machine-parsable cert event above.
+	logger.Info("tls: browsers will warn on first visit — click Advanced → Proceed to accept the cert; the sha256 above can be verified out-of-band")
 	return fp, nil
 }
 

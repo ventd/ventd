@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -369,17 +370,6 @@ func run() error {
 		logger.Info("first-boot: no admin password set; wizard accepts password-set without auth — set a password promptly to lock the daemon")
 	}
 
-	// Diagnose hwmon state at startup. This is READ-ONLY — the daemon
-	// runs under ProtectKernelModules=yes and cannot modprobe. Kernel
-	// modules are loaded by `ventd --probe-modules`, invoked once by
-	// scripts/install.sh at install time and persisted via
-	// /etc/modules-load.d/ventd.conf for subsequent boots.
-	//
-	// If no PWM channels are visible at startup, log a clear remediation
-	// message rather than failing — the setup wizard's hardware
-	// diagnostics will surface the same finding to the operator.
-	hwmon.DiagnoseHwmon(logger)
-
 	// Provision the profiles-pending directory and register the post-calibration
 	// capture hook. Capture is best-effort: directory creation failure is logged
 	// but does not abort startup. RULE-HWDB-CAPTURE-01.
@@ -468,6 +458,14 @@ func run() error {
 	} else {
 		logger.Info("hal: enumerated fan backends", "channels", len(channels))
 	}
+
+	// Diagnose hwmon state at startup. READ-ONLY — the daemon runs
+	// under ProtectKernelModules=yes and cannot modprobe; modules are
+	// loaded by `ventd --probe-modules` at install time. Runs after
+	// registerHALBackends so the "no PWM visible" path can consult
+	// hal.Enumerate and downgrade to INFO when a non-hwmon backend
+	// (msi-ec, thinkpad, ipmi, …) owns the fan-control surface (#1163).
+	hwmon.DiagnoseHwmon(logger)
 
 	// Synchronous system-class detection. Reads the probe result persisted
 	// earlier in run() and classifies the system hardware.
@@ -799,6 +797,22 @@ type SmartModeBundle struct {
 // guard. Must be set before the daemon goroutine starts; package-scoped so
 // tests in the same package can reach it without an export.
 var configLoader = config.Load
+
+// logConfigReloadFailure routes a failed in-process config reload to
+// the appropriate log level. A missing config file is the expected
+// outcome of the wizard-reset flow (handleSetupReset removes
+// configPath then triggers a reload) — those land at INFO so operators
+// don't read every successful factory-reset as a fault. Everything
+// else (malformed YAML, validation error, disk full, permission
+// denied) stays at WARN with the original wording (#1164).
+func logConfigReloadFailure(logger *slog.Logger, err error) {
+	if errors.Is(err, os.ErrNotExist) {
+		logger.Info("config removed (wizard reset?); daemon continues with last loaded config until restart",
+			"err", err)
+		return
+	}
+	logger.Warn("config reload failed; keeping current config", "err", err)
+}
 
 // runDaemonInternal is the concrete daemon implementation with an injectable
 // restartCh. Production callers use runDaemon; tests call this directly via
@@ -1328,7 +1342,7 @@ func runDaemonInternal(
 			// A failed reload is non-fatal: log and keep running with the current config.
 			newCfg, reloadErr := configLoader(configPath)
 			if reloadErr != nil {
-				logger.Warn("config reload failed; keeping current config", "err", reloadErr)
+				logConfigReloadFailure(logger, reloadErr)
 				continue
 			}
 			resolveHwmonPaths(newCfg, cal, logger)

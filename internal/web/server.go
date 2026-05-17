@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	stdlog "log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -265,6 +266,10 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
+		// Route stdlib http server logs (including TLS handshake errors)
+		// through slog. tlsHandshakeWatcher promotes the
+		// browser-cached-cert pattern to a one-shot WARN (#1169).
+		ErrorLog: stdlog.New(newTLSHandshakeWatcher(logger), "", 0),
 	}
 	// First-boot detection (#765): when no auth hash is configured yet,
 	// the wizard's password-set step is open without a token. Once

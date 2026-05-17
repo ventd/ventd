@@ -1,11 +1,15 @@
 package hwmon
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/ventd/ventd/internal/hal"
 )
 
 // DefaultHwmonRoot is the production root for hwmon class enumeration.
@@ -38,6 +42,17 @@ func DiagnoseHwmon(logger *slog.Logger) {
 func DiagnoseHwmonAt(logger *slog.Logger, root string) {
 	pwmPaths := findPWMPathsAt(root)
 	if len(pwmPaths) == 0 {
+		// #1163: on hosts where fan control lives in a non-hwmon HAL
+		// backend (msi-ec, thinkpad, ipmi, …), the suggestion to run
+		// `ventd --probe-modules` is misleading. If a non-hwmon backend
+		// has already enumerated channels with CapWritePWM, downgrade
+		// to INFO and name the backend instead.
+		if backends := halBackendsExposingPWM(); len(backends) > 0 {
+			logger.Info("hwmon: no PWM via sysfs; fan control will use HAL backend",
+				"root", root,
+				"backends", strings.Join(backends, ","))
+			return
+		}
 		logger.Warn("hwmon: no PWM channels visible at startup",
 			"root", root,
 			"action", "run `sudo ventd --probe-modules` to load and persist the right kernel module, "+
@@ -150,6 +165,36 @@ func isGroupWritable(path string) bool {
 		return false
 	}
 	return fi.Mode().Perm()&0o020 != 0
+}
+
+// halBackendsExposingPWM returns the names of registered HAL backends
+// (other than "hwmon") whose Enumerate reports at least one channel
+// with CapWritePWM. Used by DiagnoseHwmonAt to decide whether the
+// "no PWM via sysfs" condition is actually a problem.
+func halBackendsExposingPWM() []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	chs, err := hal.Enumerate(ctx)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	for _, ch := range chs {
+		if ch.Caps&hal.CapWritePWM == 0 {
+			continue
+		}
+		name, _, ok := strings.Cut(ch.ID, ":")
+		if !ok || name == "hwmon" {
+			continue
+		}
+		seen[name] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // itoaDiag is a small int→string helper local to the diagnose path
