@@ -1,0 +1,68 @@
+schema_version: "1.2"
+# msi-ec — Linux mainline driver for MSI gaming/creator laptop EC.
+# Merged kernel 6.10 (drivers/platform/x86/msi-ec.c).
+#
+# DISPATCH MODEL: msi-ec does NOT use per-model DMI matching. Its DMI
+# table loads on any system with DMI_SYS_VENDOR matching "MICRO-STAR INT"
+# or "Micro-Star International" — module autoload trigger only. At probe
+# time the driver reads the EC firmware version string directly from EC
+# memory and selects one of 14 internal configurations (CONF0–CONF13) by
+# matching the firmware-version prefix against each config's allowed_fw[]
+# array.
+#
+# For ventd this means:
+#   - We cannot create per-model board catalog entries keyed on
+#     product_name (the driver simply doesn't look at it).
+#   - The driver loads on every MSI laptop but only PROVIDES fan control
+#     for the 25 firmware-version strings spread across 14 configs.
+#   - Unknown firmware versions get the driver loaded but no fan control
+#     surface (probe returns -ENODEV or sensors-only fallback).
+#
+# Known firmware-version → model map (from in-source comments, CONF10-13):
+#   1582EMS1.107   → MSI GF66 11UC                      (CONF10)
+#   16S6EMS1.111   → MSI Prestige 15 A11SCX             (CONF11)
+#   1552EMS1.115   → MSI Modern 15 A11M                 (CONF11, shared)
+#   16R6EMS1.104   → MSI GF63 Thin 11UC                 (CONF12)
+#   1594EMS1.109   → MSI Prestige 16 Studio A13VE       (CONF13)
+#
+# CONF0-CONF9 cover unknown models identifiable only by firmware prefix.
+# For richer EC prefix → marketing-name mapping, see the community fork
+# BeardOverflow/msi-ec (staging tree feeding mainline) and YogSottot/msi-ec.
+
+driver_profiles:
+  - module: "msi-ec"
+    family: "msi-laptop"
+    description: "MSI gaming/creator laptop EC driver — mainline kernel 6.10+. Probes via DMI vendor only ('Micro-Star International'); selects per-model config at probe time by matching EC firmware version string against 25 known firmware prefixes spread across 14 internal configs (CONF0-CONF13). Provides battery threshold, USB charging, fan profile (shift_mode + cooler_boost), keyboard backlight, webcam toggle. Per-config feature matrix varies. Fan-profile surface is platform_profile-style (3 shift modes + cooler_boost toggle), NOT a hwmon PWM."
+    capability: "rw_full"
+    pwm_unit: "cooling_level"
+    pwm_unit_max: 3
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace:
+      - daemon: "isw"
+        detection: "command -v isw"
+        resolution: "coexist_warning"
+        reason: "YoyPa/isw is a userspace alternative driving the MSI EC directly via /sys/kernel/debug/ec/ec0/io. Concurrent writes between msi-ec and isw can leave the EC in an inconsistent state."
+      - daemon: "mlfc"
+        detection: "command -v mlfc"
+        resolution: "coexist_warning"
+        reason: "marshevms/mlfc (MSI Laptop Fan Control) operates on the same EC registers as msi-ec."
+      - daemon: "MsiFanControl"
+        detection: "pgrep -f MsiFanControl"
+        resolution: "coexist_warning"
+        reason: "alexzk1/MsiFanControl daemon shares EC register surface."
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/msi-ec.c (mainline source; 14 CONFs covering 25 firmware versions)"
+      - "https://github.com/BeardOverflow/msi-ec (community staging fork — richer EC prefix → marketing model map)"
+      - "https://github.com/YogSottot/msi-ec (alternative fork)"
