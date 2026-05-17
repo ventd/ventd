@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/recovery"
@@ -29,14 +30,15 @@ type Installer interface {
 }
 
 // realInstaller wraps hwmon.InstallDriver for production. Implements
-// Installer.
+// Installer. hwmon.InstallDriver dereferences the logger to write
+// every progress line, so passing nil there crashes the install at
+// the first "Checking build tools" log call. We always pass
+// slog.Default() — the orchestrator's per-phase logger is on
+// RunContext but the Installer interface stays narrow.
 type realInstaller struct{}
 
 func (realInstaller) Install(chipKey string, logFn func(string)) error {
-	// hwmon.InstallDriver requires a logger; the orchestrator's
-	// already wrapped logger is on RunContext, but the Installer
-	// interface stays narrow. Falls back to default.
-	return hwmon.InstallDriver(chipKey, logFn, nil)
+	return hwmon.InstallDriver(chipKey, logFn, slog.Default())
 }
 
 // DriverInstallArtifact records the per-candidate attempt outcome plus

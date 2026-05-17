@@ -62,13 +62,86 @@ func orchestratorStateRoot() string {
 // managerEventSink adapts Manager.EmitEvent to the orchestrator's
 // EventSink interface so orchestrator phases surface activity-feed
 // lines through the same SSE ring buffer the legacy phases use.
+//
+// In addition to the activity-feed pipe, it intercepts the
+// orchestrator's "starting phase" / "phase completed" markers and
+// maps them onto Manager.phase / phase_msg so the web UI's
+// /api/setup/status polling shows progress. Without this hook the
+// orchestrator-driven wizard runs to completion correctly but the
+// UI status panel stays empty (operator sees "stuck wizard" while
+// phases are actually progressing).
 type managerEventSink struct{ m *Manager }
 
 func (s managerEventSink) Emit(level, tag, text string) {
 	if s.m == nil {
 		return
 	}
+	if text == "starting phase" {
+		s.m.setPhase(orchestratorPhaseLabel(tag), orchestratorPhaseMsg(tag))
+	}
 	s.m.EmitEvent(level, tag, text)
+}
+
+// orchestratorPhaseLabel maps an orchestrator phase Name() to the
+// terse label the web UI shows in the progress indicator. Mirrors
+// the legacy Manager.run setPhase calls so the UI reads identical
+// status regardless of which path drove the wizard.
+func orchestratorPhaseLabel(phase string) string {
+	switch phase {
+	case "inventory":
+		return "detecting"
+	case "conflict_hunt":
+		return "detecting_conflicts"
+	case "driver_plan", "driver_install":
+		return "installing_driver"
+	case "nvml":
+		return "detecting_gpu"
+	case "probe":
+		return "scanning_fans"
+	case "rpm_detect":
+		return "detecting_rpm"
+	case "polarity":
+		return "probing_polarity"
+	case "calibrate":
+		return "calibrating"
+	case "verify":
+		return "verifying"
+	case "apply":
+		return "finalising"
+	default:
+		return phase
+	}
+}
+
+// orchestratorPhaseMsg is the user-facing phase_msg the web UI
+// renders alongside the phase label.
+func orchestratorPhaseMsg(phase string) string {
+	switch phase {
+	case "inventory":
+		return "Scanning your system for hardware..."
+	case "conflict_hunt":
+		return "Checking for competing fan-control daemons..."
+	case "driver_plan":
+		return "Identifying which fan controller driver this board needs..."
+	case "driver_install":
+		return "Installing the fan controller driver — this may take a minute..."
+	case "nvml":
+		return "Looking for NVIDIA GPU fans..."
+	case "probe":
+		return "Enumerating controllable fans..."
+	case "rpm_detect":
+		return "Detecting RPM tach sensors..."
+	case "polarity":
+		return "Classifying fan polarity (normal/inverted/phantom)..."
+	case "calibrate":
+		return "Calibrating each fan — this takes several minutes..."
+	case "verify":
+		return "Verifying fans respond to full-speed PWM..."
+	case "apply":
+		return "Writing configuration..."
+	default:
+		return phase + " in progress..."
+	}
 }
 
 // managerCalibrator adapts the Manager's CalibrationBackend (which

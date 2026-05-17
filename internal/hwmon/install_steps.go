@@ -293,6 +293,23 @@ func stepDepmod(c PipelineConfig) error {
 // handling that the legacy install.go path implemented — this preserves
 // the auto-patch-bootloader recovery path that handles the it8688e
 // "resource busy" failure mode without breaking the install flow.
+//
+// Handles two recovery paths automatically:
+//
+//   - "resource busy" → ACPI has claimed the chip's I/O ports.
+//     Auto-patches the bootloader with acpi_enforce_resources=lax
+//     and returns *ErrRebootRequired.
+//
+//   - "Operation not permitted" → a competing in-kernel driver
+//     (nct6683 for NCT6687D; future entries as we encounter them)
+//     is already bound to the chip and refuses to share. Unloads
+//     the competitor, writes a persistent blacklist so it doesn't
+//     auto-reload on boot, and retries the modprobe once.
+//
+// The competing-driver lookup is keyed off c.Driver.Module so it
+// stays a small in-package data table rather than depending on the
+// orchestrator's conflict registry (which lives in internal/setup
+// and would create an import cycle).
 func stepModprobe(c PipelineConfig) error {
 	// Unload any previous failed attempt first so re-runs are idempotent.
 	{
@@ -323,7 +340,64 @@ func stepModprobe(c PipelineConfig) error {
 				"Click Reboot Now to continue — setup will resume automatically after reboot.",
 		}
 	}
+	if strings.Contains(outStr, "Operation not permitted") {
+		// A competing in-kernel driver already bound the chip. Unload
+		// it + blacklist it + retry. Without this the OOT install
+		// fails forever on any host where the in-kernel driver
+		// matches the chip's hwmon ID (very common on modern kernels
+		// where nct6683 partially supports NCT6687D).
+		if competitors := competingModulesFor(c.Driver.Module); len(competitors) > 0 {
+			c.Log(fmt.Sprintf("In-kernel driver conflict detected — unloading %s...",
+				strings.Join(competitors, ", ")))
+			for _, m := range competitors {
+				n, a := rootArgv("modprobe", []string{"-r", m})
+				if rmOut, rmErr := exec.Command(n, a...).CombinedOutput(); rmErr != nil {
+					c.Log(fmt.Sprintf("  warning: could not unload %s: %v (%s)",
+						m, rmErr, strings.TrimSpace(string(rmOut))))
+				} else {
+					c.Log(fmt.Sprintf("  unloaded %s", m))
+				}
+				// Persist a blacklist so the competing driver
+				// doesn't auto-reload on next boot.
+				blPath := "/etc/modprobe.d/ventd-blacklist-" + m + ".conf"
+				if blErr := writeBlacklistDropIn(blPath, m); blErr != nil {
+					c.Log(fmt.Sprintf("  warning: could not blacklist %s persistently: %v", m, blErr))
+				}
+			}
+			c.Log("Retrying driver load...")
+			out2, err2 := exec.Command(mpName, mpArgs...).CombinedOutput()
+			if err2 == nil {
+				return nil
+			}
+			outStr = strings.TrimSpace(string(out2))
+			err = err2
+		}
+	}
 	return fmt.Errorf("modprobe %s: %w (output: %s)", c.Driver.Module, err, outStr)
+}
+
+// competingModulesFor returns the list of in-kernel module names
+// known to bind to the same chip family as the OOT driver we're
+// loading, blocking the modprobe with EPERM ("Operation not
+// permitted"). The map is intentionally tight — false positives
+// would unload legitimately-installed drivers.
+//
+// Sources:
+//   - nct6683 → handles NCT6683 + partial NCT6687D in monitor-only
+//     mode (kernel mainline). Conflicts with OOT nct6687 which
+//     provides full PWM control. Repeatedly hit by Phoenix's HIL
+//     box (MSI PRO Z690-A DDR4 + 13900K) during the v0.8.x rework
+//     fresh-install simulation.
+//   - it87 (OOT fork shares the module name with the in-kernel
+//     driver, so the conflict is invisible to this lookup — handled
+//     by the existing `modprobe -r c.Driver.Module` line above).
+func competingModulesFor(targetModule string) []string {
+	switch targetModule {
+	case "nct6687":
+		return []string{"nct6683"}
+	default:
+		return nil
+	}
 }
 
 // stepPersist writes /etc/modules-load.d/ventd.conf so the module loads at
