@@ -899,7 +899,16 @@ func runDaemonInternal(
 	// is shared with controllers — calibrate registers each fan at sweep
 	// start and deregisters on normal exit, so a daemon crash mid-sweep
 	// still restores PWM via the daemon-exit Restore.
-	cal := calibrate.New("/etc/ventd/calibration.json", logger, wd)
+	// v0.8.x: calibration.json moved from /etc/ventd/ to /var/lib/ventd/setup/
+	// so the orchestrator's sanitize phase has a single canonical wipe target
+	// and /etc holds only user-curated config. MigrateLegacyPath is idempotent
+	// and a no-op on fresh installs; on upgrade it relocates the legacy file
+	// and leaves a tombstone in /etc/ventd/ for one release cycle.
+	if err := calibrate.MigrateLegacyPath(calibrate.DefaultCalibrationPath, calibrate.LegacyCalibrationPath, logger); err != nil {
+		logger.Warn("calibrate: legacy path migration failed; daemon continues with new path",
+			"err", err)
+	}
+	cal := calibrate.New(calibrate.DefaultCalibrationPath, logger, wd)
 	// Wire the HAL channel resolver so calibration sweeps drive fans via the
 	// backend abstraction instead of direct hwmon/NVML imports (P1-HAL-02).
 	// Shared with runSetup via newChannelResolver — issue #1025 fix.

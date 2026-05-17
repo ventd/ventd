@@ -49,7 +49,13 @@ import (
 //	v1 — PWM-only sweep. Result has no SweepMode field.
 //	v2 — adds SweepMode + RPMCurve to Result. v1 records load cleanly; loader
 //	     defaults missing SweepMode to "pwm".
-const SchemaVersion = 2
+//	v3 — adds HardwareIdentity to the envelope: a hash of DMI board_vendor +
+//	     board_name + sorted hwmon chip names. On load, a mismatch against the
+//	     live host's identity drops all records and emits an autorecal
+//	     diagnostic. v2 records load cleanly: the loader stamps the current
+//	     identity on first load (assume the host hasn't changed since v2 was
+//	     written) so a binary upgrade alone doesn't lose calibration.
+const SchemaVersion = 3
 
 // AutoFixRecalibrate is re-exported so existing callers / tests need not
 // import hwdiag directly. Tier 5 moved the canonical definition into hwdiag;
@@ -62,11 +68,13 @@ const AutoFixRecalibrate = hwdiag.AutoFixRecalibrate
 // return an error immediately.
 type ChannelResolver func(ctx context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error)
 
-// onDiskEnvelope wraps the results map with a schema_version. v1 is the
-// current format; v0 is the legacy bare map and is migrated transparently.
+// onDiskEnvelope wraps the results map with a schema_version. v0 is the
+// legacy bare map (migrated transparently). v1/v2 lack HardwareIdentity;
+// the loader stamps it on first read.
 type onDiskEnvelope struct {
-	SchemaVersion int               `json:"schema_version"`
-	Results       map[string]Result `json:"results"`
+	SchemaVersion    int               `json:"schema_version"`
+	HardwareIdentity string            `json:"hardware_identity,omitempty"` // v3+: hash of host hardware signature
+	Results          map[string]Result `json:"results"`
 }
 
 // PWMRPMPoint is a single sample from the up-ramp during calibration.
@@ -186,6 +194,14 @@ type Manager struct {
 	diagnostics []hwdiag.Entry     // populated by load() when on-disk schema is unsupported
 	store       *hwdiag.Store      // optional; when non-nil emitters also push into the shared store
 	resolver    ChannelResolver    // injected from main.go via SetChannelResolver
+
+	// expectedIdentity is the live host's hardware identity (see
+	// ComputeHardwareIdentity). When non-empty, load() compares it to the
+	// persisted envelope's HardwareIdentity; a mismatch drops every
+	// result and emits an IDCalibrationHardwareChanged diagnostic.
+	// Empty (the legacy New() path or tests) disables identity gating —
+	// the load behaves exactly as v2.
+	expectedIdentity string
 }
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. Diagnostics
@@ -218,13 +234,31 @@ func (m *Manager) SetChannelResolver(r ChannelResolver) {
 // wd may be nil — in that case calibration sweeps run without the per-sweep
 // watchdog wrap (tests construct managers this way; production main.go always
 // passes a real watchdog).
+//
+// Identity gating: New computes the live host's hardware identity from
+// DefaultHwmonRoot before loading. If the persisted envelope is v3+ with a
+// mismatched identity, the records are dropped and an
+// IDCalibrationHardwareChanged diagnostic is emitted (auto-invalidate on
+// hardware swap / OOT driver install that surfaced a new chip). v1/v2
+// envelopes are migrated by stamping the current identity on first load.
+//
+// Tests that want to inject a specific identity (or disable gating
+// entirely with "") should use NewWithIdentity.
 func New(path string, logger *slog.Logger, wd *watchdog.Watchdog) *Manager {
+	return NewWithIdentity(path, logger, wd, ComputeHardwareIdentity(DefaultHwmonRoot))
+}
+
+// NewWithIdentity is the test/integration seam for New: callers pass the
+// expected hardware identity explicitly. An empty identity disables
+// identity gating (legacy v2 behaviour).
+func NewWithIdentity(path string, logger *slog.Logger, wd *watchdog.Watchdog, identity string) *Manager {
 	m := &Manager{
-		results: make(map[string]Result),
-		runs:    make(map[string]*runState),
-		path:    path,
-		logger:  logger,
-		wd:      wd,
+		results:          make(map[string]Result),
+		runs:             make(map[string]*runState),
+		path:             path,
+		logger:           logger,
+		wd:               wd,
+		expectedIdentity: identity,
 	}
 	m.load()
 	return m
@@ -1204,6 +1238,48 @@ func (m *Manager) load() {
 			env.Results[k] = r
 		}
 	}
+
+	// v2 → v3: v2 envelopes have no HardwareIdentity. Stamp the current
+	// identity on first load — we assume the host hasn't been swapped
+	// between writing v2 and reading on a v3 binary. The next save()
+	// writes v3 with the identity attached.
+	//
+	// v3 with non-empty identity: enforce a match against the live host.
+	// A mismatch drops every record and emits the autorecal diagnostic.
+	// The identity check is skipped when expectedIdentity is empty (the
+	// legacy New() path or tests with NewWithIdentity("")) so existing
+	// callers behave exactly as they did at v2.
+	if m.expectedIdentity != "" && env.HardwareIdentity != "" && env.HardwareIdentity != m.expectedIdentity {
+		affected := make([]string, 0, len(env.Results))
+		for k := range env.Results {
+			affected = append(affected, k)
+		}
+		sort.Strings(affected)
+		entry := hwdiag.Entry{
+			ID:        hwdiag.IDCalibrationHardwareChanged,
+			Component: hwdiag.ComponentCalibration,
+			Severity:  hwdiag.SeverityWarn,
+			Summary:   "Hardware fingerprint changed since last calibration — recalibrate to apply",
+			Detail: fmt.Sprintf(
+				"calibration.json was written for hardware identity %q but the live host reports %q. Likely cause: motherboard swap, hwmon chip add/remove, or a newly-installed driver surfaced a previously-invisible chip. Existing calibration is ignored to avoid driving the wrong PWM channels; recalibrate to apply current data.",
+				env.HardwareIdentity, m.expectedIdentity),
+			Remediation: &hwdiag.Remediation{
+				AutoFixID: hwdiag.AutoFixRecalibrate,
+				Label:     "Recalibrate",
+				Endpoint:  "/api/setup/start",
+			},
+			Affected: affected,
+		}
+		m.diagnostics = append(m.diagnostics, entry)
+		if m.store != nil {
+			m.store.Set(entry)
+		}
+		m.logger.Warn("calibrate: hardware identity mismatch, results dropped",
+			"persisted", env.HardwareIdentity, "live", m.expectedIdentity,
+			"dropped_count", len(env.Results))
+		return
+	}
+
 	m.results = env.Results
 }
 
@@ -1212,8 +1288,9 @@ func (m *Manager) save() {
 	// concurrent map writes (e.g. checkpoint() or run() updating m.results).
 	m.mu.Lock()
 	env := onDiskEnvelope{
-		SchemaVersion: SchemaVersion,
-		Results:       m.results,
+		SchemaVersion:    SchemaVersion,
+		HardwareIdentity: m.expectedIdentity,
+		Results:          m.results,
 	}
 	data, err := json.MarshalIndent(env, "", "  ")
 	m.mu.Unlock()
