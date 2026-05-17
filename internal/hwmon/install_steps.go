@@ -13,7 +13,56 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/hal"
+	"github.com/ventd/ventd/internal/hal/msiec"
 )
+
+// ErrFirmwareNotCatalogued wraps ErrNoPWMChannelsAppeared when stepVerify
+// can pin the failure on the msi-ec driver refusing the host's firmware
+// version. Implements the unwrap chain so existing
+// errors.Is(err, ErrNoPWMChannelsAppeared) checks in setup's
+// probe-then-pick loop still treat the install as a chip-mismatch
+// retry, while the wizard layer can errors.As to render a richer
+// "ventd can pin to <suggested-firmware>" recovery card. See #1168.
+type ErrFirmwareNotCatalogued struct {
+	// DetectedFirmware is the firmware-version string the EC actually
+	// reports (extracted from dmesg). Empty when diagnose couldn't
+	// find a "Firmware version is not supported" line.
+	DetectedFirmware string
+	// Suggestions is the ranked list of closest-catalogue firmware
+	// strings the operator can pin via the upstream firmware=<rev>
+	// modparam. Capped at 3 in production to keep the recovery card
+	// readable. Empty when DetectedFirmware is empty.
+	Suggestions []msiec.FirmwareSuggestion
+	// Inner is the original ErrNoPWMChannelsAppeared-shaped error so
+	// errors.Is keeps working through the chain.
+	Inner error
+}
+
+// Error renders the wrapped error with a human-readable suggestion
+// preamble. The wizard's recovery card is the preferred surface; the
+// string is for logs + the CLI fallback.
+func (e *ErrFirmwareNotCatalogued) Error() string {
+	if e.DetectedFirmware == "" || len(e.Suggestions) == 0 {
+		if e.Inner != nil {
+			return e.Inner.Error()
+		}
+		return "msi-ec firmware not catalogued (no upstream allowlist match)"
+	}
+	picks := make([]string, 0, len(e.Suggestions))
+	for _, s := range e.Suggestions {
+		picks = append(picks, s.Firmware+" ("+s.Group+")")
+	}
+	return fmt.Sprintf(
+		"msi-ec refused firmware %q (not in any upstream allowlist); "+
+			"ventd can pin to a closest-catalogue mapping via firmware=<rev>: %s",
+		e.DetectedFirmware,
+		strings.Join(picks, ", "),
+	)
+}
+
+// Unwrap preserves errors.Is(err, ErrNoPWMChannelsAppeared) for the
+// upstream retry loop in internal/setup.
+func (e *ErrFirmwareNotCatalogued) Unwrap() error { return e.Inner }
 
 // ErrNoPWMChannelsAppeared is returned by stepVerify when the driver loaded
 // without error but no controllable PWM channels appeared in sysfs within
@@ -319,8 +368,35 @@ func stepVerify(c PipelineConfig) error {
 			}
 		}
 	}
-	return fmt.Errorf("%w (chip-mismatch — your board may use a different chip variant)", ErrNoPWMChannelsAppeared)
+	inner := fmt.Errorf("%w (chip-mismatch — your board may use a different chip variant)", ErrNoPWMChannelsAppeared)
+	// #1168 firmware-pin escape hatch: when the driver is msi-ec, the
+	// platform device's silent-no-show is almost always the upstream
+	// CONF_G* allowlist refusing the EC's firmware string. Parse dmesg
+	// for the canonical "Firmware version is not supported" line and
+	// attach closest-catalogue suggestions so the wizard / CLI can
+	// surface a recovery card instead of just "chip-mismatch."
+	if c.Driver.Module == "msi-ec" || c.Driver.HALBackend == "msiec" {
+		fw, derr := stepVerifyDiagnoseFirmware(context.Background())
+		if derr == nil && fw != "" {
+			return &ErrFirmwareNotCatalogued{
+				DetectedFirmware: fw,
+				Suggestions:      stepVerifySuggestFirmwarePins(fw, 3),
+				Inner:            inner,
+			}
+		}
+	}
+	return inner
 }
+
+// stepVerifyDiagnoseFirmware + stepVerifySuggestFirmwarePins are test
+// seams over the msi-ec firmware-diagnose helpers so the wizard-error
+// enrichment can be exercised without depending on a live journalctl.
+// Production never overrides these; tests in install_steps_test.go
+// swap them inside t.Cleanup-scoped blocks.
+var (
+	stepVerifyDiagnoseFirmware    = msiec.DiagnoseUnsupportedFirmware
+	stepVerifySuggestFirmwarePins = msiec.SuggestFirmwarePins
+)
 
 // stepVerifyHwmonPoll is a test seam over findPWMPaths so stepVerify's
 // HAL-fallback contract can be exercised on test hosts that happen to
