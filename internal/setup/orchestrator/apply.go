@@ -271,19 +271,32 @@ func buildConfig(
 		return cfg
 	}
 
-	// Default curve: linear ramp from 40°C → MinPWM equivalent up to
-	// 80°C → 100% PWM. The daemon's curve evaluator interpolates
-	// linearly between points. One shared curve is the simplest
-	// working default; operators relabel/tweak in the web UI.
+	// Default curve: hardware-aware. The chip's reported tempN_crit
+	// (TjMax — Intel/AMD shutdown threshold) caps the curve's ramp
+	// so fans hit 100% with safe thermal headroom. Falls back to a
+	// conservative 95°C ceiling when the chip doesn't report it
+	// (rare; coretemp / k10temp / k8temp all populate _crit).
+	//
+	// Curve shape: linear from MinTemp (idle baseline) → 20% to
+	// MaxTemp (TjMax - 10°C safety margin) → 100%. Operators reshape
+	// in the web UI; this is the "works on day one" default.
+	maxTemp := cpuSensor.CritC - 10
+	if maxTemp <= 0 {
+		maxTemp = 95 // fallback when _crit isn't reported
+	}
+	minTemp := 40.0 // idle baseline for most CPUs; refined per-chip in a future PR
+	midTemp := (minTemp + maxTemp) / 2
 	cfg.Curves = []config.CurveConfig{
 		{
-			Name:   "default",
-			Type:   "linear",
-			Sensor: "cpu_temp",
+			Name:    "default",
+			Type:    "linear",
+			Sensor:  "cpu_temp",
+			MinTemp: minTemp,
+			MaxTemp: maxTemp,
 			Points: []config.CurvePoint{
-				{Temp: 40, PWMPct: ptrU8(20)},
-				{Temp: 60, PWMPct: ptrU8(50)},
-				{Temp: 80, PWMPct: ptrU8(100)},
+				{Temp: minTemp, PWMPct: ptrU8(20)},
+				{Temp: midTemp, PWMPct: ptrU8(50)},
+				{Temp: maxTemp, PWMPct: ptrU8(100)},
 			},
 		},
 	}

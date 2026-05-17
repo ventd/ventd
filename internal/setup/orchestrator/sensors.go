@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -12,11 +13,22 @@ import (
 // sysfs tempN_input file the daemon will poll. Label is the
 // user-facing name; the orchestrator picks a stable one from the
 // driver-supplied label or the chip+temp index.
+//
+// CritC and MaxC are the chip-reported thermal limits in °C (read
+// from tempN_crit and tempN_max — coretemp / k10temp / k8temp
+// populate these per-chip). CritC is TjMax (shutdown threshold);
+// MaxC is the spec-rated warn level. ApplyPhase derives the default
+// fan curve's MaxTemp from CritC - safety margin so the fans hit
+// 100% well before thermal throttle. Zero when the chip doesn't
+// expose the file (rare for CPU chips, common for ACPI thermal
+// zones).
 type DiscoveredSensor struct {
-	Label    string `json:"label"`
-	Path     string `json:"path"`
-	ChipName string `json:"chip_name"`
-	Kind     string `json:"kind"` // "cpu" | "gpu" | "drive" | "ambient" | "other"
+	Label    string  `json:"label"`
+	Path     string  `json:"path"`
+	ChipName string  `json:"chip_name"`
+	Kind     string  `json:"kind"` // "cpu" | "gpu" | "drive" | "ambient" | "other"
+	CritC    float64 `json:"crit_c,omitempty"`
+	MaxC     float64 `json:"max_c,omitempty"`
 }
 
 // DiscoverCPUSensor returns the best-effort CPU temperature sensor
@@ -70,16 +82,21 @@ func DiscoverCPUSensor(hwmonRoot string) DiscoveredSensor {
 					Path:     p,
 					ChipName: chip,
 					Kind:     "cpu",
+					CritC:    readMillidegC(filepath.Join(dir, base+"_crit")),
+					MaxC:     readMillidegC(filepath.Join(dir, base+"_max")),
 				}
 			}
 		}
 		// No labelled package/die — take the first temp input from this CPU chip.
 		if len(matches) > 0 {
+			base := strings.TrimSuffix(filepath.Base(matches[0]), "_input")
 			return DiscoveredSensor{
 				Label:    titleCase(chip) + " temp",
 				Path:     matches[0],
 				ChipName: chip,
 				Kind:     "cpu",
+				CritC:    readMillidegC(filepath.Join(dir, base+"_crit")),
+				MaxC:     readMillidegC(filepath.Join(dir, base+"_max")),
 			}
 		}
 	}
@@ -111,6 +128,8 @@ func DiscoverCPUSensor(hwmonRoot string) DiscoveredSensor {
 					Path:     p,
 					ChipName: chip,
 					Kind:     "cpu",
+					CritC:    readMillidegC(filepath.Join(dir, base+"_crit")),
+					MaxC:     readMillidegC(filepath.Join(dir, base+"_max")),
 				}
 			}
 		}
@@ -126,11 +145,14 @@ func DiscoverCPUSensor(hwmonRoot string) DiscoveredSensor {
 		matches, _ := filepath.Glob(filepath.Join(dir, "temp*_input"))
 		sort.Strings(matches)
 		if len(matches) > 0 {
+			base := strings.TrimSuffix(filepath.Base(matches[0]), "_input")
 			return DiscoveredSensor{
 				Label:    "ACPI thermal zone",
 				Path:     matches[0],
 				ChipName: chip,
 				Kind:     "cpu",
+				CritC:    readMillidegC(filepath.Join(dir, base+"_crit")),
+				MaxC:     readMillidegC(filepath.Join(dir, base+"_max")),
 			}
 		}
 	}
@@ -144,6 +166,22 @@ func readTrimmedFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// readMillidegC reads a hwmon-style millidegree-C file (e.g.
+// temp1_crit = "100000" → 100.0 °C). Returns 0 when the file is
+// absent or malformed — the caller treats 0 as "value not reported"
+// and falls back to a safe default.
+func readMillidegC(path string) float64 {
+	s := readTrimmedFile(path)
+	if s == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return float64(n) / 1000.0
 }
 
 func titleCase(s string) string {

@@ -133,7 +133,7 @@ StateDirectoryMode=0750
 # applies these as a namespace mount; sudo'd children inherit the namespace,
 # so even root-elevated processes can't write to /lib/modules unless the
 # path is explicitly ReadWrite here. See #784.
-ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src -/var/lib/shim-signed
+ReadWritePaths=/etc/ventd /run/ventd /sys/class/hwmon -/lib/modules -/usr/lib/modules -/etc/modules-load.d -/etc/modprobe.d -/var/lib/dkms -/var/log/dkms -/etc/dkms -/usr/src -/var/lib/shim-signed
 
 # --- Sandbox: network -----------------------------------------------------
 # AF_UNIX for journald, AF_INET/AF_INET6 for the web UI listener,
@@ -151,6 +151,14 @@ ProtectKernelTunables=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 SystemCallFilter=@system-service
+# init_module + delete_module are NOT in @system-service. The wizard's
+# driver-install path needs them: init_module loads the OOT driver after
+# modprobe builds it, delete_module unloads competing in-kernel drivers
+# (e.g. nct6683 to clear the way for OOT nct6687 on NCT6687D chips).
+# Without these, modprobe -r and modprobe both fail with EPERM mid-wizard
+# despite User=root — observed on Phoenix's 13900K HIL run during the
+# v0.8.x rework fresh-install simulation, and on Hudson's MSI laptop.
+SystemCallFilter=init_module delete_module finit_module
 SystemCallErrorNumber=EPERM
 SystemCallArchitectures=native
 
