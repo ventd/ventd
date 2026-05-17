@@ -143,6 +143,1380 @@ board_profiles:
     defaults:
       curves: []
 
+  # Wave 2 desktop additions (2026-05-18): boards covered by zeule/asus-ec-sensors
+  # board_info[] table, cross-referenced with asus-wmi-boards-sensors/asus-board-dsdt
+  # boards.yaml for SuperIO chip identification. Per [[catalog-ingest-2026-05-17]]
+  # wave 2 of the 2026-05-17 ecosystem sweep.
+  - id: "asus-maximus-vi-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "MAXIMUS VI HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6791"
+      sysfs_hint: "name=nct6791 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS MAXIMUS VI HERO. NCT6791 (inferred) per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6791) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Chip inferred from era/family — verify via /sys/class/hwmon."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-prime-x470-pro"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "PRIME X470-PRO"
+      board_version: "*"
+    primary_controller:
+      chip: "it8665"
+      sysfs_hint: "name=it8665 via it87 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS PRIME X470-PRO. IT8665E per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (IT8665) via it87 mainline driver."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: PRIME X470-PRO -> IT8665E)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-prime-x570-pro"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "PRIME X570-PRO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS PRIME X570-PRO. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: PRIME X570-PRO -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-prime-x670e-pro-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "PRIME X670E-PRO WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS PRIME X670E-PRO WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: PRIME X670E-PRO WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-prime-z270-a"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "PRIME Z270-A"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6793"
+      sysfs_hint: "name=nct6793 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS PRIME Z270-A. NCT6793D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6793) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: PRIME Z270-A -> NCT6793D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-proart-b550-creator"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ProArt B550-CREATOR"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ProArt B550-CREATOR. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ProArt B550-CREATOR -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-proart-x570-creator-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ProArt X570-CREATOR WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ProArt X570-CREATOR WIFI. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ProArt X570-CREATOR WIFI -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-proart-x870e-creator-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ProArt X870E-CREATOR WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ProArt X870E-CREATOR WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ProArt X870E-CREATOR WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-pro-ws-trx50-sage-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "Pro WS TRX50-SAGE WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS Pro WS TRX50-SAGE WIFI. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: Pro WS TRX50-SAGE WIFI -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-pro-ws-trx50-sage-wifi-a"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "Pro WS TRX50-SAGE WIFI A"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS Pro WS TRX50-SAGE WIFI A. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: Pro WS TRX50-SAGE WIFI A -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-pro-ws-wrx90e-sage-se"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "Pro WS WRX90E-SAGE SE"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS Pro WS WRX90E-SAGE SE. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: Pro WS WRX90E-SAGE SE -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-pro-ws-x570-ace"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "Pro WS X570-ACE"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS Pro WS X570-ACE. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: Pro WS X570-ACE -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-viii-dark-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR VIII DARK HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR VIII DARK HERO. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR VIII DARK HERO -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-viii-formula"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR VIII FORMULA"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR VIII FORMULA. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR VIII FORMULA -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-viii-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR VIII HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR VIII HERO. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR VIII HERO -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-viii-hero-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR VIII HERO (WI-FI)"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR VIII HERO (WI-FI). NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR VIII HERO (WI-FI) -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-viii-impact"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR VIII IMPACT"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR VIII IMPACT. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR VIII IMPACT -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-x670e-extreme"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR X670E EXTREME"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR X670E EXTREME. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR X670E EXTREME -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-x670e-gene"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR X670E GENE"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR X670E GENE. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR X670E GENE -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-crosshair-x670e-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG CROSSHAIR X670E HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG CROSSHAIR X670E HERO. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG CROSSHAIR X670E HERO -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-maximus-x-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG MAXIMUS X HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6793"
+      sysfs_hint: "name=nct6793 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG MAXIMUS X HERO. NCT6793D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6793) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG MAXIMUS X HERO -> NCT6793D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-maximus-xi-hero"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG MAXIMUS XI HERO"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG MAXIMUS XI HERO. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG MAXIMUS XI HERO -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-maximus-xi-hero-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG MAXIMUS XI HERO (WI-FI)"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG MAXIMUS XI HERO (WI-FI). NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG MAXIMUS XI HERO (WI-FI) -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-maximus-z690-formula"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG MAXIMUS Z690 FORMULA"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG MAXIMUS Z690 FORMULA. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG MAXIMUS Z690 FORMULA -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b550-e-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B550-E GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B550-E GAMING. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX B550-E GAMING -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b550-i-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B550-I GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B550-I GAMING. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX B550-I GAMING -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b650e-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B650E-E GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B650E-E GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX B650E-E GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b650e-i-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B650E-I GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B650E-I GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX B650E-I GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b850-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B850-E GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B850-E GAMING WIFI. NCT6799 (inferred) per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support. Chip inferred from era/family — verify via /sys/class/hwmon."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-b850-i-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX B850-I GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX B850-I GAMING WIFI. NCT6799 (inferred) per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support. Chip inferred from era/family — verify via /sys/class/hwmon."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x470-f-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X470-F GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "it8665"
+      sysfs_hint: "name=it8665 via it87 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X470-F GAMING. IT8665E per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (IT8665) via it87 mainline driver."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X470-F GAMING -> IT8665E)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x470-i-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X470-I GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "it8665"
+      sysfs_hint: "name=it8665 via it87 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X470-I GAMING. IT8665E per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (IT8665) via it87 mainline driver."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X470-I GAMING -> IT8665E)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x570-e-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X570-E GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X570-E GAMING. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X570-E GAMING -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x570-e-gaming-wifi-ii"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X570-E GAMING WIFI II"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X570-E GAMING WIFI II. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X570-E GAMING WIFI II -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x570-f-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X570-F GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X570-F GAMING. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X570-F GAMING -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x570-i-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X570-I GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X570-I GAMING. NCT6798D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X570-I GAMING -> NCT6798D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x670e-i-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X670E-I GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X670E-I GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X670E-I GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x870e-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X870E-E GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X870E-E GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X870E-E GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x870e-h-gaming-wifi7"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X870E-H GAMING WIFI7"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X870E-H GAMING WIFI7. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X870E-H GAMING WIFI7 -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x870-f-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X870-F GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X870-F GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X870-F GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-x870-i-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX X870-I GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX X870-I GAMING WIFI. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX X870-I GAMING WIFI -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z390-f-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z390-F GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z390-F GAMING. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z390-F GAMING -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z490-f-gaming"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z490-F GAMING"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z490-F GAMING. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z490-F GAMING -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z690-a-gaming-wifi-d4"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z690-A GAMING WIFI D4"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z690-A GAMING WIFI D4. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z690-A GAMING WIFI D4 -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z690-e-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z690-E GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z690-E GAMING WIFI. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z690-E GAMING WIFI -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z790-e-gaming-wifi-ii"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z790-E GAMING WIFI II"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z790-E GAMING WIFI II. NCT6798 (inferred) per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support. Chip inferred from era/family — verify via /sys/class/hwmon."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z790-h-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z790-H GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z790-H GAMING WIFI. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z790-H GAMING WIFI -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-strix-z790-i-gaming-wifi"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG STRIX Z790-I GAMING WIFI"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG STRIX Z790-I GAMING WIFI. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG STRIX Z790-I GAMING WIFI -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-zenith-ii-extreme"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG ZENITH II EXTREME"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG ZENITH II EXTREME. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG ZENITH II EXTREME -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rog-zenith-ii-extreme-alpha"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "ROG ZENITH II EXTREME ALPHA"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6798"
+      sysfs_hint: "name=nct6798 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS ROG ZENITH II EXTREME ALPHA. NCT6798D per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6798) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: ROG ZENITH II EXTREME ALPHA -> NCT6798D)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-tuf-gaming-x670e-plus"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "TUF GAMING X670E-PLUS"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6799"
+      sysfs_hint: "name=nct6799 via nct6775 mainline driver"
+    additional_controllers:
+      - chip: "asus-ec-sensors"
+        sysfs_hint: "name=asusec, supplements primary SuperIO for VRM/EC/water-flow temps (mainline since 5.18)"
+    overrides:
+      cputin_floats: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "ASUS TUF GAMING X670E-PLUS. NCT6799D-R per asus-board-dsdt/asus-ec-sensors. asus-ec-sensors driver provides VRM/chipset/water-flow read-side (mainline since 5.18); fan-write owned by the SuperIO chip (NCT6799) via nct6775 mainline driver. CPUTIN floats (ASUS Nuvoton pattern) — use PECI Agent 0 / TSI 0 instead. Linux 6.5+ required for proper NCT6798D / NCT6799D support."
+    citations:
+      - "https://github.com/zeule/asus-ec-sensors/blob/master/asus-ec-sensors.c (board_info table)"
+      - "https://github.com/asus-wmi-boards-sensors/asus-board-dsdt (boards.yaml: TUF GAMING X670E-PLUS -> NCT6799D-R)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
   # ROG laptops — asus-wmi-sensors handles temps/tach via hwmon when
   # available. Fan write is gated behind asusctl userspace today
   # (https://gitlab.com/asus-linux/asusctl) which talks to asus-wmi
