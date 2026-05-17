@@ -1,0 +1,975 @@
+schema_version: "1.3"
+# MSI desktop motherboard catalog — NCT6687D Super I/O.
+#
+# Source: github.com/Fred78290/nct6687d — nct6687d_msi_alt_boards[] table.
+# All 34 boards below are in the auto-detection table and receive the
+# msi_alt1 fan register layout automatically — no fan_config=msi_alt1
+# modparam required. Boards not listed here but using an NCT6687D chip
+# fall under the generic "Micro-Star International" prefix entries in
+# profiles.yaml (MAG/MPG prefix entries → default register layout).
+#
+# msi_fan_brute_force=1 is an optional BETA modparam that enables full
+# system-fan PWM writes for these boards. It is NOT auto-enabled.
+# All entries: requires_dkms: true (nct6687 is OOT from Fred78290).
+#
+# IMPORTANT: blacklist in-tree nct6683 before loading nct6687d:
+#   echo "blacklist nct6683" > /etc/modprobe.d/nct6683-blacklist.conf
+#
+# board_name DMI field format on MSI boards:
+#   "<MARKETING NAME> (<MS-CODE>)" e.g. "MAG Z890 TOMAHAWK WIFI (MS-7E32)"
+# product_name DMI field: just the MS code, e.g. "MS-7E32"
+#
+# Boards sharing an MS code (same PCB, different marketing tier) require
+# board_name glob to disambiguate.
+
+board_profiles:
+
+  # ── Z890 (Intel LGA1851, Core Ultra 200 Series) ── 11 boards ──────────────
+
+  - id: "msi-meg-z890-ace"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E22"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MEG Z890 ACE*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MEG Z890 ACE (MS-7E22). Intel LGA1851, Core Ultra 200.
+      NCT6687D, msi_alt1 auto-detected. Flagship Z890 board — Thunderbolt 5,
+      10GbE. Optional msi_fan_brute_force=1 for system-fan PWM writes."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[] — MEG Z890 ACE MS-7E22)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-meg-z890m-ace"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E23"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MEG Z890M ACE*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MEG Z890M ACE (MS-7E23). Intel LGA1851, mATX flagship.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-z890-carbon-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E17"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG Z890 CARBON WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG Z890 CARBON WIFI (MS-7E17). Intel LGA1851.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-z890m-carbon-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E18"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG Z890M CARBON WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG Z890M CARBON WIFI (MS-7E18). Intel LGA1851, mATX.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-z890-edge-ti-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E19"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG Z890 EDGE TI WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG Z890 EDGE TI WIFI (MS-7E19). Intel LGA1851.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-z890i-edge-ti-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E33"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG Z890I EDGE TI WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG Z890I EDGE TI WIFI (MS-7E33). Intel LGA1851, Mini-ITX.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-z890-gaming-plus-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E34"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "Z890 GAMING PLUS WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI Z890 GAMING PLUS WIFI (MS-7E34). Intel LGA1851, mid-range.
+      NCT6687D, msi_alt1 auto-detected. Shares MS-7E34 code with PRO Z890-P WIFI;
+      board_name disambiguates."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-z890-tomahawk-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E32"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG Z890 TOMAHAWK WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG Z890 TOMAHAWK WIFI (MS-7E32). Intel LGA1851, enthusiast.
+      NCT6687D, msi_alt1 auto-detected. Shares MS-7E32 with PRO Z890-A WIFI;
+      board_name disambiguates. ArchWiki canonical reference board for Z890 fan
+      control on Linux. Optional msi_fan_brute_force=1 for system-fan PWM."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+      - "https://wiki.archlinux.org/title/MSI_Z890_TOMAHAWK_WIFI_Fan_Control"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-z890-a-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E32"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO Z890-A WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO Z890-A WIFI (MS-7E32). Intel LGA1851, value-tier PRO.
+      Shares MS-7E32 with MAG Z890 TOMAHAWK WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-z890-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E34"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO Z890-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO Z890-P WIFI (MS-7E34). Shares MS-7E34 with Z890 GAMING PLUS WIFI.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-z890-s-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E54"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO Z890-S WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO Z890-S WIFI (MS-7E54). NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── X870 / X870E (AMD AM5, Ryzen 9000 / AI MAX) ── 9 boards ─────────────
+
+  - id: "msi-x870-gaming-plus-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E47"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "X870 GAMING PLUS WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI X870 GAMING PLUS WIFI (MS-7E47). AMD AM5, Ryzen 9000.
+      NCT6687D, msi_alt1 auto. Shares MS-7E47 with PRO X870-P WIFI;
+      board_name disambiguates."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-x870e-gaming-plus-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E70"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "X870E GAMING PLUS WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI X870E GAMING PLUS WIFI (MS-7E70). AMD AM5, X870E chipset.
+      Shares MS-7E70 with PRO X870E-P WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-x870-tomahawk-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E51"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG X870 TOMAHAWK WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG X870 TOMAHAWK WIFI (MS-7E51). AMD AM5, ArchWiki canonical
+      reference board for X870 fan control. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+      - "https://wiki.archlinux.org/title/MSI_MAG_B550_MORTAR_WIFI_Fan_Control (ArchWiki fan control guide)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-x870-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E47"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO X870-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO X870-P WIFI (MS-7E47). Shares MS-7E47 with X870 GAMING PLUS WIFI.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-x870e-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E70"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO X870E-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO X870E-P WIFI (MS-7E70). Shares MS-7E70 with X870E GAMING PLUS WIFI.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-x870e-tomahawk-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E59"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG X870E TOMAHAWK WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG X870E TOMAHAWK WIFI (MS-7E59). AMD AM5, X870E chipset.
+      Shares MS-7E59 with MPG X870E EDGE TI WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-x870e-carbon-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E49"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG X870E CARBON WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG X870E CARBON WIFI (MS-7E49). AMD AM5, flagship MPG.
+      NCT6687D, msi_alt1 auto. Issue #117 notes CPU+Pump fans work
+      out-of-box; system fans may need msi_fan_brute_force=1."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[] + issue #117)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-x870e-edge-ti-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E59"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG X870E EDGE TI WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG X870E EDGE TI WIFI (MS-7E59). Shares MS-7E59 with
+      MAG X870E TOMAHAWK WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-meg-x870e-godlike"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E48"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MEG X870E GODLIKE*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MEG X870E GODLIKE (MS-7E48). AMD AM5, ultra-enthusiast.
+      NCT6687D, msi_alt1 auto-detected."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── B850 (AMD AM5, Ryzen 9000) ── 12 boards ───────────────────────────────
+
+  - id: "msi-b850-gaming-plus-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E56"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "B850 GAMING PLUS WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI B850 GAMING PLUS WIFI (MS-7E56). AMD AM5, B850 chipset.
+      Shares MS-7E56 with PRO B850-P WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-b850-gaming-plus-wifi6e"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E80"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "B850 GAMING PLUS WIFI6E*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI B850 GAMING PLUS WIFI6E (MS-7E80). Shares MS-7E80 with
+      PRO B850-S WIFI6E. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-b850m-gaming-plus-wifi6e"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E81"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "B850M GAMING PLUS WIFI6E*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI B850M GAMING PLUS WIFI6E (MS-7E81). AMD AM5, mATX.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-b850-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E56"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO B850-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO B850-P WIFI (MS-7E56). Shares MS-7E56 with B850 GAMING PLUS WIFI.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-b850m-a-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E66"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO B850M-A WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO B850M-A WIFI (MS-7E66). AMD AM5, value mATX.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-b850m-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E71"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO B850M-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO B850M-P WIFI (MS-7E71). AMD AM5, mATX PRO.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-b850m-mortar-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E61"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG B850M MORTAR WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG B850M MORTAR WIFI (MS-7E61). AMD AM5, mATX enthusiast.
+      NCT6687D, msi_alt1 auto. Mortar series has historically been
+      popular for Linux homelab/workstation builds."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-b850-tomahawk-max-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E62"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG B850 TOMAHAWK MAX WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG B850 TOMAHAWK MAX WIFI (MS-7E62). Shares MS-7E62 with
+      MPG B850 EDGE TI WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-b850-edge-ti-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E62"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG B850 EDGE TI WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG B850 EDGE TI WIFI (MS-7E62). Shares MS-7E62 with
+      MAG B850 TOMAHAWK MAX WIFI. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mpg-b850i-edge-ti-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E79"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MPG B850I EDGE TI WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MPG B850I EDGE TI WIFI (MS-7E79). AMD AM5, Mini-ITX.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-b850mpower"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E83"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "B850MPOWER*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI B850MPOWER (MS-7E83). AMD AM5, compact power-user build.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-b850-s-wifi6e"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E80"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO B850-S WIFI6E*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO B850-S WIFI6E (MS-7E80). Shares MS-7E80 with
+      B850 GAMING PLUS WIFI6E. NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── B840 (Intel LGA1851, Core Ultra 200) ── 2 boards ──────────────────────
+
+  - id: "msi-pro-b840-p-wifi"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E57"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO B840-P WIFI*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO B840-P WIFI (MS-7E57). Intel LGA1851, B840 chipset (no OC).
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-b840m-gaming-plus-wifi6e"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7E77"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "B840M GAMING PLUS WIFI6E*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (msi_alt1 auto)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI B840M GAMING PLUS WIFI6E (MS-7E77). Intel LGA1851, mATX.
+      NCT6687D, msi_alt1 auto."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (nct6687d_msi_alt_boards[])"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── Older MSI boards (default fan config, not in msi_alt1 list) ───────────
+  # These boards use the nct6687 default register layout.
+  # The broad prefix entries in profiles.yaml (MAG/MPG → nct6687) already
+  # cover these for module loading. Catalog entries below add per-board notes.
+
+  - id: "msi-mag-b550-tomahawk"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "*"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG B550 TOMAHAWK*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (default fan config)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG B550 TOMAHAWK. AMD AM4, popular Linux homelab/NAS board.
+      NCT6687D with DEFAULT register layout (not msi_alt1). ArchWiki canonical
+      reference board. Confirmed working per nct6687d README 'Tested' section.
+      No msi_fan_brute_force needed (default layout covers all channels)."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (README Tested section)"
+      - "https://wiki.archlinux.org/title/MSI_MAG_B550_MORTAR_WIFI_Fan_Control"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-mag-b550m-mortar"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "*"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "MAG B550M MORTAR*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (default fan config)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI MAG B550M MORTAR / MORTAR WIFI (AMD AM4). Confirmed working
+      on RL8/RHEL8 per nct6687d README. Default register layout (not msi_alt1)."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (README Tested section)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "msi-pro-z690-a-ddr4"
+    dmi_fingerprint:
+      sys_vendor: "Micro-Star International Co., Ltd."
+      product_name: "MS-7D25"
+      board_vendor: "Micro-Star International Co., Ltd."
+      board_name: "PRO Z690-A DDR4*"
+      board_version: "*"
+    primary_controller:
+      chip: "nct6687"
+      sysfs_hint: "name=nct6687 via Fred78290/nct6687d OOT DKMS (default fan config)"
+    additional_controllers: []
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "MSI PRO Z690-A DDR4 (MS-7D25). Intel LGA1700, 12th-gen Core.
+      Default register layout. Has a sensors.d config in nct6687d repo
+      (Z690_PRO_A.conf) for voltage label mapping."
+    citations:
+      - "https://github.com/Fred78290/nct6687d (sensors.d/Z690_PRO_A.conf + issue #67)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

@@ -1,0 +1,176 @@
+schema_version: "1.3"
+# Acer laptop catalog — Predator Helios / Nitro / TravelMate.
+#
+# CRITICAL CAVEAT: As of 2026-05, there is NO mainline Linux kernel driver
+# for Acer fan control. All known Linux paths are out-of-tree:
+#   1. Raw EC I/O via `ec_sys` kernel module (write_support=1) — used by
+#      Jebaitedneko/Acer-Nitro-5-AN515-58-EC-Control-Linux and mohsunb/PredatorSense
+#      with hand-decoded EC register maps.
+#   2. Custom OOT WMI driver `acer_nitro_gaming_driver2.ko` — used by
+#      PXDiv/Div-Acer-Manager-Fan-Controls via WMI GUID 7A4DDFE7-5B5D-40B4-...
+#   3. Linuwu-Sense kernel module (GPL-3) — extends acer-wmi mainline for
+#      Nitro/Predator gaming features (covered separately in profiles.yaml).
+#
+# Catalog entries below register the boards so ventd's wizard surfaces them
+# in monitor-only mode. EC offsets are documented in notes so a future
+# ventd HAL could implement them; we don't drive raw EC writes today
+# (too dangerous without per-board validation).
+#
+# sys_vendor: "Acer" for nearly all consumer Acer laptops.
+# product_name strings below are best-effort from Acer naming convention +
+# linux-hardware.org probes; marked unverified.
+
+board_profiles:
+
+  - id: "acer-nitro-5-an515-58"
+    dmi_fingerprint:
+      sys_vendor: "Acer"
+      product_name: "Nitro AN515-58"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no mainline driver — raw EC I/O via ec_sys (write_support=1) or Linuwu-Sense OOT"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 12th-gen Alder Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "NitroSense"
+      - "linuwu-sense"
+    notes: |
+      Acer Nitro 5 AN515-58 (2022 — 12th-gen Intel + RTX 3050/3060/3070).
+      No mainline fan-control driver. Two userland paths exist:
+
+      (1) Raw EC I/O via `ec_sys` kernel module
+          (Jebaitedneko/Acer-Nitro-5-AN515-58-EC-Control-Linux). Verified
+          EC register map:
+            0x03   write-enable latch (must write 0x11 before any fan write)
+            0x21   GPU fan mode: 0x10=auto, 0x20=max, 0x30=custom
+            0x22   CPU fan mode: 0x04=auto, 0x08=max, 0x0c=custom
+            0x37   CPU fan speed % (custom mode) — 0-100 decimal
+            0x3a   GPU fan speed % (custom mode) — 0-100 decimal
+            0x2c   power-profile low byte: 0x00=quiet, 0x01=default, 0x04=perf
+            0x2d   power-profile high byte (constant 0x04)
+            0xab   shutdown thermal temp (0x08=80°C, 0x0a=100°C)
+          No RPM/tach register exposed.
+
+      (2) Linuwu-Sense OOT kernel module (preferred long-term — extends
+          mainline acer-wmi for Nitro/Predator gaming features).
+
+      ventd should register as monitor-only (coretemp + nvme only) until
+      one of: a) mainline acer-wmi gains AN515-58 fan PWM, or
+      b) ventd grows a Linuwu-Sense HAL.
+
+      DMI product_name is best-effort; AN515-58 ships with variants
+      ("Nitro AN515-58", "Nitro 5 AN515-58") depending on BIOS revision.
+    citations:
+      - "https://github.com/Jebaitedneko/Acer-Nitro-5-AN515-58-EC-Control-Linux (EC register map)"
+      - "https://github.com/Packss/Div-Linuwu-Sense (Linuwu-Sense AN515-58 patches)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "acer-predator-helios-300-ph315-51"
+    dmi_fingerprint:
+      sys_vendor: "Acer"
+      product_name: "Predator PH315-51"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no mainline driver — raw EC I/O via ec_sys (write_support=1)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 8th-gen Coffee Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "PredatorSense"
+    notes: |
+      Acer Predator Helios 300 PH315-51 / PH315-51-78NP (2018 —
+      8th-gen Coffee Lake + GTX 1060/1070).
+
+      EC register map from mohsunb/PredatorSense (raw ec_sys access):
+        0x21   GPU fan mode: 0x50=auto, 0x60=turbo, 0x70=manual
+        0x22   CPU fan mode: 0x54=auto, 0x58=turbo, 0x5C=manual
+        0x37   CPU fan speed (manual) — slider_level × 10
+        0x3a   GPU fan speed (manual) — slider_level × 10
+        0x10   Cool Boost toggle: 0x01=on, 0x00=off
+        0x29   Fan profile: 0x00=normal, 0x01=performance, 0x02=aggressive
+
+      Same register addresses as Nitro AN515-58 but DIFFERENT mode byte
+      values — register semantics are family-specific, not portable.
+      Cool Boost (0x10) and fan profile (0x29) are Predator-only.
+
+      Monitor-only via ventd until Linuwu-Sense or mainline acer-wmi
+      gains write support.
+    citations:
+      - "https://github.com/mohsunb/PredatorSense (EC register map for PH315-51-78NP)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── PXDiv WMI-based driver coverage (Nitro + Predator generic) ───────────
+  # PXDiv/Div-Acer-Manager-Fan-Controls uses WMI GUID
+  # 7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56 and works on most Acer Nitro/Predator
+  # models from recent years that expose the WMI fan-control method.
+  # Single catalog entry below acts as a family-level note; per-model
+  # entries can be added as DMI fingerprints are confirmed.
+
+  - id: "acer-nitro-predator-wmi-generic"
+    dmi_fingerprint:
+      sys_vendor: "Acer"
+      product_name: "*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no mainline driver — PXDiv acer_nitro_gaming_driver2 OOT WMI kmod (GUID 7A4DDFE7-...)"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "Div-Acer-Manager-Fan-Controls"
+      - "AcerLinuxManager"
+      - "linuwu-sense"
+    notes: |
+      Family-level entry for Acer Nitro / Predator laptops that expose the
+      ACPI/WMI GUID `7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56`. The PXDiv
+      driver (acer_nitro_gaming_driver2.ko) probes for this GUID and
+      offers fan control via WMI methods 14 (unlock), 16 (set fan),
+      20 (keyboard RGB).
+
+      WMI fan-speed range varies per model: some accept 512-2560, others
+      128-512, always multiples of 128. CPU fan ID = 1, GPU fan ID = 4.
+      Speed and fan ID are concatenated via the driver's encode helper.
+
+      This is a SUBSTRING/WILDCARD catalog entry — it matches ALL Acer
+      sys_vendor laptops. ventd's matcher will prefer more specific
+      entries above (Nitro AN515-58, Predator PH315-51) when those
+      product_name strings match. This entry exists so the wizard
+      reports "Acer (Nitro/Predator family — PXDiv WMI driver available)"
+      for unknown Acer SKUs.
+    citations:
+      - "https://github.com/PXDiv/Div-Acer-Manager-Fan-Controls (WMI GUID + method IDs)"
+      - "https://github.com/PXDiv/AcerLinuxManager"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

@@ -284,3 +284,391 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # ── 2026-05-17 ingest: additional i8k_whitelist_fan_control entries ──
+  #
+  # Confirmed from drivers/hwmon/dell-smm-hwmon.c (Linux mainline). Each
+  # entry below carries the SMM command pair used by the kernel driver
+  # for that model (I8K_FAN_30A3_31A3 vs I8K_FAN_34A3_35A3). The pair is
+  # noted but not enforced by ventd — the driver dispatches internally.
+
+  - id: "dell-g5-5505"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "G5 5505"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell G5 5505 (AMD Ryzen 4000H + RX 5600M, 2020 gaming laptop).
+      ON i8k_whitelist_fan_control with I8K_FAN_34A3_35A3 SMM pair.
+      G5 5505 appears in BOTH the whitelist and the prefix dmi_table —
+      whitelist match takes precedence and pwm1_enable is writable."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for G5 5505 — I8K_FAN_34A3_35A3)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-latitude-5480"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Latitude 5480"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Latitude 5480 (i5/i7 7th-gen, 14\" business laptop).
+      ON i8k_whitelist_fan_control with I8K_FAN_34A3_35A3 SMM pair —
+      pwm1_enable + pwm1 writable. Replaces broader 'Latitude' prefix
+      match (which is sensor-only)."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Latitude 5480 — I8K_FAN_34A3_35A3)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-latitude-e7440"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Latitude E7440"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Latitude E7440 (4th-gen Core ultrabook). ON
+      i8k_whitelist_fan_control with I8K_FAN_34A3_35A3 SMM pair —
+      writable pwm1_enable. Common enterprise/refurb laptop, high
+      Linux user base."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Latitude E7440)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-precision-5530"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Precision 5530"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Precision 5530 mobile workstation (Xeon E-2176M /
+      Core i9-8950HK + Quadro P1000/P2000). ON i8k_whitelist_fan_control
+      with I8K_FAN_34A3_35A3 SMM pair. Mobile workstation chassis runs
+      hot under sustained CAD/render loads — ventd's curve work is
+      high-value here."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Precision 5530)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-precision-7540"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Precision 7540"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Precision 7540 mobile workstation (Xeon E-2276M / Core i9-9880H
+      + Quadro RTX 3000/4000/5000, 2019). ON i8k_whitelist_fan_control with
+      I8K_FAN_34A3_35A3 SMM pair. Successor to the 7530."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Precision 7540)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-xps-13-7390"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "XPS 13 7390"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell XPS 13 7390 (Comet Lake, 2019 — non-2-in-1 variant).
+      ON i8k_whitelist_fan_control with I8K_FAN_34A3_35A3 SMM pair.
+      Smaller chassis than the 9370 — fan curves matter for sustained
+      load comfort."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for XPS 13 7390)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-latitude-7320"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Latitude 7320"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell Latitude 7320 (11th-gen Tiger Lake, 13.3\" enterprise ultrabook).
+      ON i8k_whitelist_fan_control with I8K_FAN_30A3_31A3 SMM pair."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Latitude 7320)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-xps-9315"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "XPS 9315"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell XPS 13 9315 (12th-gen Alder Lake U-series, 2022). ON
+      i8k_whitelist_fan_control with I8K_FAN_30A3_31A3 SMM pair. Note
+      product_name omits the 'XPS 13' marketing prefix — just 'XPS 9315'."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for XPS 9315)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g15-5510"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Dell G15 5510"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell G15 5510 gaming laptop (10th-gen Comet Lake-H + GTX 1650 Ti / RTX 3050).
+      ON i8k_whitelist_fan_control with I8K_FAN_30A3_31A3 SMM pair.
+      Like the 5511, product_name has the literal 'Dell ' prefix
+      ('Dell G15 5510') — fingerprint must match byte-exact."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_whitelist_fan_control entry for Dell G15 5510)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── Sensor-only entries (i8k_dmi_table prefix matches) ──
+  #
+  # These boards get dell-smm-hwmon loaded for temperature + fan-speed
+  # reading but are NOT on i8k_whitelist_fan_control → pwm1_enable does
+  # not exist → ventd cannot write fan speed. Register as ro_sensor_only.
+
+  - id: "dell-g5-5590"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "G5 5590"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell G5 5590 (9th-gen Coffee Lake-H + GTX 1660 Ti, 2019 gaming).
+      In i8k_dmi_table (EXACT match) — sensors loaded, NOT on
+      i8k_whitelist_fan_control. Read-only fan speed + temps."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table EXACT entry for G5 5590)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-optiplex-7080"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "OptiPlex 7080"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell OptiPlex 7080 desktop (10th-gen Comet Lake business SFF/MFF).
+      In i8k_dmi_table (EXACT match) — sensors loaded, NOT on
+      i8k_whitelist_fan_control. Common homelab/dev-server tower."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table EXACT entry for OptiPlex 7080)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-optiplex-7060"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "OptiPlex 7060"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell OptiPlex 7060 desktop (8th-gen Coffee Lake business SFF/MFF/MT).
+      In i8k_dmi_table (EXACT match) — sensors loaded, NOT on
+      i8k_whitelist_fan_control. Very common Proxmox/homelab box."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table EXACT entry for OptiPlex 7060)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-optiplex-7050"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "OptiPlex 7050"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell OptiPlex 7050 desktop (7th-gen Kaby Lake business).
+      In i8k_dmi_table (EXACT match) — sensors loaded, NOT on
+      i8k_whitelist_fan_control."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table EXACT entry for OptiPlex 7050)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-optiplex-7040"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "OptiPlex 7040"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "dell_smm"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "i8kutils"
+    notes: "Dell OptiPlex 7040 desktop (6th-gen Skylake business).
+      In i8k_dmi_table (EXACT match) — sensors loaded, NOT on
+      i8k_whitelist_fan_control. Older refurb fleet box."
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table EXACT entry for OptiPlex 7040)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

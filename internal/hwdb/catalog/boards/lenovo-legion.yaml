@@ -383,3 +383,390 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # ── LOQ family (2026-05-17 ingest from RoyChong5053/LenovoLegionLinux-LOQ) ──
+  #
+  # LOQ is Lenovo's mid-tier gaming brand (positioned below Legion).
+  # The RoyChong5053 fork extends johnfanv2/LenovoLegionLinux with LOQ-specific
+  # configs. All LOQ models share:
+  #   - EC chip ID 0x8227 (except 15AHP10 which is 0x5508 — unsupported)
+  #   - ec_register_offsets_loq_v0 layout
+  #   - ACCESS_METHOD_EC3 fan curve access (distinct from standard Legion EC)
+  #   - No GKCN fallback — each LOQ generation has a dedicated config struct
+  #
+  # Allowlisted in fork (no force=1): LZCN, NECN, NZCN
+  # NOT allowlisted as of fork state 2026-05: R3CN (15IRX10), PQCN (15ARP9),
+  # LYCN (15APH8). R8CN (15AHP10) has new EC 0x5508 and is fully unsupported.
+
+  - id: "lenovo-loq-15irh8"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82XV"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15IRH8"
+      bios_version: "LZCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053/LenovoLegionLinux-LOQ fork)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 13th-gen Raptor Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15IRH8 (2023 Intel). i5-12450HX / i5-13420H + RTX 4050/4060.
+      15.6" 144Hz panel. PRODUCT_NAME 82XV, BIOS_VERSION LZCN family
+      (LZCN31WW, LZCN33WW, LZCN38WW observed). EC chip 0x8227.
+
+      In RoyChong5053 fork allowlist (`model_lzcn`) — no force=1 needed.
+      Dedicated LOQ config struct; does NOT fall back to GKCN. Uses
+      ACCESS_METHOD_EC3 for fan curve writes (LOQ-specific path,
+      different from standard Legion EC access).
+
+      The mainline johnfanv2/LenovoLegionLinux does NOT include LZCN —
+      ventd users on stock Legion DKMS need to switch to the RoyChong5053
+      fork or apply the LOQ patches. ventd packaging should detect
+      product_name 82XV and recommend the LOQ fork.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (kernel_module/legion-laptop.c — optimistic_allowlist LZCN entry)"
+      - "https://psref.lenovo.com/Product/Lenovo/Lenovo_LOQ_15IRH8 (Lenovo PSREF — 82XV confirmation)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-16irh8"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82XW"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 16IRH8"
+      bios_version: "LZCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053/LenovoLegionLinux-LOQ fork)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 13th-gen Raptor Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 16IRH8 (2023 Intel, 16" variant). Shares LZCN BIOS family
+      and `model_lzcn` allowlist entry with 15IRH8. PRODUCT_NAME 82XW.
+      EC chip 0x8227. Same allowlist entry covers both 15IRH8 and 16IRH8.
+
+      Note: Issue #138 reports some users on Ubuntu PPA paths need force=1
+      for 16IRH8 specifically; DKMS install from the RoyChong5053 fork
+      should work without force.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (LZCN entry covers 15IRH8 + 16IRH8)"
+      - "https://github.com/johnfanv2/LenovoLegionLinux/issues/138 (16IRH8 force=1 report)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15irx9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83DV"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15IRX9"
+      bios_version: "NECN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053/LenovoLegionLinux-LOQ fork)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 14th-gen Raptor Lake-HX-Refresh CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15IRX9 (2024 Intel). i5-13450HX / i7-13700HX +
+      RTX 4050/4060. PRODUCT_NAME 83DV, BIOS_VERSION NECN family
+      (NECN29WW, NECN34WW, NECN38WW, NECN47WW observed). EC 0x8227.
+
+      In RoyChong5053 fork allowlist (`model_necn`). Dedicated config,
+      no GKCN fallback. ACCESS_METHOD_EC3.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (NECN allowlist entry)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15iax9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83GS"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15IAX9"
+      bios_version: "NECN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053/LenovoLegionLinux-LOQ fork)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 12th-gen Alder Lake (lower-tier) CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15IAX9 (2024 Intel value tier). PRODUCT_NAME 83GS,
+      shares NECN BIOS family + `model_necn` allowlist entry with
+      15IRX9 — both 83DV and 83GS load cleanly without force=1.
+      EC 0x8227.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (NECN entry covers 83DV + 83GS)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15ahp9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83DX"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15AHP9"
+      bios_version: "NZCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053/LenovoLegionLinux-LOQ fork)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 8040-series Hawk Point CPU temp"
+      - chip: "amdgpu"
+        sysfs_hint: "AMD Radeon 780M iGPU temp via amdgpu hwmon"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15AHP9 (2024 AMD). Ryzen 7 8845HS Hawk Point + RTX 4050/4060.
+      PRODUCT_NAME 83DX, BIOS_VERSION NZCN family (NZCN15WW observed).
+      EC chip 0x8227.
+
+      In RoyChong5053 fork allowlist (`model_nzcn`). Dedicated config,
+      no GKCN fallback. Same EC3 access pattern as Intel LOQs.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (NZCN allowlist entry)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15irx10"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83JE"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15IRX10"
+      bios_version: "R3CN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053 fork — requires force=1)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra 200H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      requires_force_modparam: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args:
+      - "force=1"
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15IRX10 (2025 Intel). PRODUCT_NAME 83JE, BIOS_VERSION R3CN
+      family (R3CN41WW, R3CN42WW observed). EC chip 0x8227.
+
+      REQUIRES force=1: R3CN is NOT in the RoyChong5053 fork allowlist
+      as of 2026-05. Issues #374 and #380 track adding 83JE.
+      ventd installer should add `options legion_laptop force=1`
+      to /etc/modprobe.d/legion_laptop.conf when this board is detected.
+
+      Driver loads under fallback config when forced; fan curve format
+      and EC layout are LOQ-v0 derived, so basic read/write paths work.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (R3CN not in allowlist — issue #374, #380)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15ahp10"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83JG"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15AHP10"
+      bios_version: "R8CN*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no driver path — EC chip 0x5508 is not yet mapped in any Legion driver fork"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen AI 300-series CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      unsupported: true
+      ec_chip_id: "0x5508"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15AHP10 (2025 AMD). PRODUCT_NAME 83JG, BIOS_VERSION R8CN
+      family (R8CN23WW observed). **EC chip ID 0x5508 — new variant NOT
+      mapped by any Legion driver fork.**
+
+      Issue #384 reports this as unsupported. EC is locked; force=1
+      will load the driver but fan control does not function.
+      ventd should mark as monitor-only sensors (k10temp + nvme only)
+      until upstream driver work supports 0x5508.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (issue #384 — 0x5508 unsupported)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15arp9"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "83JC"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15ARP9"
+      bios_version: "PQCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053 fork — requires force=1)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7000-series CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      requires_force_modparam: true
+      ec_chip_id: "0x8227"
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args:
+      - "force=1"
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15ARP9 (2025 AMD value tier). PRODUCT_NAME 83JC,
+      BIOS_VERSION PQCN family (PQCN06WW observed). EC chip 0x8227.
+
+      REQUIRES force=1: PQCN is NOT in the RoyChong5053 fork allowlist.
+      Issue #249 reports fan curve returns zeros when forced —
+      partial function only.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (issue #249 — PQCN partial under force=1)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "lenovo-loq-15aph8"
+    dmi_fingerprint:
+      sys_vendor: "LENOVO"
+      product_name: "82XT"
+      board_vendor: "LENOVO"
+      board_name: "*"
+      board_version: "LOQ 15APH8"
+      bios_version: "LYCN*"
+    primary_controller:
+      chip: "legion_hwmon"
+      sysfs_hint: "name=legion_hwmon via legion_laptop OOT DKMS (RoyChong5053 fork — not in allowlist)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7040-series Phoenix CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      requires_dkms: true
+      requires_force_modparam: true
+      ec_chip_id: "0x8227"
+      ec_chip_id_mismatch_expected: false
+      fancurve_format: "10-point-loq-v0"
+    required_modprobe_args:
+      - "force=1"
+    conflicts_with_userspace:
+      - "lenovo-legion-tools"
+      - "PlasmaVantage"
+    notes: |
+      Lenovo LOQ 15APH8 (2023 AMD original gen). PRODUCT_NAME 82XT,
+      BIOS_VERSION LYCN family (LYCN45WW observed). EC chip 0x8227 (inferred).
+
+      NOT in RoyChong5053 fork allowlist; partial function reported in
+      issue #341 even with force=1. The first-generation LOQ AMD model
+      may need its own config struct upstream.
+    citations:
+      - "https://github.com/RoyChong5053/LenovoLegionLinux-LOQ (issue #341 — 82XT LYCN partial)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

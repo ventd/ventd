@@ -1,0 +1,392 @@
+schema_version: "1.3"
+# Microsoft Surface board catalog — surface_fan + SSAM/SAM thermal stack.
+#
+# Source: linux-surface/linux-surface project, drivers/platform/surface/
+# in mainline kernel, drivers/hwmon/surface_fan.c.
+#
+# DRIVER OVERVIEW:
+#   - `surface_fan` (mainline kernel 6.9+): hwmon driver exposing
+#     fan1_input (RPM, 0444 read-only). NO write path — firmware owns fan
+#     speed control. Bound via SSAM device tree on SSAM-capable models.
+#   - `surface_platform_profile`: ACPI/SSAM-backed platform_profile driver
+#     exposing 4 fan profile modes via /sys/firmware/acpi/platform_profile:
+#       low_power / balanced / balanced-performance / performance
+#     SSAM call: TC=0x05 (SSAM_SSH_TC_FAN), CID=0x0e, payload u8 profile.
+#   - `surface_aggregator_module` (SAM): kernel module providing the SSAM
+#     bus that surface_fan and surface_platform_profile sit on. Requires
+#     ssh_packet_layer and ssh_request_layer transports.
+#
+# CAPABILITY MATRIX (this catalog covers fan-monitoring + profile-switch):
+#   surface_fan (RPM read-only): ro_sensor_only: true
+#   surface_platform_profile (4 modes): fan_mode_only: true, mode_count: 4
+#   Models with both → primary_controller chip "surface_fan",
+#                      overrides ro_sensor_only:true (fan write is firmware-owned)
+#   Older models without surface_fan: chip "unknown", overrides unsupported:true
+#
+# sys_vendor: "Microsoft Corporation" (universal across Surface line).
+#
+# Source citations:
+#   drivers/hwmon/surface_fan.c (Ivor Wanders, commit d612bf8 2024-02-25)
+#   drivers/platform/surface/surface_platform_profile.c
+#   drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_*)
+#   github.com/linux-surface/linux-surface (contrib/thermald/ for older models)
+
+board_profiles:
+
+  # ── Surface Laptop family (5/6/7 + Studio 2 — full SSAM fan node) ─────────
+
+  - id: "microsoft-surface-laptop-5"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Laptop 5"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline kernel 6.9+ surface_fan.c (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop 5 (ACPI MSHW0350, 2022 — 12th-gen Alder Lake U).
+      SSAM node group `ssam_node_group_sl5` registers ssam_node_fan_speed
+      (TC=0x05 CID=0x01) → surface_fan exposes fan1_input.
+
+      Fan SPEED is read-only (firmware-controlled). Fan PROFILE switching is
+      available via surface_platform_profile (4 modes: low_power, balanced,
+      balanced-performance, performance — SSAM TC=0x05 CID=0x0e).
+
+      ventd should register fan_mode_only mode with mode_count=4 and bind
+      writes to /sys/firmware/acpi/platform_profile, not the fan PWM
+      (which doesn't exist).
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/surface_fan.c"
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_sl5)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-laptop-6"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Laptop 6"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop 6 (ACPI MSHW0530, 2024 — Core Ultra business).
+      SSAM node group `ssam_node_group_sl6` with fan node. surface_fan
+      RPM read-only + surface_platform_profile 4-mode switching.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_sl6)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-laptop-7"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Laptop 7"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop 7 (2024 — Snapdragon X / Intel Core Ultra 200).
+      Intel variant uses ssam_node_group_sl7 with fan node. Snapdragon X
+      ARM variant has a separate SAM group with no fan node — see arm
+      caveat in catalog notes for Surface Pro 11.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_sl7)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-laptop-studio-2"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Laptop Studio 2"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop Studio 2 (ACPI MSHW0360, 2023 — 13th-gen Intel
+      + RTX 4050/4060). ssam_node_group_sls2 with fan node. surface_fan +
+      surface_platform_profile. Studio 1 has no fan node (older firmware).
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_sls2)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── Surface Pro family (Intel only — 9/10/11) ─────────────────────────────
+
+  - id: "microsoft-surface-pro-9-intel"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Pro 9"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Pro 9 — Intel variant (ACPI MSHW0343, 2022 — 12th-gen
+      Alder Lake). ssam_node_group_sp9 with fan node.
+
+      IMPORTANT: Surface Pro 9 5G (ARM/Snapdragon SQ3) uses a DIFFERENT
+      SAM node group with NO fan node. The DMI product_name is identical
+      ("Surface Pro 9") for both, so ventd cannot disambiguate purely by
+      product_name. Check /sys/firmware/devicetree/base or uname -m to
+      distinguish Intel from ARM at runtime.
+
+      Same SSAM node group also covers Surface Pro 10 (MSHW0510) and
+      Surface Pro 11 Intel (MSHW0583) via shared ssam_node_group_sp9 entry.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c (ssam_node_group_sp9)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-pro-10"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Pro 10"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Pro 10 (ACPI MSHW0510, 2024 — Core Ultra 100).
+      Uses shared ssam_node_group_sp9 with fan node. RPM read-only +
+      4-mode platform_profile.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-pro-11"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Pro 11"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "surface_fan"
+      sysfs_hint: "name=surface_fan via mainline 6.9+ surface_fan (RPM read-only; Intel variant only)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+      fan_mode_only: true
+      mode_count: 4
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Pro 11 — Intel variant (ACPI MSHW0583, 2024).
+      Uses ssam_node_group_sp9 with fan node.
+
+      Surface Pro 11 ARM (Snapdragon X) shares the same product_name string
+      but has NO fan node in SAM — it appears under a separate node group.
+      Same disambiguation caveat as Surface Pro 9.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_aggregator_registry.c"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── Older Surface models (NO surface_fan; thermald workaround) ────────────
+  # These models predate kernel 6.9 surface_fan or have older SAM/SSAM
+  # firmware that doesn't expose a fan node. Catalog them as unsupported
+  # so ventd's wizard surfaces the hardware identity but doesn't claim
+  # fan-control capability.
+
+  - id: "microsoft-surface-pro-7"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Pro 7"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no surface_fan support — older SAM firmware lacks fan node; thermald workarounds only"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 10th-gen Ice Lake CPU temp"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "thermald"
+    notes: |
+      Microsoft Surface Pro 7 (ACPI MSHW0116, 2019 — 10th-gen Ice Lake).
+      surface_fan NOT supported — predates the SAM fan node addition.
+      linux-surface ships a thermald config (contrib/thermald/surface_pro_7/)
+      using rapl_controller for passive throttling.
+
+      ventd should detect this board, surface the model identity, and
+      defer thermal handling to thermald rather than attempt fan control.
+    citations:
+      - "https://github.com/linux-surface/linux-surface/tree/master/contrib/thermald/surface_pro_7"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-pro-8"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface Pro 8"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no surface_fan support — older SAM firmware lacks fan node"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 11th-gen Tiger Lake CPU temp"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Pro 8 (ACPI MSHW0263, 2021 — 11th-gen Tiger Lake).
+      Uses ssam_node_tmp_perf_profile (no has_fan property) — no fan
+      monitoring. linux-surface issue tracker reports idle fan at 3800 RPM
+      on some units (issue #1726) — a firmware-side problem outside
+      ventd's reach.
+    citations:
+      - "https://github.com/linux-surface/linux-surface/issues/1726 (SP8 idle fan 3800 RPM)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-laptop-3-intel-13"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface_Laptop_3_1867:1868"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no surface_fan — uses ssam_node_tmp_perf_profile (no has_fan)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 10th-gen Ice Lake CPU temp"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop 3 — Intel 13.5\" (ACPI MSHW0114).
+      product_name uses SKU-style format from older firmware:
+      'Surface_Laptop_3_1867:1868'. Not on a separate product_sku field —
+      this IS the product_name on these older SKU-encoded models.
+      No fan node in SAM tree.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_gpe.c (DMI product_sku match for 1867:1868)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "microsoft-surface-laptop-4-intel-13"
+    dmi_fingerprint:
+      sys_vendor: "Microsoft Corporation"
+      product_name: "Surface_Laptop_4_1950:1951"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no surface_fan — uses ssam_node_tmp_perf_profile (no has_fan)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 11th-gen Tiger Lake CPU temp"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Microsoft Surface Laptop 4 — Intel 13.5\" (ACPI MSHW0250).
+      SKU-encoded product_name '1950:1951'. No fan node in SAM tree.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/surface/surface_gpe.c"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
