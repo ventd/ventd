@@ -15,6 +15,7 @@ import (
 	"github.com/ventd/ventd/internal/curve"
 	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
+	halmsiec "github.com/ventd/ventd/internal/hal/msiec"
 	halnvml "github.com/ventd/ventd/internal/hal/nvml"
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwmon"
@@ -911,6 +912,12 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string
 				continue
 			}
 			val, err = readNvidiaMetric(uint(idx), s.Metric)
+		case "msiec":
+			// invariant: path validated against msiec.AllowedSensorPaths
+			// at config load. Value units are native to the sysfs leaf
+			// (°C for *_temperature; 0..100 / 0..150 percent for
+			// *_fan_speed) — see internal/hal/msiec/sensor.go.
+			val, err = halmsiec.ReadSensor(halmsiec.DefaultSysfsRoot, s.Path)
 		default: // "hwmon" and any future sysfs-backed types
 			val, err = hwmon.ReadValue(s.Path)
 		}
@@ -923,7 +930,7 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string
 		// sentinels or exceeding the plausibility cap for the sensor kind.
 		// Only applied to hwmon paths because nvidia metrics have no 0xFFFF
 		// sentinel convention and the NVML driver self-validates.
-		if s.Type != "nvidia" && halhwmon.IsSentinelSensorVal(s.Path, val) {
+		if s.Type != "nvidia" && s.Type != "msiec" && halhwmon.IsSentinelSensorVal(s.Path, val) {
 			logger.Warn("controller: sensor returned sentinel or implausible value, skipping",
 				"sensor", s.Name, "path", s.Path, "value", val)
 			if sentinelDst != nil {

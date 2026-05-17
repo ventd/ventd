@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ventd/ventd/internal/hal"
+	"github.com/ventd/ventd/internal/hal/msiec"
 )
 
 // fakeHALBackend is a minimal hal.FanBackend used by the stepVerify
@@ -180,6 +181,103 @@ func TestStepVerify_FallsBackToHALBackend(t *testing.T) {
 			t.Errorf("want ErrNoPWMChannelsAppeared (hwmon-only check), got %v", err)
 		}
 	})
+}
+
+// TestStepVerify_FirmwarePinSuggestionForMsiec pins #1168: when stepVerify
+// can't see a controllable channel and the driver is msi-ec, it must
+// consult the firmware-diagnose layer and surface an
+// ErrFirmwareNotCatalogued that still unwraps to ErrNoPWMChannelsAppeared
+// (so setup's retry loop keeps working) but carries the detected
+// firmware + suggestions for the wizard's recovery card.
+func TestStepVerify_FirmwarePinSuggestionForMsiec(t *testing.T) {
+	withEmptyHwmonPoll(t)
+	hal.Reset()
+	t.Cleanup(hal.Reset)
+	// Backend present but reports no controllable channels — matches
+	// the "msi-ec.ko loaded but platform device never appeared" mode.
+	hal.Register("msiec", &fakeHALBackend{name: "msiec", channels: nil})
+
+	// Inject a dmesg-shaped firmware-not-supported line.
+	prevDiag := stepVerifyDiagnoseFirmware
+	prevSugg := stepVerifySuggestFirmwarePins
+	t.Cleanup(func() {
+		stepVerifyDiagnoseFirmware = prevDiag
+		stepVerifySuggestFirmwarePins = prevSugg
+	})
+	stepVerifyDiagnoseFirmware = func(context.Context) (string, error) {
+		return "16R8IMS1.999", nil
+	}
+	stepVerifySuggestFirmwarePins = func(detected string, maxN int) []msiec.FirmwareSuggestion {
+		if detected != "16R8IMS1.999" || maxN != 3 {
+			t.Fatalf("stepVerify called SuggestFirmwarePins(%q, %d); want (16R8IMS1.999, 3)", detected, maxN)
+		}
+		return []msiec.FirmwareSuggestion{
+			{Firmware: "16R8IMS1.117", Group: "CONF_G2_6"},
+		}
+	}
+
+	c := PipelineConfig{
+		Driver: PipelineConfig{}.Driver,
+		Logger: slog.New(slog.DiscardHandler),
+		Log:    func(string) {},
+	}
+	c.Driver.Module = "msi-ec"
+	c.Driver.HALBackend = "msiec"
+	err := stepVerify(c)
+	// Setup retry loop relies on this unwrap chain.
+	if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+		t.Fatalf("err = %v; want errors.Is(ErrNoPWMChannelsAppeared)", err)
+	}
+	var enriched *ErrFirmwareNotCatalogued
+	if !errors.As(err, &enriched) {
+		t.Fatalf("err = %v; want errors.As(*ErrFirmwareNotCatalogued)", err)
+	}
+	if enriched.DetectedFirmware != "16R8IMS1.999" {
+		t.Errorf("DetectedFirmware = %q; want 16R8IMS1.999", enriched.DetectedFirmware)
+	}
+	if len(enriched.Suggestions) != 1 || enriched.Suggestions[0].Firmware != "16R8IMS1.117" {
+		t.Errorf("Suggestions = %+v; want exactly [16R8IMS1.117/CONF_G2_6]", enriched.Suggestions)
+	}
+	if !strings.Contains(enriched.Error(), "16R8IMS1.117") {
+		t.Errorf("Error() should mention the suggested pin; got: %s", enriched.Error())
+	}
+}
+
+// TestStepVerify_NonMsiecDriverSkipsFirmwareDiagnose pins the contract that
+// hwmon-shaped drivers (it87, nct6687d, …) are unaffected by the
+// firmware-diagnose enrichment. Their failure mode is "wrong chip variant"
+// rather than "unsupported firmware string."
+func TestStepVerify_NonMsiecDriverSkipsFirmwareDiagnose(t *testing.T) {
+	withEmptyHwmonPoll(t)
+	hal.Reset()
+	t.Cleanup(hal.Reset)
+
+	called := false
+	prev := stepVerifyDiagnoseFirmware
+	t.Cleanup(func() { stepVerifyDiagnoseFirmware = prev })
+	stepVerifyDiagnoseFirmware = func(context.Context) (string, error) {
+		called = true
+		return "anything", nil
+	}
+
+	c := PipelineConfig{
+		Driver: PipelineConfig{}.Driver,
+		Logger: slog.New(slog.DiscardHandler),
+		Log:    func(string) {},
+	}
+	c.Driver.Module = "it87"
+	c.Driver.HALBackend = ""
+	err := stepVerify(c)
+	if !errors.Is(err, ErrNoPWMChannelsAppeared) {
+		t.Fatalf("err = %v; want ErrNoPWMChannelsAppeared", err)
+	}
+	if called {
+		t.Errorf("firmware-diagnose should not be consulted for non-msi-ec drivers; it87 install triggered it")
+	}
+	var enriched *ErrFirmwareNotCatalogued
+	if errors.As(err, &enriched) {
+		t.Errorf("non-msi-ec error should not be ErrFirmwareNotCatalogued; got %+v", enriched)
+	}
 }
 
 func TestHalBackendChannelCount(t *testing.T) {
