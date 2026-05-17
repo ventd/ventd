@@ -14,7 +14,6 @@ scripts/diagnose-tests.sh
 - **70 `*_test.go` files** across 14 packages
 - **491 named test functions** (`Test*`) + **2 fuzz targets** (`Fuzz*`)
 - **One diagnostic entry point**: `scripts/diagnose-tests.sh` (9 groups)
-- **One workflow doc**: `docs/TESTING.md`
 - **Full suite wall clock**: ~60 s with `-race`, dominated by `internal/web` (rod browser smoke) and `internal/calibrate` (2-s sysfs settle windows)
 
 ---
@@ -165,7 +164,6 @@ Known flake: `internal/config/TestLoadForStartup_RetryEventuallySucceeds` is occ
 
 ## References
 
-- `docs/TESTING.md` — six named workflows for automated diagnosis, failing-test → file-to-open cheat sheet, ground rules for adding tests.
 - `COVERAGE.md` — historical coverage snapshots and gap-tracking issue references (#132, #133, #163, #177).
 - `scripts/diagnose-tests.sh` — diagnostic runner source.
 - `docs/rules/hwmon-safety.md` — the 12 safety rules bound 1:1 to `TestSafety_Invariants` subtests.

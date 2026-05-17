@@ -27,6 +27,15 @@ cover.html
 /exampleui.png
 /issue1.png
 
+# Personal masterplans — kept local on Phoenix's machine, never tracked.
+/ventdmasterplan.md
+/ventdtestmasterplan.md
+
+# specs/ — Phoenix's spec corpus is being audited one spec at a time in
+# separate sessions to confirm each was properly landed. Kept local only
+# during that audit; do not re-track wholesale.
+/specs/
+
 # AI-assistant configuration is per-machine. Engineering invariants
 # previously under .claude/rules/ now live at docs/rules/ as plain
 # engineering docs; tools/rulelint enforces them in CI.

@@ -104,7 +104,7 @@ cd ~/ventd     # or anywhere inside the repo
 ./scripts/verify-local.sh                                    # default
 ./scripts/verify-local.sh --against develop                  # different base branch
 ./scripts/verify-local.sh --skip-tests                       # faster, just structure
-./scripts/verify-local.sh --paths 'TESTING.md|deploy/apparmor.d/ventd'
+./scripts/verify-local.sh --paths 'CONTRIBUTING.md|deploy/apparmor.d/ventd'
                                                              # extra existence checks
 ```
 

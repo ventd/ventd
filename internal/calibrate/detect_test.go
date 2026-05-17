@@ -27,7 +27,6 @@ package calibrate
 //   To make these tests sub-second you would need a seam that
 //   injects a fake clock; that's a refactor outside the scope of the
 //   "no unnecessary code changes" rule this suite was built under.
-//   Mark that as a future item in docs/TESTING.md, not here.
 
 import (
 	"bytes"
