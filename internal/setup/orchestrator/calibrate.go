@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
@@ -104,57 +105,55 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		return Outcome{Status: StatusSkipped, Detail: "no fans enumerated", Artifact: raw}
 	}
 
-	art := CalibrateArtifact{Results: make([]CalibrateFanResult, 0, len(probeArt.Fans))}
+	// Fan-out fanout: group probed fans by ChipName so fans on
+	// different chips sweep concurrently while fans on the same chip
+	// stay sequential. Without this, six fans on one Super-I/O chip
+	// serialise to ~5+ minutes (52s × 6); the legacy Manager.run
+	// Phase 6 path completed the same set in ~1 minute by running one
+	// goroutine per chip. Same-chip serialisation is the safety
+	// constraint — shared PWM-enable registers on Super-I/O parts can
+	// race when two pwmN sweeps happen in parallel.
+	//
+	// Each slot in `results` is written by exactly one goroutine, so
+	// no mutex is needed on the slice. rc.Sink().Emit and rc.Log()
+	// are thread-safe in production (Manager.EmitEvent locks; slog is
+	// concurrent-safe by spec) and no-op in tests.
+	type job struct {
+		idx int
+		fan ProbedFan
+	}
+	results := make([]CalibrateFanResult, len(probeArt.Fans))
+	chipGroups := map[string][]job{}
+	for i, fan := range probeArt.Fans {
+		chipGroups[fan.ChipName] = append(chipGroups[fan.ChipName], job{idx: i, fan: fan})
+	}
 
-	for _, fan := range probeArt.Fans {
-		polarity := polByPath[fan.PWMPath]
-		entry := CalibrateFanResult{PWMPath: fan.PWMPath}
+	var wg sync.WaitGroup
+	for _, jobs := range chipGroups {
+		wg.Add(1)
+		go func(jobs []job) {
+			defer wg.Done()
+			for _, j := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+			}
+		}(jobs)
+	}
+	wg.Wait()
 
-		if polarity == "phantom" {
-			entry.SkippedWhy = "polarity=phantom — fan does not spin under PWM control"
-			art.Results = append(art.Results, entry)
-			rc.Sink().Emit("info", "calibrate",
-				fmt.Sprintf("skipping %s (phantom)", fan.LabelHint))
-			continue
-		}
+	if ctx.Err() != nil {
+		rc.Log().Warn("calibrate phase cancelled mid-run", "err", ctx.Err())
+	}
 
-		cfgFan := &config.Fan{
-			Name:     fan.LabelHint,
-			Type:     "hwmon",
-			PWMPath:  fan.PWMPath,
-			RPMPath:  fan.RPMPath,
-			ChipName: fan.ChipName,
-			MinPWM:   0,   // calibrate determines this
-			MaxPWM:   255, // sweep ceiling
-		}
-
-		rc.Sink().Emit("info", "calibrate",
-			fmt.Sprintf("sweeping %s (this takes a few minutes)", fan.LabelHint))
-
-		result, err := p.Calibrator.Calibrate(ctx, cfgFan)
-		if err != nil {
-			entry.Error = err.Error()
-			rc.Log().Warn("calibrate failed",
-				"fan", fan.LabelHint, "pwm_path", fan.PWMPath, "err", err)
-		} else {
-			entry.StartPWM = result.StartPWM
-			entry.StopPWM = result.StopPWM
-			entry.MaxRPM = result.MaxRPM
-			entry.MinRPM = result.MinRPM
-			entry.IsPump = result.FanType == "pump"
-			entry.Aborted = result.Aborted
-			entry.SweepMode = result.SweepMode
-			rc.Log().Info("calibrate success",
-				"fan", fan.LabelHint,
-				"start_pwm", result.StartPWM,
-				"max_rpm", result.MaxRPM,
-				"is_pump", entry.IsPump)
-		}
-		art.Results = append(art.Results, entry)
-
-		if err := ctx.Err(); err != nil {
-			rc.Log().Warn("calibrate phase cancelled mid-run", "err", err)
-			break
+	// Drop slots whose goroutine bailed before sweepOne ran (ctx
+	// cancelled before its turn) — those carry an empty PWMPath that
+	// would propagate as a "phantom-shaped" stub in the artifact.
+	art := CalibrateArtifact{Results: make([]CalibrateFanResult, 0, len(results))}
+	for _, r := range results {
+		if r.PWMPath != "" {
+			art.Results = append(art.Results, r)
 		}
 	}
 
@@ -188,6 +187,63 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		"failed", countFailed(art))
 
 	return Outcome{Status: StatusSuccess, Artifact: raw}
+}
+
+// sweepOne calibrates a single fan and returns the populated result
+// entry. Extracted so the per-chip goroutines in Execute can call it
+// without duplicating the polarity-skip / error-wrap / log shape.
+// Pure of shared mutable state: the only mutation is into the returned
+// value.
+func sweepOne(
+	ctx context.Context,
+	cal Calibrator,
+	rc *RunContext,
+	fan ProbedFan,
+	polarity string,
+) CalibrateFanResult {
+	entry := CalibrateFanResult{PWMPath: fan.PWMPath}
+
+	if polarity == "phantom" {
+		entry.SkippedWhy = "polarity=phantom — fan does not spin under PWM control"
+		rc.Sink().Emit("info", "calibrate",
+			fmt.Sprintf("skipping %s (phantom)", fan.LabelHint))
+		return entry
+	}
+
+	cfgFan := &config.Fan{
+		Name:     fan.LabelHint,
+		Type:     "hwmon",
+		PWMPath:  fan.PWMPath,
+		RPMPath:  fan.RPMPath,
+		ChipName: fan.ChipName,
+		MinPWM:   0,   // calibrate determines this
+		MaxPWM:   255, // sweep ceiling
+	}
+
+	rc.Sink().Emit("info", "calibrate",
+		fmt.Sprintf("sweeping %s (this takes a few minutes)", fan.LabelHint))
+
+	result, err := cal.Calibrate(ctx, cfgFan)
+	if err != nil {
+		entry.Error = err.Error()
+		rc.Log().Warn("calibrate failed",
+			"fan", fan.LabelHint, "pwm_path", fan.PWMPath, "err", err)
+		return entry
+	}
+
+	entry.StartPWM = result.StartPWM
+	entry.StopPWM = result.StopPWM
+	entry.MaxRPM = result.MaxRPM
+	entry.MinRPM = result.MinRPM
+	entry.IsPump = result.FanType == "pump"
+	entry.Aborted = result.Aborted
+	entry.SweepMode = result.SweepMode
+	rc.Log().Info("calibrate success",
+		"fan", fan.LabelHint,
+		"start_pwm", result.StartPWM,
+		"max_rpm", result.MaxRPM,
+		"is_pump", entry.IsPump)
+	return entry
 }
 
 func countSkipped(art CalibrateArtifact) int {
