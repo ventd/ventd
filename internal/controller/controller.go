@@ -695,7 +695,16 @@ func (c *Controller) tick() {
 				// byte. The error return is intentionally swallowed:
 				// the carry-forward branch is best-effort and the
 				// next valid sensor read recovers.
-				_ = c.writePWMViaPolarity(ch, c.lastPWM)
+				if writeErr := c.writePWMViaPolarity(ch, c.lastPWM); writeErr == nil {
+					// Issue #1045: emit an observation record on the
+					// sentinel-carry-forward write so the smart-mode
+					// Layer-B / Layer-C feed sees observation continuity
+					// across sentinel glitches. Without this, every
+					// sentinel-glitch tick was invisible to the
+					// fallback-tier classifier even though a real PWM
+					// byte was committed to the channel.
+					c.emitObservationFor(fan, c.lastPWM)
+				}
 			}
 		}
 		c.hasLastTickAt = false
