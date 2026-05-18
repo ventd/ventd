@@ -161,7 +161,7 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		orchestrator.RPMDetectPhase{Detector: managerRPMDetector{m: m}},
 		orchestrator.PolarityPhase{},
 		orchestrator.CalibratePhase{Calibrator: managerCalibrator{m: m}},
-		orchestrator.ApplyPhase{},
+		orchestrator.ApplyPhase{ConfigPath: m.applyConfigPathOverride},
 	)
 	if oerr != nil {
 		m.mu.Lock()
@@ -189,6 +189,18 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		if out.Phase == (orchestrator.ApplyPhase{}).Name() &&
 			out.Status == orchestrator.StatusSuccess {
 			m.persistOrchestratorPolarity(outs)
+			// Trigger an in-process daemon reload so controllers spawn
+			// against the freshly-emitted config without a manual
+			// `systemctl restart ventd`. Without this, ApplyPhase
+			// writes config.yaml but the running daemon keeps serving
+			// the pre-wizard liveCfg — every dashboard surface reads
+			// stale state and (the worst-case path on a host whose
+			// pre-wizard config had no Controls) no controller binds
+			// to the new fans, leaving the CPU climbing unmitigated.
+			// (#1229 / #1232.) Fires after persistOrchestratorPolarity
+			// so the reload loads a config whose persisted polarity
+			// is already in the KV store.
+			m.fireReloadTrigger()
 			m.mu.Lock()
 			m.phase = "applied"
 			m.phaseMsg = "Wizard complete"

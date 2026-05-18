@@ -1027,6 +1027,22 @@ func runDaemonInternal(
 			agg.SetEnvelopeCDoneAt(t)
 		})
 	}
+	// Wire the daemon-reload trigger fired by ApplyPhase Success so the
+	// wizard's atomic config write is followed by the same restartCh
+	// signal handleSetupReset uses (#1229). Without this, a fresh-install
+	// operator sees the dashboard read stale state and (on a host whose
+	// pre-wizard config had no Controls) no controller binds to the new
+	// fans — leaving the CPU climbing unmitigated until a manual
+	// `systemctl restart ventd` (#1232). Non-blocking send pattern
+	// mirrors the other restartCh writers (rebindTrigger, web handlers).
+	setupMgr.SetReloadTrigger(func() {
+		select {
+		case restartCh <- struct{}{}:
+			logger.Info("setup: reload triggered after ApplyPhase success")
+		default:
+			logger.Info("setup: reload trigger pending; another reload already queued")
+		}
+	})
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()

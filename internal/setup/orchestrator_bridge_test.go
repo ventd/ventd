@@ -93,6 +93,38 @@ func TestOrchestratorBridge_EventsFlowToManagerRing(t *testing.T) {
 	}
 }
 
+// TestSetReloadTrigger_FireRoundTrip pins the SetReloadTrigger /
+// fireReloadTrigger contract: a registered callback fires exactly once
+// per invocation; a nil callback (no SetReloadTrigger call) is a clean
+// no-op. The bridge's call site (runOrchestrator on ApplyPhase Success)
+// is wired in orchestrator_bridge.go via m.fireReloadTrigger(); the
+// thermal-safety contract (#1229 / #1232) hinges on this dispatch
+// firing exactly once per wizard run.
+func TestSetReloadTrigger_FireRoundTrip(t *testing.T) {
+	m := newBridgeTestManager(t)
+
+	// nil callback before SetReloadTrigger → no-op, no panic.
+	m.fireReloadTrigger()
+
+	var fired int
+	m.SetReloadTrigger(func() { fired++ })
+	m.fireReloadTrigger()
+	if fired != 1 {
+		t.Errorf("after SetReloadTrigger, fireReloadTrigger() expected 1 invocation; got %d", fired)
+	}
+	m.fireReloadTrigger()
+	if fired != 2 {
+		t.Errorf("second fireReloadTrigger() expected 2 invocations total; got %d", fired)
+	}
+
+	// Re-setting to nil disables the hook cleanly.
+	m.SetReloadTrigger(nil)
+	m.fireReloadTrigger()
+	if fired != 2 {
+		t.Errorf("after SetReloadTrigger(nil), fireReloadTrigger() must be a no-op; got %d", fired)
+	}
+}
+
 // outcomeKeys lists the keys present in a State.Outcomes map (for
 // readable test failure messages).
 func outcomeKeys(st orchestrator.State) []string {
@@ -105,7 +137,10 @@ func outcomeKeys(st orchestrator.State) []string {
 
 // newBridgeTestManager builds a Manager with the minimum wiring needed
 // for the bridge tests: a stub CalibrationBackend (unused by orchestrator
-// for inventory) and a discard logger.
+// for inventory) and a discard logger. ApplyPhase's writeConfigAtomic
+// target is redirected to a per-test temp directory so a root-owned dev
+// host (e.g. the homelab proxmox box that ventd is developed on) never
+// has its live /etc/ventd/config.yaml stomped by a unit-test run.
 func newBridgeTestManager(t *testing.T) *Manager {
 	t.Helper()
 	cb := calibrate.New(t.TempDir(), slog.Default(), nil)
@@ -113,5 +148,9 @@ func newBridgeTestManager(t *testing.T) *Manager {
 	// Override roots so the test never reads /sys or /proc.
 	m.hwmonRoot = filepath.Join(t.TempDir(), "sys", "class", "hwmon")
 	m.procRoot = filepath.Join(t.TempDir(), "proc")
+	// Isolate ApplyPhase's write target. Without this, a root-uid test
+	// run lands writeConfigAtomic on /etc/ventd/config.yaml and any
+	// already-applied operator config gets clobbered.
+	m.SetApplyConfigPathOverride(filepath.Join(t.TempDir(), "config.yaml"))
 	return m
 }

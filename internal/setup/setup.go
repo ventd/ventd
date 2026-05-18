@@ -205,6 +205,24 @@ type Manager struct {
 	// monitor-only systems); a nil hook is a clean no-op.
 	calibrationCompleteFn func(time.Time)
 
+	// applyConfigPathOverride redirects ApplyPhase's writeConfigAtomic
+	// target away from the production /etc/ventd/config.yaml so tests
+	// (which can run as root on dev hosts) never stomp the operator's
+	// live config. Empty in production. Set via
+	// SetApplyConfigPathOverride which exists solely as a test seam.
+	applyConfigPathOverride string
+
+	// reloadTriggerFn signals the daemon's main loop that config.yaml
+	// has changed and controllers should reload against it. Wired from
+	// cmd/ventd/main.go to push to restartCh — the same channel
+	// handleSetupReset uses (#1229). Called by runOrchestrator after
+	// ApplyPhase Success + polarity persist so a fresh-install operator
+	// sees the dashboard reflect the wizard-emitted config and active
+	// controllers spawn against the newly-discovered fans without a
+	// manual `systemctl restart ventd`. A nil fn (tests + monitor-only
+	// short-circuit paths) is a clean no-op.
+	reloadTriggerFn func()
+
 	// events is the in-memory ring buffer for the activity-feed SSE.
 	// Capped at maxEventsRingSize entries; appendEventLocked drops the
 	// oldest on overflow. Reads happen via EventsSince(cursor) which
@@ -316,6 +334,52 @@ func (m *Manager) SetAcousticGateOptions(opts AcousticGateOptions) {
 	m.mu.Unlock()
 }
 
+// SetApplyConfigPathOverride redirects ApplyPhase's writeConfigAtomic
+// target so tests on root-owned dev hosts never stomp the operator's
+// live /etc/ventd/config.yaml. Empty string = use the production
+// default (DefaultConfigPath in the orchestrator package). The
+// production wizard never calls this; it exists for in-tree tests that
+// drive runOrchestrator end-to-end.
+func (m *Manager) SetApplyConfigPathOverride(path string) {
+	m.mu.Lock()
+	m.applyConfigPathOverride = path
+	m.mu.Unlock()
+}
+
+// SetReloadTrigger wires the daemon-reload hook called after ApplyPhase
+// succeeds. Production code in cmd/ventd/main.go binds this to a closure
+// that pushes to restartCh (the same channel handleSetupReset uses), so
+// the daemon's main loop re-reads /etc/ventd/config.yaml and spawns
+// controllers for the freshly-discovered fans on the same path that
+// SIGHUP / web-UI reload follow.
+//
+// Without this, the wizard's atomic config write leaves the daemon
+// running with the pre-wizard liveCfg until the next manual restart —
+// every dashboard surface reads stale state and (more critically) no
+// controller binds to the new fans, so a host with a stripped pre-
+// wizard config sits in effective monitor-only with the CPU climbing
+// unmitigated (#1232).
+//
+// A nil callback is a clean no-op (tests; monitor-only-only paths).
+func (m *Manager) SetReloadTrigger(fn func()) {
+	m.mu.Lock()
+	m.reloadTriggerFn = fn
+	m.mu.Unlock()
+}
+
+// fireReloadTrigger invokes the registered reload callback under
+// release-the-lock-before-call discipline so a slow trigger (channel
+// send blocked by a non-draining receiver) can't deadlock Manager
+// operations. A nil hook is a clean no-op.
+func (m *Manager) fireReloadTrigger() {
+	m.mu.Lock()
+	fn := m.reloadTriggerFn
+	m.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 // SetCalibrationCompleteFn wires the v0.6.0 cold-start hard-pin hook
 // (RULE-AGG-WIRING-01). The callback is invoked exactly once per
 // wizard run, after Phase 6b's phantom-verification completes and
@@ -399,8 +463,18 @@ const DefaultAppliedMarkerPath = defaultAppliedMarkerPath
 // /sys/class/hwmon, /proc, and /sys/class/powercap so a fixture tree can
 // stand in for the real kernel interfaces. Production code uses New; this
 // exists so hardware-discovery code paths remain testable.
+//
+// When hwmonRoot is anything other than the production default
+// (defaultHwmonRoot), this is a test caller and applyConfigPathOverride
+// is auto-set to a sentinel that makes ApplyPhase's writeConfigAtomic
+// fail with a clear error rather than silently stomping the operator's
+// live /etc/ventd/config.yaml — a real footgun on root-uid dev hosts
+// (Phoenix's 13900K + RTX 4090 box) where NVMLPhase enumerates the
+// real GPU even with a faked hwmonRoot. Test helpers that drive the
+// orchestrator end-to-end should call SetApplyConfigPathOverride with
+// a real t.TempDir() path so the phase succeeds.
 func NewWithRoots(cal CalibrationBackend, logger *slog.Logger, hwmonRoot, procRoot, powercapRoot string) *Manager {
-	return &Manager{
+	m := &Manager{
 		cal:                 cal,
 		logger:              logger,
 		hwmonRoot:           hwmonRoot,
@@ -408,7 +482,20 @@ func NewWithRoots(cal CalibrationBackend, logger *slog.Logger, hwmonRoot, procRo
 		powercapRoot:        powercapRoot,
 		settleAfterModprobe: defaultSettleAfterModprobe,
 	}
+	if hwmonRoot != defaultHwmonRoot {
+		m.applyConfigPathOverride = testApplyConfigSentinel
+	}
+	return m
 }
+
+// testApplyConfigSentinel is a path that does not exist and is not
+// writable — when NewWithRoots is called with non-default roots (i.e.
+// from a test), ApplyPhase writes here unless the test caller has
+// supplied a real override via SetApplyConfigPathOverride. The sentinel
+// fails the write with a clear error so a test that accidentally
+// triggers the full orchestrator without isolation surfaces the
+// missing-override mistake rather than corrupting the live config.
+const testApplyConfigSentinel = "/var/lib/ventd/.test-apply-must-set-override-via-SetApplyConfigPathOverride"
 
 // Needed reports whether setup should be presented to the user.
 // It returns true when the config has no controls defined (empty/first-boot state).
