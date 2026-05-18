@@ -303,7 +303,13 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 	// /<name>.js to web/<name>.* embedded assets. Pages are unauthenticated
 	// at the route layer; the page's own JS gates display via the auth
 	// state endpoint where appropriate.
-	s.registerWebPage("setup")
+	//
+	// /setup is special: a server-side guard sends post-first-boot
+	// visitors back to /login (mirror of the new first-boot redirect in
+	// handleLogin and requireAuth). Without this, a drive-by hit to
+	// /setup after the password is set would render a "Create password"
+	// form whose POST would silently no-op.
+	s.registerSetupPage()
 	s.registerWebPage("calibration")
 	s.registerWebPage("dashboard")
 	s.registerWebPage("devices")
@@ -615,7 +621,14 @@ func (s *Server) writeJSON(r *http.Request, w http.ResponseWriter, v any) {
 
 // requireAuth wraps h so that only authenticated requests pass through.
 // Unauthenticated API requests get 401 JSON; unauthenticated page requests
-// redirect to /login.
+// redirect to /login (or /setup on first boot, see below).
+//
+// First-boot redirect (server-side, not JS): when no admin password has
+// been set, send the operator straight to /setup. The previous behaviour
+// was an unconditional 302→/login, with login.js then fetching
+// /api/v1/auth/state and replacing the URL to /setup client-side — which
+// flashed the "Sign in" page before the wizard and trapped users with JS
+// disabled on a form that could never complete a sign-in.
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.sessions.valid(sessionToken(r)) {
@@ -628,7 +641,11 @@ func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 			s.writeJSON(r, w, map[string]string{"error": "unauthorized"})
 			return
 		}
-		http.Redirect(w, r, "/login", http.StatusFound)
+		target := "/login"
+		if s.authHashValue() == "" {
+			target = "/setup"
+		}
+		http.Redirect(w, r, target, http.StatusFound)
 	}
 }
 
@@ -707,13 +724,20 @@ func uiStaticHandler(root fs.FS) http.Handler {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		// First-boot: skip the sign-in page entirely. login.js used to
+		// detect first_boot client-side and window.location.replace to
+		// /setup, but that produced a visible flash and broke any client
+		// running without JS. Doing it server-side keeps the wizard
+		// flow single-step from the operator's point of view.
+		if s.authHashValue() == "" {
+			http.Redirect(w, r, "/setup", http.StatusFound)
+			return
+		}
 		h := w.Header()
 		h.Set("Content-Type", "text/html; charset=utf-8")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
-		// New design-system login page, served from webstatic.FS. The
-		// JS at /login.js redirects to /setup if first_boot is true,
-		// so the GET path stays simple.
+		// New design-system login page, served from webstatic.FS.
 		if body, err := fs.ReadFile(webstatic.FS, "login.html"); err == nil {
 			_, _ = w.Write(body)
 			return
