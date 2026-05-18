@@ -75,7 +75,40 @@ type CalibrateFanResult struct {
 	// finishes; the sustained-check write is masked but the
 	// curve-time writes weren't.
 	DisagreedWithSustainedCheck bool `json:"disagreed_with_sustained_check,omitempty"`
+
+	// NonMonotonicCurve is true when the rising-portion PWM→RPM
+	// sweep contains a drop greater than nonMonotonicDropThreshold
+	// (15%) of MaxRPM between consecutive samples. The fan is
+	// admitted; this field is a quality signal for the smart-mode
+	// Layer C marginal-benefit estimator (a curve that goes
+	// UP-DOWN-UP across the rising portion confuses the RLS fit)
+	// and for the doctor page (operator-visible "your fan's curve
+	// looks irregular — check for vendor-EC interference").
+	//
+	// Observed on Dell SMM and similar vendor-EC firmwares: the
+	// sweep peaks at ~PWM=165 and then drops back ~500 RPM through
+	// PWM=178-255 because the EC reasserts Q-Fan-style control at
+	// high PWM. The reading is real (the curve is the actual
+	// observed RPM at each PWM step) but it's not what the operator
+	// can control. Surfaced for diagnostics; does not affect Phantom.
+	NonMonotonicCurve bool `json:"non_monotonic_curve,omitempty"`
+
+	// MaxDropRPM is the largest RPM drop between consecutive
+	// rising-portion samples (max(curve[i].RPM - curve[i+1].RPM) for
+	// i in [start_pwm..255-step]). Zero when the curve was strictly
+	// non-decreasing. Carried for the doctor surface so an operator
+	// can see how severe the irregularity is in absolute terms.
+	MaxDropRPM int `json:"max_drop_rpm,omitempty"`
 }
+
+// nonMonotonicDropThreshold is the fraction of MaxRPM a single
+// PWM-to-PWM RPM drop must exceed before the curve gets flagged as
+// non-monotonic. 15% is generous enough that fan-tach noise and
+// small overshoot/undershoot between adjacent steady states don't
+// trip the flag, but tight enough that the EC-clamping pattern
+// (peak 2112 RPM at PWM=165, then 1595 RPM at PWM=191 — a 24% drop
+// on the same fan) registers.
+const nonMonotonicDropThreshold = 0.15
 
 // CalibrateArtifact is the structured result of the CalibratePhase.
 // Consumed by ApplyPhase (uses StartPWM as MinPWM, MaxRPM for curve
@@ -338,7 +371,53 @@ func sweepOne(
 		}
 	}
 
+	// Monotonicity quality flag. Walk the rising-portion curve and
+	// record the largest RPM drop between consecutive samples.
+	// Doesn't affect Phantom — the curve is still real measurements;
+	// this is a "your fan's response is irregular" signal for the
+	// doctor surface and a quality input for smart-mode Layer C.
+	//
+	// Observed on Dell SMM (i7-6600U / Latitude 7280): sweep peaks
+	// at PWM=165/2112 RPM then drops to ~1595 RPM through PWM=255
+	// because the EC reasserts Q-Fan-style control. Recyclable for
+	// any vendor-EC laptop whose firmware fights the wizard's PWM
+	// writes above some threshold.
+	if entry.MaxRPM > 0 && !entry.Phantom {
+		maxDrop := largestRPMDrop(result.Curve, entry.StartPWM)
+		entry.MaxDropRPM = maxDrop
+		if float64(maxDrop) > nonMonotonicDropThreshold*float64(entry.MaxRPM) {
+			entry.NonMonotonicCurve = true
+			rc.Log().Warn("calibrate: non-monotonic curve detected",
+				"fan", fan.LabelHint,
+				"pwm_path", fan.PWMPath,
+				"max_rpm", entry.MaxRPM,
+				"max_drop_rpm", maxDrop,
+				"threshold_pct", int(nonMonotonicDropThreshold*100))
+		}
+	}
+
 	return entry
+}
+
+// largestRPMDrop walks the rising-portion of the curve (samples at
+// pwm >= startPWM) and returns the largest RPM[i] - RPM[i+1] gap.
+// Zero when the curve is strictly non-decreasing or empty. Used to
+// flag NonMonotonicCurve for vendor-EC interference patterns.
+func largestRPMDrop(curve []calibrate.PWMRPMPoint, startPWM uint8) int {
+	worst := 0
+	prev := -1
+	for _, p := range curve {
+		if p.PWM < startPWM {
+			continue
+		}
+		if prev >= 0 && prev > p.RPM {
+			if drop := prev - p.RPM; drop > worst {
+				worst = drop
+			}
+		}
+		prev = p.RPM
+	}
+	return worst
 }
 
 // sustainedSpinSamplesAt writes the polarity-effective full-speed PWM
