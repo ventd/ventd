@@ -352,6 +352,28 @@ func buildConfig(
 			MinPWM:  30,  // GPU fans default min is safer than CPU fans (avoid stall)
 			MaxPWM:  100, // NVML uses percent, not byte
 		})
+		// Emit matching NVIDIA sensors so the dashboard surfaces GPU
+		// temperature + fan-speed alongside CPU + hwmon fans. Without
+		// these, NVMLPhase discovers the GPU as a fan but the dashboard
+		// shows `rpm: null` and no `gpu*_temp` entry under sensors[]
+		// (#1226). The nvidia HAL backend already speaks the same
+		// (Type:"nvidia", Path:"<index>", Metric:"<temp|fan_pct|...>")
+		// schema the runtime validates; ApplyPhase just wasn't writing
+		// the sensor side.
+		cfg.Sensors = append(cfg.Sensors,
+			config.Sensor{
+				Name:   fmt.Sprintf("gpu%d_temp", gf.Index),
+				Type:   "nvidia",
+				Path:   strconv.Itoa(int(gf.Index)),
+				Metric: "temp",
+			},
+			config.Sensor{
+				Name:   fmt.Sprintf("gpu%d_fan_pct", gf.Index),
+				Type:   "nvidia",
+				Path:   strconv.Itoa(int(gf.Index)),
+				Metric: "fan_pct",
+			},
+		)
 	}
 
 	// Active control only when we have BOTH a sensor and at least
@@ -374,12 +396,11 @@ func buildConfig(
 		maxTemp = 95 // fallback when _crit isn't reported
 	}
 	minTemp := 40.0 // idle baseline for most CPUs; refined per-chip in a future PR
-	midTemp := (minTemp + maxTemp) / 2
 	// Type:"points" — NOT "linear" — because Linear.Evaluate uses the
 	// flat MinPWM/MaxPWM struct fields and ignores Points[] entirely;
-	// emitting the 3-anchor curve under Type:"linear" parses MaxPWM=0
-	// and clamps every fan to per-fan min_pwm regardless of temperature
-	// (#1224). Points.Evaluate consumes the anchor list as intended.
+	// emitting the curve under Type:"linear" parses MaxPWM=0 and clamps
+	// every fan to per-fan min_pwm regardless of temperature (#1224).
+	// Points.Evaluate consumes the anchor list as intended.
 	cfg.Curves = []config.CurveConfig{
 		{
 			Name:    "default",
@@ -387,11 +408,7 @@ func buildConfig(
 			Sensor:  "cpu_temp",
 			MinTemp: minTemp,
 			MaxTemp: maxTemp,
-			Points: []config.CurvePoint{
-				{Temp: minTemp, PWMPct: ptrU8(20)},
-				{Temp: midTemp, PWMPct: ptrU8(50)},
-				{Temp: maxTemp, PWMPct: ptrU8(100)},
-			},
+			Points:  defaultCurvePoints(minTemp, maxTemp, cfg.Fans),
 		},
 	}
 
@@ -406,6 +423,66 @@ func buildConfig(
 }
 
 func ptrU8(v uint8) *uint8 { return &v }
+
+// defaultCurvePoints builds the wizard's default piecewise-linear
+// anchor list. Anchor count is derived from the widest hwmon fan's
+// PWM range so wide-range fans (laptop blowers, AIO pumps, full-range
+// NCT SuperIO desktop fans) get small per-step PWM deltas — a 3-anchor
+// curve on a 240-byte PWM range translates a 1 °C bump near the
+// midpoint into ~2 PWM units / ~50 RPM, but a 5 °C load transient
+// crosses ~30 PWM units / ~700 RPM in a single step; the fan can't
+// physically ramp through that without overshoot → opposite swing →
+// audible hunting cycle (#1231).
+//
+// Targeting ~30 PWM units per segment keeps each step a ~10-12% duty
+// change so the fan can absorb it without overshoot. Dell SMM at
+// MinPWM=76 / MaxPWM=255 (range 179) → 7 anchors; an NCT SuperIO at
+// MinPWM=12 / MaxPWM=255 (range 243) → 9 anchors. Minimum is 3 so the
+// monitor-only or single-narrow-range path still gets a useful curve.
+//
+// nvidia fans use MaxPWM=100 (percent), so their range alone wouldn't
+// drive any extra density — the function ignores them so a GPU-only
+// host still picks up the 3-anchor floor.
+//
+// Temperatures are spaced uniformly across [minTemp, maxTemp]; PWM
+// percentages are spaced uniformly from 20% (idle floor) to 100% (top
+// anchor). Operators reshape in the web UI; this is the "no hunting
+// out of the box" default. Calibrate-data-driven anchor placement
+// (inflection-point-aware) is a follow-up.
+func defaultCurvePoints(minTemp, maxTemp float64, fans []config.Fan) []config.CurvePoint {
+	maxRange := 0
+	for _, f := range fans {
+		if f.Type != "hwmon" {
+			continue
+		}
+		r := int(f.MaxPWM) - int(f.MinPWM)
+		if r > maxRange {
+			maxRange = r
+		}
+	}
+	anchors := 3
+	if maxRange > 0 {
+		// Round to nearest: range 60 → 2 (clamped to floor 3), 179 → 6,
+		// 243 → 8. ~30 PWM units per segment translates to a ~10-12%
+		// duty change per anchor, which is small enough that the fan
+		// can absorb the step without overshoot.
+		anchors = (maxRange + 15) / 30
+		if anchors < 3 {
+			anchors = 3
+		}
+	}
+	pts := make([]config.CurvePoint, anchors)
+	for i := 0; i < anchors; i++ {
+		fraction := float64(i) / float64(anchors-1)
+		temp := minTemp + fraction*(maxTemp-minTemp)
+		// Linear PWM% from 20% (idle floor at minTemp) to 100% (top
+		// anchor at maxTemp). The 20% floor keeps fans audibly quiet
+		// at idle without dipping into the stall band of most fans.
+		pct := uint8(20 + fraction*80)
+		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
+	}
+	return pts
+}
 
 // resolveStableHwmonDevice returns the canonical /sys/devices/... path
 // for the hwmon chip whose pwm/temp file lives at sysfsPath. The result
