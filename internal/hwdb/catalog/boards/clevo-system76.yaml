@@ -137,3 +137,1300 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 4 additions (2026-05-18): System76 Clevo-based SKUs + common Clevo
+  # barebone codes (Eurocom / Sager / Origin / XMG / Schenker / Eluktronics
+  # retailer variants). All chip=unsupported pending the planned T2.4 Clevo
+  # backend over internal/ec/dev_port. Per [[catalog-ingest-2026-05-17]] wave 4.
+
+  - id: "system76-adder-ws-addw1"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "addw1"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 addw1 (Adder Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-adder-ws-addw2"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "addw2"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 addw2 (Adder Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-adder-ws-addw3"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "addw3"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 addw3 (Adder Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-adder-ws-addw4"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "addw4"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 addw4 (Adder Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-adder-ws-addw5"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "addw5"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 addw5 (Adder Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-bonobo-ws-bonw14"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "bonw14"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 bonw14 (Bonobo Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-bonobo-ws-bonw15"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "bonw15"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 bonw15 (Bonobo Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-bonobo-ws-bonw15-b"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "bonw15-b"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 bonw15-b (Bonobo Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-bonobo-ws-bonw16"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "bonw16"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 bonw16 (Bonobo Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze14"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze14"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze14 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze15"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze15"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze15 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze16-3050"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze16-3050"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze16-3050 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze16-3060"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze16-3060"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze16-3060 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze16-3060-b"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze16-3060-b"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze16-3060-b (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze17-3050"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze17-3050"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze17-3050 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze17-3060-b"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze17-3060-b"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze17-3060-b (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-gazelle-gaze20"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "gaze20"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 gaze20 (Gazelle) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-kudu-kudu6"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "kudu6"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 kudu6 (Kudu) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp4"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp4"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp4 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp4-b"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp4-b"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp4-b (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp5"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp5"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp5 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp6"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp6"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp6 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp7"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp7"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp7 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp8"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp8"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp8 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp9"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp9"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp9 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp10"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp10"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp10 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp11"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp11"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp11 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp12"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp12"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp12 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-oryx-pro-specific-oryp13"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "oryp13"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 oryp13 (Oryx Pro Specific) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-serval-ws-serw13"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "serw13"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 serw13 (Serval Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-serval-ws-serw14"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "serw14"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 serw14 (Serval Ws) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-darter-pro-darp5"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "darp5"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 darp5 (Darter Pro) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-darter-pro-darp6"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "darp6"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+      - "system76-power"
+    notes: "System76 darp6 (Darter Pro) — Clevo-based chassis. Mainline Linux has no hwmon path for the Clevo EC at port 0x68/0x6C. Canonical userspace controllers: SkyLandTW/clevo-indicator + the system76-power runtime-PM bits. system76-acpi-dkms exposes hotkey + battery sysfs only. ventd's planned T2.4 Clevo backend over internal/ec/dev_port will own the fan-write path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-galago-pro-galp2"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "galp2"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "system76-io custom EC (not Clevo)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "system76-power"
+    notes: "System76 galp2 (Galago Pro) — recent gens use a custom System76-designed mainboard / system76-io firmware, NOT a Clevo rebrand. fan-control belongs to system76-power-daemon over the system76-io DKMS shim. ventd should defer rather than touch this EC path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-galago-pro-galp3"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "galp3"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "system76-io custom EC (not Clevo)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "system76-power"
+    notes: "System76 galp3 (Galago Pro) — recent gens use a custom System76-designed mainboard / system76-io firmware, NOT a Clevo rebrand. fan-control belongs to system76-power-daemon over the system76-io DKMS shim. ventd should defer rather than touch this EC path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-galago-pro-galp4"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "galp4"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "system76-io custom EC (not Clevo)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "system76-power"
+    notes: "System76 galp4 (Galago Pro) — recent gens use a custom System76-designed mainboard / system76-io firmware, NOT a Clevo rebrand. fan-control belongs to system76-power-daemon over the system76-io DKMS shim. ventd should defer rather than touch this EC path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "system76-galago-pro-galp5"
+    dmi_fingerprint:
+      sys_vendor: "System76, Inc."
+      product_name: "galp5"
+      board_vendor: "System76, Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "system76-io custom EC (not Clevo)"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "system76-power"
+    notes: "System76 galp5 (Galago Pro) — recent gens use a custom System76-designed mainboard / system76-io firmware, NOT a Clevo rebrand. fan-control belongs to system76-power-daemon over the system76-io DKMS shim. ventd should defer rather than touch this EC path."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+      - "https://github.com/pop-os/system76-acpi-dkms (System76 hotkey / battery sysfs shim)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-p970rc"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "P970RC"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo P970RC barebone — P970 17.3\" gaming barebone (Comet Lake). Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-p960rd"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "P960RD"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo P960RD barebone — P960 16\" thin-and-light gaming barebone. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-p870tm"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "P870TM"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo P870TM barebone — P870 17.3\" desktop-replacement (Coffee Lake). Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-x370snw"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "X370SNW"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo X370SNW barebone — X370 15.6\" gaming (Tiger Lake). Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-pb71rd"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "PB71RD"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo PB71RD barebone — PB71 17.3\" mid-range. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-n870hk1"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "N870HK1"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo N870HK1 barebone — N870 17\" budget gaming. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-nl40mu"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "NL40MU"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo NL40MU barebone — NL40 14\" thin-and-light. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-l140mu"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "L140MU"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo L140MU barebone — L140 14\" custom-built. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-nv40mz"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "NV40MZ"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo NV40MZ barebone — NV40 entry-level. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "clevo-v150rncq"
+    dmi_fingerprint:
+      sys_vendor: "Notebook"
+      product_name: "V150RNCQ"
+      board_vendor: "Notebook"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "Clevo EC via port 0x68/0x6C"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "clevo-indicator"
+    notes: "Clevo V150RNCQ barebone — V150 / V170 mid-range. Sold under Eurocom / Sager / Origin / XMG / Schenker / Eluktronics / Bonobo retailer brands. DMI sys_vendor is the literal string 'Notebook' on raw unbranded chassis; retailer-branded units override with their own vendor string. Same port-0x68 EC family as the System76 Clevo-based SKUs above."
+    citations:
+      - "https://github.com/pop-os/system76-power/blob/master/src/graphics.rs (EXTERNAL_DISPLAY_REQUIRES_NVIDIA list — canonical Clevo-class SKU registry)"
+      - "https://github.com/SkyLandTW/clevo-indicator (Clevo EC port-0x68 userspace controller)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
