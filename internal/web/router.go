@@ -62,6 +62,38 @@ func (s *Server) registerWebPage(name string) {
 	}
 }
 
+// registerSetupPage wires /setup, /setup.css, /setup.js like
+// registerWebPage, but adds a server-side guard on the HTML route:
+// when the daemon already has an admin password (post-first-boot),
+// /setup 302s to /login. This is the mirror of the first-boot
+// redirect in handleLogin and requireAuth — together they keep the
+// operator on whichever entry screen is actually meaningful at any
+// given moment, without relying on JS to detect the wrong page and
+// replace the URL.
+func (s *Server) registerSetupPage() {
+	html, err := fs.ReadFile(webstatic.FS, "setup.html")
+	if err != nil {
+		panic("web: missing embedded page setup.html: " + err.Error())
+	}
+	s.mux.HandleFunc("/setup", func(w http.ResponseWriter, r *http.Request) {
+		if s.authHashValue() != "" {
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", "text/html; charset=utf-8")
+		h.Set("Cache-Control", "no-cache")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		_, _ = w.Write(html)
+	})
+	if css, err := fs.ReadFile(webstatic.FS, "setup.css"); err == nil {
+		s.mux.HandleFunc("/setup.css", staticAssetHandler(css, "text/css; charset=utf-8"))
+	}
+	if js, err := fs.ReadFile(webstatic.FS, "setup.js"); err == nil {
+		s.mux.HandleFunc("/setup.js", staticAssetHandler(js, "application/javascript; charset=utf-8"))
+	}
+}
+
 // staticAssetHandler returns a handler that serves a fixed byte slice
 // with a content-hash ETag and a 1-hour public cache. ETag is computed
 // once at registration time — the bytes are immutable for the lifetime

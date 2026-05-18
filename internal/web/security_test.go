@@ -409,3 +409,109 @@ func TestSetPasswordRejectsOversizedBody(t *testing.T) {
 
 // Setup token tests removed by issue #765 (eliminate setup token).
 // First-boot login is now password-only — see auth_regression_test.go.
+
+// --- First-boot redirect (server-side) ----------------------------------
+//
+// Pre-fix behaviour: GET / → 302 /login, GET /login → 200 with login.html,
+// and login.js then fetched /api/v1/auth/state and replaced the URL with
+// /setup. This produced a visible flash of the wrong page and trapped any
+// client with JS disabled on a sign-in form that could never succeed.
+// Post-fix: the server short-circuits to /setup whenever authHashValue
+// is empty, and post-first-boot /setup redirects to /login.
+
+// TestFirstBoot_RootRedirectsToSetup asserts that GET / with no session
+// and no admin password set goes straight to /setup, not /login.
+func TestFirstBoot_RootRedirectsToSetup(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+	// newSecuritySrv stores config.Empty() (no PasswordHash) and uses
+	// authPath="" (no auth.json) — first-boot.
+	if srv.authHashValue() != "" {
+		t.Fatalf("precondition: authHashValue=%q, want empty", srv.authHashValue())
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "ventd.local:9999"
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("GET /: status=%d want 302", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/setup" {
+		t.Errorf("GET / first-boot: Location=%q want /setup", loc)
+	}
+}
+
+// TestFirstBoot_LoginGetRedirectsToSetup asserts that a direct visit to
+// /login during first-boot also lands on /setup — JS-disabled visitors
+// must never see the sign-in form during first-boot.
+func TestFirstBoot_LoginGetRedirectsToSetup(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+
+	req := httptest.NewRequest("GET", "/login", nil)
+	req.Host = "ventd.local:9999"
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("GET /login first-boot: status=%d body=%q want 302", rr.Code, rr.Body.String())
+	}
+	if loc := rr.Header().Get("Location"); loc != "/setup" {
+		t.Errorf("GET /login first-boot: Location=%q want /setup", loc)
+	}
+}
+
+// TestPostFirstBoot_SetupRedirectsToLogin asserts the reverse — once a
+// password is set, /setup 302s to /login so a stale tab or drive-by hit
+// can't render a "Create password" form whose POST would silently no-op.
+func TestPostFirstBoot_SetupRedirectsToLogin(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+
+	// Transition to post-first-boot.
+	hash, err := HashPassword("correcthorse")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	live := config.Empty()
+	live.Web.PasswordHash = hash
+	srv.cfg.Store(live)
+
+	req := httptest.NewRequest("GET", "/setup", nil)
+	req.Host = "ventd.local:9999"
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("GET /setup post-first-boot: status=%d want 302", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/login" {
+		t.Errorf("GET /setup post-first-boot: Location=%q want /login", loc)
+	}
+}
+
+// TestPostFirstBoot_RootStillRedirectsToLogin is the regression guard
+// for requireAuth: once a password is set, an unauthenticated visit to
+// / must still 302 to /login (not /setup).
+func TestPostFirstBoot_RootStillRedirectsToLogin(t *testing.T) {
+	srv, _ := newSecuritySrv(t)
+
+	hash, err := HashPassword("correcthorse")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	live := config.Empty()
+	live.Web.PasswordHash = hash
+	srv.cfg.Store(live)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "ventd.local:9999"
+	rr := httptest.NewRecorder()
+	srv.handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("GET / post-first-boot: status=%d want 302", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/login" {
+		t.Errorf("GET / post-first-boot: Location=%q want /login", loc)
+	}
+}
