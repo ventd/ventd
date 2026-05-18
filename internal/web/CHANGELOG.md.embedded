@@ -9,6 +9,12 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.7] - 2026-05-19
+
+### Headline
+
+#1221 root-cause and fix on the 13900K / MSI Z690-A DDR4 / NCT6687D HIL box. The post-#1110 bipolar polarity probe's 2 s pulse-hold was well short of the spin-down time-constant of large case fans on splitter cables (τ_down ≈ 2.2 s, settling ≈ 6-8 s) — so the LOW sample landed mid-spin-down with the fan still coasting near its BIOS-baseline RPM, the bipolar delta collapsed to 43-407 RPM (half straddling the 150 RPM phantom threshold), and the wizard misclassified 1-4 of 8 controllable channels as phantom on every run. Bumping `BipolarPulseHold` to 6 s puts every measured channel within 2 % of asymptote and produces 1474-1827 RPM deltas — two orders of magnitude clear of the threshold. While validating end-to-end, found that `ventd -setup` (CLI wizard) never wires the calibration-namespace KV into the Manager, so polarity persistence silently no-op'd — bundled the wiring fix per `docs/rules/feedback-no-unwired-code`.
+
 ### Fixed
 
 - `internal/polarity/polarity.go`, `internal/polarity/hwmon.go` — **raise `BipolarPulseHold` from 2 s to 6 s and decouple the tach sample window into `BipolarSampleWindow` (1 s)** to accommodate the spin-down inertia of large case fans on splitter cables. The 2 s hold landed mid-spin-down (τ ≈ 2.2 s, settling ≈ 6-8 s) on the 13900K / MSI Z690-A DDR4 / NCT6687D HIL box; ventd's recorded probe deltas for pwm1/3/7/8 came in at 43-464 RPM, half straddling the 150 RPM phantom threshold and producing non-deterministic 1-4 false-phantoms per wizard run on the same hardware. At a 6 s hold the same channels yield steady-state deltas of 1474-1827 RPM. Polarity-phase wall time on an 8-channel board rises from ~40 s to ~115 s — one-time wizard cost in exchange for unambiguous classification. Regression coverage: `RULE-POLARITY-02_hold_envelope` locks the constant at ≥6 s; `RULE-POLARITY-02_spindown_inertia_classifies_normal_1221` simulates a first-order fan inertia model (τ_down=2.2 s, τ_up=1.3 s) and asserts the bipolar probe still classifies it normal — the same simulation would fail under the pre-fix 2 s hold. (#1221.)
