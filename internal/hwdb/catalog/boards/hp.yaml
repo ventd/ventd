@@ -225,3 +225,530 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 3 additions (2026-05-18): HP Omen / Victus board_name=4-char-hex codes
+  # ingested from arfelious/omen-fan-control hp-wmi.c source. These are the HP
+  # DMI codes that the upstream kernel 6.20 hp-wmi PWM patch matches against.
+  # All listed as chip=unsupported because mainline <6.20 has no PWM path;
+  # the chip ref flips to hp_wmi once the matcher gains kernel-version gating.
+  # Per [[catalog-ingest-2026-05-17]] wave 3.
+
+  - id: "hp-omen-8a15"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8A15"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen (older generation) — DMI board_name=8A15. Uses the timed thermal-profile EC layout — BIOS auto-reverts after a countdown timer (HP_OMEN_EC_THERMAL_PROFILE_TIMER_OFFSET=0x63) so any sysfs write must be re-asserted within 120s. mainline hp-wmi pre-6.20 does not expose PWM for this class. Remediation: alou-S/omen-fan userspace (services the timer) or wait for upstream PWM coverage."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-8a42"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8A42"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen (older generation) — DMI board_name=8A42. Uses the timed thermal-profile EC layout — BIOS auto-reverts after a countdown timer (HP_OMEN_EC_THERMAL_PROFILE_TIMER_OFFSET=0x63) so any sysfs write must be re-asserted within 120s. mainline hp-wmi pre-6.20 does not expose PWM for this class. Remediation: alou-S/omen-fan userspace (services the timer) or wait for upstream PWM coverage."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-8bad"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BAD"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen (older generation) — DMI board_name=8BAD. Uses the timed thermal-profile EC layout — BIOS auto-reverts after a countdown timer (HP_OMEN_EC_THERMAL_PROFILE_TIMER_OFFSET=0x63) so any sysfs write must be re-asserted within 120s. mainline hp-wmi pre-6.20 does not expose PWM for this class. Remediation: alou-S/omen-fan userspace (services the timer) or wait for upstream PWM coverage."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-16-d1xxx-88f8"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "88F8"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus 16-d1xxx — DMI board_name=88F8. Uses the V0 thermal-profile EC layout (HP_OMEN_V0_* — performance=0x01, default=0x00, cool=0x02). Mainline hp-wmi pre-6.20 exposes thermal_profile sysfs only — no PWM. Per-fan control needs alou-S/omen-fan userspace (writes EC register 0x34/0x35) or the 6.20-backport hp-wmi PWM patch from arfelious/omen-fan-control."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-16-d1xxx-8a25"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8A25"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus 16-d1xxx — DMI board_name=8A25. Uses the V0 thermal-profile EC layout (HP_OMEN_V0_* — performance=0x01, default=0x00, cool=0x02). Mainline hp-wmi pre-6.20 exposes thermal_profile sysfs only — no PWM. Per-fan control needs alou-S/omen-fan userspace (writes EC register 0x34/0x35) or the 6.20-backport hp-wmi PWM patch from arfelious/omen-fan-control."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-16-r-8a44"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8A44"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus 16-r (Omen V1 legacy thermal params) — DMI board_name=8A44. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-16-r-8a4d"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8A4D"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus 16-r (Omen V1 legacy thermal params) — DMI board_name=8A4D. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-8ba9"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BA9"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 (Omen V1 thermal params) — DMI board_name=8BA9. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-8bab"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BAB"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 (Omen V1 thermal params) — DMI board_name=8BAB. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-8bcd"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BCD"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 (Omen V1 thermal params) — DMI board_name=8BCD. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-8bca"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BCA"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 (Omen V1 thermal params) — DMI board_name=8BCA. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-s-8bbe"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BBE"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus S (Victus 16-r/16-s class) — DMI board_name=8BBE. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-s-8bd4"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BD4"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus S (Victus 16-r/16-s class) — DMI board_name=8BD4. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-s-8bd5"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8BD5"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus S (Victus 16-r/16-s class) — DMI board_name=8BD5. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-new-gen-8c78"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8C78"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 new-gen (Omen V1) — DMI board_name=8C78. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-16-17-new-gen-8c77"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8C77"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen 16/17 new-gen (Omen V1) — DMI board_name=8C77. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-s-new-gen-8c99"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8C99"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus S new-gen — DMI board_name=8C99. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-victus-s-new-gen-8c9c"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8C9C"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Victus S new-gen — DMI board_name=8C9C. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-8d87"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8D87"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP Omen (V1 no-EC variant) — DMI board_name=8D87. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hp-omen-max-16-ah-8d41"
+    dmi_fingerprint:
+      sys_vendor: "HP"
+      product_name: "*"
+      board_vendor: "HP"
+      board_name: "8D41"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no pre-6.20 hwmon PWM path — see notes for remediation"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "HP OMEN MAX 16-AH (Victus S thermal params; arfelious test target) — DMI board_name=8D41. PWM fan control is available in mainline Linux 6.20+ via the hp-wmi platform driver (kernel commit 46be1453e6e6 \"hp-wmi: add manual fan control for Victus S models\"). On kernels <6.20, install the backport patch from arfelious/omen-fan-control, or use alou-S/omen-fan userspace fallback. ventd's hwmon HAL picks up the new pwm channels automatically once 6.20+ is in use."
+    citations:
+      - "https://github.com/alou-S/omen-fan (canonical Omen/Victus userspace controller — EC probe register map at docs/probes.md)"
+      - "https://github.com/arfelious/omen-fan-control (hp-wmi PWM patch + installer; backport of upstream kernel 6.20 commit)"
+      - "https://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git/commit/?h=for-next&id=46be1453e6e61884b4840a768d1e8ffaf01a4c1c (kernel 6.20 hp-wmi PWM support for Victus S models)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
