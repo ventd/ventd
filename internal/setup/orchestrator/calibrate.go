@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
@@ -40,14 +44,59 @@ type CalibrateFanResult struct {
 	Error      string `json:"error,omitempty"`       // non-empty on failure
 	SweepMode  string `json:"sweep_mode,omitempty"`  // "pwm" (default) or "rpm" (pre-RDNA AMD)
 	SkippedWhy string `json:"skipped_why,omitempty"` // non-empty when the fan was deliberately skipped
+
+	// Phantom is true when the post-sweep sustained-RPM check
+	// observed all-zero RPM at full-speed PWM AND the calibrate
+	// sweep itself produced no evidence of a real fan (MaxRPM == 0).
+	// ApplyPhase excludes phantom fans from the applied config.
+	//
+	// This field absorbs what was previously VerifyPhase: rather
+	// than running a separate post-sweep phase that could (and on
+	// some vendor-EC laptops did) disagree with the sweep, the
+	// sustained check now lives inside sweepOne where it has the
+	// full curve context. When the sweep measured a working curve
+	// (MaxRPM > 0) but the sustained check sampled zero RPM, the
+	// curve evidence wins and DisagreedWithSustainedCheck is set
+	// instead of Phantom.
+	Phantom bool `json:"phantom,omitempty"`
+
+	// SustainedRPMs is the sample slice from the post-sweep
+	// sustained-spin check. Empty when the check was skipped (no
+	// RPM tach path, calibrate Error, calibrate SkippedWhy) or when
+	// the polarity-effective full-speed write failed.
+	SustainedRPMs []int `json:"sustained_rpms,omitempty"`
+
+	// DisagreedWithSustainedCheck is set when the sustained-spin
+	// check sampled zero RPM but the preceding sweep measured
+	// MaxRPM > 0 for this channel. The fan is admitted (curve
+	// evidence wins) but the disagreement is surfaced for the
+	// doctor page. Observed on Dell SMM and similar vendor-EC
+	// firmwares that reassert Q-Fan-style control after the sweep
+	// finishes; the sustained-check write is masked but the
+	// curve-time writes weren't.
+	DisagreedWithSustainedCheck bool `json:"disagreed_with_sustained_check,omitempty"`
 }
 
 // CalibrateArtifact is the structured result of the CalibratePhase.
-// Consumed by VerifyPhase (post-calibration phantom check) and
-// ApplyPhase (uses StartPWM as MinPWM, MaxRPM for curve scaling).
+// Consumed by ApplyPhase (uses StartPWM as MinPWM, MaxRPM for curve
+// scaling, Phantom to exclude unwired channels).
 type CalibrateArtifact struct {
 	Results []CalibrateFanResult `json:"results"`
 }
+
+// sustainedSpinSettle is how long the post-sweep sustained-RPM check
+// holds the polarity-effective full-speed PWM byte before sampling.
+// 3 s matches the legacy VerifyPhase setting that proved out on the
+// NCT6687D / IT8688E HIL fleet. Declared `var` (not `const`) so
+// tests can shrink it to keep their wall-clock manageable; production
+// callers never override it.
+var sustainedSpinSettle = 3 * time.Second
+
+// sustainedSpinSamples is how many RPM reads to take after settle.
+var sustainedSpinSamples = 3
+
+// sustainedSpinInterval is the delay between RPM samples.
+var sustainedSpinInterval = 250 * time.Millisecond
 
 // CalibratePhase runs a synchronous PWM-RPM sweep on every probed,
 // non-phantom fan. This is the most operator-visible long-running
@@ -243,7 +292,157 @@ func sweepOne(
 		"start_pwm", result.StartPWM,
 		"max_rpm", result.MaxRPM,
 		"is_pump", entry.IsPump)
+
+	// Post-sweep sustained-spin check — formerly VerifyPhase, now
+	// folded into the sweep so the curve data and the phantom verdict
+	// live in the same artifact (RULE-SETUP-PHANTOM-VERIFY).
+	//
+	// Gated on: not aborted, have an RPM tach path, polarity is
+	// resolved (skipping "phantom" polarity, which the sweep already
+	// short-circuited above). When the sweep itself measured a real
+	// curve (MaxRPM > 0) but the sustained check sees zero RPM, the
+	// curve wins and DisagreedWithSustainedCheck is set — the
+	// fresh-Fedora wizard regression where a Dell SMM fan with a
+	// 2112-RPM measured curve was reclassified as phantom by a
+	// 3.75 s post-sweep sample.
+	if !entry.Aborted && fan.RPMPath != "" {
+		samples, sErr := sustainedSpinSamplesAt(ctx, fan.PWMPath, fan.RPMPath, polarity)
+		if sErr != nil {
+			// Sysfs IO failed (write blocked, EC offline, synthetic
+			// test path). Don't fail the phase — calibrate's curve
+			// is still the authoritative signal. Admit the fan.
+			rc.Log().Warn("calibrate: sustained-spin check skipped",
+				"fan", fan.LabelHint,
+				"pwm_path", fan.PWMPath,
+				"err", sErr)
+		} else {
+			entry.SustainedRPMs = samples
+			zero := allZero(samples)
+			switch {
+			case zero && entry.MaxRPM > 0:
+				// Verify saw zero but the sweep measured a real curve.
+				// Trust the curve.
+				entry.DisagreedWithSustainedCheck = true
+				rc.Log().Warn("calibrate: sustained-spin disagreed with curve; admitting fan",
+					"fan", fan.LabelHint,
+					"pwm_path", fan.PWMPath,
+					"curve_max_rpm", entry.MaxRPM,
+					"sustained_samples", samples)
+			case zero:
+				// No evidence in either direction → phantom.
+				entry.Phantom = true
+				rc.Log().Info("calibrate: phantom channel (zero RPM in sweep + sustained check)",
+					"fan", fan.LabelHint,
+					"pwm_path", fan.PWMPath)
+			}
+		}
+	}
+
 	return entry
+}
+
+// sustainedSpinSamplesAt writes the polarity-effective full-speed PWM
+// byte, settles for sustainedSpinSettle, and samples RPM
+// sustainedSpinSamples times spaced sustainedSpinInterval apart. The
+// original PWM byte is captured and restored on every exit path
+// (including ctx cancellation and read failure) so the check never
+// leaves a fan stranded at full speed.
+//
+// Returns the RPM sample slice. Early return on the first non-zero
+// reading: a fan that's clearly spinning doesn't need three samples
+// to prove it. Errors from sysfs (read/write failure on a synthetic
+// test path or an offline EC) propagate to the caller, which admits
+// the fan rather than failing the phase.
+func sustainedSpinSamplesAt(ctx context.Context, pwmPath, rpmPath, polarity string) ([]int, error) {
+	writeByte := byte(255)
+	if polarity == "inverted" {
+		writeByte = 0
+	}
+
+	orig, err := readPWMByteAt(pwmPath)
+	if err != nil {
+		return nil, fmt.Errorf("read orig pwm: %w", err)
+	}
+	defer func() {
+		_ = os.WriteFile(pwmPath, []byte(strconv.Itoa(int(orig))), 0o644)
+	}()
+
+	if err := os.WriteFile(pwmPath, []byte(strconv.Itoa(int(writeByte))), 0o644); err != nil {
+		return nil, fmt.Errorf("write full-speed: %w", err)
+	}
+
+	select {
+	case <-time.After(sustainedSpinSettle):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	out := make([]int, 0, sustainedSpinSamples)
+	for i := 0; i < sustainedSpinSamples; i++ {
+		if i > 0 {
+			select {
+			case <-time.After(sustainedSpinInterval):
+			case <-ctx.Done():
+				return out, ctx.Err()
+			}
+		}
+		v, err := readRPMIntAt(rpmPath)
+		if err != nil {
+			return out, fmt.Errorf("read rpm: %w", err)
+		}
+		out = append(out, v)
+		if v > 0 {
+			return out, nil
+		}
+	}
+	return out, nil
+}
+
+// allZero reports whether every entry in xs is zero (and there is at
+// least one entry). Used by the sustained-spin check to detect a
+// truly-stationary fan vs. an empty sample slice (which means the
+// check couldn't run).
+func allZero(xs []int) bool {
+	if len(xs) == 0 {
+		return false
+	}
+	for _, v := range xs {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// readPWMByteAt reads a sysfs pwm<N> file and parses a 0-255 byte.
+// Local copy of the helper formerly in verify.go.
+func readPWMByteAt(path string) (byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0, fmt.Errorf("parse byte from %s: %w", path, err)
+	}
+	if n < 0 || n > 255 {
+		return 0, fmt.Errorf("value %d at %s out of byte range", n, path)
+	}
+	return byte(n), nil
+}
+
+// readRPMIntAt reads a sysfs fan<N>_input file and parses an int.
+// Local copy of the helper formerly in verify.go.
+func readRPMIntAt(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0, fmt.Errorf("parse int from %s: %w", path, err)
+	}
+	return n, nil
 }
 
 func countSkipped(art CalibrateArtifact) int {

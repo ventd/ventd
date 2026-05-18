@@ -158,7 +158,6 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		orchestrator.RPMDetectPhase{Detector: managerRPMDetector{m: m}},
 		orchestrator.PolarityPhase{},
 		orchestrator.CalibratePhase{Calibrator: managerCalibrator{m: m}},
-		orchestrator.VerifyPhase{},
 		orchestrator.ApplyPhase{},
 	)
 	if oerr != nil {

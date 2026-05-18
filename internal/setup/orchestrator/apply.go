@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,6 +28,27 @@ type ApplyArtifact struct {
 	ConfigPath  string `json:"config_path"`
 	Fans        int    `json:"fans"`
 	MonitorOnly bool   `json:"monitor_only"`
+
+	// MonitorReason is a short machine-readable explanation of why
+	// the apply landed in monitor-only mode despite the wizard's
+	// initial_outcome being control_mode. Empty in the happy case
+	// (active control achieved). The wizard UI surfaces this on
+	// the "Wizard complete" screen so an operator who expected
+	// active control isn't left guessing.
+	//
+	// Known values:
+	//   no_cpu_sensor       — DiscoverCPUSensor returned no path
+	//   no_admitted_fans    — every probed fan was excluded
+	//                         (phantom polarity / calibrate Phantom /
+	//                         calibration skipped / probe found zero)
+	//   no_controls_built   — guard token for a buildConfig regression
+	//                         that produced Fans without Controls
+	MonitorReason string `json:"monitor_reason,omitempty"`
+
+	// EnableRestored counts how many excluded channels had their
+	// pwm<N>_enable restored to the probe-time value. Surfaced for
+	// the doctor page so operators can see whether the cleanup ran.
+	EnableRestored int `json:"enable_restored,omitempty"`
 }
 
 // ApplyPhase writes the daemon's config.yaml from prior phases'
@@ -34,24 +56,26 @@ type ApplyArtifact struct {
 // ApplyPhase succeeds the wizard is done and the daemon can take
 // control on next reload.
 //
-// Full-control contract (PR#B4): consumes ProbeArtifact +
-// PolarityArtifact + CalibrateArtifact + VerifyArtifact + a
-// discovered CPU sensor to build a working ACTIVE-CONTROL config
-// with Sensors + Fans + Curves + Controls. The daemon loads this
-// and starts driving fans immediately — Goal 4 of the rework is met
-// the moment Apply succeeds.
+// Full-control contract: consumes ProbeArtifact + PolarityArtifact +
+// CalibrateArtifact + a discovered CPU sensor to build a working
+// ACTIVE-CONTROL config with Sensors + Fans + Curves + Controls. The
+// daemon loads this and starts driving fans immediately — Goal 4 of
+// the rework is met the moment Apply succeeds.
 //
 // Fallback to monitor-only: when no CPU sensor is discoverable, or
-// when CalibrateArtifact is missing entirely, ApplyPhase writes a
-// config with Fans listed but no Controls. The daemon still loads
-// it and reports temps/RPMs in the dashboard; operators add curves
-// later via the web UI.
+// when every probed fan is excluded (phantom polarity / phantom from
+// calibrate's sustained-spin check), ApplyPhase writes a config with
+// Fans listed but no Controls. The daemon still loads it and reports
+// temps/RPMs in the dashboard; operators add curves later via the
+// web UI.
 //
 // Fan exclusion rules:
-//   - polarity == "phantom"                  → exclude (no PWM surface)
-//   - verify reclassified as phantom         → exclude (post-cal proof)
-//   - calibration skipped/failed             → include with safe defaults
-//   - polarity == "unknown"                  → include; daemon's polarity-
+//   - polarity == "phantom"          → exclude (no PWM surface)
+//   - calibrate Phantom              → exclude (sustained-spin check
+//     saw zero RPM AND the sweep
+//     itself measured MaxRPM == 0)
+//   - calibration skipped/failed     → include with safe defaults
+//   - polarity == "unknown"          → include; daemon's polarity-
 //     aware WritePWM refuses to
 //     drive until polarity resolves
 type ApplyPhase struct {
@@ -99,21 +123,13 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 
 	// CalibrateArtifact is best-effort: missing/failed → use safe
 	// heuristic PWM bounds for every fan rather than failing apply.
+	// CalibrateFanResult.Phantom (set by the sweep's sustained-spin
+	// check) now carries what loadVerifyArtifact previously did — a
+	// fan flagged Phantom is excluded from the applied config.
 	calByPath := map[string]CalibrateFanResult{}
 	if calArt, calErr := loadCalibrateArtifact(rc); calErr == nil {
 		for _, r := range calArt.Results {
 			calByPath[r.PWMPath] = r
-		}
-	}
-
-	// VerifyArtifact is best-effort: missing → no fans are
-	// reclassified as phantom by verify.
-	verifyPhantom := map[string]bool{}
-	if verifyArt, verifyErr := loadVerifyArtifact(rc); verifyErr == nil {
-		for _, r := range verifyArt.Results {
-			if r.Phantom {
-				verifyPhantom[r.PWMPath] = true
-			}
 		}
 	}
 
@@ -147,8 +163,31 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	}
 	cpuSensor := DiscoverCPUSensor(hwmonRoot)
 
-	cfg := buildConfig(probeArt, polByPath, calByPath, verifyPhantom, rpmOverrides, nvmlFans, cpuSensor)
+	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor)
 	monitorOnly := len(cfg.Controls) == 0
+
+	// Diagnose the monitor-only path so the artifact carries a
+	// reason field the UI + doctor can surface. The two distinct
+	// causes have very different operator implications: missing
+	// CPU sensor is a hwmon discovery gap; no admitted fans is
+	// usually a calibrate-phantom cascade (every probed fan failed
+	// both the sweep and the sustained-spin check).
+	monitorReason := ""
+	if monitorOnly {
+		switch {
+		case cpuSensor.Path == "":
+			monitorReason = "no_cpu_sensor"
+		case len(cfg.Fans) == 0:
+			monitorReason = "no_admitted_fans"
+		default:
+			// cfg.Fans>0 but cfg.Controls==0 — shouldn't happen
+			// with the current buildConfig (Controls always
+			// follows Fans when both prerequisites are met), but
+			// be explicit so a future regression surfaces a
+			// recognisable token rather than empty.
+			monitorReason = "no_controls_built"
+		}
+	}
 
 	if err := writeConfigAtomic(path, cfg); err != nil {
 		return Outcome{
@@ -158,18 +197,65 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		}
 	}
 
+	// Restore pwm<N>_enable on every channel that's NOT in the
+	// applied config — phantom-classified, calibrate-phantom, and
+	// (when we demoted to monitor-only) every probed channel.
+	// Without this, the wizard would leave channels at pwm_enable=1
+	// (manual) with whatever PWM the calibrate sweep left last, and
+	// neither ventd (monitor-only) nor BIOS (manual mode active)
+	// would drive the fan under load — a thermal safety regression
+	// observed on Dell SMM after the calibrate→apply cascade.
+	includedPWM := map[string]bool{}
+	for _, f := range cfg.Fans {
+		includedPWM[f.PWMPath] = true
+	}
+	enableRestored := 0
+	for _, fan := range probeArt.Fans {
+		// Monitor-only demotion: restore every probed channel,
+		// regardless of whether it would have been included. The
+		// daemon won't drive any of them so firmware control is
+		// the safe default for all.
+		if !monitorOnly && includedPWM[fan.PWMPath] {
+			continue
+		}
+		if fan.EnablePath == "" || fan.InitialEnable == 0 {
+			continue
+		}
+		if err := os.WriteFile(fan.EnablePath, []byte(strconv.Itoa(int(fan.InitialEnable))), 0o644); err != nil {
+			rc.Log().Warn("apply: restore pwm_enable failed",
+				"enable_path", fan.EnablePath,
+				"target", fan.InitialEnable,
+				"err", err)
+			continue
+		}
+		enableRestored++
+	}
+
 	art := ApplyArtifact{
-		ConfigPath:  path,
-		Fans:        len(cfg.Fans),
-		MonitorOnly: monitorOnly,
+		ConfigPath:     path,
+		Fans:           len(cfg.Fans),
+		MonitorOnly:    monitorOnly,
+		MonitorReason:  monitorReason,
+		EnableRestored: enableRestored,
 	}
 	raw, _ := EncodeArtifact(art)
 
 	rc.Sink().Emit("info", "apply",
 		fmt.Sprintf("config written to %s (%d fan(s); monitor-only=%v)",
 			path, art.Fans, art.MonitorOnly))
-	rc.Log().Info("apply complete",
-		"path", path, "fans", art.Fans, "monitor_only", art.MonitorOnly)
+	if monitorOnly {
+		rc.Log().Warn("apply complete: monitor-only fallback",
+			"path", path,
+			"fans", art.Fans,
+			"reason", monitorReason,
+			"pwm_enable_restored", enableRestored)
+	} else {
+		rc.Log().Info("apply complete",
+			"path", path,
+			"fans", art.Fans,
+			"monitor_only", art.MonitorOnly,
+			"pwm_enable_restored", enableRestored)
+	}
 
 	return Outcome{Status: StatusSuccess, Artifact: raw}
 }
@@ -182,16 +268,16 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 // the rework.
 //
 // Degraded paths:
-//   - No CPU sensor          → no Curves/Controls (monitor-only)
-//   - Calibration missing    → fan included with safe heuristic PWM bounds
-//     (StartPWM=80, MaxPWM=255), curve still wired
-//   - Polarity phantom OR    → fan excluded entirely
-//     verify phantom
+//   - No CPU sensor              → no Curves/Controls (monitor-only)
+//   - Calibration missing        → fan included with safe heuristic PWM
+//     bounds (StartPWM=80, MaxPWM=255), curve still wired
+//   - Polarity phantom OR        → fan excluded entirely
+//     calibrate-flagged Phantom
+//     (sustained-spin check)
 func buildConfig(
 	probeArt ProbeArtifact,
 	polByPath map[string]string,
 	calByPath map[string]CalibrateFanResult,
-	verifyPhantom map[string]bool,
 	rpmOverrides map[string]string,
 	nvmlFans []NVMLGPUFan,
 	cpuSensor DiscoveredSensor,
@@ -216,7 +302,10 @@ func buildConfig(
 	}
 
 	for _, fan := range probeArt.Fans {
-		if polByPath[fan.PWMPath] == "phantom" || verifyPhantom[fan.PWMPath] {
+		if polByPath[fan.PWMPath] == "phantom" {
+			continue
+		}
+		if cal, ok := calByPath[fan.PWMPath]; ok && cal.Phantom {
 			continue
 		}
 

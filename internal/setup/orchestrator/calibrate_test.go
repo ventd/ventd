@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +14,75 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
 )
+
+// seedCalibrateCheckpoint writes a CalibrateArtifact to the run-
+// context's state dir so a downstream phase (currently ApplyPhase)
+// can load it without running the sweep. Used by apply tests that
+// need controlled calibrate output. Lived in verify_test.go before
+// VerifyPhase was absorbed into CalibratePhase.
+func seedCalibrateCheckpoint(t *testing.T, rc *RunContext, art CalibrateArtifact) {
+	t.Helper()
+	store := NewCheckpointStore(rc.StateDir)
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(art)
+	state.Outcomes[(CalibratePhase{}).Name()] = Outcome{
+		Phase:    (CalibratePhase{}).Name(),
+		Status:   StatusSuccess,
+		Artifact: raw,
+	}
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// fanFixture stages a synthetic pwm + fan_input pair under a temp
+// dir for tests that exercise the sustained-spin check inside
+// sweepOne (or, historically, VerifyPhase.checkOne).
+type fanFixture struct {
+	pwmInitial uint8
+	rpmAfter   int
+}
+
+func stageFan(t *testing.T, dir string, idx int, f fanFixture) (pwmPath, rpmPath string) {
+	t.Helper()
+	pwmPath = filepath.Join(dir, "pwm"+itoaInt(idx))
+	rpmPath = filepath.Join(dir, "fan"+itoaInt(idx)+"_input")
+	if err := os.WriteFile(pwmPath, []byte(itoaInt(int(f.pwmInitial))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rpmPath, []byte(itoaInt(f.rpmAfter)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return pwmPath, rpmPath
+}
+
+// itoaInt is the strconv.Itoa-free integer-to-string helper used by
+// the test fixtures. Kept in this package so the test files don't
+// take a strconv dependency.
+func itoaInt(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var b [20]byte
+	pos := len(b)
+	for i > 0 {
+		pos--
+		b[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		b[pos] = '-'
+	}
+	return string(b[pos:])
+}
 
 // fakeCalibrator is the test seam for CalibratePhase. Per-PWMPath
 // configured results + an attempt log for assertions.
@@ -255,5 +326,142 @@ func TestCalibratePhase_EmptyProbeArtifactSkips(t *testing.T) {
 	out := (CalibratePhase{Calibrator: &fakeCalibrator{}}).Execute(context.Background(), rc)
 	if out.Status != StatusSkipped {
 		t.Errorf("empty probe → Skipped, got %q", out.Status)
+	}
+}
+
+// withFastSustainedSpinCheck shrinks the sustained-spin constants so
+// tests don't pay the production 3.75 s wall-clock. Restored in
+// t.Cleanup so concurrent tests aren't affected.
+func withFastSustainedSpinCheck(t *testing.T) {
+	t.Helper()
+	settle, samples, interval := sustainedSpinSettle, sustainedSpinSamples, sustainedSpinInterval
+	sustainedSpinSettle = 10 * time.Millisecond
+	sustainedSpinSamples = 3
+	sustainedSpinInterval = 2 * time.Millisecond
+	t.Cleanup(func() {
+		sustainedSpinSettle = settle
+		sustainedSpinSamples = samples
+		sustainedSpinInterval = interval
+	})
+}
+
+// TestCalibratePhase_TrustsCurveWhenSustainedSamplesZero is the
+// fresh-Fedora regression. The sweep measures a real curve
+// (MaxRPM > 0) for a Dell SMM fan, but the post-sweep sustained-spin
+// check samples zero RPM because the EC reasserts Q-Fan-style control
+// between the sweep's last write and the sustained-check write. With
+// the old verify-phase architecture this reclassified the fan as
+// phantom and excluded it from the applied config. The fix admits
+// the fan and flags DisagreedWithSustainedCheck for the doctor page.
+func TestCalibratePhase_TrustsCurveWhenSustainedSamplesZero(t *testing.T) {
+	withFastSustainedSpinCheck(t)
+	dir := t.TempDir()
+	pwm, rpm := stageFan(t, dir, 1, fanFixture{pwmInitial: 128, rpmAfter: 0})
+
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{Index: 1, PWMPath: pwm, RPMPath: rpm, ChipName: "dell_smm", LabelHint: "F1"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: pwm, Polarity: "normal"}},
+	})
+
+	// Fake calibrator returns a real curve for this PWM path. The
+	// sustained-spin check then runs against the staged sysfs fixture
+	// where fan_input reads 0 — exactly the Dell SMM disagreement.
+	cal := &fakeCalibrator{results: map[string]calibrate.Result{
+		pwm: {StartPWM: 76, MaxRPM: 2112, MinRPM: 1401},
+	}}
+
+	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if len(art.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(art.Results))
+	}
+	r := art.Results[0]
+	if r.Phantom {
+		t.Errorf("fan should NOT be phantom when sweep measured MaxRPM>0: %+v", r)
+	}
+	if !r.DisagreedWithSustainedCheck {
+		t.Errorf("DisagreedWithSustainedCheck should be set when sustained samples are zero on a curve-validated fan: %+v", r)
+	}
+	if r.MaxRPM != 2112 {
+		t.Errorf("MaxRPM should be preserved from the sweep: got %d, want 2112", r.MaxRPM)
+	}
+	if len(r.SustainedRPMs) == 0 {
+		t.Errorf("SustainedRPMs should carry the sample slice for diagnostics: %+v", r)
+	}
+}
+
+// TestCalibratePhase_PhantomWhenBothSweepAndSustainedSeeZero is the
+// orthogonal regression: a channel that nothing's wired to should
+// still be flagged Phantom by the sweep+sustained-check combo. The
+// fakeCalibrator returns MaxRPM=0 to model a sweep that found no
+// real fan; the sustained-spin check on the staged fan_input (zero
+// RPM) seals the verdict.
+func TestCalibratePhase_PhantomWhenBothSweepAndSustainedSeeZero(t *testing.T) {
+	withFastSustainedSpinCheck(t)
+	dir := t.TempDir()
+	pwm, rpm := stageFan(t, dir, 1, fanFixture{pwmInitial: 128, rpmAfter: 0})
+
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{Index: 1, PWMPath: pwm, RPMPath: rpm, ChipName: "x", LabelHint: "Phantom"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: pwm, Polarity: "normal"}},
+	})
+
+	cal := &fakeCalibrator{results: map[string]calibrate.Result{
+		pwm: {StartPWM: 0, MaxRPM: 0, MinRPM: 0},
+	}}
+
+	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q", out.Status)
+	}
+
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if len(art.Results) != 1 || !art.Results[0].Phantom {
+		t.Errorf("no curve + zero sustained samples must phantom; got %+v", art)
+	}
+	if art.Results[0].DisagreedWithSustainedCheck {
+		t.Errorf("DisagreedWithSustainedCheck must be false when sweep saw no curve: %+v", art.Results[0])
+	}
+}
+
+// TestCalibratePhase_SustainedCheckSkippedWhenNoRPMPath asserts that
+// channels without a paired fan_input get admitted (no phantom flag)
+// since the sustained-spin check needs a tach to read. Mirrors the
+// old VerifyPhase "no RPM tach path; cannot verify" skip path.
+func TestCalibratePhase_SustainedCheckSkippedWhenNoRPMPath(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{Index: 1, PWMPath: "/synthetic/pwm1", RPMPath: "", ChipName: "x", LabelHint: "DC"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: "/synthetic/pwm1", Polarity: "normal"}},
+	})
+
+	cal := &fakeCalibrator{results: map[string]calibrate.Result{
+		"/synthetic/pwm1": {StartPWM: 80, MaxRPM: 1500},
+	}}
+	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q", out.Status)
+	}
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if len(art.Results) != 1 || art.Results[0].Phantom {
+		t.Errorf("RPM-less fan should be admitted (sustained check skipped); got %+v", art)
+	}
+	if len(art.Results[0].SustainedRPMs) != 0 {
+		t.Errorf("SustainedRPMs should be empty when check was skipped: %+v", art.Results[0].SustainedRPMs)
 	}
 }

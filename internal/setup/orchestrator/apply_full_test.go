@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -110,12 +109,13 @@ func TestApplyPhase_NoSensorFallsBackToMonitorOnly(t *testing.T) {
 	}
 }
 
-// TestApplyPhase_VerifyPhantomFanExcluded verifies that fans
-// reclassified as phantom by the post-calibration verify are excluded
-// from the resulting config (in addition to polarity-phantom fans).
-func TestApplyPhase_VerifyPhantomFanExcluded(t *testing.T) {
-	stateDir := t.TempDir()
-	rc := &RunContext{StateDir: stateDir}
+// TestApplyPhase_CalibratePhantomFanExcluded verifies that fans
+// flagged as phantom by CalibratePhase's sustained-spin check are
+// excluded from the resulting config (in addition to polarity-phantom
+// fans). The phantom verdict used to come from a separate VerifyPhase
+// artifact; it now lives on CalibrateFanResult.Phantom.
+func TestApplyPhase_CalibratePhantomFanExcluded(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 
 	hwmonRoot := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
@@ -125,7 +125,7 @@ func TestApplyPhase_VerifyPhantomFanExcluded(t *testing.T) {
 	seedProbeCheckpoint(t, rc, ProbeArtifact{
 		Fans: []ProbedFan{
 			{Index: 1, PWMPath: "/p1", LabelHint: "Good Fan"},
-			{Index: 2, PWMPath: "/p2", LabelHint: "Verify-Phantom Fan"},
+			{Index: 2, PWMPath: "/p2", LabelHint: "Phantom Fan"},
 		},
 	})
 	seedPolarityCheckpoint(t, rc, PolarityArtifact{
@@ -134,23 +134,15 @@ func TestApplyPhase_VerifyPhantomFanExcluded(t *testing.T) {
 			{PWMPath: "/p2", Polarity: "normal"},
 		},
 	})
-	// Verify marks /p2 phantom (calibration looked OK but post-cal
-	// full-speed read showed 0 RPM).
-	store := NewCheckpointStore(stateDir)
-	state, _ := store.Load()
-	state.Outcomes[(VerifyPhase{}).Name()] = Outcome{
-		Phase:  (VerifyPhase{}).Name(),
-		Status: StatusSuccess,
-		Artifact: mustJSON(VerifyArtifact{
-			Results: []VerifyFanResult{
-				{PWMPath: "/p1", Phantom: false},
-				{PWMPath: "/p2", Phantom: true, ReclassifiedFrom: "normal"},
-			},
-		}),
-	}
-	if err := store.Save(state); err != nil {
-		t.Fatal(err)
-	}
+	// Calibrate sweep ran on both. /p1 is a real fan (MaxRPM>0); /p2
+	// produced no sweep evidence AND the sustained-spin check sampled
+	// zero RPM → calibrate flagged it Phantom.
+	seedCalibrateCheckpoint(t, rc, CalibrateArtifact{
+		Results: []CalibrateFanResult{
+			{PWMPath: "/p1", StartPWM: 76, MaxRPM: 1500},
+			{PWMPath: "/p2", Phantom: true, SustainedRPMs: []int{0, 0, 0}},
+		},
+	})
 
 	out := (ApplyPhase{ConfigPath: cfgPath, HwmonRoot: hwmonRoot}).Execute(context.Background(), rc)
 	if out.Status != StatusSuccess {
@@ -160,16 +152,8 @@ func TestApplyPhase_VerifyPhantomFanExcluded(t *testing.T) {
 	var cfg config.Config
 	_ = yaml.Unmarshal(body, &cfg)
 	if len(cfg.Fans) != 1 || cfg.Fans[0].Name != "Good Fan" {
-		t.Errorf("verify-phantom fan must be excluded; got fans=%+v", cfg.Fans)
+		t.Errorf("calibrate-phantom fan must be excluded; got fans=%+v", cfg.Fans)
 	}
-}
-
-func mustJSON(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
 
 // TestApplyPhase_PopulatesHwmonDevice exercises the PR#B7 fix: ApplyPhase
