@@ -436,6 +436,105 @@ func TestCalibratePhase_PhantomWhenBothSweepAndSustainedSeeZero(t *testing.T) {
 	}
 }
 
+// TestCalibratePhase_FlagsNonMonotonicCurve uses the exact Dell SMM
+// fan curve captured during the fresh-Fedora wizard test (issue
+// #1214): the sweep peaks at PWM=165 / 2112 RPM and drops back to
+// ~1595 RPM through PWM=255 because the EC reasserts Q-Fan-style
+// control at high PWM. The largest drop (2088→1595 = 493 RPM at
+// PWM=178→191) is 23% of MaxRPM — well over the 15% threshold —
+// so the fan should be admitted with NonMonotonicCurve=true and
+// MaxDropRPM=493.
+func TestCalibratePhase_FlagsNonMonotonicCurve(t *testing.T) {
+	withFastSustainedSpinCheck(t)
+	dir := t.TempDir()
+	pwm, rpm := stageFan(t, dir, 1, fanFixture{pwmInitial: 128, rpmAfter: 1500})
+
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{Index: 1, PWMPath: pwm, RPMPath: rpm, ChipName: "dell_smm", LabelHint: "Dell Fan"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: pwm, Polarity: "normal"}},
+	})
+
+	// Actual curve recorded during the 2026-05-18 Fedora test.
+	dellSMMCurve := []calibrate.PWMRPMPoint{
+		{PWM: 0, RPM: 1485}, {PWM: 12, RPM: 0}, {PWM: 25, RPM: 0},
+		{PWM: 38, RPM: 0}, {PWM: 51, RPM: 0}, {PWM: 63, RPM: 0},
+		{PWM: 76, RPM: 1401}, {PWM: 89, RPM: 1579}, {PWM: 102, RPM: 1591},
+		{PWM: 114, RPM: 1590}, {PWM: 127, RPM: 1617}, {PWM: 140, RPM: 1567},
+		{PWM: 153, RPM: 1594}, {PWM: 165, RPM: 2112}, {PWM: 178, RPM: 2088},
+		{PWM: 191, RPM: 1595}, {PWM: 204, RPM: 1602}, {PWM: 216, RPM: 1586},
+		{PWM: 229, RPM: 1601}, {PWM: 242, RPM: 1599}, {PWM: 255, RPM: 1648},
+	}
+	cal := &fakeCalibrator{results: map[string]calibrate.Result{
+		pwm: {StartPWM: 76, MaxRPM: 2112, MinRPM: 1401, Curve: dellSMMCurve},
+	}}
+
+	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if len(art.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(art.Results))
+	}
+	r := art.Results[0]
+	if !r.NonMonotonicCurve {
+		t.Errorf("Dell SMM curve must flag NonMonotonicCurve (max drop = 493 RPM, 23%% of MaxRPM): %+v", r)
+	}
+	if r.MaxDropRPM != 493 {
+		t.Errorf("MaxDropRPM = %d, want 493 (from PWM=178/2088 → PWM=191/1595)", r.MaxDropRPM)
+	}
+	// Admission unaffected: fan is real, just irregular.
+	if r.Phantom {
+		t.Errorf("non-monotonic curve must not phantom-flag the fan: %+v", r)
+	}
+}
+
+// TestCalibratePhase_MonotonicCurveNotFlagged asserts the noise
+// floor: a well-behaved curve with small step-to-step jitter (well
+// below 15% of MaxRPM) should NOT trip the NonMonotonicCurve flag.
+func TestCalibratePhase_MonotonicCurveNotFlagged(t *testing.T) {
+	withFastSustainedSpinCheck(t)
+	dir := t.TempDir()
+	pwm, rpm := stageFan(t, dir, 1, fanFixture{pwmInitial: 128, rpmAfter: 1500})
+
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{Index: 1, PWMPath: pwm, RPMPath: rpm, ChipName: "nct6687", LabelHint: "Clean Fan"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: pwm, Polarity: "normal"}},
+	})
+
+	// Monotonic curve with small ±50 RPM jitter (well under 15% of 2000 = 300).
+	clean := []calibrate.PWMRPMPoint{
+		{PWM: 80, RPM: 600}, {PWM: 100, RPM: 800}, {PWM: 120, RPM: 1000},
+		{PWM: 140, RPM: 1180}, {PWM: 160, RPM: 1360}, {PWM: 180, RPM: 1530},
+		{PWM: 200, RPM: 1700}, {PWM: 220, RPM: 1860}, {PWM: 240, RPM: 1950},
+		{PWM: 255, RPM: 2000},
+	}
+	cal := &fakeCalibrator{results: map[string]calibrate.Result{
+		pwm: {StartPWM: 80, MaxRPM: 2000, MinRPM: 600, Curve: clean},
+	}}
+
+	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q", out.Status)
+	}
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if art.Results[0].NonMonotonicCurve {
+		t.Errorf("clean monotonic curve must NOT flag NonMonotonicCurve: %+v", art.Results[0])
+	}
+	if art.Results[0].MaxDropRPM != 0 {
+		t.Errorf("MaxDropRPM = %d on monotonic curve, want 0", art.Results[0].MaxDropRPM)
+	}
+}
+
 // TestCalibratePhase_SustainedCheckSkippedWhenNoRPMPath asserts that
 // channels without a paired fan_input get admitted (no phantom flag)
 // since the sustained-spin check needs a tach to read. Mirrors the
