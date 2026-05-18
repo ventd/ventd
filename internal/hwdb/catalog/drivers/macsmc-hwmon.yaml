@@ -1,0 +1,29 @@
+schema_version: "1.2"
+
+driver_profiles:
+  - module: "macsmc-hwmon"
+    family: "apple-silicon-smc"
+    description: "Apple Silicon (M1/M2/M3/M4) SMC hwmon driver — mainlined for Linux 6.19. Exposes temp/voltage/current/power sensors and fan tach via standard hwmon interfaces; RPM-setpoint writability is per-Apple-model and gated on SMC firmware. Asahi Linux is the canonical Linux distribution target."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "smc_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    kernel_version:
+      min: "6.19"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (driver source in AsahiLinux's kernel tree)"
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (per-model Apple Silicon coverage)"
