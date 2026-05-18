@@ -410,108 +410,72 @@ func TestSetPasswordRejectsOversizedBody(t *testing.T) {
 // Setup token tests removed by issue #765 (eliminate setup token).
 // First-boot login is now password-only — see auth_regression_test.go.
 
-// --- First-boot redirect (server-side) ----------------------------------
+// --- /api/* 404-before-401 ----------------------------------------------
 //
-// Pre-fix behaviour: GET / → 302 /login, GET /login → 200 with login.html,
-// and login.js then fetched /api/v1/auth/state and replaced the URL with
-// /setup. This produced a visible flash of the wrong page and trapped any
-// client with JS disabled on a sign-in form that could never succeed.
-// Post-fix: the server short-circuits to /setup whenever authHashValue
-// is empty, and post-first-boot /setup redirects to /login.
+// Pre-fix behaviour: an unregistered API path like /api/does/not/exist
+// fell through the ServeMux to the "/" pattern, which was wrapped in
+// requireAuth — so the unauthenticated request got 401 unauthorized
+// JSON, indistinguishable from "valid path but no session" and a
+// debugging trap for anyone integrating with the API. Post-fix: a
+// catch-all /api/ handler returns 404 JSON, and the registered routes
+// (which are more specific) still take precedence.
 
-// TestFirstBoot_RootRedirectsToSetup asserts that GET / with no session
-// and no admin password set goes straight to /setup, not /login.
-func TestFirstBoot_RootRedirectsToSetup(t *testing.T) {
+func TestAPIUnknownPathReturns404NotUnauthorized(t *testing.T) {
 	srv, _ := newSecuritySrv(t)
-	// newSecuritySrv stores config.Empty() (no PasswordHash) and uses
-	// authPath="" (no auth.json) — first-boot.
-	if srv.authHashValue() != "" {
-		t.Fatalf("precondition: authHashValue=%q, want empty", srv.authHashValue())
-	}
 
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Host = "ventd.local:9999"
-	rr := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Fatalf("GET /: status=%d want 302", rr.Code)
+	cases := []struct{ name, path string }{
+		{"plain_api", "/api/does/not/exist"},
+		{"v1_api", "/api/v1/does/not/exist"},
+		{"bare_v1", "/api/v1/"},
 	}
-	if loc := rr.Header().Get("Location"); loc != "/setup" {
-		t.Errorf("GET / first-boot: Location=%q want /setup", loc)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Host = "ventd.local:9999"
+			rr := httptest.NewRecorder()
+			srv.handler.ServeHTTP(rr, req)
+			if rr.Code != http.StatusNotFound {
+				t.Errorf("%s: status=%d want 404 (body=%q)", tc.path, rr.Code, rr.Body.String())
+			}
+			if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+				t.Errorf("%s: Content-Type=%q want application/json", tc.path, ct)
+			}
+			if !strings.Contains(rr.Body.String(), `"error"`) {
+				t.Errorf("%s: body=%q missing JSON error shape", tc.path, rr.Body.String())
+			}
+		})
 	}
 }
 
-// TestFirstBoot_LoginGetRedirectsToSetup asserts that a direct visit to
-// /login during first-boot also lands on /setup — JS-disabled visitors
-// must never see the sign-in form during first-boot.
-func TestFirstBoot_LoginGetRedirectsToSetup(t *testing.T) {
+// TestAPIRegisteredPublicPathStillReachable is the regression guard:
+// /api/ping is unauthenticated and must still 200 — the new catch-all
+// must not shadow concrete routes.
+func TestAPIRegisteredPublicPathStillReachable(t *testing.T) {
 	srv, _ := newSecuritySrv(t)
 
-	req := httptest.NewRequest("GET", "/login", nil)
-	req.Host = "ventd.local:9999"
-	rr := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Fatalf("GET /login first-boot: status=%d body=%q want 302", rr.Code, rr.Body.String())
-	}
-	if loc := rr.Header().Get("Location"); loc != "/setup" {
-		t.Errorf("GET /login first-boot: Location=%q want /setup", loc)
+	for _, path := range []string{"/api/ping", "/api/v1/ping"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = "ventd.local:9999"
+		rr := httptest.NewRecorder()
+		srv.handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: status=%d want 200 (catch-all should not shadow registered routes)", path, rr.Code)
+		}
 	}
 }
 
-// TestPostFirstBoot_SetupRedirectsToLogin asserts the reverse — once a
-// password is set, /setup 302s to /login so a stale tab or drive-by hit
-// can't render a "Create password" form whose POST would silently no-op.
-func TestPostFirstBoot_SetupRedirectsToLogin(t *testing.T) {
+// TestAPIRegisteredAuthPathStill401 is the second regression guard:
+// /api/config requires auth — an unauthenticated request must still
+// get 401, not 404. The catch-all only kicks in for paths that nothing
+// registered.
+func TestAPIRegisteredAuthPathStill401(t *testing.T) {
 	srv, _ := newSecuritySrv(t)
 
-	// Transition to post-first-boot.
-	hash, err := HashPassword("correcthorse")
-	if err != nil {
-		t.Fatalf("hash: %v", err)
-	}
-	live := config.Empty()
-	live.Web.PasswordHash = hash
-	srv.cfg.Store(live)
-
-	req := httptest.NewRequest("GET", "/setup", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	req.Host = "ventd.local:9999"
 	rr := httptest.NewRecorder()
 	srv.handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Fatalf("GET /setup post-first-boot: status=%d want 302", rr.Code)
-	}
-	if loc := rr.Header().Get("Location"); loc != "/login" {
-		t.Errorf("GET /setup post-first-boot: Location=%q want /login", loc)
-	}
-}
-
-// TestPostFirstBoot_RootStillRedirectsToLogin is the regression guard
-// for requireAuth: once a password is set, an unauthenticated visit to
-// / must still 302 to /login (not /setup).
-func TestPostFirstBoot_RootStillRedirectsToLogin(t *testing.T) {
-	srv, _ := newSecuritySrv(t)
-
-	hash, err := HashPassword("correcthorse")
-	if err != nil {
-		t.Fatalf("hash: %v", err)
-	}
-	live := config.Empty()
-	live.Web.PasswordHash = hash
-	srv.cfg.Store(live)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Host = "ventd.local:9999"
-	rr := httptest.NewRecorder()
-	srv.handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusFound {
-		t.Fatalf("GET / post-first-boot: status=%d want 302", rr.Code)
-	}
-	if loc := rr.Header().Get("Location"); loc != "/login" {
-		t.Errorf("GET / post-first-boot: Location=%q want /login", loc)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("/api/config unauth: status=%d want 401", rr.Code)
 	}
 }
