@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
@@ -127,12 +129,54 @@ func (p PolarityPhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		}
 	}
 
+	// Restore pwm<N>_enable on every channel the bipolar probe drove
+	// that won't be revisited by CalibratePhase. Without this the
+	// probe-end pwm_enable+PWM combination leaves phantom-classified
+	// channels at whatever PWM the prober last wrote — typically the
+	// bipolar high-pulse value (255) — for the full CalibratePhase
+	// wall-clock (5+ min on an 8-fan box). Audibly stuck at max RPM
+	// for the entire wizard window with no UI indication anything is
+	// wrong (#1220). The pattern mirrors ApplyPhase's EnableRestored
+	// loop and uses the same probe-time InitialEnable byte. "normal"
+	// channels are skipped because CalibratePhase will assert
+	// pwm_enable on them within seconds; "inverted" and "unknown" are
+	// included alongside "phantom" because the calibrate sweep gates
+	// on polarity and never touches them either.
+	enableRestored := 0
+	for i, fan := range probeArt.Fans {
+		if i >= len(art.Results) {
+			break // ctx cancellation truncated the results slice
+		}
+		switch art.Results[i].Polarity {
+		case "normal":
+			continue
+		case "inverted", "phantom", "unknown":
+			// fall through to restore.
+		default:
+			continue
+		}
+		if fan.EnablePath == "" || fan.InitialEnable == 0 {
+			continue
+		}
+		if err := os.WriteFile(fan.EnablePath,
+			[]byte(strconv.Itoa(int(fan.InitialEnable))), 0o644); err != nil {
+			rc.Log().Warn("polarity: restore pwm_enable failed",
+				"enable_path", fan.EnablePath,
+				"target", fan.InitialEnable,
+				"polarity", art.Results[i].Polarity,
+				"err", err)
+			continue
+		}
+		enableRestored++
+	}
+
 	rc.Log().Info("polarity phase complete",
 		"total", len(art.Results),
 		"normal", countPolarity(art, "normal"),
 		"inverted", countPolarity(art, "inverted"),
 		"phantom", countPolarity(art, "phantom"),
-		"unknown", countPolarity(art, "unknown"))
+		"unknown", countPolarity(art, "unknown"),
+		"pwm_enable_restored", enableRestored)
 
 	return Outcome{Status: StatusSuccess, Artifact: raw}
 }
