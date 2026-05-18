@@ -135,6 +135,111 @@ func (r managerRPMDetector) Detect(fan *config.Fan) (calibrate.DetectResult, err
 	return r.m.cal.DetectRPMSensor(fan)
 }
 
+// synthesiseOrchestratorFans reads the orchestrator's checkpoint state
+// and produces a []FanState the wizard UI can render into its fan
+// roster + per-fan strips. The legacy phase 0-7 inline body owned
+// Manager.fans directly; the orchestrator never writes there, so
+// without this synthesis the wizard UI's roster + system cards never
+// populate during the multi-minute calibrate window — only the
+// activity log streams (#1230).
+//
+// Synthesis priority per fan:
+//   - ProbeArtifact provides identity (PWMPath, RPMPath, Name, Type).
+//     A fan present here has DetectPhase = "found".
+//   - PolarityArtifact overlays PolarityPhase (normal / inverted /
+//     phantom / unknown).
+//   - CalibrateArtifact overlays CalPhase ("done" / "skipped" /
+//     "error"), StartPWM, StopPWM, MaxRPM.
+//
+// All three artifact loads are best-effort: a missing or unparseable
+// artifact is treated as "phase has not happened yet" and the matching
+// fields are left at their zero values so the wizard UI renders
+// "pending" badges. Returns nil when no probe artifact exists yet —
+// the caller falls back to its empty-fans state.
+func synthesiseOrchestratorFans() []FanState {
+	stateDir := orchestratorStateRoot()
+	store := orchestrator.NewCheckpointStore(stateDir)
+	state, err := store.Load()
+	if err != nil {
+		return nil
+	}
+
+	probeOut, ok := state.Outcomes[(orchestrator.ProbePhase{}).Name()]
+	if !ok || probeOut.Status != orchestrator.StatusSuccess || len(probeOut.Artifact) == 0 {
+		return nil
+	}
+	var probeArt orchestrator.ProbeArtifact
+	if err := json.Unmarshal(probeOut.Artifact, &probeArt); err != nil {
+		return nil
+	}
+	if len(probeArt.Fans) == 0 {
+		return nil
+	}
+
+	polByPath := map[string]string{}
+	if polOut, ok := state.Outcomes[(orchestrator.PolarityPhase{}).Name()]; ok && len(polOut.Artifact) > 0 {
+		var polArt orchestrator.PolarityArtifact
+		if err := json.Unmarshal(polOut.Artifact, &polArt); err == nil {
+			for _, r := range polArt.Results {
+				polByPath[r.PWMPath] = r.Polarity
+			}
+		}
+	}
+
+	calByPath := map[string]orchestrator.CalibrateFanResult{}
+	if calOut, ok := state.Outcomes[(orchestrator.CalibratePhase{}).Name()]; ok && len(calOut.Artifact) > 0 {
+		var calArt orchestrator.CalibrateArtifact
+		if err := json.Unmarshal(calOut.Artifact, &calArt); err == nil {
+			for _, r := range calArt.Results {
+				calByPath[r.PWMPath] = r
+			}
+		}
+	}
+
+	out := make([]FanState, 0, len(probeArt.Fans))
+	for _, f := range probeArt.Fans {
+		fs := FanState{
+			Name:        f.LabelHint,
+			Type:        "hwmon",
+			PWMPath:     f.PWMPath,
+			RPMPath:     f.RPMPath,
+			DetectPhase: "found",
+		}
+		// Polarity overlay. Empty when PolarityPhase hasn't completed yet.
+		if pol, ok := polByPath[f.PWMPath]; ok && pol != "" {
+			fs.PolarityPhase = pol
+		} else {
+			fs.PolarityPhase = "pending"
+		}
+		// Calibrate overlay. The wizard UI renders four states:
+		// "pending" / "calibrating" / "done" / "skipped" / "error".
+		// We can't see "calibrating" from a static checkpoint read
+		// (that comes from the live calibrate.Manager merge below)
+		// — but "done" + "skipped" / "phantom" are recoverable from
+		// the artifact and tell the UI to flip the per-fan strip out
+		// of its placeholder state.
+		if cal, ok := calByPath[f.PWMPath]; ok {
+			switch {
+			case cal.Phantom:
+				fs.CalPhase = "skipped"
+			case cal.SkippedWhy != "":
+				fs.CalPhase = "skipped"
+				fs.Error = cal.SkippedWhy
+			case cal.MaxRPM > 0:
+				fs.CalPhase = "done"
+				fs.StartPWM = cal.StartPWM
+				fs.MaxRPM = cal.MaxRPM
+			default:
+				fs.CalPhase = "pending"
+			}
+		} else {
+			fs.CalPhase = "pending"
+		}
+		out = append(out, fs)
+	}
+	return out
+}
+
 // runOrchestrator runs the full v0.8.x phase set. On ApplyPhase success
 // the wizard transitions to the "applied" state; on any phase failure
 // (or orchestrator bootstrap failure) m.errMsg + m.failureClass are
