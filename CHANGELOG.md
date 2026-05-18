@@ -9,6 +9,18 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.6] - 2026-05-19
+
+### Headline
+
+Same-day follow-up bundle from the v0.8.4 + v0.8.5 HIL retest. Three gaps the retest exposed:
+
+- **#1240** — wizard-reload path was missing the `controller.WithBlend` wiring, so smart-mode telemetry stayed empty after every fresh wizard run despite fans being driven correctly.
+- **#1241** — v0.8.4's pwm_enable restore for non-normal polarity channels was a no-op on NCT6687D + MSI BIOS (the chip family that surfaced #1220 originally), leaving the phantom fan audibly stuck at PWM=153.
+- **#1244** — v0.8.5's clean `%post` path exposed a pre-existing preremove bug where rpm/dpkg upgrades stopped the freshly-started daemon (rpm runs new-`%post` before old-`%preun`); operators needed `systemctl start ventd` after every upgrade.
+
+Each fix targets one chip-family or one package-manager-specific corner the original release missed. None affect the v0.8.4 thermal-safety guarantee — fans were always driven; what's improving is telemetry visibility, audible silence on probe failure, and operator-zero-touch upgrades.
+
 ### Fixed
 
 - `cmd/ventd/main.go` — **wire `controller.WithBlend` on the reload path** so controllers spawned by the wizard-triggered reload (#1229) populate the smart-mode aggregator's per-channel Snapshot stream. Without this, `/api/v1/smart/status.channels` reported `0` indefinitely after a fresh wizard run — fans were driven correctly (thermal safety unaffected) but every smart-mode telemetry surface was empty until the next full daemon restart picked up the startup-path BlendFn wiring. Same closure shape as the startup site at line 1303 lifted to the reload site at line 1452. (#1240, exposed during v0.8.4 HIL retest.)
