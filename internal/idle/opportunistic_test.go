@@ -2,6 +2,7 @@ package idle
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,52 @@ func TestOpportunisticGate_RefusesOnInputIRQDelta(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(reason), string(ReasonRecentInputIRQ)) {
 		t.Errorf("reason: got %q, want prefix %q", reason, ReasonRecentInputIRQ)
+	}
+}
+
+// TestOpportunisticGate_FailsClosedOnIRQReadError asserts that a
+// /proc/interrupts read failure produces a distinct, user-facing
+// reason — ReasonProcInterruptsUnreadable — rather than leaking the
+// internal "parse_error" sentinel as an IRQ detail on
+// ReasonRecentInputIRQ. Regression guard for the fresh-Fedora wizard
+// finding where /api/v1/probe/opportunistic/status surfaced
+// "last_reason: recent_input_irq:irq=parse_error".
+func TestOpportunisticGate_FailsClosedOnIRQReadError(t *testing.T) {
+	procRoot, sysRoot := makeIdleProcRoot(t)
+	clk := newFakeClock(time.Unix(1_000_000, 0))
+
+	baseline := IRQCounters{"1": 100}
+	reader := func() (IRQCounters, error) {
+		return nil, errors.New("synthetic /proc/interrupts read failure")
+	}
+
+	cfg := OpportunisticGateConfig{
+		GateConfig: GateConfig{
+			ProcRoot: procRoot,
+			SysRoot:  sysRoot,
+			Clock:    clk,
+		},
+		Mode:               ModeSoftIdle,
+		IRQReader:          reader,
+		IsInputIRQOverride: func(id string) bool { return false },
+		IRQBaseline:        &baseline,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ok, reason, _ := OpportunisticGate(ctx, cfg)
+	if ok {
+		t.Fatal("OpportunisticGate: expected refusal on IRQ read error, got success")
+	}
+	if reason != ReasonProcInterruptsUnreadable {
+		t.Errorf("reason: got %q, want %q", reason, ReasonProcInterruptsUnreadable)
+	}
+	if strings.Contains(string(reason), "parse_error") {
+		t.Errorf("reason leaks 'parse_error' sentinel: %q", reason)
+	}
+	if strings.HasPrefix(string(reason), string(ReasonRecentInputIRQ)) {
+		t.Errorf("reason wrongly attributed to ReasonRecentInputIRQ: %q", reason)
 	}
 }
 

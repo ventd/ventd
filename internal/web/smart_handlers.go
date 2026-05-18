@@ -134,7 +134,7 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 	if len(out.Channels) > 0 {
 		out.Global = worst
 	} else {
-		out.Global = "converged"
+		out.Global = "idle"
 	}
 	s.writeJSON(r, w, out)
 }
@@ -353,7 +353,10 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(aggSnaps) == 0 {
 		// No channels at all: ConfidenceMin/Max stay nil (UI shows "—").
-		out.GlobalState = "converged"
+		// Report "idle" rather than "converged" — there is nothing to
+		// converge on, and the dashboard's status pill should not show
+		// a green "converged" badge while no channels are tracked.
+		out.GlobalState = "idle"
 	} else {
 		out.GlobalState = worst
 		// Only emit numeric confidence_min/max when at least one
