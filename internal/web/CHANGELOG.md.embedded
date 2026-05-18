@@ -9,6 +9,11 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+
+### Fixed
+
+- `scripts/postinstall.sh` — **detect merged-`/usr` layout and skip the `bin→sbin` relocation when `/usr/local/sbin` is a symlink to `/usr/local/bin`** (Fedora 44 default; modern Debian-derived distros). v0.8.4's #1218 fix used `stat -c %i` comparison to detect the same-inode case, but on btrfs (Fedora 44 default rootfs) the relocation paths are not just inode-equal — they're *literally the same file* via the `/usr/local/sbin → bin` symlink. The v0.8.4 `rm /usr/local/bin/ventd-nvml-helper` branch destroyed the only copy; the subsequent `chown /usr/local/sbin/ventd-nvml-helper` failed because the symlink target was now gone, and the daemon was left in `inactive (dead)` post-install — same operator-facing symptom as the original #1218, just at a different `%post` step. The fix: detect `[ -L /usr/local/sbin ]` (or any path-resolution equivalence) and treat the helper as already in place via the merged-`/usr` view; fix perms on the bin path so the daemon's resolved `HelperPath = "/usr/local/sbin/ventd-nvml-helper"` lookup succeeds via the symlink. The legitimate split-layout case (separate `bin` + `sbin` directories) now uses `install -m` for a non-reflink copy followed by `rm` of the source — the v0.8.4 same-inode comparison was unreliable because btrfs `cp` reflinks default to reporting identical inode numbers on legitimately separate files. .deb on Debian 13 (which also ships merged-`/usr`) is now covered too; v0.8.3 happened to work there only because `mv` between two symlink-equivalent paths is a coreutils-internal no-op exit code 0, not because the relocation was meaningful. (#1218 followup.)
+
 ## [v0.8.4] - 2026-05-18
 
 ### Headline
