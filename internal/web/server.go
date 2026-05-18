@@ -508,6 +508,27 @@ func (s *Server) registerAPIRoutes(routes []apiRoute) {
 		s.mux.HandleFunc("/api/"+r.name, h)
 		s.mux.HandleFunc("/api/v1/"+r.name, h)
 	}
+
+	// Catch-all 404 for unrecognised /api/* paths. Without this,
+	// requests like GET /api/does/not/exist fell through to the
+	// "/" pattern and were swallowed by requireAuth, surfacing as
+	// 401 unauthorized — indistinguishable from "valid path but
+	// not logged in" and a debugging trap for integration work.
+	// The Go ServeMux's longest-prefix-match means every concrete
+	// /api/<name> and /api/v1/<name> registered above still wins
+	// against this catch-all; only paths nothing else claims land
+	// here.
+	s.mux.HandleFunc("/api/", s.handleAPINotFound)
+}
+
+// handleAPINotFound is the catch-all 404 for /api/* paths that no
+// registered route matches. Returns JSON to match the shape every
+// other API endpoint already uses, so curl/fetch consumers can rely
+// on a uniform error body.
+func (s *Server) handleAPINotFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	s.writeJSON(r, w, map[string]string{"error": "not found"})
 }
 
 // nowFnValue wraps a clock function so Server.nowFn can be an
