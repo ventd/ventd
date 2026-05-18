@@ -1,0 +1,3115 @@
+schema_version: "1.2"
+# ASUS ROG / TUF / Zephyrus / Flow / Ally laptop catalog.
+# SKU codes ingested 2026-05-18 from asusctl/rog-aura/data/aura_support.ron — the
+# canonical ASUS-Linux project's ROG model registry. asusctl is MPL-2; ASUS board
+# SKU strings are factual identifiers (thin-data doctrine), not copyrightable
+# expression. Per [[catalog-ingest-2026-05-17]] wave 2.
+#
+# All entries verified: false. fan-write is owned by asus-wmi platform driver +
+# asusctl userspace; ventd reads tach/temps via asus-ec-sensors hwmon path.
+# ro_sensor_only: true gates ventd's HAL away from writes on these SKUs.
+# ROG Ally / Ally X (RC71L, RC72L) — fan-control belongs to hhd-dev/hhd
+# (canonical handheld daemon).
+#
+# Entries are sorted longer-SKU-first to prevent short generic prefixes from
+# shadowing more-specific glob matches at the matcher's first-hit return.
+
+board_profiles:
+
+  - id: "asus-ga402xv-nc012"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA402XV-NC012"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA402XV-NC012 — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga402nu-0002"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA402NU-0002"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA402NU-0002 — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv301vic"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV301VIC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV301VIC — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gz301vic"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GZ301VIC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GZ301VIC — ROG Flow Z13/Z13 ACRN. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa617ns"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA617NS*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA617NS — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa617nt"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA617NT*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA617NT — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa617xs"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA617XS*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA617XS — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa617xt"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA617XT*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA617XT — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa707nu"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA707NU*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA707NU — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx507vv"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX507VV*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX507VV — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614jir"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614JIR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614JIR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g615jhr"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G615JHR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G615JHR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga403uv"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA403UV*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA403UV — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga403ww"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA403WW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA403WW — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga503qe"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA503QE*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA503QE — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa506i"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA506I*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA506I — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa506n"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA506N*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA506N — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa506q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA506Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA506Q — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx507z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX507Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX507Z — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx516p"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX516P*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX516P — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx517z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX517Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX517Z — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx607j"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX607J*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX607J — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx607v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX607V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX607V — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx617x"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX617X*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX617X — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx705d"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX705D*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX705D — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx706h"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX706H*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX706H — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513qr"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513QR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513QR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513rc"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513RC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513RC — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513rw"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513RW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513RW — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g531gw"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G531GW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G531GW — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g533qs"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G533QS*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G533QS — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614fm"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614FM*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614FM — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614fr"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614FR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614FR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614jj"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614JJ*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614JJ — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614ju"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614JU*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614JU — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614jz"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614JZ*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614JZ — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g615jm"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G615JM*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G615JM — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g615lr"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G615LR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G615LR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g712li"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G712LI*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G712LI — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g712lv"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G712LV*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G712LV — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g712lw"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G712LW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G712LW — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713ic"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713IC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713IC — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713qc"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713QC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713QC — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713qe"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713QE*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713QE — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713qm"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713QM*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713QM — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713qr"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713QR*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713QR — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713rc"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713RC*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713RC — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713rm"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713RM*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713RM — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713rs"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713RS*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713RS — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713rw"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713RW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713RW — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g731gv"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G731GV*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G731GV — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g731gw"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G731GW*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G731GW — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g733qs"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G733QS*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G733QS — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga401i"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA401I*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA401I — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga401q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA401Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA401Q — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga402n"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA402N*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA402N — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga402r"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA402R*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA402R — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga402x"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA402X*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA402X — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga403u"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA403U*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA403U — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga503q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA503Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA503Q — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga503r"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA503R*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA503R — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-ga605w"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GA605W*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GA605W — ROG Zephyrus G14/G15 (GA-series). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl503v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL503V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL503V — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl504g"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL504G*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL504G — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl553v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL553V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL553V — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl703g"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL703G*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL703G — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gm501g"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GM501G*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GM501G — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu502l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU502L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU502L — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu603h"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU603H*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU603H — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu603v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU603V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU603V — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu603z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU603Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU603Z — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu604v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU604V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU604V — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu605c"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU605C*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU605C — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gu605m"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GU605M*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GU605M — ROG Strix / Zephyrus Duo. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv301q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV301Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV301Q — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv301v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV301V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV301V — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv601r"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV601R*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV601R — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv601v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV601V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV601V — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gv604v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GV604V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GV604V — ROG Flow X-series / Strix. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx550l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX550L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX550L — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx551q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX551Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX551Q — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx650p"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX650P*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX650P — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx650r"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX650R*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX650R — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx703h"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX703H*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX703H — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gz301v"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GZ301V*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GZ301V — ROG Flow Z13/Z13 ACRN. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gz301z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GZ301Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GZ301Z — ROG Flow Z13/Z13 ACRN. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fa507"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FA507*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FA507 — TUF Gaming A-series / FA-class. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx505"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX505*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX505 — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-fx506"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "FX506*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS FX506 — TUF Gaming F-series / ROG Strix FX. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g512l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G512L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G512L — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513i"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513I*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513I — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513Q — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g513r"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G513R*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G513R — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g531g"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G531G*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G531G — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g533q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G533Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G533Q — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g533z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G533Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G533Z — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g614j"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G614J*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G614J — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g634j"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G634J*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G634J — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g635l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G635L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G635L — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g713p"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G713P*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G713P — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g731g"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G731G*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G731G — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g733c"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G733C*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G733C — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g733p"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G733P*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G733P — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g733q"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G733Q*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G733Q — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g733z"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G733Z*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G733Z — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g814j"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G814J*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G814J — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g815l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G815L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G815L — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g834j"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G834J*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G834J — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g835l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G835L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G835L — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl503"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL503*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL503 — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gl531"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GL531*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GL531 — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx502"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX502*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX502 — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx531"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX531*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX531 — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gx701"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GX701*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GX701 — ROG Strix / Zephyrus (legacy). asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-gz302"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "GZ302*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS GZ302 — ROG Flow Z13/Z13 ACRN. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rc71l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "RC71L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+      - "hhd (Handheld Daemon, canonical for ROG Ally)"
+    notes: "ASUS RC71L — ROG Ally / Ally X handheld. asus-ec-sensors covers hwmon read-side; fan-control is the domain of hhd-dev/hhd (canonical handheld daemon — Lenovo Legion Go, ROG Ally, GPD Win Max, AYANEO, OneXPlayer, Anbernic, MSI Claw). ventd should defer to hhd on this SKU. ventd-PR opportunity: hhd's README says fan-driver kmod is WIP — see [[ventd-pr-marketing-targets]]."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+      - "https://github.com/hhd-dev/hhd (canonical handheld daemon; ROG Ally / Ally X fan-control owner)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-rc72l"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "RC72L*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+      - "hhd (Handheld Daemon, canonical for ROG Ally)"
+    notes: "ASUS RC72L — ROG Ally / Ally X handheld. asus-ec-sensors covers hwmon read-side; fan-control is the domain of hhd-dev/hhd (canonical handheld daemon — Lenovo Legion Go, ROG Ally, GPD Win Max, AYANEO, OneXPlayer, Anbernic, MSI Claw). ventd should defer to hhd on this SKU. ventd-PR opportunity: hhd's README says fan-driver kmod is WIP — see [[ventd-pr-marketing-targets]]."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+      - "https://github.com/hhd-dev/hhd (canonical handheld daemon; ROG Ally / Ally X fan-control owner)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g532"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G532*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G532 — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "asus-g731"
+    dmi_fingerprint:
+      sys_vendor: "ASUSTeK COMPUTER INC."
+      product_name: "*"
+      board_vendor: "ASUSTeK COMPUTER INC."
+      board_name: "G731*"
+      board_version: "*"
+    primary_controller:
+      chip: "asus-ec-sensors"
+      sysfs_hint: "name=asusec when asus-ec-sensors loads"
+    additional_controllers: []
+    overrides:
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "asusctl"
+    notes: "ASUS G731 — ROG Strix / Scar G-series. asus-ec-sensors provides temps + tach via hwmon when loaded; fan-write is owned by asus-wmi platform driver + asusctl userspace. ventd reads tach/temps for observability; users layer asusctl for curve presets. Board SKU sourced from asusctl aura_support.ron (canonical ROG/TUF model registry)."
+    citations:
+      - "https://gitlab.com/asus-linux/asusctl/-/blob/main/rog-aura/data/aura_support.ron (canonical ROG/TUF SKU registry; MPL-2 — factual identifiers ingested under thin-data doctrine)"
+      - "https://github.com/zeule/asus-ec-sensors (asus-ec-sensors out-of-tree driver tree; mainline since 5.18)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
