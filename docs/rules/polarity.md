@@ -54,27 +54,55 @@ Bound: internal/polarity/polarity_test.go:RULE-POLARITY-01_midpoint_write
 Bound: internal/polarity/polarity_test.go:hwmon_writes_bipolar_low_then_high
 Bound: internal/polarity/polarity_test.go:nvml_writes_bipolar_20_then_80
 
-## RULE-POLARITY-02: Each bipolar pulse holds for BipolarPulseHold (2s) before the tach-read window across all hwmon and NVML probes.
+## RULE-POLARITY-02: Each bipolar pulse holds for BipolarPulseHold (6s) before the tach-read window across all hwmon and NVML probes.
 
 `HwmonProber.ProbeChannel` calls `p.clock()(BipolarPulseHold)`
 after writing `BipolarLowPWM` (51) AND after writing
 `BipolarHighPWM` (204), before each `readRPMMean` call that
 samples the channel's RPM. The total injected sleep per probe is
-at least `2 × BipolarPulseHold` (4 s) plus the post-restore
+at least `2 × BipolarPulseHold` (12 s) plus the post-restore
 `RestoreDelay` (500 ms). The test verifies this via an injected
 clock accumulator and asserts
 `totalSleep >= 2 × BipolarPulseHold - 200ms`.
 
 The pre-#1110 algorithm held for a single 3 s window after the
-midpoint write. The bipolar replacement halves each individual
-pulse (2 s vs 3 s) because the two-pulse arrangement provides
-redundant settling: a fan that hadn't settled at the LOW read
-will still produce a signed delta against the HIGH read, and the
-150 RPM phantom threshold absorbs the remaining transient. Total
-probe time per channel is similar (≈5 s vs ≈4.5 s). The 200 ms
-tolerance accommodates clock-sleep jitter on a loaded system.
+midpoint write. The post-#1110 bipolar replacement initially
+halved each individual pulse to 2 s on the assumption that the
+two-pulse arrangement provides redundant settling — a fan that
+hadn't settled at the LOW read would still produce a signed delta
+against the HIGH read, and the 150 RPM phantom threshold would
+absorb the remaining transient.
 
-Bound: internal/polarity/polarity_test.go:RULE-POLARITY-02_hold_time_3s
+Issue #1221 HIL on a 13900K / MSI Z690-A DDR4 / NCT6687D board
+falsified that assumption for large case fans on splitter cables.
+Manual sweep with `pwm_enable=1` showed:
+
+| Channel    | pwm=255 | LOW pulse RPM @ t=2s | @ t=6s | @ t=11s |
+| ---------- | ------- | -------------------- | ------ | ------- |
+| pwm1 (CPU) |   2836  |             1775     |   851  |    842  |
+| pwm3       |   2290  |             1628     |   851  |    845  |
+| pwm6       |   2941  |             1477     |   635  |    625  |
+| pwm8       |   3000  |             1593     |   720  |    657  |
+
+Spin-down has a first-order time-constant τ ≈ 2.2 s with settling
+around t ≈ 6-8 s; spin-up has τ ≈ 1.3 s. At a 2 s LOW hold, the
+sampled RPM is still 1500-1700 RPM above the steady-state target
+of ~660 RPM, and the bipolar delta (HIGH−LOW) collapses to 43-407
+RPM — half the eight channels straddle the 150 RPM phantom
+threshold giving non-deterministic 1-4 false-phantoms per run.
+At a 6 s hold the same channels yield deltas of 1474-1827 RPM —
+two orders of magnitude above the threshold and unambiguous.
+
+The hold was raised from 2 s to 6 s and the sample window was
+decoupled from `RestoreDelay` (500 ms) into `BipolarSampleWindow`
+(1 s) so the mean averages ≥10 tach edges at low RPM where the
+tach period exceeds 100 ms. Total per-channel probe time rises
+from ~5 s to ~14 s; 8-channel boards see polarity-phase wall time
+rise from ~40 s to ~115 s. The 200 ms tolerance accommodates
+clock-sleep jitter on a loaded system.
+
+Bound: internal/polarity/polarity_test.go:RULE-POLARITY-02_hold_envelope
+Bound: internal/polarity/polarity_test.go:RULE-POLARITY-02_spindown_inertia_classifies_normal_1221
 
 ## RULE-POLARITY-03: Classification thresholds — hwmon |delta| < 150 RPM → phantom; NVML |delta| < 10 pct → phantom.
 
