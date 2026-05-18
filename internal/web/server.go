@@ -94,6 +94,13 @@ type Server struct {
 	restartCh chan<- struct{}
 	sessions  *sessionStore
 	diag      *hwdiag.Store
+	// startedAt is the wall-clock at which the Server (and therefore
+	// the daemon process) finished initialising. Captured in New and
+	// surfaced via statusResponse.StartedAt so the dashboard's uptime
+	// widget can compute (now - startedAt) instead of (now - page-load)
+	// — without this, navigating between pages reset the displayed
+	// uptime to zero on every load (#1234).
+	startedAt time.Time
 	// doctorCache memoises the most recent doctor.Report; the runner
 	// is constructed lazily on first /api/v1/doctor GET. See doctor.go.
 	doctorCache    doctorRunnerCache
@@ -236,6 +243,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		sseInterval:    defaultSSEInterval,
 		history:        NewHistoryStore(defaultSSEInterval, historyDefaultWindow),
 		schedWake:      make(chan struct{}, 1),
+		startedAt:      time.Now().UTC(),
 	}
 	// Initialise liveHash: auth.json takes precedence over the config hash.
 	// The config hash fallback keeps tests working (they set live.Web.PasswordHash
@@ -1026,6 +1034,7 @@ func (s *Server) Shutdown() {
 
 type statusResponse struct {
 	Timestamp time.Time      `json:"timestamp"`
+	StartedAt time.Time      `json:"started_at"`
 	Sensors   []sensorStatus `json:"sensors"`
 	Fans      []fanStatus    `json:"fans"`
 }
@@ -1059,6 +1068,7 @@ func (s *Server) buildStatus() statusResponse {
 
 	resp := statusResponse{
 		Timestamp: time.Now().UTC(),
+		StartedAt: s.startedAt,
 		Sensors:   make([]sensorStatus, 0, len(live.Sensors)),
 		Fans:      make([]fanStatus, 0, len(live.Fans)),
 	}

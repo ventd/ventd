@@ -319,16 +319,42 @@
     var sbV = $('sb-version'); if (sbV) sbV.textContent = v.version || v;
   }
   var bootAt = Date.now();
+  // daemonStartedMs is the daemon process's startup wall-clock in
+  // millis. Populated from /api/v1/status.started_at on every poll so
+  // navigating between pages no longer resets the displayed uptime
+  // (#1234). null until the first status arrives — fall back to the
+  // page-load timer so the widget still ticks during the brief gap
+  // before the first /api/v1/status response lands.
+  var daemonStartedMs = null;
   function tickUptime(progressUptime) {
     var uEl = $('hero-uptime');
     if (!uEl) return;
-    var secs = progressUptime != null ? progressUptime : Math.floor((Date.now() - bootAt) / 1000);
+    var secs;
+    if (progressUptime != null) {
+      secs = progressUptime;
+    } else if (daemonStartedMs != null) {
+      secs = Math.floor((Date.now() - daemonStartedMs) / 1000);
+    } else {
+      secs = Math.floor((Date.now() - bootAt) / 1000);
+    }
+    if (secs < 0) secs = 0;
     uEl.textContent = fmtUptime(secs);
   }
 
   // ── apply API status payload ───────────────────────────────────────
   function applyStatus(data) {
     if (!data) return;
+    // started_at is RFC3339 from the daemon. Cache the parsed millis so
+    // tickUptime computes uptime from the daemon's wall-clock rather
+    // than the page-load timer; without this, every navigation between
+    // dashboard / smart / curves resets the visible uptime to 0
+    // (#1234).
+    if (data.started_at) {
+      var startMs = Date.parse(data.started_at);
+      if (isFinite(startMs) && startMs > 0) {
+        daemonStartedMs = startMs;
+      }
+    }
     renderHero(data.sensors || [], data.fans || []);
     renderSensorTiles(data.sensors || []);
     renderFanTiles(data.fans || []);
@@ -1906,8 +1932,28 @@
       if (counts[lab] > max) { max = counts[lab]; mode = lab; }
     });
     if (!mode) return '';
-    // Truncate to 8 hex chars per spec.
-    return mode.length > 8 ? mode.slice(0, 8) : mode;
+    return prettySignatureLabel(mode);
+  }
+  // prettySignatureLabel translates the signature library's internal
+  // fallback names into plain English for the dashboard's "workload"
+  // pill. The raw labels (`fallback/idle`, `fallback/disabled`) leak
+  // the library's implementation vocabulary onto the main dashboard;
+  // a new operator reads "fallback" as a degraded mode / error state
+  // when it is actually the normal cold-start condition before any
+  // workload signature has been learned (#1227).
+  //
+  // The per-channel deep-dive page (`/smart`) keeps the raw label —
+  // that surface is aimed at the operator who *wants* the internal
+  // vocabulary. Translation is display-only at the main-dashboard
+  // pill so existing diag tooling and the wire format under
+  // `/api/v1/smart/channels` are unchanged.
+  function prettySignatureLabel(raw) {
+    if (raw === 'fallback/idle') return 'no signature yet';
+    if (raw === 'fallback/disabled') return 'signature learning off';
+    // Eight-hex-char promoted signatures are operator-meaningful
+    // (operators recognise their own workloads); truncate longer
+    // labels to keep the pill compact.
+    return raw.length > 8 ? raw.slice(0, 8) : raw;
   }
   function aliveSummary(smart) {
     var span = document.createElement('span');

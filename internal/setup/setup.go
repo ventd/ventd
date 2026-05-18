@@ -777,6 +777,17 @@ func (m *Manager) Progress() Progress {
 	m.mu.Lock()
 	fans := make([]FanState, len(m.fans))
 	copy(fans, m.fans)
+	// v0.8.x orchestrator: the legacy phase 0-7 inline body owned m.fans
+	// directly; the orchestrator never writes there. To preserve the
+	// wizard UI's fan roster + system cards during the multi-minute
+	// calibrate window (#1230), synthesise FanState entries from the
+	// orchestrator's checkpoint store when our local slice is empty.
+	// Read once per Progress() call; the file is small (<20 KiB on an
+	// 8-fan box) and the wizard UI polls at ~1 Hz, so the overhead is
+	// trivial. m.mu held — synthesise inline rather than re-acquiring.
+	if len(fans) == 0 {
+		fans = synthesiseOrchestratorFans()
+	}
 	installLog := make([]string, len(m.installLog))
 	copy(installLog, m.installLog)
 	p := Progress{
