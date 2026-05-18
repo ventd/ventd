@@ -133,3 +133,1173 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 6 additions (2026-05-18): Apple Silicon Mac fleet (M1/M2/M3/M4)
+  # ingested from Asahi Linux device-list registry. Each entry uses
+  # dt_fingerprint (Apple Silicon is device-tree, no DMI) with the
+  # apple,jXXX* board-code glob. macsmc-hwmon driver mainlined Linux 6.19.
+  # Fanless MacBook Air models marked unsupported + tach_input_unavailable.
+  # M3+ MacBook Pros marked ro_sensor_only pending Asahi DCP writability
+  # work. Per [[catalog-ingest-2026-05-17]] wave 6.
+
+  - id: "apple-mac-mini-macmini9-1"
+    dt_fingerprint:
+      compatible: "apple,j274*"
+      model: "Apple Macmini9,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac mini (M1, 2020) — Apple Silicon (M1), DT board code J274AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-macbookpro17-1"
+    dt_fingerprint:
+      compatible: "apple,j293*"
+      model: "Apple MacBookPro17,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (13-inch, M1, 2020) — Apple Silicon (M1), DT board code J293AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-macbookair10-1"
+    dt_fingerprint:
+      compatible: "apple,j313*"
+      model: "Apple MacBookAir10,1"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (M1, 2020) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-imac21-1"
+    dt_fingerprint:
+      compatible: "apple,j456*"
+      model: "Apple iMac21,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 4-port, M1, 2021) — Apple Silicon (M1), DT board code J456AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-imac21-2"
+    dt_fingerprint:
+      compatible: "apple,j457*"
+      model: "Apple iMac21,2"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 2-port, M1, 2021) — Apple Silicon (M1), DT board code J457AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-macbookpro18-1"
+    dt_fingerprint:
+      compatible: "apple,j316s*"
+      model: "Apple MacBookPro18,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M1 Pro, 2021) — Apple Silicon (M1), DT board code J316sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-macbookpro18-2"
+    dt_fingerprint:
+      compatible: "apple,j316c*"
+      model: "Apple MacBookPro18,2"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M1 Max, 2021) — Apple Silicon (M1), DT board code J316cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-macbookpro18-3"
+    dt_fingerprint:
+      compatible: "apple,j314s*"
+      model: "Apple MacBookPro18,3"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M1 Pro, 2021) — Apple Silicon (M1), DT board code J314sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-macbookpro18-4"
+    dt_fingerprint:
+      compatible: "apple,j314c*"
+      model: "Apple MacBookPro18,4"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M1 Max, 2021) — Apple Silicon (M1), DT board code J314cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac13-1"
+    dt_fingerprint:
+      compatible: "apple,j375c*"
+      model: "Apple Mac13,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M1 Max, 2022) — Apple Silicon (M1), DT board code J375cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac13-2"
+    dt_fingerprint:
+      compatible: "apple,j375d*"
+      model: "Apple Mac13,2"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M1 Ultra, 2022) — Apple Silicon (M1), DT board code J375dAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac14-7"
+    dt_fingerprint:
+      compatible: "apple,j493*"
+      model: "Apple Mac14,7"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (13-inch, M2, 2022) — Apple Silicon (M2), DT board code J493AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac14-2"
+    dt_fingerprint:
+      compatible: "apple,j413*"
+      model: "Apple Mac14,2"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (13-inch, M2, 2022) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-mini-mac14-3"
+    dt_fingerprint:
+      compatible: "apple,j473*"
+      model: "Apple Mac14,3"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac mini (M2, 2023) — Apple Silicon (M2), DT board code J473AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-mini-mac14-12"
+    dt_fingerprint:
+      compatible: "apple,j474s*"
+      model: "Apple Mac14,12"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac mini (M2 Pro, 2023) — Apple Silicon (M2), DT board code J474sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac14-9"
+    dt_fingerprint:
+      compatible: "apple,j414s*"
+      model: "Apple Mac14,9"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M2 Pro, 2023) — Apple Silicon (M2), DT board code J414sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac14-10"
+    dt_fingerprint:
+      compatible: "apple,j416s*"
+      model: "Apple Mac14,10"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M2 Pro, 2023) — Apple Silicon (M2), DT board code J416sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac14-5"
+    dt_fingerprint:
+      compatible: "apple,j414c*"
+      model: "Apple Mac14,5"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M2 Max, 2023) — Apple Silicon (M2), DT board code J414cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac14-6"
+    dt_fingerprint:
+      compatible: "apple,j416c*"
+      model: "Apple Mac14,6"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M2 Max, 2023) — Apple Silicon (M2), DT board code J416cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac14-15"
+    dt_fingerprint:
+      compatible: "apple,j415*"
+      model: "Apple Mac14,15"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (15-inch, M2, 2023) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac14-13"
+    dt_fingerprint:
+      compatible: "apple,j475c*"
+      model: "Apple Mac14,13"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M2 Max, 2023) — Apple Silicon (M2), DT board code J475cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac14-14"
+    dt_fingerprint:
+      compatible: "apple,j475d*"
+      model: "Apple Mac14,14"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M2 Ultra, 2023) — Apple Silicon (M2), DT board code J475dAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-pro-mac14-8"
+    dt_fingerprint:
+      compatible: "apple,j180d*"
+      model: "Apple Mac14,8"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Pro (2023) — Apple Silicon (?), DT board code J180dAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-mac15-4"
+    dt_fingerprint:
+      compatible: "apple,j433*"
+      model: "Apple Mac15,4"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 2-port, M3, 2023) — Apple Silicon (M3), DT board code J433AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-mac15-5"
+    dt_fingerprint:
+      compatible: "apple,j434*"
+      model: "Apple Mac15,5"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 4-port, M3, 2023) — Apple Silicon (M3), DT board code J434AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-3"
+    dt_fingerprint:
+      compatible: "apple,j504*"
+      model: "Apple Mac15,3"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M3, Nov 2023) — Apple Silicon (M3), DT board code J504AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-6"
+    dt_fingerprint:
+      compatible: "apple,j514s*"
+      model: "Apple Mac15,6"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M3 Pro, Nov 2023) — Apple Silicon (M3), DT board code J514sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-7"
+    dt_fingerprint:
+      compatible: "apple,j516s*"
+      model: "Apple Mac15,7"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M3 Pro, Nov 2023) — Apple Silicon (M3), DT board code J516sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-8"
+    dt_fingerprint:
+      compatible: "apple,j514c*"
+      model: "Apple Mac15,8"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M3 Max, Nov 2023) — Apple Silicon (M3), DT board code J514cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-9"
+    dt_fingerprint:
+      compatible: "apple,j516c*"
+      model: "Apple Mac15,9"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M3 Max, Nov 2023) — Apple Silicon (M3), DT board code J516cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-10"
+    dt_fingerprint:
+      compatible: "apple,j514m*"
+      model: "Apple Mac15,10"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M3 Max binned, Nov 2023) — Apple Silicon (M3), DT board code J514mAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac15-11"
+    dt_fingerprint:
+      compatible: "apple,j516m*"
+      model: "Apple Mac15,11"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M3 Max binned, Nov 2023) — Apple Silicon (M3), DT board code J516mAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac15-12"
+    dt_fingerprint:
+      compatible: "apple,j613*"
+      model: "Apple Mac15,12"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (13-inch, M3, 2024) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac15-13"
+    dt_fingerprint:
+      compatible: "apple,j615*"
+      model: "Apple Mac15,13"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (15-inch, M3, 2024) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-mac16-2"
+    dt_fingerprint:
+      compatible: "apple,j623*"
+      model: "Apple Mac16,2"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 2-port, M4, 2024) — Apple Silicon (M4), DT board code J623AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-imac-mac16-3"
+    dt_fingerprint:
+      compatible: "apple,j624*"
+      model: "Apple Mac16,3"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple iMac (24-inch 4-port, M4, 2024) — Apple Silicon (M4), DT board code J624AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-mini-mac16-10"
+    dt_fingerprint:
+      compatible: "apple,j773g*"
+      model: "Apple Mac16,10"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac mini (M4, 2024) — Apple Silicon (M4), DT board code J773gAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-mini-mac16-11"
+    dt_fingerprint:
+      compatible: "apple,j773s*"
+      model: "Apple Mac16,11"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac mini (M4 Pro, 2024) — Apple Silicon (M4), DT board code J773sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac16-1"
+    dt_fingerprint:
+      compatible: "apple,j604*"
+      model: "Apple Mac16,1"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M4, Nov 2024) — Apple Silicon (M4), DT board code J604AP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac16-8"
+    dt_fingerprint:
+      compatible: "apple,j614s*"
+      model: "Apple Mac16,8"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M4 Pro, Nov 2024) — Apple Silicon (M4), DT board code J614sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac16-7"
+    dt_fingerprint:
+      compatible: "apple,j616s*"
+      model: "Apple Mac16,7"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M4 Pro, Nov 2024) — Apple Silicon (M4), DT board code J616sAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac16-6"
+    dt_fingerprint:
+      compatible: "apple,j614c*"
+      model: "Apple Mac16,6"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (14-inch, M4 Max, Nov 2024) — Apple Silicon (M4), DT board code J614cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-pro-mac16-5"
+    dt_fingerprint:
+      compatible: "apple,j616c*"
+      model: "Apple Mac16,5"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Pro (16-inch, M4 Max, Nov 2024) — Apple Silicon (M4), DT board code J616cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac16-12"
+    dt_fingerprint:
+      compatible: "apple,j713*"
+      model: "Apple Mac16,12"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (13-inch, M4, 2025) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-macbook-air-mac16-13"
+    dt_fingerprint:
+      compatible: "apple,j715*"
+      model: "Apple Mac16,13"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "fanless — macsmc-hwmon exposes sensors only"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      unsupported: true
+      tach_input_unavailable: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple MacBook Air (15-inch, M4, 2025) — passive-cooled (fanless). No fan hardware to control. macsmc-hwmon (mainlined for Linux 6.19) exposes temp / voltage / current / power sensors for telemetry, but there is no PWM or fan tach. Asahi Linux's macsmc HAL covers this telemetry path."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac16-9"
+    dt_fingerprint:
+      compatible: "apple,j575c*"
+      model: "Apple Mac16,9"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M4 Max, 2025) — Apple Silicon (M4), DT board code J575cAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "apple-mac-studio-mac15-14"
+    dt_fingerprint:
+      compatible: "apple,j575d*"
+      model: "Apple Mac15,14"
+    primary_controller:
+      chip: "macsmc-hwmon"
+      sysfs_hint: "name=macsmc via macsmc-hwmon mainline driver (Linux 6.19+)"
+    additional_controllers: []
+    overrides:
+      arm_device_tree: true
+      no_dmi: true
+      ro_sensor_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: "Apple Mac Studio (M3 Ultra, 2025) — Apple Silicon (M3), DT board code J575dAP. macsmc-hwmon driver (mainlined for Linux 6.19) exposes fan tach + SMC sensors via standard hwmon interfaces. RPM-setpoint write support is per-model and gated on Apple's SMC firmware — Mac mini / Mac Studio / Mac Pro typically writable; MacBook Pro models writable on M1 / M2 generations, M3+ pending Asahi DCP work. Asahi Linux's macsmc HAL is the canonical Linux integration target — coordinate via macsmc-hwmon Tested-by patches."
+    citations:
+      - "https://asahilinux.org/docs/hw/devices/device-list/ (Apple Silicon device registry; model ID + DT board code)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (macsmc-hwmon mainlined for kernel 6.19)"
+      - "https://github.com/AsahiLinux/linux (macsmc-hwmon driver source)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []

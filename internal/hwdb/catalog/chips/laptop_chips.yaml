@@ -19,6 +19,15 @@ chip_profiles:
     channel_overrides: {}
     citations: []
 
+  - name: "macsmc-hwmon"
+    inherits_driver: "macsmc-hwmon"
+    description: "Apple Silicon SMC hwmon — /sys/class/hwmon/*/name value for macsmc-hwmon driver (mainlined Linux 6.19+)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/AsahiLinux/linux (driver tree)"
+      - "https://asahilinux.org/2025/12/progress-report-6-18/ (mainline landing)"
+
   - name: "pwmfan"
     inherits_driver: "pwm-fan"
     description: "Generic devicetree pwm-fan — /sys/class/hwmon/*/name value for pwm-fan driver on SBCs."
