@@ -1,0 +1,1412 @@
+schema_version: "1.2"
+# Razer Blade laptop catalog — wave 5 of the 2026-05-17 ecosystem sweep.
+# Per-device entries ingested from encomjp/razer-control-revived's
+# razer_control_gui/data/devices/laptops.json (48 SKUs spanning Blade
+# Stealth 2015 through Blade 18 2025).
+#
+# Razer Blade fan-control is owned by a custom USB HID protocol on the
+# Razer device interface (USB VID 1532), NOT the EC port-0x68 family
+# or mainline hwmon. All entries chip="unsupported" — ventd defers
+# fan-write to encomjp/razer-control-revived (the actively-maintained
+# fork, the upstream Razer-Linux/razer-laptop-control is archived).
+#
+# DMI product_name match is best-effort: Razer's BIOS embeds the
+# marketing name + year (e.g. "Blade 15 Advanced Model (Mid 2020) -
+# RZ09-0330x"). The glob "*Blade 15 2020 Advanced*" will match only
+# when the live string contains the canonical marketing-name token
+# order; future contributors should refine specific entries when
+# dmidecode dumps land.
+
+board_profiles:
+
+  - id: "razer-blade-stealth-2015"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth 2015*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0205"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth 2015 (USB VID:PID 1532:0205). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2016"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2016*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0224"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2016 (USB VID:PID 1532:0224). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-late-2016"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth Late 2016*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0220"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth Late 2016 (USB VID:PID 1532:0220). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2018-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2018 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0233"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2018 Advanced (USB VID:PID 1532:0233). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2018-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2018 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:023B"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2018 Base (USB VID:PID 1532:023B). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2018-mercury"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2018 Mercury*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0240"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2018 Mercury (USB VID:PID 1532:0240). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2019-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2019 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0246"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2019 Base (USB VID:PID 1532:0246). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2019-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2019 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:023A"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2019 Advanced (USB VID:PID 1532:023A). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling). Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2019-mercury"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2019 Mercury*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0245"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2019 Mercury (USB VID:PID 1532:0245). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling). Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-late-2019-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Late 2019 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:024B"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Late 2019 Advanced (USB VID:PID 1532:024B). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling). Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-late-2019"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro Late 2019*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:024C"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro Late 2019 (USB VID:PID 1532:024C). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling). Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-studio-edition-2019"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Studio Edition 2019*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:024D"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Studio Edition 2019 (USB VID:PID 1532:024D). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling). Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2020-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2020 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0255"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2020 Base (USB VID:PID 1532:0255). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2020-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2020 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0253"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2020 Advanced (USB VID:PID 1532:0253). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, creator_mode (24kHz HID polling), fan boost mode. Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-2017"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth 2017*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:022D"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth 2017 (USB VID:PID 1532:022D). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-late-2017"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth Late 2017*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0232"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth Late 2017 (USB VID:PID 1532:0232). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-2019"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth 2019*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0239"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth 2019 (USB VID:PID 1532:0239). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-2019-gtx"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth 2019 GTX*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:024A"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth 2019 GTX (USB VID:PID 1532:024A). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-2020"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth 2020*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0252"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth 2020 (USB VID:PID 1532:0252). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-stealth-late-2020"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Stealth Late 2020*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0259"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Stealth Late 2020 (USB VID:PID 1532:0259). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-late-2020-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Late 2020 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0268"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Late 2020 Base (USB VID:PID 1532:0268). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-2017"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 2017*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0225"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 2017 (USB VID:PID 1532:0225). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-2017-v2"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 2017 v2*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0210"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 2017 v2 (USB VID:PID 1532:0210). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-2018-fhd"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 2018 FHD*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:022F"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 2018 FHD (USB VID:PID 1532:022F). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-2019"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 2019*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0234"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 2019 (USB VID:PID 1532:0234). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-2020"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 2020*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0256"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 2020 (USB VID:PID 1532:0256). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-17-early-2021"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 17 Early 2021*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:026E"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 17 Early 2021 (USB VID:PID 1532:026E). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode. Fan operating range per razer-control-revived: 2300-4300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-pro-17-mid-2021"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade Pro 17 Mid 2021*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0279"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade Pro 17 Mid 2021 (USB VID:PID 1532:0279). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode. Fan operating range per razer-control-revived: 2300-4300 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-qhd"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade QHD*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:020F"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade QHD (USB VID:PID 1532:020F). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-razer-book-13-2020"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Razer Book 13 2020*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:026A"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Razer Book 13 2020 (USB VID:PID 1532:026A). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. baseline fan control + logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2021-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2021 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:026F"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2021 Base (USB VID:PID 1532:026F). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2021-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2021 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0276"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2021 Advanced (USB VID:PID 1532:0276). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-late-2021-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Late 2021 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:026D"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Late 2021 Advanced (USB VID:PID 1532:026D). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-late-2021-base"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Late 2021 Base*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:027A"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Late 2021 Base (USB VID:PID 1532:027A). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-14-2021"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 14 2021*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:0270"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 14 2021 (USB VID:PID 1532:0270). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-early-2022-advanced"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 Early 2022 Advanced*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:028A"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 Early 2022 Advanced (USB VID:PID 1532:028A). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-17-2022"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 17 2022*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:028B"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 17 2022 (USB VID:PID 1532:028B). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode. Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-14-2022"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 14 2022*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:028C"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 14 2022 (USB VID:PID 1532:028C). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 3500-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-14-2023"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 14 2023*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:029D"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 14 2023 (USB VID:PID 1532:029D). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-15-2023"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 15 2023*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:029E"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 15 2023 (USB VID:PID 1532:029E). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-16-2023"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 16 2023*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:029F"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 16 2023 (USB VID:PID 1532:029F). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-18-2023"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 18 2023*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02A0"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 18 2023 (USB VID:PID 1532:02A0). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-14-2024"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 14 2024*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02B6"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 14 2024 (USB VID:PID 1532:02B6). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-16-2024"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 16 2024*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02B7"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 16 2024 (USB VID:PID 1532:02B7). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-18-2024"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 18 2024*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02B8"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 18 2024 (USB VID:PID 1532:02B8). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-14-2025"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 14 2025*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02C5"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 14 2025 (USB VID:PID 1532:02C5). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-16-2025"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 16 2025*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02C6"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 16 2025 (USB VID:PID 1532:02C6). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "razer-blade-18-2025"
+    dmi_fingerprint:
+      sys_vendor: "Razer"
+      product_name: "*Blade 18 2025*"
+      board_vendor: "Razer"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unsupported"
+      sysfs_hint: "no mainline hwmon — USB HID protocol via 1532:02C7"
+    additional_controllers: []
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "razer-control-revived"
+      - "openrazer"
+      - "razer-cli"
+    notes: "Razer Blade 18 2025 (USB VID:PID 1532:02C7). Razer Blade fan-control is owned by a custom USB HID protocol on the Razer device interface, NOT the EC port-0x68 family or mainline hwmon. logo LED, fan boost mode, battery health optimization (charge limit). Fan operating range per razer-control-revived: 2200-5000 RPM. ventd cannot drive this path natively; defer to encomjp/razer-control-revived (canonical maintained fork) or openrazer + razer-cli. Recorded as unsupported so doctor card surfaces the userspace remediation."
+    citations:
+      - "https://github.com/encomjp/razer-control-revived (canonical maintained Razer Blade fan/LED controller)"
+      - "https://github.com/encomjp/razer-control-revived/blob/main/razer_control_gui/data/devices/laptops.json (USB VID:PID + fan range registry)"
+      - "https://github.com/openrazer/openrazer (peripherals + battery-health framework; complementary to razer-control)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
