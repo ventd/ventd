@@ -113,7 +113,7 @@ ConfigurationDirectory=ventd
 ConfigurationDirectoryMode=0750
 # Persistent state directory: calibration store, setup-token backup.
 StateDirectory=ventd
-StateDirectoryMode=0750
+StateDirectoryMode=0755
 # Enumerate every path ventd writes to.
 #   /etc/ventd            — config.yaml, calibration.json, TLS cert+key
 #   /run/ventd            — runtime files (also covered by RuntimeDirectory)
