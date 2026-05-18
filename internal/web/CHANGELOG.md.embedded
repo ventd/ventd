@@ -9,6 +9,25 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.4] - 2026-05-18
+
+### Headline
+
+Third critical hotfix in twelve hours. The v0.8.x wizard rework's terminal `ApplyPhase` atomic-renamed a correct `/etc/ventd/config.yaml` into place but never told the running daemon to reload — every dashboard surface kept serving the pre-wizard `liveCfg`, and the worst-case path on a host whose pre-wizard config had no Controls (the operator-escape after #1224) left no controller bound to the new fans. Confirmed live on Phoenix's 13900K + NCT6687D box: wizard ran clean at 21:50-21:56, `/etc/ventd/config.yaml` held 8 fans + 1 curve + 8 controls on disk, but `/api/v1/smart/status` reported `channels: 0 / global_state: idle` for ~1h and the CPU hit 97 °C — 3 °C from TjMax. Operator could not have detected this from any UI surface; only the audible CPU fan staying at minimum while temperatures climbed gave it away. (#1232.)
+
+Companion fixes from the same 2026-05-18 HIL audit:
+
+- **#1220** — phantom-classified channels stuck at probe-end PWM=255 for the entire calibrate phase (~5 min on an 8-fan box) because the bipolar polarity prober's deferred baseline-PWM restore doesn't land on NCT6687D + MSI BIOS. PolarityPhase now restores `pwm<N>_enable` immediately after the main loop for every non-normal channel.
+- **#1226** — NVIDIA GPU fans discovered by NVMLPhase appeared in `cfg.Fans` but never as `cfg.Sensors`, so the dashboard showed `rpm: null` and no GPU temperature even though the NVIDIA HAL backend supplied both internally. ApplyPhase now emits matching `gpu<i>_temp` + `gpu<i>_fan_pct` sensors per discovered fan.
+- **#1231** — the 3-anchor default curve was too coarse for wide-range fans; a Dell SMM with PWM range 179 saw each per-anchor step translate a 5 °C load transient into ~30 PWM units / ~700 RPM in a single jump, causing audible hunting on operator load tests. Anchor count now scales from `round(widest_hwmon_range / 30)` with a floor of 3; Dell SMM gets 6 anchors, NCT SuperIO gets 8.
+- **#1218** — rpm `%post` `ventd-nvml-helper` relocation fails on Fedora 44 btrfs with `'X' and 'Y' are the same file` because the rpm reflink lands both inodes at the same file; the daemon was left in `inactive (dead)` until manual `systemctl start`. Now uses portable `stat -c '%i'` inode comparison to skip the no-op upgrade case.
+
+WebUI polish surfaced during the audit:
+
+- **#1227** — dashboard "workload" pill no longer leaks the signature library's internal `fallback/idle` / `fallback/disabled` labels; new operators were reading those as degraded-mode signals when they're the normal cold-start state.
+- **#1230** — wizard UI fan roster + system cards now populate during the calibrate window by synthesising `FanState` from the orchestrator's checkpoint state; the legacy phase 0-7 inline body owned `Manager.fans` directly and the v0.8.x orchestrator never wrote there.
+- **#1234** — dashboard uptime widget no longer resets to zero on every page navigation; the daemon's process startup time now flows from `/api/v1/status.started_at` rather than the page-load timer.
+
 ### Fixed
 
 - `internal/setup/orchestrator_bridge.go` + `internal/setup/setup.go` + `cmd/ventd/main.go` — **wizard ApplyPhase now triggers an in-process daemon reload**, so controllers spawn against the freshly-emitted `/etc/ventd/config.yaml` without a manual `systemctl restart ventd`. New `Manager.SetReloadTrigger(func())` is wired from `cmd/ventd/main.go` to a closure that pushes to `restartCh` (the same channel `handleSetupReset` uses); `runOrchestrator` fires the trigger immediately after `persistOrchestratorPolarity` on ApplyPhase Success. Without this, the wizard atomic-renamed a correct config into place but every dashboard surface kept serving the pre-wizard `liveCfg` and — the worst-case path on a host whose pre-wizard config had no Controls — no controller bound to the new fans, leaving the CPU climbing unmitigated until the operator figured out the manual restart. Confirmed live on Phoenix's 13900K + NCT6687D box: wizard ran clean at 21:50-21:56 today, `/etc/ventd/config.yaml` held 8 fans + 1 curve + 8 controls on disk, but `/api/v1/smart/status` reported `channels: 0 / global_state: idle` for ~1h and the CPU hit 97 °C (3 °C from TjMax). Sibling test-isolation guardrail: `NewWithRoots` now auto-sets `applyConfigPathOverride` to a sentinel when called with non-default roots, and the bridge / manager test helpers plumb a `t.TempDir()` override; without this every root-uid test run on a dev host with a real NVIDIA GPU stomped the live `/etc/ventd/config.yaml` because `NVMLPhase` enumerated the real GPU even with a faked `hwmonRoot` — discovered the hard way while writing this fix. Regression coverage: `TestSetReloadTrigger_FireRoundTrip` pins the dispatch contract (registered fn fires once per `fireReloadTrigger`, nil fn is a clean no-op, re-setting to nil disables cleanly). (#1229, #1232)
