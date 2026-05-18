@@ -790,7 +790,7 @@ fi
 # StateDirectory=ventd in the unit reasserts ownership/mode on every start;
 # this is belt-and-braces for the wipe-and-reinstall path.
 # /run/ventd is managed by RuntimeDirectory= and must NOT be pre-created here.
-install -d -m 0750 "$VENTD_STATE_DIR"
+install -d -m 0755 "$VENTD_STATE_DIR"
 if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     chown ventd:ventd "$VENTD_STATE_DIR"
 fi
@@ -1107,7 +1107,8 @@ install_selinux_module() {
         rm -rf "$builddir"
         return 0
     }
-    if ( cd "$builddir" && make -f /usr/share/selinux/devel/Makefile ventd.pp >/dev/null 2>&1 ); then
+    local make_log="${builddir}/make.log"
+    if ( cd "$builddir" && make -f /usr/share/selinux/devel/Makefile ventd.pp >"$make_log" 2>&1 ); then
         if semodule -i "${builddir}/ventd.pp" 2>/dev/null; then
             restorecon -Rv /usr/local/bin/ventd /etc/ventd /run/ventd >/dev/null 2>&1 || true
             echo "  ✓ SELinux module → ventd.pp (loaded; restorecon applied)"
@@ -1116,11 +1117,31 @@ install_selinux_module() {
             echo "  ! SELinux module built but semodule refused to load it"
             log_security_outcome selinux refused "reason=semodule-refused module=ventd.pp"
         fi
+        rm -rf "$builddir"
     else
-        echo "  ! SELinux module build failed (run make in ${srcdir} for details)"
-        log_security_outcome selinux refused "reason=make-failed"
+        # Preserve the build dir + make output so the operator can
+        # actually diagnose this. Previously the script printed
+        # "run make in <tmpdir>" and then immediately deleted that
+        # tmpdir — useless. Move the build dir to a stable location
+        # and print the last lines of the make stderr inline.
+        local preserved="/var/log/ventd/selinux-build-failure"
+        mkdir -p "$preserved"
+        cp -a "$builddir/." "$preserved/" 2>/dev/null || true
+        rm -rf "$builddir"
+        echo "  ! SELinux module build failed."
+        echo "    Last 10 lines of make output:"
+        if [[ -s "$preserved/make.log" ]]; then
+            tail -n 10 "$preserved/make.log" | sed 's/^/      /'
+        else
+            echo "      (make produced no output — check selinux-policy-devel install)"
+        fi
+        echo "    Full output + sources preserved at: $preserved"
+        echo "    Note: the daemon's hwmon writes use DAC, not SELinux"
+        echo "    labelling. If 'ausearch -m AVC -ts recent' is empty"
+        echo "    after a few minutes of normal operation, you can"
+        echo "    ignore this warning."
+        log_security_outcome selinux refused "reason=make-failed log=$preserved/make.log"
     fi
-    rm -rf "$builddir"
 }
 
 if [[ "$VENTD_TEST_MODE" != "1" ]]; then
@@ -1257,15 +1278,31 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 
-# Resolve a machine IP for the "open https://… to set up" hint. `hostname -I`
-# is a GNU-hostname extension not present in inetutils-hostname (Arch's
-# default) — under `set -o pipefail` that would make the install script
-# exit non-zero right after a perfectly healthy install and the operator
-# never sees the URL. Fall back through ip(8), and leave a placeholder
-# if neither resolves. Best-effort: any failure here is informational only.
-MACHINE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || MACHINE_IP=""
-if [[ -z "$MACHINE_IP" ]] && command -v ip >/dev/null 2>&1; then
-    MACHINE_IP="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)" || MACHINE_IP=""
+# Resolve every routable IPv4 address for the "open https://… to set up"
+# hint. `hostname -I` is a GNU-hostname extension not present in
+# inetutils-hostname (Arch's default); under `set -o pipefail` that would
+# make the install script exit non-zero right after a perfectly healthy
+# install and the operator never sees the URL. Fall back through ip(8).
+# Best-effort: any failure here is informational only.
+#
+# Why enumerate all IPs (not just one): on hosts with multiple interfaces
+# (LAN + Tailscale + WireGuard) the operator typically connects from one
+# specific network. Picking "the first" IP loses Tailscale and Wireguard
+# every time. Listing them all lets the operator pick whichever one is
+# routable from where they're sitting.
+MACHINE_IPS=()
+if command -v hostname >/dev/null 2>&1; then
+    while IFS= read -r ip; do
+        [[ -n "$ip" ]] && MACHINE_IPS+=("$ip")
+    done < <(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' || true)
+fi
+if [[ ${#MACHINE_IPS[@]} -eq 0 ]] && command -v ip >/dev/null 2>&1; then
+    while IFS= read -r ip; do
+        [[ -n "$ip" ]] && MACHINE_IPS+=("$ip")
+    done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 || true)
+fi
+if [[ ${#MACHINE_IPS[@]} -eq 0 ]]; then
+    MACHINE_IPS=("<this-machine-ip>")
 fi
 # Scheme is always https on first boot: the daemon auto-generates a
 # self-signed cert if no tls_cert is configured. Older installs that
@@ -1273,7 +1310,6 @@ fi
 # drop to http — that case is extremely rare and the wizard itself
 # surfaces the right URL anyway, so we bias toward the correct default.
 WEB_SCHEME="https"
-WEB_URL="${WEB_SCHEME}://${MACHINE_IP:-<this-machine-ip>}:9999"
 
 # Compute the SHA-256 fingerprint of the daemon's self-signed cert. The
 # operator can compare this to the certificate fingerprint shown by their
@@ -1298,16 +1334,32 @@ fi
 # don't disappear into the scrollback of a noisy apt-get / dnf / pacman
 # run. The characters below are Unicode box-drawing; they render correctly
 # on every terminal the README lists as a supported install surface.
+#
+# `pad_box_line` right-pads a single content line to the box's 68-char
+# interior, appends the closing `║`, and prints it. Avoids the recurring
+# "unclosed ║" cosmetic bug when ${ip}-built URLs or ${CERT_FINGERPRINT}
+# substitute mid-line.
+pad_box_line() {
+    printf '║%-68s║\n' "$1"
+}
 echo ""
-cat <<EOF
+cat <<'EOF'
 
 ╔════════════════════════════════════════════════════════════════════╗
 ║  ventd is installed and running.                                   ║
 ╠════════════════════════════════════════════════════════════════════╣
 ║                                                                    ║
-║    Open this URL in your browser:                                  ║
-║                                                                    ║
-║         ${WEB_URL}
+EOF
+if [[ ${#MACHINE_IPS[@]} -gt 1 ]]; then
+    pad_box_line "    Open one of these URLs in your browser:"
+else
+    pad_box_line "    Open this URL in your browser:"
+fi
+pad_box_line ""
+for ip in "${MACHINE_IPS[@]}"; do
+    pad_box_line "         ${WEB_SCHEME}://${ip}:9999"
+done
+cat <<'EOF'
 ║                                                                    ║
 ║    Set a password on first visit — that's it. No more terminal     ║
 ║    work required.                                                  ║
@@ -1329,20 +1381,24 @@ cat <<EOF
 EOF
 
 if [[ -n "$CERT_FINGERPRINT" ]]; then
-    cat <<EOF
+    cat <<'EOF'
 ║    To verify you're talking to *this* machine and not someone      ║
 ║    intercepting your connection, check that the SHA-256            ║
 ║    fingerprint shown in your browser's certificate dialog          ║
 ║    matches:                                                        ║
 ║                                                                    ║
-║      ${CERT_FINGERPRINT}
+EOF
+    pad_box_line "      ${CERT_FINGERPRINT}"
+    cat <<'EOF'
 ║                                                                    ║
 EOF
 else
-    cat <<EOF
+    cat <<'EOF'
 ║    To verify the certificate fingerprint, run on this machine:     ║
 ║                                                                    ║
-║      sudo openssl x509 -in ${CERT_PATH} \\
+EOF
+    pad_box_line "      sudo openssl x509 -in ${CERT_PATH} \\"
+    cat <<'EOF'
 ║        -noout -fingerprint -sha256                                 ║
 ║                                                                    ║
 ║    and compare against the fingerprint shown in your browser's     ║
@@ -1351,7 +1407,7 @@ else
 EOF
 fi
 
-cat <<EOF
+cat <<'EOF'
 ╚════════════════════════════════════════════════════════════════════╝
 
 EOF

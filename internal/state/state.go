@@ -100,6 +100,15 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("rename %s→%s: %w", tmp, path, err)
 	}
+	// Apply mode explicitly after the rename. OpenFile honours the
+	// process umask, and the shipped systemd unit sets UMask=0077,
+	// which would turn the requested 0640 into 0600 — tripping
+	// RULE-STATE-09's "0640 ventd ventd" requirement and producing
+	// a permanent warning on /api/v1/doctor every install. Chmod
+	// makes the mode parameter authoritative regardless of umask.
+	if err := os.Chmod(path, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
 	// fsync the directory so the rename is durable on power loss.
 	if d, err := os.Open(dir); err == nil {
 		_ = d.Sync()
