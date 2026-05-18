@@ -9,6 +9,16 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.2] - 2026-05-18
+
+### Headline
+
+Critical hotfix on top of v0.8.1: the v0.8.x orchestrator never called `polarity.Persist` after the polarity phase completed, so every fresh wizard run produced a working in-memory config but lost the polarity classification on the first daemon restart. On the next start the runtime polarity package's `Load(db)` returned `(nil, nil)`, every channel read `Polarity:"unknown"`, the controller refused every write, and smart-mode reported `enabled: false / channels: 0` — the wizard appeared successful but the daemon controlled nothing across restarts. Confirmed live on Phoenix's 13900K + MSI PRO Z690-A DDR4 + NCT6687D box: wizard apply at 20:49 left 6 controllable fans configured, `systemctl restart ventd` at 20:56 lost polarity, all 6 fans handed back to BIOS auto with CPU at 95°C. Same regression would have hit any installer that survives one reboot. (#1222.)
+
+### Fixed
+
+- `internal/setup/orchestrator_bridge.go` — **bridge wizard PolarityArtifact → runtime polarity KV store.** New `Manager.persistOrchestratorPolarity(outs)` walks the orchestrator's outcomes for the PolarityPhase success record, decodes its `PolarityArtifact`, joins each entry with the matching `ProbedFan.RPMPath` from the ProbePhase artifact (the polarity hwmon `MatchKey` is `"hwmon:<PWMPath>"` so TachPath isn't required for matching but is preserved for diagnostics), converts to `[]polarity.ChannelResult` with `Backend:"hwmon"` + `ProbedAt: time.Now()`, and writes via `polarity.Persist(m.stateKV, results)`. Called from `runOrchestrator` immediately before the ApplyPhase-success transition to `applied`. Entries with `Polarity == ""` or `Polarity == "unknown"` are excluded from the persisted set — `polarity.Load` treats resolved-to-unknown as a probe miss that blocks re-probe, so unresolved entries staying out of the KV preserves the on-demand re-probe path. Best-effort: a `Persist` failure does NOT roll back the wizard's applied state (apply already succeeded, the user has a working config; losing the polarity shard means the next restart will need a startup re-probe, which is recoverable without operator intervention). The legacy `Manager.run` Phase 5b made this same `polarity.Persist` call inline; that path was removed in #1197 without the orchestrator picking up the responsibility. Regression coverage: `TestPersistOrchestratorPolarity_WritesKVStore` (round-trip: encode artifacts → bridge call → `polarity.Load` returns matching channels with TachPath joined from probe), `TestPersistOrchestratorPolarity_SkipsUnknownEntries` (unknown / empty Polarity is dropped), `TestPersistOrchestratorPolarity_NoKVDBIsNonFatal` (Manager without `stateKV` warns and proceeds rather than panicking). (#1222)
+
 ## [v0.8.1] - 2026-05-18
 
 ### Headline
