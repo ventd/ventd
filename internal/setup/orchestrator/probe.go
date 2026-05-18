@@ -30,6 +30,15 @@ type ProbedFan struct {
 	// extensions).
 	EnablePath string `json:"enable_path,omitempty"`
 
+	// InitialEnable is the pwm<N>_enable byte the probe observed
+	// before any phase wrote to the channel. ApplyPhase uses this
+	// to restore firmware control when a channel is excluded from
+	// the applied config (phantom polarity, verify reclassification,
+	// monitor-only demotion). Zero when EnablePath is empty or the
+	// read failed at probe time — apply treats zero as "do not
+	// touch pwm_enable" rather than as a literal write target.
+	InitialEnable byte `json:"initial_enable,omitempty"`
+
 	// RPMPath is the absolute sysfs path to the fan<N>_input file
 	// for the fan that THIS PWM drives. Best-effort: ProbePhase
 	// pairs PWM N with fan N under the same hwmon root. Empty when
@@ -99,11 +108,12 @@ func (ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 
 		chipDir := filepath.Dir(p)
 		fan := ProbedFan{
-			Index:      pwmIndex(p),
-			PWMPath:    p,
-			EnablePath: enablePath,
-			RPMPath:    pairedFanInputPath(chipDir, p),
-			ChipName:   readChipNameFromDir(chipDir),
+			Index:         pwmIndex(p),
+			PWMPath:       p,
+			EnablePath:    enablePath,
+			InitialEnable: readProbeEnableByte(enablePath),
+			RPMPath:       pairedFanInputPath(chipDir, p),
+			ChipName:      readChipNameFromDir(chipDir),
 		}
 		fan.LabelHint = synthesiseLabel(chipDir, fan.Index, fan.ChipName)
 		art.Fans = append(art.Fans, fan)
@@ -157,6 +167,29 @@ func pairedFanInputPath(chipDir, pwmPath string) string {
 		return candidate
 	}
 	return ""
+}
+
+// readProbeEnableByte reads pwm<N>_enable at probe time so ApplyPhase
+// has a deterministic restore target if the channel is later excluded
+// from the applied config. Returns 0 on any read or parse failure;
+// callers treat 0 as "do not touch pwm_enable" so the daemon's
+// watchdog stays the authoritative restoration path in that case.
+func readProbeEnableByte(enablePath string) byte {
+	if enablePath == "" {
+		return 0
+	}
+	b, err := os.ReadFile(enablePath)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0
+	}
+	if n < 0 || n > 255 {
+		return 0
+	}
+	return byte(n)
 }
 
 // readChipNameFromDir reads the hwmon `name` file. Empty on read
