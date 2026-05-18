@@ -1458,6 +1458,30 @@ func runDaemonInternal(
 							smartMode.ObsAppend, labelFn,
 						))
 					}
+					// v0.5.9: install the confidence-gated blend hook so
+					// reload-path controllers populate the same
+					// per-channel Snapshot stream the startup path does.
+					// Without this, /api/v1/smart/status reported
+					// channels=0 indefinitely after a wizard-triggered
+					// reload — controllers were running and driving fans
+					// correctly, but the aggregator's Tick was never
+					// called for them so smart-mode telemetry stayed
+					// empty. Same wiring shape as the startup path at
+					// ~line 1298. (#1240, exposed by #1229's reload
+					// trigger.)
+					if smartMode != nil && smartMode.Blended != nil {
+						labelFn := func() string { return signature.FallbackLabelDisabled }
+						if sigLib != nil {
+							labelFn = sigLib.Label
+						}
+						blendFn := buildBlendFn(
+							fanCfg.PWMPath, fanCfg, &liveCfg,
+							smartMode, labelFn, logger,
+						)
+						if blendFn != nil {
+							reloadOpts = append(reloadOpts, controller.WithBlend(blendFn))
+						}
+					}
 					c := controller.New(
 						ctrl.Fan, ctrl.Curve,
 						fanCfg.PWMPath, fanCfg.Type,

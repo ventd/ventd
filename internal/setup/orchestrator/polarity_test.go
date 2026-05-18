@@ -241,6 +241,90 @@ func art_polarity(p *fakePolarityProber, path string) string {
 	return "unknown"
 }
 
+// TestPolarityPhase_WritesSafePWMOnNonNormalChannels pins the #1241
+// follow-up: pwm_enable=InitialEnable restore alone is a no-op on
+// chips where the probe-time mode was already "manual" (NCT6687D +
+// MSI BIOS) — the chip holds the prober's last-written PWM byte and
+// the fan stays at probe-end value (often 255 for HIGH bipolar pulse,
+// 153 mid-restore on this chip family). After PolarityPhase, every
+// non-normal channel should have polaritySafeRestorePWM (64 ≈ 25%)
+// written to its pwm<N> register BEFORE the pwm_enable restore so the
+// fan settles to a quiet floor instead of staying at the probe-end
+// value. Normal-polarity channels must NOT be touched (CalibratePhase
+// will sweep them within seconds).
+func TestPolarityPhase_WritesSafePWMOnNonNormalChannels(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	hwmonRoot := t.TempDir()
+
+	stage := func(idx int) (pwmPath, enablePath string) {
+		pwmPath = filepath.Join(hwmonRoot, "pwm"+strconv.Itoa(idx))
+		enablePath = filepath.Join(hwmonRoot, "pwm"+strconv.Itoa(idx)+"_enable")
+		// Seed the PWM byte at 255 to simulate the bipolar HIGH-pulse
+		// residual the probe leaves behind. Seed enable at "1\n" to
+		// simulate the InitialEnable=1 case the chip-family bug
+		// requires.
+		if err := os.WriteFile(pwmPath, []byte("255"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(enablePath, []byte("1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return pwmPath, enablePath
+	}
+
+	pwm1, en1 := stage(1)
+	pwm2, en2 := stage(2)
+	pwm3, en3 := stage(3)
+	pwm4, en4 := stage(4)
+
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{Index: 1, PWMPath: pwm1, EnablePath: en1, InitialEnable: 1},
+			{Index: 2, PWMPath: pwm2, EnablePath: en2, InitialEnable: 1},
+			{Index: 3, PWMPath: pwm3, EnablePath: en3, InitialEnable: 1},
+			{Index: 4, PWMPath: pwm4, EnablePath: en4, InitialEnable: 1},
+		},
+	})
+	prober := &fakePolarityProber{results: map[string]polarity.ChannelResult{
+		pwm1: {Polarity: "normal"},
+		pwm2: {Polarity: "phantom", PhantomReason: "no_response"},
+		pwm3: {Polarity: "inverted"},
+		pwm4: {Polarity: "unknown"},
+	}}
+
+	out := (PolarityPhase{Prober: prober}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	readByte := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+
+	// Normal-polarity channel: pwm1 PWM byte must be untouched (still
+	// at probe-residual 255). CalibratePhase will rewrite it within
+	// seconds; this phase doesn't.
+	if got := readByte(pwm1); got != "255" {
+		t.Errorf("pwm1 (normal) byte should be untouched at 255, got %q", got)
+	}
+	// Phantom / inverted / unknown: each pwm<N> byte must hold
+	// polaritySafeRestorePWM (64), defeating the probe-residual 255
+	// the chip would otherwise hold under InitialEnable=manual.
+	want := strconv.Itoa(polaritySafeRestorePWM)
+	for _, tc := range []struct {
+		label, path string
+	}{{"phantom", pwm2}, {"inverted", pwm3}, {"unknown", pwm4}} {
+		if got := readByte(tc.path); got != want {
+			t.Errorf("%s channel %s: PWM byte = %q, want %q (polaritySafeRestorePWM)",
+				tc.label, tc.path, got, want)
+		}
+	}
+}
+
 // TestPolarityPhase_SkipsRestoreWhenEnablePathEmpty pins the
 // best-effort posture of the restore loop: ProbedFans without an
 // EnablePath (e.g. nvidia GPU fans that don't expose a pwm_enable

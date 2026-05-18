@@ -13,6 +13,18 @@ import (
 	"github.com/ventd/ventd/internal/recovery"
 )
 
+// polaritySafeRestorePWM is the PWM byte written to non-normal
+// channels at the end of PolarityPhase to defeat the
+// pwm_enable-restore-is-a-no-op trap (#1241). 64 ≈ 25% duty: low
+// enough to be quiet on every fan the wizard has seen, high enough to
+// avoid the stall band of cheap 3-pin tach reads, and conservative for
+// inverted-polarity channels where 64 mapped through .Polarity = 191
+// still keeps the fan moving (RPM signal preserved for downstream
+// diagnostics). Chips where pwm_enable=InitialEnable already returns
+// the fan to firmware control (BIOS auto = 2 pre-wizard) ignore this
+// write — the firmware curve drives the channel.
+const polaritySafeRestorePWM = 64
+
 // PolarityFanResult is one entry in the PolarityArtifact. Mirrors
 // polarity.ChannelResult's user-visible fields. The full
 // polarity.ChannelResult also stores backend-specific Identity but the
@@ -158,6 +170,34 @@ func (p PolarityPhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		if fan.EnablePath == "" || fan.InitialEnable == 0 {
 			continue
 		}
+		// Step 1: drive a safe-mid PWM byte BEFORE flipping enable
+		// state. Ordering matters: writing pwm_enable to manual mode
+		// *first* could latch whatever the chip already had in the
+		// pwm<N> register; setting pwm<N> before pwm_enable commits
+		// keeps the byte the chip uses once the manual-mode flip
+		// lands. Phantom + inverted channels can't be driven usefully
+		// anyway, so polaritySafeRestorePWM (64 / 25%) is a quiet
+		// floor instead of leaving the probe-end value (often 0 for
+		// LOW or 255 for HIGH bipolar pulse). Best-effort: a write
+		// error is logged WARN and the loop continues to the enable
+		// restore so the operator-facing state still improves on
+		// chips where the byte writes are partial. (#1241: NCT6687D
+		// holds the probe-end PWM=153 across pwm_enable=1 restore
+		// because the chip's manual mode latches the prior pwm<N>
+		// register value.)
+		if fan.PWMPath != "" {
+			if err := os.WriteFile(fan.PWMPath,
+				[]byte(strconv.Itoa(polaritySafeRestorePWM)), 0o644); err != nil {
+				rc.Log().Warn("polarity: safe-PWM write failed",
+					"pwm_path", fan.PWMPath,
+					"polarity", art.Results[i].Polarity,
+					"err", err)
+				// don't skip the enable restore — the byte may have
+				// been partially-written and pwm_enable still wants
+				// restoring.
+			}
+		}
+		// Step 2: restore pwm_enable to the probe-time InitialEnable.
 		if err := os.WriteFile(fan.EnablePath,
 			[]byte(strconv.Itoa(int(fan.InitialEnable))), 0o644); err != nil {
 			rc.Log().Warn("polarity: restore pwm_enable failed",
