@@ -10,6 +10,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/setup"
+	"github.com/ventd/ventd/internal/state"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -104,6 +105,31 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// Without it, phantom channels slip through to `controls:` —
 	// issue #1026.
 	mgr.SetPolarityProber(&polarity.HwmonProber{})
+	// Wire the calibration-namespace KV so Phase 5b persists polarity
+	// results to /var/lib/ventd/state.yaml (RULE-POLARITY-08). Without
+	// this the daemon-path's #1037 wiring (main.go:990) covers the
+	// web-UI wizard but not the CLI `-setup` flow — operators who run
+	// the wizard from CLI would write a fresh config.yaml but the
+	// daemon's next start would see no persisted polarity, mark every
+	// channel "unknown", and refuse writes (polarity_refused log spam
+	// + audibly stuck fans). PID-locked because state.yaml's KV is
+	// already daemon-serialised; the lock surfaces "daemon is running"
+	// cleanly rather than corrupting telemetry.
+	if releasePID, pidErr := state.AcquirePID(state.DefaultDir); pidErr != nil {
+		logger.Warn("setup: cannot acquire state lock (is ventd.service running?); polarity will not persist — re-run wizard from web UI after start", "err", pidErr)
+	} else {
+		defer releasePID()
+		if st, stErr := state.Open(state.DefaultDir, logger); stErr != nil {
+			logger.Warn("setup: state.Open failed; polarity will not persist", "err", stErr)
+		} else {
+			defer func() {
+				if err := st.Close(); err != nil {
+					logger.Error("state close", "err", err)
+				}
+			}()
+			mgr.SetStateKV(st.KV)
+		}
+	}
 
 	// v0.5.12: opt-in R30 mic calibration. When MicDevice is empty
 	// the gate is a clean no-op (RULE-WIZARD-GATE-CALIBRATE-ACOUSTIC-01);

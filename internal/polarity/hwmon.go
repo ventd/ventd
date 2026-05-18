@@ -116,7 +116,7 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		return res, ctx.Err()
 	default:
 	}
-	rpmLow := p.readRPMMean(ch.TachPath, RestoreDelay)
+	rpmLow := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
 	res.Baseline = rpmLow // Reused field: RPM observed at the LOW pulse.
 
 	// Bipolar HIGH pulse (RULE-POLARITY-13).
@@ -136,7 +136,7 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		return res, ctx.Err()
 	default:
 	}
-	rpmHigh := p.readRPMMean(ch.TachPath, RestoreDelay)
+	rpmHigh := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
 	res.Observed = rpmHigh
 
 	// Restore baseline before classifying.

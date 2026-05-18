@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,9 +101,11 @@ func TestPolarityRules(t *testing.T) {
 
 	})
 
-	// RULE-POLARITY-02: bipolar pulse-hold ≥ BipolarPulseHold per pulse.
-	// Total clock-injected sleep ≥ 2×BipolarPulseHold.
-	t.Run("RULE-POLARITY-02_hold_time_3s", func(t *testing.T) {
+	// RULE-POLARITY-02: bipolar pulse-hold ≥ BipolarPulseHold per pulse,
+	// and BipolarPulseHold itself must be long enough to clear large-fan
+	// spin-down inertia (issue #1221 — HIL on NCT6687 / 13900K box found
+	// 2s was insufficient; 6s clears every measured channel).
+	t.Run("RULE-POLARITY-02_hold_envelope", func(t *testing.T) {
 		var totalSleep time.Duration
 		clockFn := func(d time.Duration) { totalSleep += d }
 
@@ -119,6 +124,86 @@ func TestPolarityRules(t *testing.T) {
 		minPulseSleep := 2 * polarity.BipolarPulseHold
 		if totalSleep < minPulseSleep-200*time.Millisecond {
 			t.Errorf("total sleep %v < 2×BipolarPulseHold-200ms (%v)", totalSleep, minPulseSleep-200*time.Millisecond)
+		}
+		// Lock the minimum hold against regressions toward the
+		// pre-#1221 2s value that produced false-phantoms.
+		if polarity.BipolarPulseHold < 6*time.Second {
+			t.Errorf("BipolarPulseHold = %v, want ≥ 6s for large-fan spin-down (issue #1221)",
+				polarity.BipolarPulseHold)
+		}
+	})
+
+	// RULE-POLARITY-02 regression: simulate a real NCT6687-class fan with
+	// first-order spin-down inertia and verify the bipolar probe correctly
+	// classifies it as "normal" rather than the false-phantom verdict the
+	// pre-#1221 2s hold produced. Model parameters match the manual sweep
+	// captured in issue #1221 on the 13900K / MSI Z690-A DDR4 / NCT6687D
+	// board (τ_down ≈ 2.2s, τ_up ≈ 1.3s; PWM=51 → 660 RPM, PWM=204 →
+	// 2400 RPM, BIOS baseline PWM=255 → 2900 RPM).
+	t.Run("RULE-POLARITY-02_spindown_inertia_classifies_normal_1221", func(t *testing.T) {
+		nowT := time.Unix(0, 0)
+		lastWrite := 255
+		writeAt := nowT
+		const (
+			tauDown = 2200 * time.Millisecond
+			tauUp   = 1300 * time.Millisecond
+		)
+		// pwm → steady-state RPM table; values approximated from the
+		// pwm8 channel in /root/sweep-nct6687-*.log captured for #1221.
+		target := func(pwm int) float64 {
+			switch {
+			case pwm <= 0:
+				return 0
+			case pwm <= 51:
+				return 660
+			case pwm <= 204:
+				return 2400
+			default:
+				return 2900
+			}
+		}
+		rpmNow := func() int {
+			tgt := target(lastWrite)
+			// Use the slower of the two tau values when going down,
+			// faster when going up — the asymmetry mimics the driver
+			// torque-assisted spin-up and inertia-only spin-down.
+			tau := tauDown
+			prev := target(255)
+			if tgt > prev {
+				tau = tauUp
+			}
+			elapsed := nowT.Sub(writeAt)
+			decay := math.Exp(-float64(elapsed) / float64(tau))
+			return int(tgt + (prev-tgt)*decay)
+		}
+
+		readFile := func(path string) ([]byte, error) {
+			if strings.Contains(path, "fan") {
+				return []byte(strconv.Itoa(rpmNow()) + "\n"), nil
+			}
+			return []byte(strconv.Itoa(lastWrite) + "\n"), nil
+		}
+		writeFile := func(path string, data []byte, _ os.FileMode) error {
+			v, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+			lastWrite = v
+			writeAt = nowT
+			return nil
+		}
+
+		p := &polarity.HwmonProber{
+			Clock:     func(d time.Duration) { nowT = nowT.Add(d) },
+			Now:       func() time.Time { return nowT },
+			ReadFile:  readFile,
+			WriteFile: writeFile,
+		}
+		ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+		res, err := p.ProbeChannel(context.Background(), ch)
+		if err != nil {
+			t.Fatalf("ProbeChannel: %v", err)
+		}
+		if res.Polarity != "normal" {
+			t.Errorf("Polarity = %q (delta=%.0f, baseline=%.0f, observed=%.0f); want normal — issue #1221 regression",
+				res.Polarity, res.Delta, res.Baseline, res.Observed)
 		}
 	})
 

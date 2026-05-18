@@ -9,6 +9,11 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- `internal/polarity/polarity.go`, `internal/polarity/hwmon.go` — **raise `BipolarPulseHold` from 2 s to 6 s and decouple the tach sample window into `BipolarSampleWindow` (1 s)** to accommodate the spin-down inertia of large case fans on splitter cables. The 2 s hold landed mid-spin-down (τ ≈ 2.2 s, settling ≈ 6-8 s) on the 13900K / MSI Z690-A DDR4 / NCT6687D HIL box; ventd's recorded probe deltas for pwm1/3/7/8 came in at 43-464 RPM, half straddling the 150 RPM phantom threshold and producing non-deterministic 1-4 false-phantoms per wizard run on the same hardware. At a 6 s hold the same channels yield steady-state deltas of 1474-1827 RPM. Polarity-phase wall time on an 8-channel board rises from ~40 s to ~115 s — one-time wizard cost in exchange for unambiguous classification. Regression coverage: `RULE-POLARITY-02_hold_envelope` locks the constant at ≥6 s; `RULE-POLARITY-02_spindown_inertia_classifies_normal_1221` simulates a first-order fan inertia model (τ_down=2.2 s, τ_up=1.3 s) and asserts the bipolar probe still classifies it normal — the same simulation would fail under the pre-fix 2 s hold. (#1221.)
+- `cmd/ventd/runsetup.go` — **wire the calibration-namespace `state.KVDB` into the CLI `-setup` wizard so polarity classifications persist to `/var/lib/ventd/state.yaml`** the same way the daemon's web-UI wizard does at `main.go:990`. Without this, the CLI wizard ran the full polarity probe and wrote a correct `config.yaml`, but `polarity.Persist` silently no-op'd via the existing `if m.stateKV == nil { Warn("polarity persist skipped: no KVDB wired on Manager"); return }` early return at `internal/setup/orchestrator_bridge.go:365`. The daemon's next start then loaded no persisted polarity, marked every channel `unknown`, and emitted continuous `controller: polarity refused write` warnings — the operator's first impression of CLI-setup recovery was "the daemon refuses to control any fan". The fix uses `state.AcquirePID` so a running daemon surfaces "daemon is running; re-run wizard from web UI" rather than racing telemetry writes. Same wiring shape as the daemon path (#1037 / #1222), lifted into the CLI entry point. Discovered while validating #1221 on the 13900K HIL box. (#1221 followup.)
+
 ## [v0.8.6] - 2026-05-19
 
 ### Headline

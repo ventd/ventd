@@ -46,11 +46,27 @@ const (
 	// probe at internal/validity, RULE-CALIB-PR2B-01) and classifies
 	// on the delta between the two PULSES, not against baseline.
 	// Polarity classification becomes baseline-PWM-invariant.
-	BipolarLowPWM    uint8         = 51  // ~20% of 255
-	BipolarHighPWM   uint8         = 204 // ~80% of 255
-	BipolarLowPct    uint8         = 20
-	BipolarHighPct   uint8         = 80
-	BipolarPulseHold time.Duration = 2 * time.Second
+	//
+	// BipolarPulseHold was originally 2 s. Issue #1221 HIL on the
+	// 13900K / NCT6687 board found that 2 s is well short of the
+	// spin-down time-constant of NCT6687-class case fans on splitter
+	// cables (τ_down ≈ 2.2 s, settling time ≈ 6-8 s). Sampling at
+	// t=2 s on a fan coasting down from BIOS auto baseline produced
+	// deltas of 43-407 RPM across pwm1/3/7/8 — straddling the 150 RPM
+	// phantom threshold, giving random run-to-run misclassification
+	// (1-4 false phantoms per run on the same box). Raising the hold
+	// to 6 s puts every channel within 2 % of asymptote, producing
+	// deltas of 1474-1827 RPM — an order of magnitude above the
+	// threshold. The sample window was simultaneously decoupled from
+	// RestoreDelay into BipolarSampleWindow (1 s) so that at low RPM
+	// (~600 RPM, period ≈ 100 ms) the mean averages ≥10 tach edges
+	// rather than ~5.
+	BipolarLowPWM       uint8         = 51  // ~20% of 255
+	BipolarHighPWM      uint8         = 204 // ~80% of 255
+	BipolarLowPct       uint8         = 20
+	BipolarHighPct      uint8         = 80
+	BipolarPulseHold    time.Duration = 6 * time.Second
+	BipolarSampleWindow time.Duration = 1 * time.Second
 )
 
 // Sentinel errors.
