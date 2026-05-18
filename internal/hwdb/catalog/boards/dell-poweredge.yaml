@@ -188,3 +188,416 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 7 additions (2026-05-18): broader PowerEdge generational coverage
+  # (12G → 16G). All iDRAC9+ entries gate fan-control behind the
+  # fan_control_blocked_by_idrac9_3_34 firmware policy. Per
+  # [[catalog-ingest-2026-05-17]] wave 7.
+
+  - id: "dell-poweredge-r610"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R610"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC6 Express/Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R610 (iDRAC6 Express/Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r620"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R620"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC7 Express/Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R620 (iDRAC7 Express/Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r630"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R630"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC8 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R630 (iDRAC8 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r650"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R650"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R650 (iDRAC9 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r660"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R660"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise / 10"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R660 (iDRAC9 Enterprise / 10). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r720"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R720"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC7 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R720 (iDRAC7 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r730"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R730"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC8 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R730 (iDRAC8 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r750"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R750"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R750 (iDRAC9 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-r760"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge R760"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise / 10"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge R760 (iDRAC9 Enterprise / 10). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-t630"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge T630"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC8 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: false
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge T630 (iDRAC8 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-t640"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge T640"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge T640 (iDRAC9 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-poweredge-t740"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "PowerEdge T740"
+      board_vendor: "Dell Inc."
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY) — iDRAC9 Enterprise"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_idrac9_3_34: true
+      vendor_raw_command_set: "dell_idrac_legacy"
+      pcie_card_thermal_response_aggressive: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "racadm"
+    notes: "Dell PowerEdge T740 (iDRAC9 Enterprise). All fan control via IPMI / Redfish. Dell's
+      iDRAC aggressively ramps fans on PCIe-card thermal events (pcie_card_thermal_response_aggressive=true) —
+      operator-driven low-noise targets won't survive a non-thermal-compliant
+      PCIe NIC. iDRAC9 firmware 3.34+ blocks the raw IPMI fan commands (0x30 0x30 0x01 ...) that older PowerEdge gens accept. ventd should detect iDRAC9 version and fall back to Redfish ThermalSubsystem APIs or warn the operator."
+    citations:
+      - "https://github.com/Wer-Wolf/i8kutils2 (Dell SMM command sequences; iDRAC notes)"
+      - "https://github.com/AaronKelley/DellFanManagement (Dell PowerEdge IPMI command reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []

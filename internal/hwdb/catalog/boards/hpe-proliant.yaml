@@ -145,3 +145,263 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 7 additions (2026-05-18): broader ProLiant Gen9 → Gen11 coverage.
+  # iLO 5+ blocks user fan control — flagged via fan_control_blocked_by_ilo_5_plus
+  # + ipmi_telemetry_only. Per [[catalog-ingest-2026-05-17]] wave 7.
+
+  - id: "hpe-proliant-dl360-gen9"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL360 Gen9"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 4; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: false
+      ipmi_telemetry_only: false
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL360 Gen9 (iLO 4). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl360-gen11"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL360 Gen11"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 6; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL360 Gen11 (iLO 6). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl380-gen9"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL380 Gen9"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 4; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: false
+      ipmi_telemetry_only: false
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL380 Gen9 (iLO 4). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl380-gen11"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL380 Gen11"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 6; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL380 Gen11 (iLO 6). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl385-gen10"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL385 Gen10"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 5; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL385 Gen10 (iLO 5). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-dl385-gen11"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant DL385 Gen11"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 6; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant DL385 Gen11 (iLO 6). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-ml350-gen10"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant ML350 Gen10"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 5; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant ML350 Gen10 (iLO 5). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "hpe-proliant-ml350-gen11"
+    dmi_fingerprint:
+      sys_vendor: "HPE"
+      product_name: "ProLiant ML350 Gen11"
+      board_vendor: "HPE"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko (PRIMARY) — iLO 6; Redfish recommended"
+    additional_controllers: []
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      fan_control_blocked_by_ilo_5_plus: true
+      ipmi_telemetry_only: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "ipmitool (telemetry only on iLO 5+)"
+    notes: "HPE ProLiant ML350 Gen11 (iLO 6). iLO 5 and later block user fan control via
+      IPMI — fan curves are owned by the iLO Smart Storage / Smart Fan
+      firmware. ventd should treat these as telemetry-only and surface a
+      doctor card explaining the iLO restriction. Redfish ThermalSubsystem
+      may expose limited per-fan readings but no setpoint writes on iLO 5+."
+    citations:
+      - "https://docs.openstack.org/ironic/latest/admin/drivers/redfish.html (Redfish/iLO control reference)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
