@@ -165,3 +165,769 @@ board_profiles:
     verified: false
     defaults:
       curves: []
+
+  # Wave 7 additions (2026-05-18): broad Supermicro X11/X12/X13/H12/H13 coverage.
+  # Source: Supermicro product line catalogue + petersulyok/smfc compatibility
+  # docs. All entries follow the X11SCH-F architectural pattern (chip=ipmi_bmc,
+  # SuperIO as read-only secondary, bmc_overrides_hwmon=true). Per
+  # [[catalog-ingest-2026-05-17]] wave 7.
+
+  - id: "supermicro-x11sca-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SCA-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11SCA-F (AST2500). Single LGA1151, Xeon E-2100/2200, IPMI. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11scl-ln4f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SCL-LN4F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11SCL-LN4F (AST2500). Single LGA1151, Xeon E-2100, quad-1GbE, IPMI. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11ssh-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SSH-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2400 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11SSH-F (AST2400). Single LGA1151 Skylake-E, Xeon E3-1200v5/v6. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11ssl-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11SSL-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2400 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11SSL-F (AST2400). Single LGA1151, Xeon E3 entry-level. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11dph-i"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11DPH-i"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11DPH-i (AST2500). Dual LGA3647 Xeon Scalable, ATX. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11dph-t"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11DPH-T"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11DPH-T (AST2500). Dual LGA3647 with dual 10GbE. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x11dpu"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X11DPU"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X11DPU (AST2500). Dual LGA3647 ultra-thin server. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12sae-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12SAE-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X12SAE-F (AST2600). Single LGA1200 W-1200/1300, workstation. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12sth-ln4f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12STH-LN4F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X12STH-LN4F (AST2600). Single LGA1200, quad-1GbE. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12stl-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12STL-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X12STL-F (AST2600). Single LGA1200 entry-level Xeon E-2300. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12dpi-n6"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12DPi-N6"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X12DPi-N6 (AST2600). Dual LGA4189 Ice Lake-SP Xeon Scalable Gen3. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x12spi-tf"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X12SPi-TF"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X12SPi-TF (AST2600). Single LGA4189 Ice Lake-SP, dual 10GBASE-T. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x13sae-f"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X13SAE-F"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X13SAE-F (AST2600). Single LGA1700 W-2400/3400 workstation. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x13sae"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X13SAE"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X13SAE (AST2600). X13SAE-F non-IPMI variant. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x13dei"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X13DEI"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X13DEI (AST2600). Dual LGA4677 Sapphire Rapids Xeon Scalable Gen4/5. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x13dem"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X13DEM"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X13DEM (AST2600). Dual LGA4677 mid-range Sapphire Rapids. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-x13sefr-a"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "X13SEFR-A"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro X13SEFR-A (AST2600). Single LGA4677 Sapphire Rapids, embedded. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-h12ssl-nt"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "H12SSL-NT"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2500 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro H12SSL-NT (AST2500). H12SSL-i with dual 10GBASE-T. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "supermicro-h13dsh"
+    dmi_fingerprint:
+      sys_vendor: "Supermicro"
+      product_name: "Super Server"
+      board_vendor: "Supermicro"
+      board_name: "H13DSH"
+      board_version: "*"
+    primary_controller:
+      chip: "ipmi_bmc"
+      sysfs_hint: "/dev/ipmi0 via ipmi_si.ko + ipmi_devintf.ko (PRIMARY)"
+    additional_controllers:
+      - chip: "nct6776"
+        sysfs_hint: "name=nct6776 via nct6775 (READ-only — AST2600 BMC overrides writes)"
+    overrides:
+      bmc_overrides_hwmon: true
+      prefer_ipmi_backend: true
+      bmc_panic_mode_risk: true
+      vendor_raw_command_set: "supermicro_x11_x12"
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "smfc"
+      - "ipmitool (when running as a fan-curve daemon)"
+      - "freeipmi"
+    notes: "Supermicro H13DSH (AST2600). Dual SP5 EPYC 9004 Genoa, dual-socket. Same architectural pattern as
+      X11SCH-F: BMC firmware actively manages fans; hwmon PWM writes succeed
+      transiently then revert within seconds. ventd defers to IPMI backend
+      (spec-01). For pre-spec-01 ventd: read-only telemetry via nct6776 is
+      usable, fan-control attempts will appear to succeed then revert.
+      BMC panic-mode risk: if all temps look critical to the BMC firmware,
+      it will lock fans to 100%. Use Supermicro's IPMI 'Full Mode' to
+      release fan control to OS, then re-arm BMC watchdog before exit."
+    citations:
+      - "https://github.com/petersulyok/smfc (Supermicro X9-X13 IPMI fan controller, requires Full Mode)"
+      - "https://www.supermicro.com/manuals/ (board manual hub)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-18"
+    verified: false
+    defaults:
+      curves: []
