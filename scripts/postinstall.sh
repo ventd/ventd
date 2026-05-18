@@ -216,9 +216,27 @@ fi
 # v0.6.0 split-daemon model uses it again from the unprivileged main
 # daemon. Best-effort: no-op when the binary isn't present (musl /
 # GPU-less archive).
+#
+# Idempotency: on Fedora 44 btrfs, an rpm upgrade installs the bindir
+# copy AND leaves the sbin copy from the previous install (some
+# combination of rpm reflink + nfpms's path tracking lands both inodes
+# pointing at the same file). A plain `mv` then fails with "are the
+# same file" and the %post scriptlet bails — daemon is left in
+# inactive (dead) state until the operator runs systemctl start by
+# hand. The `-ef` test short-circuits the no-op upgrade case so the
+# install completes cleanly on every package manager. (#1218)
 if [ -x /usr/local/bin/ventd-nvml-helper ]; then
     mkdir -p /usr/local/sbin
-    mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+    _src_inode=$(stat -c '%i' /usr/local/bin/ventd-nvml-helper 2>/dev/null || echo "")
+    _dst_inode=$(stat -c '%i' /usr/local/sbin/ventd-nvml-helper 2>/dev/null || echo "")
+    if [ -n "$_src_inode" ] && [ "$_src_inode" = "$_dst_inode" ]; then
+        # Same inode (rpm-on-btrfs reflink or duplicated nfpms path).
+        # Remove the bindir alias; the sbin copy is already correct.
+        rm -f /usr/local/bin/ventd-nvml-helper
+    else
+        mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+    fi
+    unset _src_inode _dst_inode
     chown root:root /usr/local/sbin/ventd-nvml-helper
     chmod 0755 /usr/local/sbin/ventd-nvml-helper
     log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=0755"
