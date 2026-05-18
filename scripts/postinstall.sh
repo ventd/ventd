@@ -227,19 +227,34 @@ fi
 # install completes cleanly on every package manager. (#1218)
 if [ -x /usr/local/bin/ventd-nvml-helper ]; then
     mkdir -p /usr/local/sbin
-    _src_inode=$(stat -c '%i' /usr/local/bin/ventd-nvml-helper 2>/dev/null || echo "")
-    _dst_inode=$(stat -c '%i' /usr/local/sbin/ventd-nvml-helper 2>/dev/null || echo "")
-    if [ -n "$_src_inode" ] && [ "$_src_inode" = "$_dst_inode" ]; then
-        # Same inode (rpm-on-btrfs reflink or duplicated nfpms path).
-        # Remove the bindir alias; the sbin copy is already correct.
-        rm -f /usr/local/bin/ventd-nvml-helper
+    # Merged-/usr layout detection: Fedora (and modern Debian) ship
+    # /usr/local/sbin as a symlink to /usr/local/bin. The "relocation"
+    # is a no-op on those systems — the file is already accessible via
+    # /usr/local/sbin/ventd-nvml-helper. Worse: a naive `mv bin sbin`
+    # (or the v0.8.4 stat-equal rm) destroys the only copy because both
+    # paths resolve to the same directory entry. Detect the symlink case
+    # and skip the relocation entirely. (#1218 followup; v0.8.4 only
+    # partially fixed the original mv-same-file regression and replaced
+    # it with a "file vanishes" regression on Fedora btrfs.)
+    if [ -L /usr/local/sbin ] || \
+       [ "$(readlink -f /usr/local/sbin 2>/dev/null)" = "$(readlink -f /usr/local/bin 2>/dev/null)" ]; then
+        # /usr/local/sbin is a symlink/bind to /usr/local/bin. The
+        # helper is already accessible via the sbin path — fix perms
+        # in place via /usr/local/bin and let downstream code consume
+        # whichever path it likes.
+        chown root:root /usr/local/bin/ventd-nvml-helper
+        chmod 0755 /usr/local/bin/ventd-nvml-helper
+        log_security_outcome nvml-helper installed "path=/usr/local/bin/ventd-nvml-helper mode=0755 merged_usr=true"
     else
-        mv -f /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+        # Real split layout: relocate bin → sbin. Use `install -m` for
+        # an explicit non-reflink copy, then remove the bin source. This
+        # avoids the v0.8.4 stat-comparison footgun where btrfs's
+        # reflink-as-cp produced same-inode reports on legitimately
+        # separate files.
+        install -m 0755 -o root -g root /usr/local/bin/ventd-nvml-helper /usr/local/sbin/ventd-nvml-helper
+        rm -f /usr/local/bin/ventd-nvml-helper
+        log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=0755 merged_usr=false"
     fi
-    unset _src_inode _dst_inode
-    chown root:root /usr/local/sbin/ventd-nvml-helper
-    chmod 0755 /usr/local/sbin/ventd-nvml-helper
-    log_security_outcome nvml-helper installed "path=/usr/local/sbin/ventd-nvml-helper mode=0755"
 fi
 
 # Apply the shipped udev rule (/lib/udev/rules.d/90-ventd-hwmon.rules)
