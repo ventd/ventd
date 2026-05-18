@@ -37,6 +37,17 @@
     try { localStorage.setItem('ventd-theme', next); } catch (_) {}
   });
 
+  // Populate the version chip from /api/v1/version. Mirrors login.js
+  // and setup.js — keeps the calibration header in sync with the actual
+  // build rather than leaving the static HTML placeholder visible.
+  fetch('/api/v1/version', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      var v = document.getElementById('cal-brand-version');
+      if (v && data && data.version) v.textContent = 'v' + data.version;
+    })
+    .catch(function () {});
+
   // ── phase catalogue ─────────────────────────────────────────────────
   // Order matches the v2 pipeline; UI-only phases (probing_polarity,
   // finalizing) are synthesised client-side from per-fan state.

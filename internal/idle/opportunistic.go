@@ -22,10 +22,11 @@ const sshIdleThresholdSeconds int64 = 60
 // CheckHardPreconditions; these add the v0.5.5 input-IRQ + SSH layer
 // and the install-window / config-toggle refusals.
 const (
-	ReasonRecentInputIRQ          Reason = "recent_input_irq"
-	ReasonActiveSSHSession        Reason = "active_ssh_session"
-	ReasonOpportunisticDisabled   Reason = "opportunistic_disabled"
-	ReasonOpportunisticBootWindow Reason = "opportunistic_boot_window"
+	ReasonRecentInputIRQ           Reason = "recent_input_irq"
+	ReasonActiveSSHSession         Reason = "active_ssh_session"
+	ReasonOpportunisticDisabled    Reason = "opportunistic_disabled"
+	ReasonOpportunisticBootWindow  Reason = "opportunistic_boot_window"
+	ReasonProcInterruptsUnreadable Reason = "proc_interrupts_unreadable"
 )
 
 // IdleGateMode selects between the v0.6.0+ soft-default OpportunisticGate
@@ -153,8 +154,8 @@ func softOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bo
 	// the scheduler's persistent baseline pointer means every
 	// subsequent tick computes the delta vs the previous read.
 	if cfg.IRQBaseline != nil {
-		if active, irq := evalInputIRQActivity(cfg, cfg.IRQBaseline); active {
-			return false, ReasonRecentInputIRQ.WithDetail("irq=" + irq), nil
+		if active, r := evalInputIRQActivity(cfg, cfg.IRQBaseline); active {
+			return false, r, nil
 		}
 	} else {
 		// Caller didn't wire a baseline — seed a local one and skip
@@ -199,9 +200,9 @@ func strictOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (
 		// passes, since failing the base predicate is the cheaper-to-
 		// observe refusal reason.
 		if idle {
-			if active, irq := evalInputIRQActivity(cfg, &prevIRQ); active {
+			if active, r := evalInputIRQActivity(cfg, &prevIRQ); active {
 				idle = false
-				reason = ReasonRecentInputIRQ.WithDetail("irq=" + irq)
+				reason = r
 			}
 		}
 		if idle {
@@ -228,7 +229,13 @@ func strictOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (
 // captures the baseline and reports no activity — the gate's
 // durability requirement gives the caller plenty of subsequent ticks
 // to detect a delta.
-func evalInputIRQActivity(cfg OpportunisticGateConfig, prev *IRQCounters) (bool, string) {
+//
+// Returns (active, reason). On parse failure, fails-closed with
+// ReasonProcInterruptsUnreadable rather than ReasonRecentInputIRQ.
+// The previous implementation composed "irq=parse_error" as a detail
+// on ReasonRecentInputIRQ, which leaked the internal sentinel into
+// the user-facing /api/v1/probe/opportunistic/status surface.
+func evalInputIRQActivity(cfg OpportunisticGateConfig, prev *IRQCounters) (bool, Reason) {
 	read := cfg.IRQReader
 	if read == nil {
 		read = func() (IRQCounters, error) {
@@ -238,9 +245,10 @@ func evalInputIRQActivity(cfg OpportunisticGateConfig, prev *IRQCounters) (bool,
 	cur, err := read()
 	if err != nil {
 		// Conservative: parse failure means we can't prove the gate
-		// is safe. RULE-OPP-IDLE-02 requires refusal in this case
-		// with a parse_error detail.
-		return true, "parse_error"
+		// is safe. RULE-OPP-IDLE-02 requires refusal in this case;
+		// surface a distinct reason so operators see "proc_interrupts
+		// _unreadable" rather than "recent_input_irq:irq=parse_error".
+		return true, ReasonProcInterruptsUnreadable
 	}
 	if len(*prev) == 0 {
 		*prev = cur
@@ -262,7 +270,7 @@ func evalInputIRQActivity(cfg OpportunisticGateConfig, prev *IRQCounters) (bool,
 		}
 		if classify(id) {
 			*prev = cur
-			return true, id
+			return true, ReasonRecentInputIRQ.WithDetail("irq=" + id)
 		}
 	}
 	*prev = cur
