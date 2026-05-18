@@ -375,10 +375,15 @@ func buildConfig(
 	}
 	minTemp := 40.0 // idle baseline for most CPUs; refined per-chip in a future PR
 	midTemp := (minTemp + maxTemp) / 2
+	// Type:"points" — NOT "linear" — because Linear.Evaluate uses the
+	// flat MinPWM/MaxPWM struct fields and ignores Points[] entirely;
+	// emitting the 3-anchor curve under Type:"linear" parses MaxPWM=0
+	// and clamps every fan to per-fan min_pwm regardless of temperature
+	// (#1224). Points.Evaluate consumes the anchor list as intended.
 	cfg.Curves = []config.CurveConfig{
 		{
 			Name:    "default",
-			Type:    "linear",
+			Type:    "points",
 			Sensor:  "cpu_temp",
 			MinTemp: minTemp,
 			MaxTemp: maxTemp,

@@ -9,6 +9,16 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.3] - 2026-05-18
+
+### Headline
+
+Second critical hotfix in two hours: the wizard-shipped default curve was emitted under `Type: "linear"` but populated `Points[]` instead of `MinPWMPct`/`MaxPWMPct`. The `Linear` evaluator ignores `Points[]` entirely and uses the struct's flat `MinPWM`/`MaxPWM` fields, which parse as `uint8(0)` when unset — so at any temperature ≥ `MaxTemp` the curve returned `MaxPWM=0` and every fan was clamped to its per-fan `min_pwm`. Confirmed live on Phoenix's 13900K + NCT6687D box: CPU at 99°C, every NCT6687 fan + GPU pinned at `min_pwm` (PWM=12, ~4.7% duty) with `reactive_pwm:12` in `/api/v1/smart/channels`. Smart-mode was correctly engaged but the reactive arm it blends with was driving min PWM at thermal-throttle temperatures. Every fresh wizard install on v0.8.x shipped fans that could not ramp above min PWM regardless of CPU temperature — operator only escape was a manual `/etc/ventd/config.yaml` edit. (#1224.)
+
+### Fixed
+
+- `internal/setup/orchestrator/apply.go` — **default wizard curve emits `Type: "points"` not `"linear"`.** One-line type-discriminator change. The 3-anchor curve `(40°C, 20%), (mid, 50%), (TjMax-10°C, 100%)` ApplyPhase already builds matches the existing `internal/curve/points.go::Points` evaluator's interface (piecewise-linear interpolation over an arbitrary anchor list, consumes `Points[]`). The `linear` curve type is the simpler 2-point form that uses the struct's `MinPWM`/`MaxPWM` fields directly; ApplyPhase never populated those, so the curve evaluated to `MaxPWM=0` for every temp ≥ `MaxTemp` and the per-fan `min_pwm` clamp produced the observed "fans never ramp" behavior. Regression coverage: `TestApplyPhase_DefaultCurveTypeIsPoints` walks the wizard-emitted YAML through `yaml.Unmarshal` and asserts `cfg.Curves[0].Type == "points"` with `len(Points) ≥ 2` and the top anchor's `PWMPct > 0` — pins the type-discriminator + the anchor-list shape so the wizard cannot silently regress to the unsafe pairing. (#1224)
+
 ## [v0.8.2] - 2026-05-18
 
 ### Headline
