@@ -27,6 +27,30 @@ chip_profiles:
     citations:
       - "https://docs.kernel.org/hwmon/pwm-fan.html"
 
+  - name: "aquacomputer_d5next"
+    inherits_driver: "aquacomputer_d5next"
+    description: "Aqua Computer USB-HID cooler/sensor fleet — hwmon name value for aquacomputer_d5next driver (mainlined Linux 5.15+). Covers D5 Next, Octo, Quadro, Aquaero 5/6, Aquastream XT/Ultimate, Farbwerk variants, Leakshield, flow meters."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/aleksamagicka/aquacomputer_d5next-hwmon"
+
+  - name: "asus_rog_ryujin"
+    inherits_driver: "asus_rog_ryujin"
+    description: "ASUS ROG Ryujin II AIO HID — hwmon name for asus_rog_ryujin driver (mainlined Linux 6.9). Covers Ryujin II 360 confirmed + Ryujin II 240 untested."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/aleksamagicka/asus_rog_ryujin-hwmon"
+
+  - name: "gigabyte_waterforce"
+    inherits_driver: "gigabyte_waterforce"
+    description: "Gigabyte AORUS Waterforce X-series AIO HID — hwmon name for gigabyte_waterforce driver (mainlined Linux 6.8). Covers X240, X280, X360."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/aleksamagicka/gigabyte_waterforce-hwmon"
+
   - name: "asus_ec"
     inherits_driver: "asus-ec-sensors"
     description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."

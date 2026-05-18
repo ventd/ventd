@@ -1,0 +1,44 @@
+schema_version: "1.2"
+
+driver_profiles:
+  - module: "aquacomputer_d5next"
+    family: "aquacomputer-hid-coolers"
+    description: |
+      Aqua Computer HID-based monitoring and control driver (aleksamagicka,
+      mainline since kernel 5.15). Supports the full Aqua Computer cooler /
+      flow-meter / sensor-controller fleet via USB HID: D5 Next pump
+      (5.15), Farbwerk 360 (5.18), Farbwerk (5.19), Octo fan controller
+      (5.19, flow 6.10), Quadro fan controller (6.0), High Flow Next (6.1),
+      Aquaero 5/6 (6.3-6.4), Aquastream XT (6.4), Aquastream Ultimate (6.3),
+      Poweradjust 3 (6.3), Leakshield (6.5), High Flow USB (6.7),
+      MPS Flow (6.7). Pump and fan PWM control on D5 Next (6.0+), Octo,
+      Quadro, Aquaero, Aquastream variants; sensor-only on Farbwerk /
+      Leakshield / flow-meter SKUs. aleksamagicka is the canonical
+      upstream maintainer — coordinate via Tested-by patches for marketing
+      visibility (see ventd-pr-marketing-targets).
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "device_auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace:
+      - daemon: "liquidctl"
+        detection: "pgrep -x liquidctld"
+        resolution: "coexist_warning"
+        reason: "liquidctl talks to the same HID device. Concurrent writers cause flapping PWM. Prefer the mainline driver path; defer liquidctl to RGB/display where mainline doesn't cover it."
+    fan_control_capable: true
+    fan_control_via: null
+    kernel_version:
+      min: "5.15"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations:
+      - "https://github.com/aleksamagicka/aquacomputer_d5next-hwmon (canonical out-of-tree dev tree)"
+      - "https://docs.kernel.org/hwmon/aquacomputer_d5next.html (mainline docs)"
