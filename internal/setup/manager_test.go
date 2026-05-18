@@ -36,11 +36,20 @@ func newManager(t *testing.T) *Manager {
 	// this, the orchestrator hits /sys/class/hwmon, finds real PWM
 	// channels, and runs a real polarity probe — which is both slow
 	// and non-deterministic.
-	return NewWithRoots(cal, logger,
+	m := NewWithRoots(cal, logger,
 		filepath.Join(t.TempDir(), "hwmon"),
 		filepath.Join(t.TempDir(), "proc"),
 		filepath.Join(t.TempDir(), "powercap"),
 	)
+	// Isolate ApplyPhase's write target. Without this, a root-uid test
+	// run on a host with a real NVIDIA GPU lands writeConfigAtomic on
+	// /etc/ventd/config.yaml (NVMLPhase discovers the live GPU even
+	// when hwmonRoot points at an empty tmp) and any already-applied
+	// operator config gets clobbered. Discovered the hard way during
+	// the v0.8.4 wizard-reload PR (#1229) on Phoenix's 13900K + RTX
+	// 4090 dev box.
+	m.SetApplyConfigPathOverride(filepath.Join(t.TempDir(), "config.yaml"))
+	return m
 }
 
 // waitDone polls Progress() until Done is true or the deadline elapses.

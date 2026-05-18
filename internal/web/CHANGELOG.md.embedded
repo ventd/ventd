@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- `internal/setup/orchestrator_bridge.go` + `internal/setup/setup.go` + `cmd/ventd/main.go` — **wizard ApplyPhase now triggers an in-process daemon reload**, so controllers spawn against the freshly-emitted `/etc/ventd/config.yaml` without a manual `systemctl restart ventd`. New `Manager.SetReloadTrigger(func())` is wired from `cmd/ventd/main.go` to a closure that pushes to `restartCh` (the same channel `handleSetupReset` uses); `runOrchestrator` fires the trigger immediately after `persistOrchestratorPolarity` on ApplyPhase Success. Without this, the wizard atomic-renamed a correct config into place but every dashboard surface kept serving the pre-wizard `liveCfg` and — the worst-case path on a host whose pre-wizard config had no Controls — no controller bound to the new fans, leaving the CPU climbing unmitigated until the operator figured out the manual restart. Confirmed live on Phoenix's 13900K + NCT6687D box: wizard ran clean at 21:50-21:56 today, `/etc/ventd/config.yaml` held 8 fans + 1 curve + 8 controls on disk, but `/api/v1/smart/status` reported `channels: 0 / global_state: idle` for ~1h and the CPU hit 97 °C (3 °C from TjMax). Sibling test-isolation guardrail: `NewWithRoots` now auto-sets `applyConfigPathOverride` to a sentinel when called with non-default roots, and the bridge / manager test helpers plumb a `t.TempDir()` override; without this every root-uid test run on a dev host with a real NVIDIA GPU stomped the live `/etc/ventd/config.yaml` because `NVMLPhase` enumerated the real GPU even with a faked `hwmonRoot` — discovered the hard way while writing this fix. Regression coverage: `TestSetReloadTrigger_FireRoundTrip` pins the dispatch contract (registered fn fires once per `fireReloadTrigger`, nil fn is a clean no-op, re-setting to nil disables cleanly). (#1229, #1232)
+
 ## [v0.8.3] - 2026-05-18
 
 ### Headline
