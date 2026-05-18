@@ -9,6 +9,11 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.5] - 2026-05-19
+
+### Headline
+
+Same-day hotfix on top of v0.8.4. Fedora 44 HIL retest of the v0.8.4 `%post` relocation fix exposed that v0.8.4 had only partially addressed #1218 — it replaced the `mv: are the same file` failure with a `chown: No such file or directory` failure at the next `%post` step, because `/usr/local/sbin → /usr/local/bin` is a symlink on the merged-`/usr` layout Fedora (and modern Debian) ships, and the v0.8.4 same-inode `rm` branch destroyed the only copy of the helper. Same operator-facing #1218 symptom (daemon left in `inactive (dead)`), different failing step. The v0.8.5 fix detects the symlink case explicitly and treats the helper as already in place; the legitimate split-layout path uses `install -m` for a non-reflink copy + `rm` to sidestep btrfs's same-inode-on-reflinks footgun. (#1218 followup.)
 
 ### Fixed
 
