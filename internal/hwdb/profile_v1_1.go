@@ -165,6 +165,15 @@ type BoardCatalogOverrides struct {
 	RequiresI2CVCEnabled     bool   `yaml:"requires_i2c_vc_enabled,omitempty"`    // requires VideoCore I2C enabled
 	RequiresOverlayDTOverlay string `yaml:"requires_overlay_dtoverlay,omitempty"` // required DT overlay name
 	TachInputUnavailable     bool   `yaml:"tach_input_unavailable,omitempty"`     // no tach/RPM sensor input
+	// DirectECPWMUnavailable signals that NBFC-style direct EC PWM control is
+	// not feasible on this board: fan PWM/tach registers are SMM-private and
+	// not exposed via the standard ACPI EC channel. Set true on machines where
+	// empirical investigation has confirmed the EC layout is gated; future
+	// installer code can use this to suppress "install NBFC config" offers.
+	// Dell Latitudes are the most prominent example. v1.4. See
+	// docs/research/2026-05-dell-7280-ec-investigation.md for the
+	// methodology / evidence.
+	DirectECPWMUnavailable bool `yaml:"direct_ec_pwm_unavailable,omitempty"`
 }
 
 // BoardDefaults holds optional default control curves for the board.
