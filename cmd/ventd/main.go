@@ -1138,6 +1138,14 @@ func runDaemonInternal(
 		startHwmonSwapMonitor(ctx, &wg, smartMode.Channels, logger)
 	}
 
+	// Platform-profile auto-control: ventd actively drives the kernel's
+	// generic platform_profile interface based on hardware capabilities
+	// (TJmax, TDP, fan max RPM) and live inputs (CPU temp, load, RAPL
+	// draw). Per feedback-ventd-zero-config-smart this is on by default;
+	// the only way to disable is to remove the platform_profile sysfs
+	// interface (or use an OS that doesn't expose one).
+	startPlatformProfileController(ctx, &wg, logger)
+
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight

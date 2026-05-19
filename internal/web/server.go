@@ -441,6 +441,13 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		// multi-tab dashboard doesn't fan out into N detector re-runs
 		// per tick.
 		{name: "doctor", handler: s.handleDoctorReport, auth: true},
+		// v0.9.0: platform_profile observation. Read-only snapshot of
+		// the kernel's generic platform-profile interface (cool /
+		// quiet / balanced / performance on Dell, Lenovo, HP, ASUS
+		// laptops). Future work may add a PUT that writes the profile;
+		// for now ventd surfaces what BIOS thermal envelope is active
+		// without taking responsibility for selecting one.
+		{name: "platform-profile", handler: s.handlePlatformProfile, auth: true},
 	})
 
 	dlHandler := s.requireAuth(s.handleDiagDownload)

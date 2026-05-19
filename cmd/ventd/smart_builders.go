@@ -36,6 +36,7 @@ import (
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/observation"
+	"github.com/ventd/ventd/internal/platformprofile"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	"github.com/ventd/ventd/internal/signature"
@@ -634,5 +635,64 @@ func startHwmonSwapMonitor(
 	go func() {
 		defer wg.Done()
 		hwmon.MonitorSwap(ctx, inputs, hwmon.DefaultSwapMonitorInterval, logger, nil)
+	}()
+}
+
+// startPlatformProfileController starts the active platform-profile auto-
+// control loop. Detects hardware capabilities, builds a Selector from the
+// kernel's available profile choices, and spawns the controller goroutine.
+//
+// Silently no-ops when:
+//   - the platform_profile sysfs interface isn't present (most pre-2020
+//     hardware, or vendors that never wired it up — not an error, just
+//     "this feature doesn't apply to this host"),
+//   - the available-profile list is empty (kernel exposed the interface
+//     but no choices — should never happen but be safe), or
+//   - selector construction returns an error.
+//
+// Per feedback-ventd-zero-config-smart this runs by default with no
+// configuration knob. The kernel-side "echo $profile > .../profile"
+// remains available as the escape hatch — the controller observes
+// external writes and backs off for 10 minutes after one.
+func startPlatformProfileController(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
+	snap, err := platformprofile.Read()
+	if err != nil {
+		logger.Warn("platform_profile: sysfs read failed; auto-control disabled", "err", err.Error())
+		return
+	}
+	if !snap.Present {
+		logger.Info("platform_profile: kernel does not expose a platform_profile interface; auto-control inactive")
+		return
+	}
+	if len(snap.Available) == 0 {
+		logger.Warn("platform_profile: interface present but choices list is empty; auto-control inactive",
+			"path", snap.Path)
+		return
+	}
+
+	hw := platformprofile.DetectHardware(logger)
+	sel, err := platformprofile.NewSelector(hw, snap.Available)
+	if err != nil {
+		logger.Warn("platform_profile: selector construction failed; auto-control inactive",
+			"err", err.Error(), "available", snap.Available)
+		return
+	}
+
+	store := platformprofile.NewLearningStore("/var/lib/ventd/platform_profile.json")
+	ctrl := platformprofile.NewController(platformprofile.ControllerOptions{
+		Logger:      logger,
+		Selector:    sel,
+		Store:       store,
+		Hardware:    hw,
+		TempReader:  platformprofile.DefaultTempReader(),
+		RPMReader:   platformprofile.FanMaxRPMReader(),
+		LoadReader:  platformprofile.DefaultLoadReader(),
+		PowerReader: platformprofile.DefaultPowerReader(),
+	})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctrl.Run(ctx)
 	}()
 }
