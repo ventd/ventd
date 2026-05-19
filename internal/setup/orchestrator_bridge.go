@@ -293,6 +293,26 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 	for _, out := range outs {
 		if out.Phase == (orchestrator.ApplyPhase{}).Name() &&
 			out.Status == orchestrator.StatusSuccess {
+			// Load the freshly-written config into m.result so CLI
+			// callers (`runsetup.go`) and any future GeneratedConfig
+			// poller see a non-nil value matching what ApplyPhase
+			// emitted. The legacy Manager.run path set m.result
+			// directly; the orchestrator writes to disk via
+			// writeConfigAtomic so the in-memory mirror has to be
+			// loaded back. Best-effort: a read failure here doesn't
+			// undo a successful write, so we log and proceed with
+			// m.result remaining nil. (#1248.)
+			var art orchestrator.ApplyArtifact
+			if unErr := json.Unmarshal(out.Artifact, &art); unErr == nil && art.ConfigPath != "" {
+				if cfg, loadErr := config.Load(art.ConfigPath); loadErr == nil {
+					m.mu.Lock()
+					m.result = cfg
+					m.mu.Unlock()
+				} else {
+					m.logger.Warn("setup: GeneratedConfig back-read failed",
+						"path", art.ConfigPath, "err", loadErr)
+				}
+			}
 			m.persistOrchestratorPolarity(outs)
 			// Trigger an in-process daemon reload so controllers spawn
 			// against the freshly-emitted config without a manual

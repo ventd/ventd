@@ -456,6 +456,19 @@ func (b *Backend) restorePWM(st State) error {
 		return nil
 	}
 	if err := hwmon.WritePWMEnable(st.PWMPath, st.OrigEnable); err != nil {
+		// NCT6687D (and other OOT drivers without a thermal-cruise mode)
+		// reject pwm_enable values > 1 with EINVAL even though the chip
+		// returned that value at register time. Retry with manual mode
+		// (pwm_enable=1) — the chip retains its current pwm<N> byte
+		// (the polarity prober's safe-mid byte per #1241) so fans stay
+		// at a quiet floor instead of jumping to PWM=255. (#1249.)
+		if errors.Is(err, syscall.EINVAL) && st.OrigEnable > 1 {
+			if fbErr := hwmon.WritePWMEnable(st.PWMPath, 1); fbErr == nil {
+				b.logger.Info("watchdog: chip rejected pwm_enable>1, restored to manual mode",
+					"path", st.PWMPath, "requested", st.OrigEnable, "fallback", 1)
+				return nil
+			}
+		}
 		b.logger.Error("watchdog: failed to restore pwm_enable",
 			"path", st.PWMPath, "value", st.OrigEnable, "err", err)
 		if writeErr := hwmon.WritePWM(st.PWMPath, 255); writeErr != nil {
@@ -484,6 +497,18 @@ func (b *Backend) restoreRPMTarget(st State) error {
 		return nil
 	}
 	if err := hwmon.WritePWMEnablePath(enablePath, st.OrigEnable); err != nil {
+		// Same EINVAL fallback as restorePWM — chip families that don't
+		// support pwm_enable>1 (NCT6687D and friends) retain their current
+		// fan_target byte under manual mode, so the operator-facing
+		// behaviour is "chip stays at the target the controller last
+		// set" rather than max-RPM spin-up. (#1249.)
+		if errors.Is(err, syscall.EINVAL) && st.OrigEnable > 1 {
+			if fbErr := hwmon.WritePWMEnablePath(enablePath, 1); fbErr == nil {
+				b.logger.Info("watchdog: chip rejected pwm_enable>1, restored rpm_target fan to manual mode",
+					"enable_path", enablePath, "requested", st.OrigEnable, "fallback", 1)
+				return nil
+			}
+		}
 		b.logger.Error("watchdog: failed to restore pwm_enable for rpm_target fan",
 			"enable_path", enablePath, "value", st.OrigEnable, "err", err)
 		if writeErr := hwmon.WriteFanTarget(st.PWMPath, maxRPM); writeErr != nil {

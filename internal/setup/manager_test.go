@@ -229,8 +229,13 @@ func TestManager_ProgressNeededReflectsLiveConfig(t *testing.T) {
 }
 
 // TestManager_GeneratedConfigBeforeRunIsNil pins the "ask early" case:
-// callers that poll GeneratedConfig get nil until run() finishes
-// successfully, and nil also when run() failed (the sandbox case).
+// callers that poll GeneratedConfig get nil until run() finishes.
+// Post-#1248 the orchestrator path populates m.result from the
+// freshly-written config when ApplyPhase succeeds (monitor-only
+// fallback included), so the post-run assertion tracks Progress.Applied
+// rather than the legacy "sandbox always errors" assumption — same
+// invalidation the sibling TestManager_RunBlockingMatchesProgressError
+// already notes.
 func TestManager_GeneratedConfigBeforeRunIsNil(t *testing.T) {
 	m := newManager(t)
 	if cfg := m.GeneratedConfig(); cfg != nil {
@@ -241,9 +246,16 @@ func TestManager_GeneratedConfigBeforeRunIsNil(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	waitDone(t, m, 5*time.Second)
-	// Sandbox: run() returned an error before building a config.
-	if cfg := m.GeneratedConfig(); cfg != nil {
-		t.Errorf("GeneratedConfig after failed run = %+v, want nil", cfg)
+	p := m.Progress()
+	cfg := m.GeneratedConfig()
+	if p.Applied {
+		if cfg == nil {
+			t.Errorf("GeneratedConfig after applied run = nil, want non-nil")
+		}
+	} else {
+		if cfg != nil {
+			t.Errorf("GeneratedConfig after non-applied run = %+v, want nil", cfg)
+		}
 	}
 }
 
