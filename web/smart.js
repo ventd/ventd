@@ -843,10 +843,9 @@
   }
 
   function buildConfRow(cc) {
-    var comp = cc.components || {};
     var rowCls = 'sm-conf-row';
-    if (comp.drift_active) rowCls += ' is-drift';
-    if (comp.cold_start)   rowCls += ' is-cold';
+    if (cc.drift_active) rowCls += ' is-drift';
+    if (cc.cold_start)   rowCls += ' is-cold';
     var row = el('div', { cls: rowCls });
 
     var head = el('div', { cls: 'sm-conf-head' });
@@ -860,16 +859,16 @@
     row.appendChild(head);
 
     var bars = el('div', { cls: 'sm-conf-bars' });
-    bars.appendChild(buildBar('Layer A', comp.conf_a, 'layer-a'));
-    bars.appendChild(buildBar('Layer B', comp.conf_b, 'layer-b'));
-    bars.appendChild(buildBar('Layer C', comp.conf_c, 'layer-c'));
+    bars.appendChild(buildBar('Layer A', cc.conf_a, 'layer-a'));
+    bars.appendChild(buildBar('Layer B', cc.conf_b, 'layer-b'));
+    bars.appendChild(buildBar('Layer C', cc.conf_c, 'layer-c'));
     row.appendChild(bars);
 
-    if (comp.drift_active || comp.cold_start || comp.global_gate === false) {
+    if (cc.drift_active || cc.cold_start || cc.global_gate === false) {
       var flags = el('div', { cls: 'sm-conf-flags' });
-      if (comp.cold_start)        flags.appendChild(el('span', { cls: 'sm-pill cold-start', text: 'cold-start' }));
-      if (comp.drift_active)      flags.appendChild(el('span', { cls: 'sm-pill drifting',   text: 'drift active' }));
-      if (comp.global_gate === false) flags.appendChild(el('span', { cls: 'sm-pill refused', text: 'global gate off' }));
+      if (cc.cold_start)        flags.appendChild(el('span', { cls: 'sm-pill cold-start', text: 'cold-start' }));
+      if (cc.drift_active)      flags.appendChild(el('span', { cls: 'sm-pill drifting',   text: 'drift active' }));
+      if (cc.global_gate === false) flags.appendChild(el('span', { cls: 'sm-pill refused', text: 'global gate off' }));
       row.appendChild(flags);
     }
     return row;
