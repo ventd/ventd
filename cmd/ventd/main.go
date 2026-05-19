@@ -528,8 +528,46 @@ func run() error {
 	// polarity from "unknown" — the wizard's classification is wasted
 	// and the controller's polarity.WritePWM path refuses every write
 	// on inverted-polarity hardware until the wizard re-runs. Issue #1037.
-	if _, _, applyErr := polarity.ApplyOnStart(st.KV, channels, logger, time.Now()); applyErr != nil {
+	needsPolarityProbe := false
+	if np, _, applyErr := polarity.ApplyOnStart(st.KV, channels, logger, time.Now()); applyErr != nil {
 		logger.Warn("polarity: apply-on-start failed; channels remain unknown", "err", applyErr)
+	} else {
+		needsPolarityProbe = np
+	}
+	// Empty polarity KV → no consumer was running ApplyOnStart's
+	// needsProbe signal. Without an auto-probe the daemon stays up
+	// but refuses every controller write indefinitely (polarity
+	// stuck "unknown"); the only recovery was a full wizard re-run.
+	// Run the probe in a background goroutine so daemon startup
+	// stays inside the systemd Type=notify ready window — controllers
+	// spawning concurrently refuse writes via the existing unknown-
+	// polarity guard until the probe persists results, then the next
+	// tick succeeds. Probe takes ~115 s for 8 channels (post-#1110).
+	// (#1250.)
+	if needsPolarityProbe {
+		logger.Warn("polarity: KV empty, running inline auto-probe in background",
+			"channels", len(channels))
+		probeCtx, probeCancel := context.WithCancel(context.Background())
+		defer probeCancel()
+		go func() {
+			prober := &polarity.HwmonProber{}
+			results, probeErr := prober.ProbeAll(probeCtx, channels)
+			if probeErr != nil {
+				logger.Error("polarity: auto-probe failed; channels remain unknown",
+					"err", probeErr)
+				return
+			}
+			if persistErr := polarity.Persist(st.KV, results); persistErr != nil {
+				logger.Error("polarity: auto-probe persist failed; channels remain unknown",
+					"err", persistErr)
+				return
+			}
+			if _, _, reapplyErr := polarity.ApplyOnStart(st.KV, channels, logger, time.Now()); reapplyErr != nil {
+				logger.Warn("polarity: auto-probe re-apply failed", "err", reapplyErr)
+			}
+			logger.Info("polarity: auto-probe complete; controllers can now write",
+				"channels", len(results))
+		}()
 	}
 	var dmiFingerprint string
 	if dmi, dmiErr := hwdb.ReadDMI(os.DirFS("/")); dmiErr == nil {
