@@ -639,11 +639,11 @@
         } else {
           var conv = s.converged || 0;
           var n = s.channels;
-          label = 'smart · ' + conv + '/' + n + ' converged';
+          label = 'smart · ' + conv + '/' + n + ' stable';
           title = 'preset=' + (s.preset || '?') +
-            ' · global_state=' + (s.global_state || '?') +
-            ' · ' + conv + '/' + n + ' channels converged' +
-            (s.warming_up ? ' · ' + s.warming_up + ' warming' : '');
+            ' · state=' + prettyState(s.global_state || '?') +
+            ' · ' + conv + '/' + n + ' channels stable' +
+            (s.warming_up ? ' · ' + s.warming_up + ' learning' : '');
           cls = stateToPillClass(s.global_state);
         }
         text.textContent = label;
@@ -703,9 +703,9 @@
         prevConfState = s.global_state;
 
         pill.dataset.state = s.global_state;
-        text.textContent = s.global_state;
+        text.textContent = prettyState(s.global_state);
         var n = s.channels ? s.channels.length : 0;
-        pill.title = 'smart-mode confidence — ' + s.global_state +
+        pill.title = 'smart-mode confidence — ' + prettyState(s.global_state) +
           ' across ' + n + ' channel' + (n === 1 ? '' : 's') +
           ' (preset: ' + (s.preset || 'balanced') + ')';
 
@@ -780,7 +780,7 @@
     var rB = reasonLayerB(worst);
     var rC = reasonLayerC(worst);
 
-    var html = '<h4>Smart-mode confidence — ' + s.global_state + '</h4>' +
+    var html = '<h4>Smart-mode confidence — ' + prettyState(s.global_state) + '</h4>' +
       '<ul>' +
       '<li><span class="layer-name">Layer A</span><span class="layer-reason is-' + rA.mood + '">' + escapeHtml(rA.reason) + '</span></li>' +
       '<li><span class="layer-name">Layer B</span><span class="layer-reason is-' + rB.mood + '">' + escapeHtml(rB.reason) + '</span></li>' +
@@ -1954,6 +1954,27 @@
     // (operators recognise their own workloads); truncate longer
     // labels to keep the pill compact.
     return raw.length > 8 ? raw.slice(0, 8) : raw;
+  }
+  // prettyState maps the daemon's internal global_state / ui_state
+  // labels to plain English an operator who hasn't read the design
+  // doc can interpret correctly. Internal "warming" reads as "the
+  // fan is overheating" to a first-time user. CSS classes (via
+  // stateToPillClass) still key off the internal names so colours
+  // don't shift. Mirrors smart.js's prettyState — kept inline rather
+  // than shared because the two pages have no common JS module.
+  // (#1228 / #1254 child fix.)
+  function prettyState(s) {
+    switch (s) {
+      case 'converged':  return 'Stable';
+      case 'warming':    return 'Learning';
+      case 'cold-start': return 'Starting up';
+      case 'drifting':   return 'Adjusting';
+      case 'refused':    return 'Refused';
+      case 'idle':       return 'Idle';
+      case 'fallback':   return 'Fallback';
+      case 'unknown':    return 'Unknown';
+      default:           return s || 'Unknown';
+    }
   }
   function aliveSummary(smart) {
     var span = document.createElement('span');
