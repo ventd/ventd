@@ -275,6 +275,33 @@ var knownDriverNeeds = map[string]DriverNeed{
 			{BoardVendorContains: "system76", ProductContains: "thelio"},
 		},
 	},
+	"dell_smm": {
+		Key:      "dell_smm",
+		ChipName: "Dell SMM",
+		Explanation: "Your Dell laptop's BIOS fan controller (SMM) is supported by the " +
+			"in-tree dell_smm_hwmon driver, but that driver silently EINVALs " +
+			"the standard hwmon auto-restore call on every Dell not in its " +
+			"14-entry whitelist and audibly spikes the fan on every manual- " +
+			"mode transition. Ventd can install a patched build that fixes " +
+			"both — this is a one-time step.",
+		RepoURL: "https://github.com/ventd/dell-smm-hwmon-dkms",
+		Branch:  "ventd",
+		Tag:     "v7.0.0-ventd.1",
+		Module:  "dell-smm-hwmon",
+		// Unlike the other entries in this map, dell_smm is NOT a "your chip
+		// has no in-tree driver" replacement — it's a same-module-name DKMS
+		// upgrade that shadows the in-tree dell-smm-hwmon via the kernel's
+		// /lib/modules/$(uname -r)/updates/dkms search-path preference. The
+		// existing knownDriverNeeds surfacing flow only fires when PWMCount
+		// == 0, so this entry is INERT in the current Diagnose() path; it's
+		// registered here so ventd's install pipeline knows the package
+		// when the upgrade-detector lands (see TODO in DriverNeed docs).
+		// Until then, this entry exists so manual `ventd preflight` runs on
+		// affected Dells can pick the right tag from a single source of truth.
+		DMITriggers: []DMITrigger{
+			{SysVendorContains: "dell"},
+		},
+	},
 }
 
 // HwmonDiagnostics summarises the current hwmon state for display in the
