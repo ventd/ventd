@@ -58,28 +58,60 @@
     applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark');
   });
 
-  // ── nav scroll-spy (highlights active section as you scroll) ──────
+  // ── nav: filter visible section instead of scroll-to-anchor (#751) ─
+  //
+  // Sidebar entries filter the main panel down to a single section
+  // rather than the legacy scroll-spy. The active section is stored
+  // on .set-content's data-active-section attribute; CSS hides every
+  // other section. Deep-linkable via ?section= or # hash.
   var navItems = document.querySelectorAll('.set-nav-item');
+  var setContent = document.querySelector('.set-content');
+  var sectionIDs = ['display', 'daemon', 'smart-mode', 'security',
+                    'system', 'about', 'update', 'advanced'];
+  function isKnownSection(id) {
+    for (var i = 0; i < sectionIDs.length; i++) {
+      if (sectionIDs[i] === id) return true;
+    }
+    return false;
+  }
+  function activateSection(id, updateHistory) {
+    if (!isKnownSection(id)) id = 'display';
+    setContent.setAttribute('data-active-section', id);
+    Array.prototype.forEach.call(navItems, function (a) {
+      a.classList.toggle('is-active', a.getAttribute('href') === '#' + id);
+    });
+    if (updateHistory) {
+      try {
+        history.replaceState(null, '', '?section=' + id);
+      } catch (_) { /* file://, sandboxed iframe — ignore */ }
+    }
+    // Reset scroll so the operator lands at the top of the chosen
+    // section rather than wherever the previous section ended.
+    window.scrollTo({ top: 0 });
+  }
   Array.prototype.forEach.call(navItems, function (a) {
-    a.addEventListener('click', function () {
-      Array.prototype.forEach.call(navItems, function (x) { x.classList.remove('is-active'); });
-      a.classList.add('is-active');
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      var href = a.getAttribute('href') || '';
+      var id = href.charAt(0) === '#' ? href.slice(1) : href;
+      activateSection(id, true);
     });
   });
-  function syncNav() {
-    var sections = document.querySelectorAll('.set-section');
-    var top = window.scrollY + 120;
-    var current = null;
-    Array.prototype.forEach.call(sections, function (s) {
-      if (s.offsetTop <= top) current = s.id;
-    });
-    if (current) {
-      Array.prototype.forEach.call(navItems, function (a) {
-        a.classList.toggle('is-active', a.getAttribute('href') === '#' + current);
-      });
-    }
+  // Initial section: ?section= wins over # hash wins over "display".
+  function initialSection() {
+    try {
+      var m = /[?&]section=([a-z-]+)/.exec(window.location.search || '');
+      if (m && isKnownSection(m[1])) return m[1];
+    } catch (_) {}
+    var h = (window.location.hash || '').replace(/^#/, '');
+    if (isKnownSection(h)) return h;
+    return 'display';
   }
-  window.addEventListener('scroll', syncNav, { passive: true });
+  activateSection(initialSection(), false);
+  // Browser back/forward through ?section= history entries.
+  window.addEventListener('popstate', function () {
+    activateSection(initialSection(), false);
+  });
 
   // ── data fill ─────────────────────────────────────────────────────
   function setT(id, v) { var el = $(id); if (el) el.textContent = v == null || v === '' ? '—' : v; }

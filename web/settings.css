@@ -46,6 +46,20 @@
   display: flex; flex-direction: column;
   gap: 18px;
 }
+/* Sidebar subcategories filter rather than scroll. The sidebar click
+ * sets data-active-section on .set-content; non-matching sections
+ * collapse out of layout so the visible card matches the sidebar's
+ * highlighted entry instead of requiring the operator to scroll
+ * through every section (issue 751). */
+.set-content[data-active-section] > .set-section { display: none; }
+.set-content[data-active-section="display"]   #display,
+.set-content[data-active-section="daemon"]    #daemon,
+.set-content[data-active-section="smart-mode"] #smart-mode,
+.set-content[data-active-section="security"]  #security,
+.set-content[data-active-section="system"]    #system,
+.set-content[data-active-section="about"]     #about,
+.set-content[data-active-section="update"]    #update,
+.set-content[data-active-section="advanced"]  #advanced { display: flex; }
 .set-section { gap: 14px; }
 .set-section-head { display: flex; flex-direction: column; gap: 4px; }
 .set-section-sub {
