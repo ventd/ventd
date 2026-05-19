@@ -19,7 +19,10 @@ func (p *P9UserLabel) Redact(content []byte, _ *MappingStore) ([]byte, int) {
 	result := labelFieldRE.ReplaceAllFunc(content, func(match []byte) []byte {
 		n++
 		total++
-		repl := labelFieldRE.ReplaceAll(match, []byte("${1}[REDACTED:USER_LABEL_"+itoa(n)+"]"))
+		// Single-quote the scalar so YAML decodes it as a string. Bare
+		// `[REDACTED:USER_LABEL_N]` is a YAML flow-sequence and breaks
+		// string-typed fields on the consumer side (#652).
+		repl := labelFieldRE.ReplaceAll(match, []byte("${1}'[REDACTED:USER_LABEL_"+itoa(n)+"]'"))
 		return repl
 	})
 	return result, total
