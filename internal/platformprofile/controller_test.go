@@ -79,10 +79,10 @@ func TestSelector_HandlesNonStandardChoices(t *testing.T) {
 // was applied.
 type fakeReaders struct {
 	temp, load, power float64
-	rpm                int
-	snap               *Snapshot
-	writes             []string
-	mu                 atomic.Int32
+	rpm               int
+	snap              *Snapshot
+	writes            []string
+	mu                atomic.Int32
 }
 
 func TestController_WritesSwitchWhenHysteresisMet(t *testing.T) {
@@ -141,17 +141,17 @@ func TestController_ExternalWriteTriggersBackoff(t *testing.T) {
 	snap := &Snapshot{Present: true, Available: []string{"cool", "balanced", "performance"}, Current: "performance"}
 
 	c := NewController(ControllerOptions{
-		Logger:       logger,
-		Selector:     sel,
-		Store:        store,
-		Hardware:     hw,
-		PollInterval: 5 * time.Millisecond,
-		MinDwell:     0,
+		Logger:               logger,
+		Selector:             sel,
+		Store:                store,
+		Hardware:             hw,
+		PollInterval:         5 * time.Millisecond,
+		MinDwell:             0,
 		BackoffAfterExternal: 200 * time.Millisecond,
-		TempReader:   func() (float64, error) { return 95, nil },
-		RPMReader:    func() (int, error) { return 6000, nil },
-		LoadReader:   func() (float64, error) { return 90, nil },
-		PowerReader:  func() (float64, error) { return 14, nil },
+		TempReader:           func() (float64, error) { return 95, nil },
+		RPMReader:            func() (int, error) { return 6000, nil },
+		LoadReader:           func() (float64, error) { return 90, nil },
+		PowerReader:          func() (float64, error) { return 14, nil },
 		SnapReader: func() (*Snapshot, error) {
 			c := *snap
 			return &c, nil

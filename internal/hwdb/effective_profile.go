@@ -9,11 +9,11 @@ import "time"
 // based on it.
 type EffectiveControllerProfile struct {
 	// From driver profile (layer 1)
-	Module                            string
-	Family                            string
-	Capability                        Capability
-	PWMUnit                           PWMUnit
-	PWMUnitMax                        *int
+	Module     string
+	Family     string
+	Capability Capability
+	PWMUnit    PWMUnit
+	PWMUnitMax *int
 	// StateQuantizedN, when non-nil, declares the channel's PWM surface is
 	// state-quantized to N discrete stable values (see DriverProfile.StateQuantizedN).
 	// Observation / diagnose surfaces this so the controller and calibration
@@ -188,7 +188,7 @@ type BoardOverrides struct {
 	DriverProfileOverrides
 	CPUTINFloats            bool `yaml:"cputin_floats,omitempty"`
 	PollingLatencyMSHint    *int `yaml:"polling_latency_ms_hint,omitempty"`
-	Unsupported             bool `yaml:"unsupported,omitempty"`                  // v1.1: sensors-only mode
-	CoolingDeviceMustDetach bool `yaml:"cooling_device_must_detach,omitempty"`   // ARM boards
-	DirectECPWMUnavailable  bool `yaml:"direct_ec_pwm_unavailable,omitempty"`    // v1.4
+	Unsupported             bool `yaml:"unsupported,omitempty"`                // v1.1: sensors-only mode
+	CoolingDeviceMustDetach bool `yaml:"cooling_device_must_detach,omitempty"` // ARM boards
+	DirectECPWMUnavailable  bool `yaml:"direct_ec_pwm_unavailable,omitempty"`  // v1.4
 }

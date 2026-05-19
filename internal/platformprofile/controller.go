@@ -22,8 +22,8 @@ type Controller struct {
 	store    *LearningStore
 	hw       HardwareSummary
 
-	pollInterval time.Duration
-	minDwell     time.Duration
+	pollInterval         time.Duration
+	minDwell             time.Duration
 	backoffAfterExternal time.Duration
 
 	mu              sync.Mutex
@@ -43,12 +43,12 @@ type Controller struct {
 
 // ControllerOptions packages caller-supplied dependencies.
 type ControllerOptions struct {
-	Logger              *slog.Logger
-	Selector            *Selector
-	Store               *LearningStore
-	Hardware            HardwareSummary
-	PollInterval        time.Duration
-	MinDwell            time.Duration
+	Logger               *slog.Logger
+	Selector             *Selector
+	Store                *LearningStore
+	Hardware             HardwareSummary
+	PollInterval         time.Duration
+	MinDwell             time.Duration
 	BackoffAfterExternal time.Duration
 
 	TempReader  func() (float64, error)
@@ -295,9 +295,9 @@ func DefaultLoadReader() func() (float64, error) {
 func DefaultPowerReader() func() (float64, error) {
 	const energyPath = "/sys/class/powercap/intel-rapl/intel-rapl:0/energy_uj"
 	var (
-		lastUJ  uint64
-		lastAt  time.Time
-		warmed  bool
+		lastUJ uint64
+		lastAt time.Time
+		warmed bool
 	)
 	return func() (float64, error) {
 		raw, err := os.ReadFile(energyPath)

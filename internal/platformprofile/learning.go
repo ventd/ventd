@@ -25,21 +25,21 @@ type LearningStore struct {
 // Snapshot2 is the on-disk shape. Keeping the type small and explicit so
 // hand-edits during debugging stay tractable.
 type Snapshot2 struct {
-	SchemaVersion int                          `json:"schema_version"`
-	UpdatedAt     time.Time                    `json:"updated_at"`
-	HwIdentity    string                       `json:"hw_identity,omitempty"` // DMI fingerprint at write time
-	Profiles      map[string]*ProfileOutcome   `json:"profiles"`
-	Transitions   []Transition                 `json:"recent_transitions,omitempty"` // capped at 64
+	SchemaVersion int                        `json:"schema_version"`
+	UpdatedAt     time.Time                  `json:"updated_at"`
+	HwIdentity    string                     `json:"hw_identity,omitempty"` // DMI fingerprint at write time
+	Profiles      map[string]*ProfileOutcome `json:"profiles"`
+	Transitions   []Transition               `json:"recent_transitions,omitempty"` // capped at 64
 }
 
 // ProfileOutcome aggregates ventd's experience operating under one profile.
 type ProfileOutcome struct {
-	Samples       int     `json:"samples"`
-	MeanTempC     float64 `json:"mean_temp_c"`
-	MeanRPM       float64 `json:"mean_rpm"`
-	MeanLoadPct   float64 `json:"mean_load_pct"`
-	MeanPressure  float64 `json:"mean_pressure"`
-	OverbudgetN   int     `json:"overbudget_n"` // ticks where temp > 0.9 * TJmax during this profile
+	Samples        int       `json:"samples"`
+	MeanTempC      float64   `json:"mean_temp_c"`
+	MeanRPM        float64   `json:"mean_rpm"`
+	MeanLoadPct    float64   `json:"mean_load_pct"`
+	MeanPressure   float64   `json:"mean_pressure"`
+	OverbudgetN    int       `json:"overbudget_n"` // ticks where temp > 0.9 * TJmax during this profile
 	LastObservedAt time.Time `json:"last_observed_at"`
 }
 

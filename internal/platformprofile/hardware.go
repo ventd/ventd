@@ -35,7 +35,113 @@ func DetectHardware(logger *slog.Logger) HardwareSummary {
 	return hw
 }
 
+// readCPUModel returns the human-readable CPU model string. Tries the SMBIOS
+// DMI Processor (type 4) structure first because /proc/cpuinfo is blocked by
+// the ventd.service sandbox (ProcSubset=pid + ProtectProc=invisible expose
+// only the running process's own /proc/<pid>/* — global files like
+// /proc/cpuinfo become ENOENT). DMI tables live under /sys/firmware/dmi/
+// which is unaffected by the proc sandbox and readable by root (ventd's
+// uid). Falls back to /proc/cpuinfo for hosts where DMI doesn't have a
+// readable Processor structure (rare — DMI Processor entries are mandatory
+// on x86 systems with SMBIOS).
 func readCPUModel() string {
+	if v := readCPUModelFromDMI(); v != "" {
+		return v
+	}
+	return readCPUModelFromProcCpuinfo()
+}
+
+// readCPUModelFromDMI parses /sys/firmware/dmi/entries/4-0/raw — SMBIOS DMI
+// type 4 (Processor) — and returns the Processor Version field, which is
+// the human-readable model string (e.g. "Intel(R) Core(TM) i7-6600U CPU @
+// 2.60GHz"). Returns "" on any parse error.
+//
+// SMBIOS 3.x Processor Information structure layout (the relevant fields):
+//   - byte 0:    Type (must be 0x04)
+//   - byte 1:    Length (offset where strings table begins)
+//   - bytes 2-3: Handle
+//   - byte 4:    Socket Designation (string index)
+//   - byte 5:    Processor Type
+//   - byte 6:    Processor Family
+//   - byte 7:    Processor Manufacturer (string index)
+//   - bytes 8-15: Processor ID
+//   - byte 16:   Processor Version (string index) ← THIS IS THE MODEL NAME
+//
+// Strings follow the formatted area starting at offset `Length`, each null-
+// terminated, indexed 1..N. We walk them by index to find the version
+// string.
+func readCPUModelFromDMI() string {
+	// Try every type-4 entry — a multi-socket server has multiple, all
+	// usually the same model. First non-empty wins.
+	matches, err := filepath.Glob("/sys/firmware/dmi/entries/4-*/raw")
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+	for _, p := range matches {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if model := parseDMIProcessorVersion(raw); model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+// parseDMIProcessorVersion extracts the Processor Version string from a
+// DMI type-4 raw entry. Returns "" if the bytes don't look like a valid
+// type-4 structure with a Version string.
+func parseDMIProcessorVersion(raw []byte) string {
+	const (
+		typeOffset    = 0
+		lengthOffset  = 1
+		versionIdxOff = 16
+		expectedType  = 0x04
+	)
+	if len(raw) < 17 {
+		return ""
+	}
+	if raw[typeOffset] != expectedType {
+		return ""
+	}
+	formattedLen := int(raw[lengthOffset])
+	if formattedLen < 17 || formattedLen > len(raw) {
+		return ""
+	}
+	versionIdx := int(raw[versionIdxOff])
+	if versionIdx == 0 {
+		// String index 0 means "no string set" per SMBIOS spec.
+		return ""
+	}
+	// Strings table starts at offset `formattedLen` and runs to end of
+	// buffer (or until a double-null terminator). Each string is null-
+	// terminated; we want the versionIdx'th one (1-indexed).
+	stringsArea := raw[formattedLen:]
+	idx := 1
+	start := 0
+	for i := 0; i < len(stringsArea); i++ {
+		if stringsArea[i] == 0 {
+			if idx == versionIdx {
+				return strings.TrimSpace(string(stringsArea[start:i]))
+			}
+			idx++
+			start = i + 1
+			// Double-null terminates the strings area.
+			if i+1 < len(stringsArea) && stringsArea[i+1] == 0 {
+				return ""
+			}
+		}
+	}
+	return ""
+}
+
+// readCPUModelFromProcCpuinfo is the legacy fallback for hosts without an
+// accessible SMBIOS Processor entry. Subject to /proc sandbox restrictions:
+// the production ventd.service sets ProcSubset=pid which makes
+// /proc/cpuinfo invisible to the daemon, so this path returns "" there —
+// readCPUModelFromDMI handles the sandboxed case.
+func readCPUModelFromProcCpuinfo() string {
 	data, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return ""
