@@ -59,11 +59,22 @@ func InstallDriver(chipKey string, logFn func(string), logger *slog.Logger) erro
 	log("Downloading driver source for " + nd.ChipName + "...")
 	// Download a tarball instead of git clone — works without credentials
 	// for any public GitHub repo and requires only curl or wget.
-	branch := nd.Branch
-	if branch == "" {
-		branch = "master"
+	//
+	// When Tag is set, fetch the pinned release tag so a given ventd binary
+	// version is reproducibly bound to a specific driver-source revision
+	// (the ventd-org fork convention). Otherwise fall back to the branch
+	// head — preserves the legacy behaviour for any entry that hasn't been
+	// migrated to a ventd-org fork yet.
+	var tarURL string
+	if nd.Tag != "" {
+		tarURL = nd.RepoURL + "/archive/refs/tags/" + nd.Tag + ".tar.gz"
+	} else {
+		branch := nd.Branch
+		if branch == "" {
+			branch = "master"
+		}
+		tarURL = nd.RepoURL + "/archive/refs/heads/" + branch + ".tar.gz"
 	}
-	tarURL := nd.RepoURL + "/archive/refs/heads/" + branch + ".tar.gz"
 	tarFile := filepath.Join(tmpDir, "driver.tar.gz")
 	if err := downloadFile(tarURL, tarFile, log); err != nil {
 		return fmt.Errorf("download driver source: %w", err)
