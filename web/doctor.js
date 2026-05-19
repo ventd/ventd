@@ -28,6 +28,43 @@
       });
   }
 
+  // prettyFailureClass maps the doctor's snake_case failure-class
+  // enum (mirrors internal/recovery/classify.go) to a human-readable
+  // label. Doctor cards previously rendered the raw enum string
+  // (`driver_wont_bind`, `dkms_build_failed`, etc.) which reads as
+  // developer vocabulary to first-time operators. The raw value is
+  // preserved on the card's hover title so diag tooling that searches
+  // for the enum still works. Unknown classes fall back to title-cased
+  // segments. (#1228 / #1254 child fix.)
+  var FAILURE_CLASS_PRETTY = {
+    'secure_boot':            'Secure Boot blocked',
+    'missing_module':         'Driver module missing',
+    'missing_headers':        'Kernel headers missing',
+    'dkms_build_failed':      'DKMS build failed',
+    'apparmor_denied':        'AppArmor denied access',
+    'missing_build_tools':    'Build tools missing',
+    'dkms_state_collision':   'DKMS state collision',
+    'in_tree_conflict':       'In-tree driver conflict',
+    'containerised':          'Running inside container',
+    'package_manager_busy':   'Package manager busy',
+    'daemon_not_root':        'Daemon not running as root',
+    'read_only_rootfs':       'Root filesystem read-only',
+    'disk_full':              'Disk full',
+    'concurrent_install':     'Concurrent install in progress',
+    'acpi_resource_conflict': 'ACPI resource conflict',
+    'driver_wont_bind':       "Driver won't bind",
+    'vendor_daemon_active':   'Vendor daemon active',
+    'thinkpad_acpi_disabled': 'ThinkPad ACPI disabled',
+    'nixos_path_ignored':     'NixOS path ignored'
+  };
+  function prettyFailureClass(raw) {
+    if (FAILURE_CLASS_PRETTY[raw]) return FAILURE_CLASS_PRETTY[raw];
+    // Unknown / new class: title-case the snake_case segments.
+    return String(raw || '').split('_').map(function (seg) {
+      return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : seg;
+    }).join(' ');
+  }
+
   // Render the rollup pill in the topbar. Matches RULE-DOCTOR-SEVERITY-01
   // ordering (Blocker > Warning > Error > OK).
   function paintRollupPill(severity, factCount) {
@@ -82,7 +119,8 @@
     if (fact.class && fact.class !== 'unknown') {
       var cls = document.createElement('span');
       cls.className = 'doc-card-class';
-      cls.textContent = fact.class;
+      cls.textContent = prettyFailureClass(fact.class);
+      cls.title = fact.class; // keep raw enum reachable via hover for diag
       head.appendChild(cls);
     }
     card.appendChild(head);
