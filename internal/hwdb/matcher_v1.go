@@ -211,6 +211,7 @@ func boardEntryToProfileV2(entry *BoardCatalogEntry) *BoardProfileV2 {
 			CPUTINFloats:            entry.Overrides.CPUTINFloats,
 			Unsupported:             entry.Overrides.Unsupported,
 			CoolingDeviceMustDetach: entry.Overrides.CoolingDeviceMustDetach,
+			DirectECPWMUnavailable:  entry.Overrides.DirectECPWMUnavailable,
 		},
 	}
 	if entry.DMIFingerprint != nil {
