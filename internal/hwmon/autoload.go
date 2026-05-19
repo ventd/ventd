@@ -76,7 +76,14 @@ type DriverNeed struct {
 	// RepoURL is the GitHub repo URL (without .git suffix) for downloading the driver source.
 	RepoURL string `json:"repo_url"`
 	// Branch is the default branch of the repo (e.g. "master", "main").
+	// Used as the download ref when Tag is empty.
 	Branch string `json:"branch"`
+	// Tag pins the install to a specific release tag (e.g. "v0.2.0"). When
+	// set, the install pipeline fetches /archive/refs/tags/<Tag>.tar.gz
+	// instead of the Branch head tarball. Used by ventd-org downstream
+	// driver forks so a given ventd release is reproducibly bound to a
+	// specific driver-source revision.
+	Tag string `json:"tag,omitempty"`
 	// Module is the module name to load after installation.
 	Module string `json:"module"`
 	// MaxSupportedKernel is the last kernel release this driver is known to
@@ -116,6 +123,13 @@ type DMITrigger struct {
 }
 
 // knownDriverNeeds maps chip detection keys to their DriverNeed definitions.
+//
+// RepoURL/Branch/Tag for each entry point at the ventd-org downstream fork
+// of the upstream driver (per github.com/ventd/<driver>). Each fork carries
+// a `ventd` branch with the minimum patches ventd's installer/controller/
+// watchdog needs, and a tagged release the installer pins to so a given
+// ventd binary version is reproducibly bound to a specific driver source
+// revision. Upstream URLs are referenced in each fork's VENTD.md.
 var knownDriverNeeds = map[string]DriverNeed{
 	"it8688e": {
 		Key:      "it8688e",
@@ -123,8 +137,9 @@ var knownDriverNeeds = map[string]DriverNeed{
 		Explanation: "Your board's fan controller chip (IT8688E) requires a driver " +
 			"that isn't included in the standard Linux kernel. " +
 			"Ventd can install it automatically — this is a one-time step.",
-		RepoURL: "https://github.com/frankcrawford/it87",
-		Branch:  "master",
+		RepoURL: "https://github.com/ventd/it87",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
 		Module:  "it87",
 		// Gigabyte AMD boards almost universally route fan headers through an
 		// ITE Super I/O the in-kernel it87 driver does not recognise. Board-vendor
@@ -140,8 +155,9 @@ var knownDriverNeeds = map[string]DriverNeed{
 		Explanation: "Your board's fan controller chip (IT8689E) requires a driver " +
 			"that isn't included in the standard Linux kernel. " +
 			"Ventd can install it automatically — this is a one-time step.",
-		RepoURL: "https://github.com/frankcrawford/it87",
-		Branch:  "master",
+		RepoURL: "https://github.com/ventd/it87",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
 		Module:  "it87",
 	},
 	"msi_ec": {
@@ -150,8 +166,9 @@ var knownDriverNeeds = map[string]DriverNeed{
 		Explanation: "Your MSI laptop's embedded controller drives the fan but needs a " +
 			"small kernel driver that isn't included in standard Linux. " +
 			"Ventd can install it automatically — this is a one-time step.",
-		RepoURL: "https://github.com/BeardOverflow/msi-ec",
-		Branch:  "main",
+		RepoURL: "https://github.com/ventd/msi-ec",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
 		Module:  "msi-ec",
 		// msi-ec exposes fan control at /sys/devices/platform/msi-ec/fan_mode,
 		// NOT under /sys/class/hwmon. Without this hint stepVerify never
@@ -172,8 +189,9 @@ var knownDriverNeeds = map[string]DriverNeed{
 		Explanation: "Your board's fan controller chip (NCT6687D) requires a driver " +
 			"that isn't included in the standard Linux kernel. " +
 			"Ventd can install it automatically — this is a one-time step.",
-		RepoURL: "https://github.com/Fred78290/nct6687d",
-		Branch:  "main",
+		RepoURL: "https://github.com/ventd/nct6687d",
+		Branch:  "ventd",
+		Tag:     "v0.2.0",
 		Module:  "nct6687", // module file is nct6687.ko, not nct6687d.ko
 		// NCT6687D is the fan controller on MSI MAG and MPG series boards.
 		// DMI board_vendor reports "Micro-Star International Co., Ltd." on most
@@ -193,6 +211,68 @@ var knownDriverNeeds = map[string]DriverNeed{
 			{BoardVendorContains: "msi", BoardNameContains: "mpg"},
 			{BoardVendorContains: "micro-star", BoardNameContains: "ms-7d25"},
 			{BoardVendorContains: "msi", BoardNameContains: "ms-7d25"},
+		},
+	},
+	"it5570_fan": {
+		Key:      "it5570_fan",
+		ChipName: "IT5570 EC",
+		Explanation: "Your mini-PC's IT5570 embedded controller drives the fan but " +
+			"needs a small kernel driver that isn't included in standard Linux. " +
+			"Ventd can install it automatically — this is a one-time step.",
+		RepoURL: "https://github.com/ventd/it5570-fan",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
+		Module:  "it5570_fan",
+		// IT5570 EC is wired into a wide range of AMD Phoenix / Hawk-Point
+		// based mini-PCs (Beelink, MinisForum, AceMagic, etc.). With no driver
+		// loaded, no hwmon entry exists at all — vendor-only DMI matching is
+		// the only reliable signal pre-install.
+		DMITriggers: []DMITrigger{
+			{SysVendorContains: "beelink"},
+			{BoardVendorContains: "beelink"},
+			{SysVendorContains: "minisforum"},
+			{BoardVendorContains: "minisforum"},
+			{SysVendorContains: "acemagic"},
+			{BoardVendorContains: "acemagic"},
+			{SysVendorContains: "ace magic"},
+			{BoardVendorContains: "ace magic"},
+		},
+	},
+	"system76_acpi": {
+		Key:      "system76_acpi",
+		ChipName: "System76 ACPI",
+		Explanation: "Your System76 laptop's kernel is older than the in-tree " +
+			"system76_acpi driver. Ventd can install the DKMS backport " +
+			"automatically — this is a one-time step.",
+		RepoURL: "https://github.com/ventd/system76-acpi-dkms",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
+		Module:  "system76_acpi",
+		// system76_acpi is in mainline from ~5.15; only older kernels need
+		// the DKMS backport. Gate by sys/board vendor; runtime kernel-age
+		// check is done by the install pipeline's preflight.
+		DMITriggers: []DMITrigger{
+			{SysVendorContains: "system76"},
+			{BoardVendorContains: "system76"},
+		},
+	},
+	"system76_io": {
+		Key:      "system76_io",
+		ChipName: "System76 Io",
+		Explanation: "Your System76 Thelio desktop's Io controller needs a kernel " +
+			"driver that isn't included in standard Linux. Ventd can install " +
+			"it automatically — this is a one-time step.",
+		RepoURL: "https://github.com/ventd/system76-io-dkms",
+		Branch:  "ventd",
+		Tag:     "v0.1.0",
+		Module:  "system76_io",
+		// System76 Thelio desktops only. Narrow the trigger to thelio products
+		// so System76 laptops (which use system76_acpi) don't get this driver
+		// stapled on. system76_io and system76_acpi are not mutually exclusive
+		// — Thelio Mira ships both — but the laptop range never uses Io.
+		DMITriggers: []DMITrigger{
+			{SysVendorContains: "system76", ProductContains: "thelio"},
+			{BoardVendorContains: "system76", ProductContains: "thelio"},
 		},
 	},
 }
@@ -675,6 +755,26 @@ func Diagnose() HwmonDiagnostics {
 
 	if d.PWMCount == 0 {
 		d.DriverNeeds = identifyDriverNeeds(d.BoardVendor, d.BoardName, d.HwmonDevices)
+
+		// Enrich with DMI-only proposals: drivers whose triggers key off
+		// sys_vendor or product_name (e.g. system76 laptops, beelink /
+		// minisforum mini-PCs). identifyDriverNeeds only sees
+		// board_vendor + board_name and so cannot fire these. The
+		// merge is order-stable (alphabetic by Key from
+		// ProposeModulesByDMI) and dedupes against chip-name-aware
+		// proposals already in DriverNeeds so overlapping entries don't
+		// surface twice.
+		fullDMI := ReadDMI("")
+		seenKeys := make(map[string]bool, len(d.DriverNeeds))
+		for _, nd := range d.DriverNeeds {
+			seenKeys[nd.Key] = true
+		}
+		for _, nd := range ProposeModulesByDMI(fullDMI) {
+			if !seenKeys[nd.Key] {
+				d.DriverNeeds = append(d.DriverNeeds, nd)
+				seenKeys[nd.Key] = true
+			}
+		}
 	}
 
 	return d
