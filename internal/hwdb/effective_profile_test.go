@@ -98,3 +98,32 @@ func TestRuleHwdbPR2_10(t *testing.T) {
 		}
 	})
 }
+
+// TestStateQuantizedN_Propagation confirms v1.4 fields flow through ResolveEffectiveProfile.
+func TestStateQuantizedN_Propagation(t *testing.T) {
+	cat := mustLoadEmbeddedCatalog(t)
+	driver, ok := cat.Drivers["dell-smm-hwmon"]
+	if !ok {
+		t.Fatal("dell-smm-hwmon driver not in embedded catalog")
+	}
+	if driver.StateQuantizedN == nil || *driver.StateQuantizedN != 3 {
+		t.Fatalf("dell-smm-hwmon should declare state_quantized_n=3 in catalog; got %v", driver.StateQuantizedN)
+	}
+
+	// Board with direct_ec_pwm_unavailable set.
+	board := &BoardProfileV2{
+		ID: "dell-latitude-7280",
+		Overrides: BoardOverrides{
+			DirectECPWMUnavailable: true,
+		},
+	}
+
+	ecp := ResolveEffectiveProfile(driver, nil, board, nil, MatchDiagnostics{})
+
+	if ecp.StateQuantizedN == nil || *ecp.StateQuantizedN != 3 {
+		t.Errorf("StateQuantizedN should propagate from driver: got %v", ecp.StateQuantizedN)
+	}
+	if !ecp.DirectECPWMUnavailable {
+		t.Error("DirectECPWMUnavailable should propagate from board overrides")
+	}
+}

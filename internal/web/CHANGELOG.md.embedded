@@ -9,6 +9,23 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.8.8] - 2026-05-19
+
+### Headline
+
+Switches every out-of-tree kernel-driver fetch performed by ventd's installer over to the ventd-org downstream forks under [`github.com/ventd/`](https://github.com/ventd), each pinned to a specific release tag via the new `DriverNeed.Tag` field — a given ventd binary version is now reproducibly bound to one driver-source revision per chip family. Three new install paths land at the same time: `it5570_fan` (Beelink / MinisForum / AceMagic mini-PCs), `system76_acpi` (older-kernel System76 laptops), and `system76_io` (System76 Thelio desktops). The pinned `nct6687d` tag is `ventd/nct6687d` v0.2.0 — the consolidated result of an 8-PR audit against `Fred78290/nct6687d` (PRs #169-#176, all opened upstream-first), plus the ventd-fork-only blacklist + DKMS install/remove hooks that block the in-tree `nct6683` driver from squatting on NCT6687D-equipped boards.
+
+### Added
+
+- `internal/hwmon/autoload.go` — **`DriverNeed.Tag` field for tag-pinned driver-source fetches**. When non-empty, the install pipeline fetches `<RepoURL>/archive/refs/tags/<Tag>.tar.gz` instead of the `Branch` head tarball. Eliminates "tip of master" drift between two installs of the same ventd version on the same chip family.
+- `internal/hwmon/autoload.go` — **three new `knownDriverNeeds` entries**: `it5570_fan` (IT5570 EC on AMD Phoenix / Hawk-Point mini-PCs from Beelink / MinisForum / AceMagic — previously had no Linux fan control at all), `system76_acpi` (DKMS backport for System76 laptops on kernels older than ~5.15), `system76_io` (System76 Thelio desktops). Each carries DMI triggers gated on `sys_vendor` / `board_vendor` / `product_name`; the System76 entries do not override the existing `system76-power` step-aside logic — they just give ventd a reliable hwmon source on older kernels.
+- `internal/hwmon/autoload.go` — **`Diagnose()` enrichment with DMI-only driver proposals**. The full DMI snapshot (`sys_vendor` and `product_name` in addition to `board_vendor` + `board_name`) is read once, fed through `ProposeModulesByDMI`, and merged into `HwmonDiagnostics.DriverNeeds` after the existing chip-name-aware `identifyDriverNeeds` pass. Order-stable, deduped against earlier proposals so overlapping keys don't surface twice. Required for the new entries whose triggers key off DMI fields the `identifyDriverNeeds` signature can't see.
+
+### Changed
+
+- `internal/hwmon/autoload.go` — **`knownDriverNeeds` upstream URLs migrated to ventd-org forks**: `nct6687d` → `ventd/nct6687d` v0.2.0 (from `Fred78290/nct6687d`@main), `it8688e` / `it8689e` → `ventd/it87` v0.1.0 (from `frankcrawford/it87`@master), `msi_ec` → `ventd/msi-ec` v0.1.0 (from `BeardOverflow/msi-ec`@main). Branch on every entry is `ventd` (the per-fork integration branch); Tag pins the specific tested release. Upstream URLs remain referenced in each fork's `VENTD.md`.
+- `internal/hwmon/install.go` — **install-pipeline tarball URL now picks tag-vs-branch based on `DriverNeed.Tag`**. Legacy branch-head fetch is preserved for any entry without a Tag set, so any future driver intentionally tracking a moving ref still works. No change to the DKMS register / build / install / verify steps that follow.
+
 ## [v0.8.7] - 2026-05-19
 
 ### Headline
