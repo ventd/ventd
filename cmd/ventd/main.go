@@ -497,6 +497,7 @@ func run() error {
 	// hal.Enumerate and downgrade to INFO when a non-hwmon backend
 	// (msi-ec, thinkpad, ipmi, …) owns the fan-control surface (#1163).
 	hwmon.DiagnoseHwmon(logger)
+	hwmon.DiagnoseDellSMMVersion(logger)
 
 	// Synchronous system-class detection. Reads the probe result persisted
 	// earlier in run() and classifies the system hardware.
