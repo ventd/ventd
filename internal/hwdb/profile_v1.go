@@ -170,6 +170,14 @@ type DriverProfile struct {
 	Experimental                      ExperimentalBlock   `yaml:"-"`
 	BlacklistBeforeInstall            []string            `yaml:"blacklist_before_install,omitempty"` // v1.3
 	KernelVersion                     *KernelVersionRange `yaml:"kernel_version,omitempty"`           // v1.3
+	// StateQuantizedN, when set, declares that the driver's PWM surface is
+	// state-quantized to N distinct stable values rather than a continuous
+	// 0..pwm_unit_max range. Calibration interprets the sweep as an N-step
+	// staircase and observation tags the channel with a state_quantized_N
+	// fingerprint. Only valid when pwm_unit is step_0_N; pwm_unit_max+1 must
+	// equal N (one fan-state index per step). Nil/absent means "not declared
+	// state-quantized" (continuous PWM or behaviour unknown). v1.4.
+	StateQuantizedN *int `yaml:"state_quantized_n,omitempty"`
 }
 
 // ChannelOverride captures per-channel restrictions on a chip.
@@ -478,6 +486,18 @@ func validateDriverProfile(dp *DriverProfile) error {
 			if compareDottedVersions(dp.KernelVersion.Min, dp.KernelVersion.Max) > 0 {
 				return catalogErrorf("driver %q: kernel_version.min %q exceeds kernel_version.max %q (RULE-HWDB-PR2-17)", mod, dp.KernelVersion.Min, dp.KernelVersion.Max)
 			}
+		}
+	}
+	// v1.4: validate state_quantized_n — only valid for step_0_N, must equal pwm_unit_max+1.
+	if dp.StateQuantizedN != nil {
+		if dp.PWMUnit != PWMUnitStep0N {
+			return catalogErrorf("driver %q: state_quantized_n only valid when pwm_unit is step_0_N (got %q)", mod, dp.PWMUnit)
+		}
+		if *dp.StateQuantizedN < 2 {
+			return catalogErrorf("driver %q: state_quantized_n must be >= 2 (got %d)", mod, *dp.StateQuantizedN)
+		}
+		if dp.PWMUnitMax != nil && *dp.StateQuantizedN != *dp.PWMUnitMax+1 {
+			return catalogErrorf("driver %q: state_quantized_n (%d) must equal pwm_unit_max+1 (%d)", mod, *dp.StateQuantizedN, *dp.PWMUnitMax+1)
 		}
 	}
 	// v1.3: validate blacklist_before_install — entries must be non-empty + unique.

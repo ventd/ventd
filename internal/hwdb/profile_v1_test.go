@@ -119,6 +119,100 @@ func TestRuleHwdbPR2_04(t *testing.T) {
 	})
 }
 
+// TestStateQuantizedN_Validation verifies the v1.4 state_quantized_n field
+// is gated on pwm_unit=step_0_N and must equal pwm_unit_max+1 when both are set.
+func TestStateQuantizedN_Validation(t *testing.T) {
+	// state_quantized_n on a duty_0_255 driver must be rejected.
+	dutyYAML := `schema_version: "1.4"
+driver_profiles:
+  - module: "duty-with-quant"
+    family: "test"
+    description: "duty driver with bogus state_quantized_n"
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    state_quantized_n: 3
+    pwm_enable_modes: {"1": "manual"}
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 50
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "static_normal"
+    exit_behaviour: "force_max"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: null
+    citations: []
+`
+	_, err := LoadCatalogFromFS(buildValidCatalogFS(t, dutyYAML, ""))
+	if err == nil {
+		t.Fatal("state_quantized_n on duty_0_255: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "state_quantized_n") {
+		t.Errorf("error %q should mention state_quantized_n", err.Error())
+	}
+
+	// state_quantized_n != pwm_unit_max+1 must be rejected.
+	mismatchYAML := `schema_version: "1.4"
+driver_profiles:
+  - module: "step-mismatch"
+    family: "test"
+    description: "step with state_quantized_n mismatched to pwm_unit_max"
+    capability: "rw_step"
+    pwm_unit: "step_0_N"
+    pwm_unit_max: 2
+    state_quantized_n: 5
+    pwm_enable_modes: {"1": "manual"}
+    off_behaviour: "state_off"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: true
+    firmware_curve_offload_override: false
+    citations: []
+`
+	_, err = LoadCatalogFromFS(buildValidCatalogFS(t, mismatchYAML, ""))
+	if err == nil {
+		t.Fatal("mismatched state_quantized_n vs pwm_unit_max: expected error, got nil")
+	}
+
+	// state_quantized_n < 2 must be rejected.
+	tooSmallYAML := strings.Replace(mismatchYAML, "state_quantized_n: 5", "state_quantized_n: 1", 1)
+	tooSmallYAML = strings.Replace(tooSmallYAML, "pwm_unit_max: 2", "pwm_unit_max: 0", 1)
+	_, err = LoadCatalogFromFS(buildValidCatalogFS(t, tooSmallYAML, ""))
+	if err == nil {
+		t.Fatal("state_quantized_n=1: expected error, got nil")
+	}
+
+	// state_quantized_n omitted on a step driver must load cleanly.
+	stepOK := buildValidCatalogFS(t, stepDriverYAML("step-no-quant", true), "")
+	if _, err := LoadCatalogFromFS(stepOK); err != nil {
+		t.Fatalf("step driver without state_quantized_n: unexpected error: %v", err)
+	}
+
+	// state_quantized_n correctly matching pwm_unit_max+1 must load + parse.
+	validYAML := strings.Replace(stepDriverYAML("step-with-quant", true), "polling_latency_ms_hint: 100",
+		"state_quantized_n: 4\n    polling_latency_ms_hint: 100", 1)
+	cat, err := LoadCatalogFromFS(buildValidCatalogFS(t, validYAML, ""))
+	if err != nil {
+		t.Fatalf("valid state_quantized_n: unexpected error: %v", err)
+	}
+	dp := cat.Drivers["step-with-quant"]
+	if dp == nil || dp.StateQuantizedN == nil {
+		t.Fatalf("state_quantized_n not parsed; dp=%+v", dp)
+	}
+	if *dp.StateQuantizedN != 4 {
+		t.Errorf("StateQuantizedN: got %d, want 4", *dp.StateQuantizedN)
+	}
+}
+
 // TestRuleHwdbPR2_05 verifies RULE-HWDB-PR2-05: pwm_enable_modes MUST contain
 // a "manual" entry when capability is rw_full, rw_quirk, or rw_step.
 func TestRuleHwdbPR2_05(t *testing.T) {

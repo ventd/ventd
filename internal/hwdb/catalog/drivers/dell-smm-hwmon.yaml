@@ -3,10 +3,11 @@ schema_version: "1.2"
 driver_profiles:
   - module: "dell-smm-hwmon"
     family: "dell-smm"
-    description: "Dell SMM fan controller — Dell laptops and some desktops. PWM unit is fan-state index (step_0_N), NOT duty-0-255. SMM calls can take 200-500ms."
+    description: "Dell SMM fan controller — Dell laptops and some desktops. PWM unit is fan-state index (step_0_N), NOT duty-0-255. Three discrete states (0=OFF, 1=LOW, 2=HIGH) when the machine is in i8k_whitelist_fan_control; non-whitelisted Dells lose state 2 to BIOS thermal reassert. SMM calls can take 200-500ms. v7.0.0-ventd.3 (ventd-org fork) adds whitelist entries, makes pwm_enable readable on whitelisted machines, and gates pwm_enable=2 fallback to set_fan(i8k_fan_max) on non-whitelisted machines."
     capability: "rw_step"
     pwm_unit: "step_0_N"
     pwm_unit_max: 2
+    state_quantized_n: 3
     pwm_enable_modes:
       "1": "manual"
       "2": "bios_auto"
@@ -31,3 +32,4 @@ driver_profiles:
     firmware_curve_offload_override: false
     citations:
       - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html"
+      - "https://github.com/ventd/dell-smm-hwmon-dkms/releases/tag/v7.0.0-ventd.3"

@@ -39,26 +39,32 @@ board_profiles:
       board_version: "*"
     primary_controller:
       chip: "dell_smm"
-      sysfs_hint: "name=dell_smm via dell-smm-hwmon mainline driver"
+      sysfs_hint: "name=dell_smm via dell-smm-hwmon ventd fork v7.0.0-ventd.3"
     additional_controllers: []
     overrides:
-      ro_sensor_only: true
+      direct_ec_pwm_unavailable: true
     required_modprobe_args: []
     conflicts_with_userspace:
       - "i8kutils"
     notes: "Phoenix box matrix #5 — i7-6600U Skylake business laptop.
-      Matches generic 'Dell Latitude' prefix in i8k_dmi_table → driver
-      loads, fan1_input + temp1-2_input populated. NOT on
-      i8k_whitelist_fan_control → pwm1_enable does NOT exist → ventd
-      cannot write fan speed. Register as ro_sensor_only. CPU temp via
-      coretemp.ko separately. ventd runs as root so the driver's default
-      restricted=1 is correct; do NOT recommend restricted=0 — it
-      exposes the SMI port to non-root and is a privilege-escalation
-      surface (per kernel hwmon docs)."
+      Matches generic 'Dell Latitude' prefix in i8k_dmi_table. With the
+      ventd fork v7.0.0-ventd.3 driver the 7280 is on
+      i8k_whitelist_fan_control (0x34a3/0x35a3) → pwm1_enable writable
+      AND readable, all three SMM states (OFF/LOW/HIGH) usable, fan
+      tach reads via SMM GET_SPEED. Without the ventd fork (in-tree
+      driver only): falls back to ro_sensor_only behaviour — see
+      preflight modinfo check that warns on stale driver versions.
+
+      direct_ec_pwm_unavailable: empirical investigation on 2026-05-20
+      confirmed the EC fan PWM/tach registers are SMM-private — not
+      visible via the standard ACPI EC channel that NBFC would use. Do
+      NOT offer NBFC config installation on this hardware. The realistic
+      ceiling is the 3 SMM states × 4 platform-profile modes ≈ 12
+      thermal envelopes."
     citations:
       - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/dell-smm-hwmon.c (i8k_dmi_table — 'Dell Latitude' prefix entry)"
       - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html (driver doc, two-tier match model)"
-      - "https://patchew.org/linux/20240522210809.294488-1-W._5FArmin@gmx.de/ (whitelist additions over time)"
+      - "https://github.com/ventd/dell-smm-hwmon-dkms/releases/tag/v7.0.0-ventd.3 (ventd fork adding Latitude 7280 to i8k_whitelist_fan_control)"
     contributed_by: "anonymous"
     captured_at: "2026-04-26"
     verified: false
