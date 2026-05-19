@@ -286,7 +286,7 @@ var knownDriverNeeds = map[string]DriverNeed{
 			"both — this is a one-time step.",
 		RepoURL: "https://github.com/ventd/dell-smm-hwmon-dkms",
 		Branch:  "ventd",
-		Tag:     "v7.0.0-ventd.1",
+		Tag:     "v7.0.0-ventd.2",
 		Module:  "dell-smm-hwmon",
 		// Unlike the other entries in this map, dell_smm is NOT a "your chip
 		// has no in-tree driver" replacement — it's a same-module-name DKMS
