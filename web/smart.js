@@ -247,6 +247,27 @@
     }
   }
 
+  // prettyState maps the daemon's internal ui_state / global_state
+  // labels to plain English an operator who hasn't read the design
+  // doc can interpret correctly. Internal names like "warming" read
+  // as "the fan is overheating" to a first-time user; "Learning"
+  // says what the controller is actually doing. CSS classes still
+  // use the internal name (acc-blue for warming etc.) so styling
+  // doesn't shift. (#1254 / #1228 child fix.)
+  function prettyState(s) {
+    switch (s) {
+      case 'converged':  return 'Stable';
+      case 'warming':    return 'Learning';
+      case 'cold-start': return 'Starting up';
+      case 'drifting':   return 'Adjusting';
+      case 'refused':    return 'Refused';
+      case 'idle':       return 'Idle';
+      case 'fallback':   return 'Fallback';
+      case 'unknown':    return 'Unknown';
+      default:           return s || 'Unknown';
+    }
+  }
+
   function pushLog(html) {
     state.logRing.push({ ts: Date.now(), html: html });
     while (state.logRing.length > LOG_RING_MAX) state.logRing.shift();
@@ -348,7 +369,7 @@
     if (pill) {
       pill.hidden = false;
       pill.className = 'sm-pill ' + safeStateClass(state.smart.global_state || 'unknown');
-      pill.textContent = state.smart.global_state || 'unknown';
+      pill.textContent = prettyState(state.smart.global_state || 'unknown');
     }
   }
 
@@ -382,7 +403,7 @@
 
     var preset = state.smart.preset || 'balanced';
     var sub = el('div', { cls: 'sm-head-sub',
-      text: 'Preset: ' + preset + ' · ' + (state.smart.global_state || 'unknown') });
+      text: 'Preset: ' + preset + ' · ' + prettyState(state.smart.global_state || 'unknown') });
     txt.appendChild(sub);
     left.appendChild(txt);
 
@@ -391,10 +412,11 @@
     var right = el('div', { cls: 'sm-head-right' });
 
     // "Uptime" clock — we don't have a real uptime endpoint, so show
-    // a wall clock as a "live" indicator. Honest: the clock is the
-    // browser's local time, not daemon uptime.
+    // a wall clock as a "live" indicator. Label says "Browser time"
+    // to make the source explicit; previously labelled "Now" which
+    // a first-time user reads as daemon uptime (#1254 / #931).
     var c1 = el('div', { cls: 'sm-head-clock' });
-    c1.appendChild(el('div', { cls: 'sm-head-clock-label', text: 'Now' }));
+    c1.appendChild(el('div', { cls: 'sm-head-clock-label', text: 'Browser time' }));
     c1.appendChild(el('div', { cls: 'sm-head-clock-val', text: fmtClockHHMMSS(new Date()) }));
     right.appendChild(c1);
 
@@ -438,8 +460,8 @@
     row1.appendChild(head);
 
     var stats = el('div', { cls: 'sm-bridge-stats' });
-    stats.appendChild(buildBStat('Channels predictive', summaryChannelsPredictive()));
-    stats.appendChild(buildBStat('Aggregate w_pred', fmt2(aggregateWPred()), 'teal'));
+    stats.appendChild(buildBStat('Channels predicting', summaryChannelsPredictive()));
+    stats.appendChild(buildBStat('Average confidence', fmt2(aggregateWPred()), 'teal'));
     stats.appendChild(buildBStat('Last probe', lastProbeAgo()));
     stats.appendChild(buildBStat('Active signature', activeSignature(), 'blue'));
     row1.appendChild(stats);
@@ -460,8 +482,8 @@
     }
     var ch = state.smart.channels || 0;
     var conv = state.smart.converged || 0;
-    return ch + ' channels active · ' + conv + ' converged · ' +
-      (state.smart.warming_up || 0) + ' warming';
+    return ch + ' channels active · ' + conv + ' stable · ' +
+      (state.smart.warming_up || 0) + ' learning';
   }
 
   function summaryChannelsPredictive() {
@@ -655,9 +677,9 @@
     name.appendChild(el('div', { cls: 'sm-strip-path', text: c.channel_id || '' }));
     strip.appendChild(name);
 
-    // w_pred cell
+    // Confidence cell (`w_pred` in daemon-internal terms)
     var c1 = el('div', { cls: 'sm-strip-cell' });
-    c1.appendChild(el('div', { cls: 'sm-strip-cell-label', text: 'w_pred' }));
+    c1.appendChild(el('div', { cls: 'sm-strip-cell-label', text: 'Confidence' }));
     c1.appendChild(el('div', { cls: 'sm-strip-cell-val teal', text: fmtPct(c.w_pred) }));
     strip.appendChild(c1);
 
@@ -683,7 +705,7 @@
 
     // state pill
     var pillWrap = el('div');
-    var pill = el('span', { cls: 'sm-pill ' + stateCls, text: c.ui_state || 'unknown' });
+    var pill = el('span', { cls: 'sm-pill ' + stateCls, text: prettyState(c.ui_state || 'unknown') });
     if (stateCls === 'refused') {
       // Tooltip: refusal reason
       var reason = (c.coupling && c.coupling.reason) || 'predictive disabled';
@@ -753,17 +775,17 @@
     hl.appendChild(el('div', { cls: 'sm-card-title', text: 'Smart mode globals' }));
     head.appendChild(hl);
     var stateCls = safeStateClass(state.smart.global_state || 'unknown');
-    var pill = el('span', { cls: 'sm-pill ' + stateCls, text: state.smart.global_state || 'unknown' });
+    var pill = el('span', { cls: 'sm-pill ' + stateCls, text: prettyState(state.smart.global_state || 'unknown') });
     head.appendChild(pill);
     card.appendChild(head);
 
     var dl = el('dl', { cls: 'sm-sys-list' });
     dl.appendChild(sysRow('Preset',   state.smart.preset || '—'));
     dl.appendChild(sysRow('Channels', String(state.smart.channels != null ? state.smart.channels : '—')));
-    dl.appendChild(sysRow('Warming',  String(state.smart.warming_up != null ? state.smart.warming_up : '—')));
-    dl.appendChild(sysRow('Converged',String(state.smart.converged != null ? state.smart.converged : '—')));
-    dl.appendChild(sysRow('Conf min', fmt2(state.smart.confidence_min)));
-    dl.appendChild(sysRow('Conf max', fmt2(state.smart.confidence_max)));
+    dl.appendChild(sysRow('Learning', String(state.smart.warming_up != null ? state.smart.warming_up : '—')));
+    dl.appendChild(sysRow('Stable',   String(state.smart.converged != null ? state.smart.converged : '—')));
+    dl.appendChild(sysRow('Min confidence', fmt2(state.smart.confidence_min)));
+    dl.appendChild(sysRow('Max confidence', fmt2(state.smart.confidence_max)));
     card.appendChild(dl);
     return card;
   }
@@ -852,8 +874,8 @@
     head.appendChild(el('div', { cls: 'sm-conf-head-name', text: leafName(cc.channel_id) }));
     var meta = el('div', { cls: 'sm-conf-head-meta' });
     var stateCls = safeStateClass(cc.ui_state || 'unknown');
-    meta.appendChild(el('span', { cls: 'sm-pill ' + stateCls, text: cc.ui_state || 'unknown' }));
-    var w = el('div', { cls: 'sm-conf-wpred', text: 'w_pred ' + fmt2(cc.w_pred) });
+    meta.appendChild(el('span', { cls: 'sm-pill ' + stateCls, text: prettyState(cc.ui_state || 'unknown') }));
+    var w = el('div', { cls: 'sm-conf-wpred', text: 'Confidence ' + fmt2(cc.w_pred) });
     meta.appendChild(w);
     head.appendChild(meta);
     row.appendChild(head);
