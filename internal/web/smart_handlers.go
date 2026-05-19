@@ -55,9 +55,29 @@ func displayChannelID(rawID string, live *config.Config) string {
 	return rawID
 }
 
+// fanNameFor returns the operator-facing fan name from config when
+// rawID matches a configured fan's PWMPath. Empty when no match
+// (channel not in config, or config not loaded). Lets the web UI
+// surface "CPU Fan" instead of "/sys/class/hwmon/hwmon10/pwm6" on
+// smart-mode strips and the confidence breakdown.
+func fanNameFor(rawID string, live *config.Config) string {
+	if live == nil || rawID == "" {
+		return ""
+	}
+	for _, f := range live.Fans {
+		if f.PWMPath == rawID && f.Name != "" {
+			return f.Name
+		}
+	}
+	return ""
+}
+
 // confidence snapshot. UI renders this directly.
 type confidenceChannel struct {
-	ChannelID        string  `json:"channel_id"`
+	ChannelID string `json:"channel_id"`
+	// Name mirrors smartChannelEntry.Name — operator-friendly fan
+	// name from config.yaml when configured, empty otherwise.
+	Name             string  `json:"name,omitempty"`
 	Wpred            float64 `json:"w_pred"`
 	UIState          string  `json:"ui_state"`
 	ConfA            float64 `json:"conf_a"`
@@ -114,6 +134,7 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 		la := s.layerA.Read(a.ChannelID)
 		entry := confidenceChannel{
 			ChannelID: displayChannelID(a.ChannelID, live),
+			Name:      fanNameFor(a.ChannelID, live),
 			Wpred:     a.Wpred,
 			UIState:   a.UIState,
 			ConfA:     a.ConfA,
@@ -235,7 +256,13 @@ type smartStatusResponse struct {
 // /api/v1/smart/channels. Fields are nullable when the corresponding
 // runtime is absent (e.g. coupling but not marginal).
 type smartChannelEntry struct {
-	ChannelID      string                `json:"channel_id"`
+	ChannelID string `json:"channel_id"`
+	// Name is the operator-friendly fan name from config.yaml when
+	// the channel matches a configured fan; empty otherwise. The web
+	// UI prefers Name over the raw ChannelID for display so smart-mode
+	// strips show "CPU Fan" instead of "/sys/class/hwmon/hwmon10/pwm6".
+	// (#1228 / #1254 child fix.)
+	Name           string                `json:"name,omitempty"`
 	UIState        string                `json:"ui_state"` // converged|warming|cold-start|drifting|refused
 	Wpred          float64               `json:"w_pred"`   // 0..1 final blend weight
 	Coupling       *smartCouplingShard   `json:"coupling,omitempty"`
@@ -425,6 +452,7 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 	for _, a := range aggSnaps {
 		entry := smartChannelEntry{
 			ChannelID: displayChannelID(a.ChannelID, live),
+			Name:      fanNameFor(a.ChannelID, live),
 			UIState:   a.UIState,
 			Wpred:     a.Wpred,
 		}

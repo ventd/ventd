@@ -673,7 +673,7 @@
     var strip = el('div', { cls: 'sm-strip' + modCls });
 
     var name = el('div', { cls: 'sm-strip-name' });
-    name.appendChild(el('div', { cls: 'sm-strip-leaf', text: leafName(c.channel_id) }));
+    name.appendChild(el('div', { cls: 'sm-strip-leaf', text: c.name || leafName(c.channel_id) }));
     name.appendChild(el('div', { cls: 'sm-strip-path', text: c.channel_id || '' }));
     strip.appendChild(name);
 
@@ -871,7 +871,7 @@
     var row = el('div', { cls: rowCls });
 
     var head = el('div', { cls: 'sm-conf-head' });
-    head.appendChild(el('div', { cls: 'sm-conf-head-name', text: leafName(cc.channel_id) }));
+    head.appendChild(el('div', { cls: 'sm-conf-head-name', text: cc.name || leafName(cc.channel_id) }));
     var meta = el('div', { cls: 'sm-conf-head-meta' });
     var stateCls = safeStateClass(cc.ui_state || 'unknown');
     meta.appendChild(el('span', { cls: 'sm-pill ' + stateCls, text: prettyState(cc.ui_state || 'unknown') }));
