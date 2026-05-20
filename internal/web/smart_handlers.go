@@ -275,6 +275,12 @@ type smartStatusResponse struct {
 	// enabled reflects Config.AcousticOptimisationEnabled() — when
 	// false the gate never refuses regardless of preset.
 	Acoustic smartAcousticBudget `json:"acoustic"`
+
+	// Cooling is the chassis cooling-capacity-W estimate (#1285)
+	// surfaced beside the CPU TDP so the UI can render "chassis
+	// cooling capacity: ~120 W" beside "CPU TDP: 125 W". Doctor
+	// fires a warning when adequate=false AND has_signal=true.
+	Cooling CoolingStatus `json:"cooling"`
 }
 
 type smartAcousticBudget struct {
@@ -287,6 +293,19 @@ type smartAcousticBudget struct {
 	// mic position; when false, CurrentDBA is the within-host "au"
 	// scale and the UI surfaces a "calibrate mic" hint. (#1281)
 	MicCalibrated bool `json:"mic_calibrated"`
+}
+
+// CoolingStatus is the public seam the daemon uses to publish the
+// chassis cooling-capacity-W estimate (#1285) into the smart-mode
+// status surface. CapacityW is watts at 70 °C ΔT; CPUTDPW is the
+// host CPU package power limit (RAPL). HasSignal is false on hosts
+// where the data isn't available yet (pre-calibrate / AMD without
+// RAPL / virtualised); UI hides the panel in that case.
+type CoolingStatus struct {
+	CapacityW float64 `json:"capacity_w,omitempty"`
+	CPUTDPW   int     `json:"cpu_tdp_w,omitempty"`
+	Adequate  bool    `json:"adequate"`
+	HasSignal bool    `json:"has_signal"`
 }
 
 // smartChannelEntry is the deep per-channel snapshot for
@@ -381,11 +400,17 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.aggregator == nil {
-		s.writeJSON(r, w, smartStatusResponse{
+		resp := smartStatusResponse{
 			Enabled:  false,
 			Preset:   preset,
 			Acoustic: smartAcousticBudget{Enabled: false, MicCalibrated: s.micCalibrated()},
-		})
+		}
+		if s.coolingFn != nil {
+			resp.Cooling = s.coolingFn()
+		} else {
+			resp.Cooling = CoolingStatus{Adequate: true, HasSignal: false}
+		}
+		s.writeJSON(r, w, resp)
 		return
 	}
 
@@ -466,6 +491,12 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+
+	if s.coolingFn != nil {
+		out.Cooling = s.coolingFn()
+	} else {
+		out.Cooling = CoolingStatus{Adequate: true, HasSignal: false}
 	}
 
 	s.writeJSON(r, w, out)

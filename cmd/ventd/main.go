@@ -1173,6 +1173,11 @@ func runDaemonInternal(
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
+	// #1285: wire the chassis cooling-capacity-W estimator so
+	// /api/v1/smart/status surfaces (capacity_w, cpu_tdp_w, adequate)
+	// for the dashboard's "chassis cooling capacity" panel and the
+	// doctor's capacity-tight warning.
+	webSrv.SetCoolingCapacityFn(newCoolingResolver(&liveCfg, "", nil))
 	// Wire polarity channels so the panic handler routes MaxPWM writes
 	// through polarity.WritePWM (RULE-POLARITY-05). Without this, an
 	// inverted-polarity fan flipped MaxPWM→MinPWM (the opposite of the

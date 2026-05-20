@@ -71,6 +71,10 @@ func (s *Server) doctorRunner() *doctor.Runner {
 		// state.json directly; absent file = no signal (wizard not
 		// yet run). #1274.
 		detectors.NewCalibrationCurveQualityDetector(detectors.FileCalibrationArtifactLoader{}),
+		// #1285: chassis cooling-capacity-W estimator. Reads the
+		// same calibrate artifact + RAPL TDP and warns when the
+		// estimated capacity falls below CPU TDP × 1.25.
+		detectors.NewCoolingCapacityDetector(detectors.FileCoolingCapacityLoader{}),
 	}
 	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
 	return s.doctorCache.runner
