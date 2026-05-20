@@ -697,11 +697,23 @@ func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp
 	}
 
 	anchors := curveAnchorCount(f)
+	// Inflection-point-based PWM% anchor placement (#1284) supersedes
+	// the TDP-gamma-shaped uniform spread (#1280) when measured curve
+	// data is present — data-driven beats rule-based. When the
+	// curve is too sparse, inflectionAnchorPcts returns a linear
+	// distribution; we wrap that linear fallback with the TDP-gamma
+	// shape so a low-TDP host on a sparsely-calibrated fan still
+	// gets the gentle middle band and a high-TDP host the steep one.
+	pcts := inflectionAnchorPcts(cal.Curve, cal.StartPWM, bottomPct, topPct, anchors)
+	linearFallback := isLinearAnchors(pcts, bottomPct, topPct)
 	pts := make([]config.CurvePoint, anchors)
 	for i := 0; i < anchors; i++ {
 		fraction := float64(i) / float64(anchors-1)
 		temp := minTemp + fraction*(maxTemp-minTemp)
-		pct := shapePWMPct(fraction, tdpGamma, bottomPct, topPct)
+		pct := pcts[i]
+		if linearFallback {
+			pct = shapePWMPct(fraction, tdpGamma, bottomPct, topPct)
+		}
 		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
 	}
 	return config.CurveConfig{
@@ -712,6 +724,145 @@ func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp
 		MaxTemp: maxTemp,
 		Points:  pts,
 	}
+}
+
+// inflectionAnchorPcts returns the per-anchor PWM% values that
+// distribute the curve's airflow delta evenly across its anchors
+// (#1284). The first anchor stays at bottomPct (fan's measured
+// StartPWM); the last at topPct (saturation knee). Intermediate
+// anchors are chosen so each segment delivers approximately the same
+// ΔRPM — concentrating anchors where the fan's response is steep
+// (typical 100-150 PWM on NCT6687 chassis fans), spreading them
+// where it is flat (200-255 plateau before knee).
+//
+// Falls back to the uniform-temp linear PWM% distribution when:
+//   - curve is empty or has fewer than 3 monotonic points
+//   - cumulative envelope is degenerate (max - start ≤ 0)
+//
+// In those cases the function is bit-for-bit identical to the v1
+// linear shape — strict no-regression for fans with sparse calibrate
+// data. A fan with a perfectly linear PWM→RPM response naturally
+// receives a uniform PWM% distribution because the equal-ΔRPM
+// partitioning collapses to equal-ΔPWM.
+// isLinearAnchors returns true when every interior anchor sits
+// within 1 percentage point of the linear interpolation between
+// bottomPct and topPct — the canonical "no inflection signal"
+// shape inflectionAnchorPcts emits on sparse / degenerate curves.
+// Used by buildPerFanCurve to decide whether to overlay the TDP
+// gamma shape on top of the picker output (composes #1280 + #1284).
+func isLinearAnchors(pcts []uint8, bottomPct, topPct uint8) bool {
+	n := len(pcts)
+	if n < 3 {
+		return true
+	}
+	for i := 1; i < n-1; i++ {
+		fraction := float64(i) / float64(n-1)
+		want := float64(bottomPct) + fraction*float64(topPct-bottomPct)
+		diff := float64(pcts[i]) - want
+		if diff < -1.0 || diff > 1.0 {
+			return false
+		}
+	}
+	return true
+}
+
+func inflectionAnchorPcts(curve []CalibrateCurvePoint, startPWM, bottomPct, topPct uint8, anchors int) []uint8 {
+	pcts := make([]uint8, anchors)
+	if anchors < 2 {
+		if anchors == 1 {
+			pcts[0] = bottomPct
+		}
+		return pcts
+	}
+	pcts[0] = bottomPct
+	pcts[anchors-1] = topPct
+	if anchors == 2 || len(curve) < 3 {
+		// Two-anchor curve has no middle to distribute; sparse
+		// curves can't measure inflection — fall through to linear.
+		for i := 1; i < anchors-1; i++ {
+			fraction := float64(i) / float64(anchors-1)
+			pcts[i] = uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		}
+		return pcts
+	}
+
+	// Build the monotonic-rising envelope from PWM ≥ startPWM.
+	type env struct {
+		pwm uint8
+		rpm int
+	}
+	envBuf := make([]env, 0, len(curve))
+	maxRPM := -1
+	for _, p := range curve {
+		if p.PWM < startPWM {
+			continue
+		}
+		if p.RPM > maxRPM {
+			maxRPM = p.RPM
+		}
+		envBuf = append(envBuf, env{pwm: p.PWM, rpm: maxRPM})
+	}
+	if len(envBuf) < 3 || maxRPM <= 0 {
+		for i := 1; i < anchors-1; i++ {
+			fraction := float64(i) / float64(anchors-1)
+			pcts[i] = uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		}
+		return pcts
+	}
+
+	// Restrict the envelope to PWM bytes whose mapped percentage is
+	// within (bottomPct, topPct) — those are the anchor candidates
+	// in the middle band.
+	bottomByte := uint8(int(bottomPct) * 255 / 100)
+	topByte := uint8(int(topPct) * 255 / 100)
+	startRPM := envBuf[0].rpm
+	endRPM := envBuf[len(envBuf)-1].rpm
+	for _, e := range envBuf {
+		if e.pwm >= bottomByte && e.rpm < startRPM {
+			startRPM = e.rpm
+		}
+		if e.pwm <= topByte && e.rpm > endRPM {
+			endRPM = e.rpm
+		}
+	}
+	if endRPM-startRPM <= 0 {
+		// Degenerate envelope (EC clamping, broken tach) — linear.
+		for i := 1; i < anchors-1; i++ {
+			fraction := float64(i) / float64(anchors-1)
+			pcts[i] = uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		}
+		return pcts
+	}
+
+	// Walk envelope and pick anchor PWM bytes at equal-RPM-segment
+	// boundaries. The k-th intermediate anchor's target cumulative
+	// RPM is startRPM + k * (endRPM - startRPM) / (anchors - 1).
+	segments := anchors - 1
+	for k := 1; k < segments; k++ {
+		targetRPM := startRPM + (endRPM-startRPM)*k/segments
+		// Find the lowest-PWM envelope point whose cumulative RPM
+		// is ≥ targetRPM and whose PWM byte is within the
+		// [bottomByte, topByte] band.
+		pickedByte := bottomByte + uint8(uint(topByte-bottomByte)*uint(k)/uint(segments)) // linear default fallback
+		for _, e := range envBuf {
+			if e.pwm < bottomByte || e.pwm > topByte {
+				continue
+			}
+			if e.rpm >= targetRPM {
+				pickedByte = e.pwm
+				break
+			}
+		}
+		pct := uint8(int(pickedByte) * 100 / 255)
+		if pct < bottomPct {
+			pct = bottomPct
+		}
+		if pct > topPct {
+			pct = topPct
+		}
+		pcts[k] = pct
+	}
+	return pcts
 }
 
 // buildGenericCurve is the fallback used for NVIDIA fans (no per-fan
