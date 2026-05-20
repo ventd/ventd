@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -81,8 +80,6 @@ type fakeReaders struct {
 	temp, load, power float64
 	rpm               int
 	snap              *Snapshot
-	writes            []string
-	mu                atomic.Int32
 }
 
 func TestController_WritesSwitchWhenHysteresisMet(t *testing.T) {

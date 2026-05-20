@@ -75,7 +75,7 @@ func TestApplyPhase_EmitsNVIDIASensorsForEachGPUFan(t *testing.T) {
 		t.Fatalf("parse config: %v", err)
 	}
 
-	// Expect cpu_temp + 4 GPU sensors (2 GPUs × {temp, fan_pct}).
+	// Expect cpu_temp + 4 GPU sensors (2 GPUs x {temp, fan_pct}).
 	wantByName := map[string]config.Sensor{
 		"cpu_temp":     {Name: "cpu_temp", Type: "hwmon"},
 		"gpu0_temp":    {Name: "gpu0_temp", Type: "nvidia", Path: "0", Metric: "temp"},
@@ -105,26 +105,23 @@ func TestApplyPhase_EmitsNVIDIASensorsForEachGPUFan(t *testing.T) {
 	}
 }
 
-// TestApplyPhase_DefaultCurveAnchorDensityScalesWithFanRange pins the
-// #1231 fix: a wide-range hwmon fan (e.g. dell_smm with PWM range 179)
-// must receive a default curve with more anchors than a narrow-range
-// fan so each per-tick PWM step is small enough that the fan can
-// physically absorb it without overshoot → opposite swing → audible
-// hunting cycle.
+// TestApplyPhase_PerFanCurveAnchorDensity pins the #1231 fix carried
+// forward into the per-fan curve generator (#1272): a wide-range hwmon
+// fan must receive a curve with more anchors than a narrow-range fan
+// so each per-tick PWM step is small enough that the fan can absorb
+// it without overshoot. Target ~30 PWM units per segment.
 //
-// Target: ~30 PWM units per segment, so PWM range 179 → 7 anchors,
-// PWM range 243 → 9 anchors. Floor is 3 anchors so the monitor-only
-// path still gets a usable curve.
-func TestApplyPhase_DefaultCurveAnchorDensityScalesWithFanRange(t *testing.T) {
+// buildConfig always sets fan.MaxPWM=255 from probe-time, so the
+// effective range driving anchor density is (255 - StartPWM).
+func TestApplyPhase_PerFanCurveAnchorDensity(t *testing.T) {
 	cases := []struct {
 		name        string
-		fanMinPWM   uint8
-		fanMaxPWM   uint8
+		startPWM    uint8
 		wantAnchors int
 	}{
-		{"narrow_range_floor_3", 120, 180, 3}, // range 60 → 2 → clamped to 3
-		{"dell_smm_class", 76, 255, 6},        // range 179 → 6 (rounded from 5.97)
-		{"nct_full_range", 12, 255, 8},        // range 243 → 8 (rounded from 8.1)
+		{"narrow_range_floor_3", 215, 3},
+		{"dell_smm_class", 76, 6},
+		{"nct_full_range", 12, 8},
 	}
 
 	for _, tc := range cases {
@@ -138,7 +135,7 @@ func TestApplyPhase_DefaultCurveAnchorDensityScalesWithFanRange(t *testing.T) {
 
 			seedProbeCheckpoint(t, rc, ProbeArtifact{
 				Fans: []ProbedFan{
-					{Index: 1, PWMPath: "/sys/hwmon0/pwm1", RPMPath: "/sys/hwmon0/fan1_input", ChipName: "x", LabelHint: "F"},
+					{Index: 1, PWMPath: "/sys/hwmon0/pwm1", RPMPath: "/sys/hwmon0/fan1_input", ChipName: "x", LabelHint: "Fan1"},
 				},
 			})
 			seedPolarityCheckpoint(t, rc, PolarityArtifact{
@@ -146,14 +143,23 @@ func TestApplyPhase_DefaultCurveAnchorDensityScalesWithFanRange(t *testing.T) {
 			})
 			seedCalibrateCheckpoint(t, rc, CalibrateArtifact{
 				Results: []CalibrateFanResult{
-					{PWMPath: "/sys/hwmon0/pwm1", StartPWM: tc.fanMinPWM, MaxRPM: 2000, SweepMode: "pwm"},
+					{
+						PWMPath:   "/sys/hwmon0/pwm1",
+						StartPWM:  tc.startPWM,
+						MaxRPM:    2000,
+						SweepMode: "pwm",
+						// Linear monotonic curve so saturation knee
+						// lands at PWM=255 (no clamp): decoupled from
+						// the anchor-density check.
+						Curve: []CalibrateCurvePoint{
+							{PWM: tc.startPWM, RPM: 800},
+							{PWM: 128, RPM: 1400},
+							{PWM: 255, RPM: 2000},
+						},
+					},
 				},
 			})
 
-			// Patch MaxPWM via a trailing hack: ApplyPhase always sets
-			// MaxPWM=255 from buildConfig. To exercise the narrow case
-			// without rewiring buildConfig's fan MaxPWM source, we
-			// upcast via a custom fixture below.
 			out := (ApplyPhase{ConfigPath: cfgPath, HwmonRoot: hwmonRoot}).Execute(context.Background(), rc)
 			if out.Status != StatusSuccess {
 				t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
@@ -164,65 +170,122 @@ func TestApplyPhase_DefaultCurveAnchorDensityScalesWithFanRange(t *testing.T) {
 			if err := yaml.Unmarshal(body, &cfg); err != nil {
 				t.Fatalf("parse config: %v", err)
 			}
-
-			// Synthesise the test's expected fan MaxPWM and re-run the
-			// curve-anchor logic directly via the exported helper so the
-			// regression test pins defaultCurvePoints's behaviour
-			// independent of the buildConfig MaxPWM=255 default.
-			fixtureFans := []config.Fan{{
-				Type:   "hwmon",
-				MinPWM: tc.fanMinPWM,
-				MaxPWM: tc.fanMaxPWM,
-			}}
-			pts := defaultCurvePoints(40, 90, fixtureFans)
-			if len(pts) != tc.wantAnchors {
-				t.Errorf("range %d → anchors %d, want %d (anchors=%+v)",
-					int(tc.fanMaxPWM)-int(tc.fanMinPWM), len(pts), tc.wantAnchors, anchorSummary(pts))
+			if len(cfg.Curves) != 1 {
+				t.Fatalf("want 1 curve, got %d", len(cfg.Curves))
 			}
-			// First anchor temp = minTemp, last = maxTemp. First PWM%
-			// = 20, last = 100. These bound the curve so a single bad
-			// anchor doesn't break the cold or thermal-throttle case.
+			pts := cfg.Curves[0].Points
+			if got := len(pts); got != tc.wantAnchors {
+				t.Errorf("startPWM=%d -> anchors %d, want %d (anchors=%s)",
+					tc.startPWM, got, tc.wantAnchors, anchorSummary(pts))
+			}
 			if pts[0].Temp != 40 {
 				t.Errorf("first anchor Temp = %v, want 40", pts[0].Temp)
 			}
 			if pts[len(pts)-1].Temp != 90 {
 				t.Errorf("last anchor Temp = %v, want 90", pts[len(pts)-1].Temp)
 			}
-			if pts[0].PWMPct == nil || *pts[0].PWMPct != 20 {
-				t.Errorf("first PWMPct must be 20 (idle floor)")
+			// Bottom PWMPct: at least minSpinPctFloor, and at least
+			// StartPWM-as-percent if that is higher.
+			gotBottom := uint8(0)
+			if pts[0].PWMPct != nil {
+				gotBottom = *pts[0].PWMPct
+			}
+			expBottom := uint8(int(tc.startPWM) * 100 / 255)
+			if expBottom < minSpinPctFloor {
+				expBottom = minSpinPctFloor
+			}
+			if gotBottom < expBottom {
+				t.Errorf("bottom PWMPct = %d, want >= %d (StartPWM=%d)",
+					gotBottom, expBottom, tc.startPWM)
 			}
 			if pts[len(pts)-1].PWMPct == nil || *pts[len(pts)-1].PWMPct != 100 {
-				t.Errorf("last PWMPct must be 100 (max ramp)")
+				t.Errorf("top PWMPct = %v, want 100 (linear curve, no knee)", pts[len(pts)-1].PWMPct)
 			}
 
-			// Strict monotonic Temp + monotonic PWMPct — otherwise the
-			// runtime Points evaluator can't interpolate.
 			for i := 1; i < len(pts); i++ {
 				if pts[i].Temp <= pts[i-1].Temp {
-					t.Errorf("anchor %d Temp %v <= prev %v (not strictly ascending)", i, pts[i].Temp, pts[i-1].Temp)
+					t.Errorf("anchor %d Temp %v <= prev %v", i, pts[i].Temp, pts[i-1].Temp)
 				}
 				if *pts[i].PWMPct < *pts[i-1].PWMPct {
-					t.Errorf("anchor %d PWMPct %d < prev %d (descending)", i, *pts[i].PWMPct, *pts[i-1].PWMPct)
+					t.Errorf("anchor %d PWMPct %d < prev %d", i, *pts[i].PWMPct, *pts[i-1].PWMPct)
 				}
-			}
-
-			// Verify the emitted curve in cfg.Curves matches density
-			// for the buildConfig MaxPWM=255 case (which is what
-			// ApplyPhase always produces for hwmon fans). Range
-			// = 255 - tc.fanMinPWM → expected anchors.
-			liveRange := 255 - int(tc.fanMinPWM)
-			liveAnchors := 3
-			if liveRange > 0 {
-				liveAnchors = (liveRange + 15) / 30
-				if liveAnchors < 3 {
-					liveAnchors = 3
-				}
-			}
-			if got := len(cfg.Curves[0].Points); got != liveAnchors {
-				t.Errorf("emitted curve anchors = %d, want %d for live range %d",
-					got, liveAnchors, liveRange)
 			}
 		})
+	}
+}
+
+// TestApplyPhase_PerFanCurveSaturationKneeCap pins the saturation-knee
+// behaviour: when a fan's Curve[] shows RPM plateauing or dropping
+// above some PWM (vendor-EC clamping, mechanical ceiling), the per-fan
+// curve's top anchor PWMPct must cap at the knee — not drive the fan
+// to PWM=255 where additional duty cycle produces noise without
+// airflow (#1272).
+func TestApplyPhase_PerFanCurveSaturationKneeCap(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+
+	hwmonRoot := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	stageSensorFixture(t, filepath.Join(hwmonRoot, "hwmon0"), "coretemp",
+		map[int]string{1: "Package id 0"})
+
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{Index: 1, PWMPath: "/sys/hwmon0/pwm1", RPMPath: "/sys/hwmon0/fan1_input", ChipName: "nct6687", LabelHint: "ClampedFan"},
+		},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: "/sys/hwmon0/pwm1", Polarity: "normal"}},
+	})
+	// Dell-SMM-style curve: rises monotonically to PWM=165, then EC
+	// clamps and RPM drops back. MaxRPM=2112, 95% = 2006, last sample
+	// at or above 2006 in the rising envelope is PWM=165 (RPM=2112).
+	// Expected knee = 165 / 255 = 64.7% -> uint8(64).
+	seedCalibrateCheckpoint(t, rc, CalibrateArtifact{
+		Results: []CalibrateFanResult{
+			{
+				PWMPath:   "/sys/hwmon0/pwm1",
+				StartPWM:  76,
+				MaxRPM:    2112,
+				SweepMode: "pwm",
+				Curve: []CalibrateCurvePoint{
+					{PWM: 76, RPM: 1401},
+					{PWM: 89, RPM: 1567},
+					{PWM: 102, RPM: 1617},
+					{PWM: 114, RPM: 1680},
+					{PWM: 127, RPM: 1850},
+					{PWM: 140, RPM: 1980},
+					{PWM: 153, RPM: 2055},
+					{PWM: 165, RPM: 2112},
+					{PWM: 178, RPM: 2088},
+					{PWM: 191, RPM: 1595},
+					{PWM: 204, RPM: 1586},
+					{PWM: 217, RPM: 1601},
+					{PWM: 230, RPM: 1648},
+					{PWM: 255, RPM: 1648},
+				},
+			},
+		},
+	})
+
+	out := (ApplyPhase{ConfigPath: cfgPath, HwmonRoot: hwmonRoot}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	body, _ := os.ReadFile(cfgPath)
+	var cfg config.Config
+	if err := yaml.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if len(cfg.Curves) != 1 {
+		t.Fatalf("want 1 curve, got %d", len(cfg.Curves))
+	}
+	pts := cfg.Curves[0].Points
+	top := *pts[len(pts)-1].PWMPct
+	// 165 * 100 / 255 = 64. The knee must cap at this or just under.
+	if top > 70 {
+		t.Errorf("top anchor PWMPct = %d, expected <= 70 (knee at PWM=165 -> %d%%): anchors=%s",
+			top, 165*100/255, anchorSummary(pts))
 	}
 }
 
@@ -243,7 +306,7 @@ func anchorSummary(pts []config.CurvePoint) string {
 		if p.PWMPct != nil {
 			pwmStr = fmt.Sprintf("%d", *p.PWMPct)
 		}
-		parts[i] = fmt.Sprintf("(%.0f°C %s%%)", p.Temp, pwmStr)
+		parts[i] = fmt.Sprintf("(%.0fC %s%%)", p.Temp, pwmStr)
 	}
 	return "{" + joinStrings(parts, " ") + "}"
 }

@@ -79,6 +79,12 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// fires independently; multi-match hosts (e.g. iMac Pro + NZXT
 		// AIO) see multiple Info cards.
 		detectors.NewVendorRemediationDetector(),
+		// Surfaces per-fan NonMonotonicCurve flags from the wizard's
+		// CalibratePhase. Vendor-EC clamping (Dell SMM, ASUS Q-Fan,
+		// HP Omen) shows up as a measurable RPM drop in the rising
+		// curve; the detector reads the orchestrator state file and
+		// warns per-fan. #1274.
+		detectors.NewCalibrationCurveQualityDetector(detectors.FileCalibrationArtifactLoader{}),
 	}
 	if len(modules) > 0 {
 		dets = append(dets,

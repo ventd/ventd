@@ -21,10 +21,14 @@ package main
 import (
 	"context"
 	"log/slog"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/ventd/ventd/internal/acoustic/proxy"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -531,6 +535,19 @@ func buildBlendFn(
 		// Cheap: idle.CaptureLoadAvg reads /proc/loadavg.
 		loadFrac := captureLoadFraction()
 
+		// Build the dBA-budget input bundle. When the operator has
+		// AcousticOptimisation enabled (default), this reads each
+		// fan's current RPM via sysfs, composes them energetically via
+		// the R33 acoustic proxy, and computes the candidate channel's
+		// marginal dBA-per-PWM. The BlendedController gates on this so
+		// preset=Silent caps host loudness at 25 dBA, Balanced at 32
+		// (#1273). A zero Acoustic value disables the gate; the gate
+		// is also disabled when AcousticOptimisation=false in config.
+		var acoustic controller.AcousticBudget
+		if live.AcousticOptimisationEnabled() {
+			acoustic = buildAcousticBudget(live, chID, smart.Blended.Preset())
+		}
+
 		res := smart.Blended.Compute(controller.BlendedInputs{
 			ChannelID:    chID,
 			SensorTemp:   sensorTemp,
@@ -541,6 +558,7 @@ func buildBlendFn(
 			Marginal:     marginalSnap,
 			LayerA:       layerASnap,
 			LoadFraction: loadFrac,
+			Acoustic:     acoustic,
 			DT:           dt,
 			Now:          now,
 			MinPWM:       fanCfg.MinPWM,
@@ -561,6 +579,151 @@ func buildBlendFn(
 			ReactivePWM: reactivePWM,
 		})
 		return res.OutputPWM
+	}
+}
+
+// buildAcousticBudget assembles the per-tick AcousticBudget for the
+// candidate channel using R33 (no-microphone psychoacoustic proxy):
+//
+//   - Target:     PresetDBATargets[preset] (or operator override) — the
+//     dBA cap the gate must not exceed.
+//   - CurrentDBA: proxy.Compose() over every configured hwmon fan whose
+//     RPM is currently readable. The compose result is in
+//     R33 "au" units — calibrated against dBA datasheets,
+//     within-host comparable.
+//   - DBAPerPWM:  proxy.CostRate() for the candidate channel using the
+//     fan's measured RPM and a default-classified blade
+//     count. Cost-rate is multiplied by the preset weight
+//     (Silent 3x cost-averse, Performance 0.2x).
+//
+// Per-tick cost: one open+read+close per configured hwmon fan
+// (typically 1-8). At ~50 µs each that's well under the controller's
+// 2 s tick budget. Returns a zero AcousticBudget when no RPMs are
+// readable (host in early boot, every fan tach offline) — the gate
+// treats Target=0 as "disabled" and the controller behaves
+// identically to the v0.5.11 no-budget path.
+func buildAcousticBudget(live *config.Config, chID string, preset controller.Preset) controller.AcousticBudget {
+	if live == nil {
+		return controller.AcousticBudget{}
+	}
+	target := controller.DBATargetFor(preset, live.Smart.DBATarget)
+	if target <= 0 {
+		return controller.AcousticBudget{}
+	}
+
+	// Compose host loudness from every hwmon fan with a readable RPM.
+	// Non-hwmon fans (NVIDIA) don't participate — NVML exposes fan%
+	// not RPM directly, and the proxy's acoustic anchors assume axial
+	// fan geometry. v0.6.x extension: thread NVIDIA fan RPM via NVML
+	// when wired into the host total.
+	fans := make([]proxy.Fan, 0, len(live.Fans))
+	var candidateRPM float64
+	for _, f := range live.Fans {
+		if f.Type != "hwmon" || f.RPMPath == "" {
+			continue
+		}
+		rpm, ok := readRPMSafe(f.RPMPath)
+		if !ok || rpm <= 0 {
+			continue
+		}
+		class := defaultFanClassFor(f)
+		fans = append(fans, proxy.Fan{
+			Class:      class,
+			DiameterMM: 120,
+			RPM:        float64(rpm),
+		})
+		if f.Name == chID || f.PWMPath == chID {
+			candidateRPM = float64(rpm)
+		}
+	}
+	if len(fans) == 0 {
+		return controller.AcousticBudget{}
+	}
+
+	current := proxy.Compose(fans)
+
+	// CostRate for the candidate channel. When the candidate RPM is
+	// unknown (chID didn't match any hwmon fan — typically because
+	// chID is an nvidia path), DBAPerPWM stays 0 and the gate has
+	// nothing per-PWM to refuse — Target alone still bounds via the
+	// current-vs-target check.
+	var dbaPerPWM float64
+	if candidateRPM > 0 {
+		dbaPerPWM = proxy.CostRate(
+			proxy.ClassCase120140,
+			candidateRPM,
+			120,
+			0, 0,
+			5.0, // typical 4-pin PWM consumer fan slope
+			presetMultiplierFor(preset),
+		)
+	}
+
+	return controller.AcousticBudget{
+		Target:     target,
+		CurrentDBA: current,
+		DBAPerPWM:  dbaPerPWM,
+	}
+}
+
+// readRPMSafe reads a hwmon fan*_input file and returns the int RPM.
+// Failure returns (0, false). Used by buildAcousticBudget to compose
+// per-tick host loudness without holding the controller hot path on
+// blocking IO — sysfs reads are kernel-buffered single-page transfers,
+// typically <50 µs each.
+func readRPMSafe(path string) (int, bool) {
+	if path == "" {
+		return 0, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	s := strings.TrimSpace(string(raw))
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	if v < 0 {
+		return 0, false
+	}
+	return v, true
+}
+
+// defaultFanClassFor returns the acoustic-proxy FanClass for a config
+// fan entry. Without per-fan blade/diameter calibration data, we
+// classify by chip-name + label heuristics: AIO pumps get ClassAIOPump,
+// laptop blowers ClassLaptopBlower, everything else ClassCase120140.
+// v0.6.x extension: read per-fan class from the wizard's catalog
+// overlay once spec-15 sub-issue lands.
+func defaultFanClassFor(f config.Fan) proxy.FanClass {
+	if f.IsPump {
+		return proxy.ClassAIOPump
+	}
+	name := strings.ToLower(f.Name)
+	switch {
+	case strings.Contains(name, "blower"):
+		return proxy.ClassLaptopBlower
+	case strings.Contains(name, "pump"):
+		return proxy.ClassAIOPump
+	case strings.Contains(name, "gpu") || f.Type == "nvidia":
+		return proxy.ClassGPUShroud
+	default:
+		return proxy.ClassCase120140
+	}
+}
+
+// presetMultiplierFor maps the controller's Preset enum to the
+// acoustic-proxy's PresetMultiplier so CostRate scales with the
+// operator's quietness preference. R33-LOCK-09.
+func presetMultiplierFor(p controller.Preset) proxy.PresetMultiplier {
+	switch p {
+	case controller.PresetSilent:
+		return proxy.PresetSilent
+	case controller.PresetPerformance:
+		return proxy.PresetPerformance
+	default:
+		return proxy.PresetBalanced
 	}
 }
 

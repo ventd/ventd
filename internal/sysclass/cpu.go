@@ -77,6 +77,22 @@ var cpuPatterns = []struct {
 	},
 }
 
+// TjmaxFromCPUInfo returns the CPU-model-derived Tjmax in °C using the
+// in-package regex profile table. Returns 0 when the CPU model doesn't
+// match any profile or /proc/cpuinfo is unreadable.
+//
+// Exported as a thin wrapper so callers outside internal/sysclass (the
+// wizard's curve-gen fallback, the platform-profile controller's
+// thermal-headroom heuristic) can pull the Tjmax fact without taking a
+// dependency on probe.ProbeResult or running full sysclass.Detect.
+func TjmaxFromCPUInfo() float64 {
+	_, tjmax, _ := classifyCPU(defaultDeps())
+	if math.IsNaN(tjmax) {
+		return 0
+	}
+	return tjmax
+}
+
 // classifyCPU reads /proc/cpuinfo (via deps) and returns the best matching
 // class, Tjmax, and evidence string. Returns (ClassUnknown, 0, nil) when no
 // pattern matches.

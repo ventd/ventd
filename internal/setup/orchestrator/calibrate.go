@@ -99,6 +99,31 @@ type CalibrateFanResult struct {
 	// non-decreasing. Carried for the doctor surface so an operator
 	// can see how severe the irregularity is in absolute terms.
 	MaxDropRPM int `json:"max_drop_rpm,omitempty"`
+
+	// Curve is the per-step PWM→RPM map captured during the up-ramp
+	// sweep (typically ~20 anchors from PWM=0 to PWM=255). ApplyPhase
+	// consumes it for two decisions per fan:
+	//
+	//   1. Saturation knee — the highest PWM where RPM is still within
+	//      5% of MaxRPM. Drives the per-fan curve's max_pwm_pct cap so
+	//      the daemon doesn't waste duty cycle (and motor whine) above
+	//      the point where the fan stops responding.
+	//   2. Anchor placement — uniform-temp anchors with PWM% derived
+	//      from the measured PWM→RPM monotonic envelope, so each anchor
+	//      delivers a similar airflow delta even when the underlying
+	//      curve is non-linear.
+	//
+	// Empty when calibrate skipped (phantom polarity, sweep error).
+	Curve []CalibrateCurvePoint `json:"curve,omitempty"`
+}
+
+// CalibrateCurvePoint mirrors calibrate.PWMRPMPoint without taking
+// the internal/calibrate import dependency on orchestrator's
+// consumers (the artifact is JSON-serialised and downstream packages
+// — apply.go, doctor detectors — decode it independently).
+type CalibrateCurvePoint struct {
+	PWM uint8 `json:"pwm"`
+	RPM int   `json:"rpm"`
 }
 
 // nonMonotonicDropThreshold is the fraction of MaxRPM a single
@@ -320,6 +345,12 @@ func sweepOne(
 	entry.IsPump = result.FanType == "pump"
 	entry.Aborted = result.Aborted
 	entry.SweepMode = result.SweepMode
+	if len(result.Curve) > 0 {
+		entry.Curve = make([]CalibrateCurvePoint, len(result.Curve))
+		for i, p := range result.Curve {
+			entry.Curve[i] = CalibrateCurvePoint{PWM: p.PWM, RPM: p.RPM}
+		}
+	}
 	rc.Log().Info("calibrate success",
 		"fan", fan.LabelHint,
 		"start_pwm", result.StartPWM,

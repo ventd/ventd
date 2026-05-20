@@ -65,6 +65,12 @@ func (s *Server) doctorRunner() *doctor.Runner {
 		detectors.NewGPUReadinessDetector(nil),
 		detectors.NewPermissionsDetector(nil),
 		detectors.NewExperimentalFlagsDetector(s.diag),
+		// Surfaces per-fan NonMonotonicCurve flags written by the
+		// wizard's CalibratePhase — vendor-EC clamping (Dell SMM,
+		// ASUS Q-Fan, HP Omen) typically. Reads the orchestrator
+		// state.json directly; absent file = no signal (wizard not
+		// yet run). #1274.
+		detectors.NewCalibrationCurveQualityDetector(detectors.FileCalibrationArtifactLoader{}),
 	}
 	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
 	return s.doctorCache.runner
