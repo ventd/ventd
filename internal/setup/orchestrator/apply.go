@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -172,7 +173,7 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	// CPU model; buildConfig falls through to the 95°C blanket.
 	sysclassTjmax := sysclass.TjmaxFromCPUInfo()
 
-	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor, sysclassTjmax)
+	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor, sysclassTjmax, probeArt.CPUTDPW)
 	monitorOnly := len(cfg.Controls) == 0
 	nonMonoFans := nonMonotonicSummary(calByPath, cfg.Fans)
 
@@ -300,6 +301,7 @@ func buildConfig(
 	nvmlFans []NVMLGPUFan,
 	cpuSensor DiscoveredSensor,
 	sysclassTjmax float64,
+	cpuTDPW int,
 ) *config.Config {
 	cfg := &config.Config{
 		Version:      1,
@@ -455,13 +457,14 @@ func buildConfig(
 	//
 	// NVIDIA and other non-hwmon fans without calibration data fall back
 	// to the generic minTemp→maxTemp / 20→100% shape.
+	tdpGamma := tdpAggressivenessGamma(cpuTDPW)
 	for _, f := range cfg.Fans {
 		curveName := perFanCurveName(f.Name)
 		var c config.CurveConfig
 		if cal, ok := calByPath[f.PWMPath]; ok && f.Type == "hwmon" && len(cal.Curve) > 0 {
-			c = buildPerFanCurve(curveName, f, cal, minTemp, maxTemp)
+			c = buildPerFanCurve(curveName, f, cal, minTemp, maxTemp, tdpGamma)
 		} else {
-			c = buildGenericCurve(curveName, f, minTemp, maxTemp)
+			c = buildGenericCurve(curveName, f, minTemp, maxTemp, tdpGamma)
 		}
 		cfg.Curves = append(cfg.Curves, c)
 		cfg.Controls = append(cfg.Controls, config.Control{
@@ -599,13 +602,75 @@ func curveAnchorCount(f config.Fan) int {
 	return a
 }
 
+// tdpAggressivenessGamma maps the host CPU TDP (watts) to the
+// power-law exponent used to shape the per-fan curve's middle-band
+// steepness (#1280). Higher TDP → lower gamma (more concave shape =
+// PWM% climbs faster in the lower-middle band so a thermal transient
+// gets head-room before it pins at the saturation knee). Lower TDP →
+// higher gamma (more convex shape = PWM% climbs gently in the lower-
+// middle band, surging only near the top — a 10 W mini-PC doesn't
+// need to ramp at 60 °C).
+//
+// gamma=1 (the cpuTDPW=0 fallback for AMD without amd_energy or
+// virtualised hosts) is the v1 linear shape — strict no-regression.
+//
+// The 35-250 W reference band targets the issue acceptance: a 13900K
+// (PL1=125 W) rises sharply through 60-75 °C; a J4125 (PL1≈10 W)
+// rises gently across the same band.
+func tdpAggressivenessGamma(cpuTDPW int) float64 {
+	if cpuTDPW <= 0 {
+		return 1.0
+	}
+	const (
+		lowTDP   = 35.0
+		highTDP  = 250.0
+		lowGamma = 2.0
+		hiGamma  = 0.5
+	)
+	t := float64(cpuTDPW)
+	if t <= lowTDP {
+		return lowGamma
+	}
+	if t >= highTDP {
+		return hiGamma
+	}
+	frac := (t - lowTDP) / (highTDP - lowTDP)
+	return lowGamma + frac*(hiGamma-lowGamma)
+}
+
+// shapePWMPct maps the normalised temperature fraction [0,1] to a
+// PWM percentage in [bottomPct, topPct] using the power-law gamma
+// from tdpAggressivenessGamma. fraction=0 → bottomPct; fraction=1 →
+// topPct regardless of gamma — both anchor endpoints stay pinned.
+func shapePWMPct(fraction, gamma float64, bottomPct, topPct uint8) uint8 {
+	if fraction <= 0 {
+		return bottomPct
+	}
+	if fraction >= 1 {
+		return topPct
+	}
+	if gamma <= 0 {
+		gamma = 1
+	}
+	shape := math.Pow(fraction, gamma)
+	pct := float64(bottomPct) + shape*float64(topPct-bottomPct)
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 255 {
+		pct = 255
+	}
+	return uint8(math.Round(pct))
+}
+
 // buildPerFanCurve synthesises a config.CurveConfig from a fan's
 // calibrate-measured PWM→RPM curve. Top anchor PWM% capped at the
 // saturation knee; bottom anchor PWM% pinned at the fan's measured
 // StartPWM (with a minSpinPctFloor safety floor). Anchors are
-// uniform-temp in [minTemp, maxTemp]; PWM% are linear between the
-// clamped floor and ceiling.
-func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp, maxTemp float64) config.CurveConfig {
+// uniform-temp in [minTemp, maxTemp]; PWM% follows shapePWMPct with
+// the TDP-derived gamma so a high-TDP chip ramps faster than a low-
+// TDP chip across the same temperature delta (#1280).
+func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp, maxTemp, tdpGamma float64) config.CurveConfig {
 	// Bottom-anchor PWM%: prefer the fan's measured StartPWM
 	// expressed as a percentage. Floored at minSpinPctFloor so a
 	// fan with a freak StartPWM=2 doesn't produce a 1% bottom
@@ -636,7 +701,7 @@ func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp
 	for i := 0; i < anchors; i++ {
 		fraction := float64(i) / float64(anchors-1)
 		temp := minTemp + fraction*(maxTemp-minTemp)
-		pct := uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		pct := shapePWMPct(fraction, tdpGamma, bottomPct, topPct)
 		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
 	}
 	return config.CurveConfig{
@@ -652,7 +717,9 @@ func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp
 // buildGenericCurve is the fallback used for NVIDIA fans (no per-fan
 // calibrate sweep) and any hwmon fan without calibration data.
 // Bottom = fan.MinPWM expressed as a percentage, top = 100.
-func buildGenericCurve(name string, f config.Fan, minTemp, maxTemp float64) config.CurveConfig {
+// PWM% follows the TDP-shaped curve so the generic fallback ramps
+// match the calibrated fans' aggressiveness (#1280).
+func buildGenericCurve(name string, f config.Fan, minTemp, maxTemp, tdpGamma float64) config.CurveConfig {
 	bottomPct := uint8(minSpinPctFloor)
 	if f.Type == "nvidia" {
 		bottomPct = f.MinPWM // already a percentage for nvidia
@@ -668,7 +735,7 @@ func buildGenericCurve(name string, f config.Fan, minTemp, maxTemp float64) conf
 	for i := 0; i < anchors; i++ {
 		fraction := float64(i) / float64(anchors-1)
 		temp := minTemp + fraction*(maxTemp-minTemp)
-		pct := uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		pct := shapePWMPct(fraction, tdpGamma, bottomPct, topPct)
 		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
 	}
 	return config.CurveConfig{

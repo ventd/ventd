@@ -63,6 +63,14 @@ type ProbedFan struct {
 type ProbeArtifact struct {
 	Fans      []ProbedFan `json:"fans"`
 	HwmonRoot string      `json:"hwmon_root"`
+	// CPUTDPW is the host CPU package TDP in watts, read from Intel
+	// RAPL constraint_0_power_limit_uw at probe time. 0 means
+	// unknown (AMD CPUs without amd_energy RAPL, virtualised hosts,
+	// kernels without intel-rapl support). ApplyPhase consumes this
+	// to scale per-fan curve aggressiveness (#1280) — a 35W mini-PC
+	// gets a gentler middle-band rise than a 250W HEDT chip across
+	// the same temperature anchors.
+	CPUTDPW int `json:"cpu_tdp_w,omitempty"`
 }
 
 // ProbePhase enumerates controllable PWM channels under HwmonRoot and
@@ -79,7 +87,12 @@ type ProbeArtifact struct {
 // The phase succeeds with len(Fans)==0 when no controllable PWMs are
 // visible. ApplyPhase (next) handles the empty-fanset case by
 // configuring the daemon for monitor-only mode.
-type ProbePhase struct{}
+type ProbePhase struct {
+	// PowercapRoot points at the /sys/class/powercap directory used
+	// to read RAPL TDP. Empty falls through to /sys/class/powercap.
+	// Tests inject a temp dir.
+	PowercapRoot string
+}
 
 // Name identifies this phase in the checkpoint store and the wizard UI.
 func (ProbePhase) Name() string { return "probe" }
@@ -87,7 +100,7 @@ func (ProbePhase) Name() string { return "probe" }
 // Execute walks rc.HwmonRoot for every pwm<N> with a sibling
 // pwm<N>_enable and pairs each with the matching fan<N>_input file
 // when present.
-func (ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
+func (p ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	rc.Sink().Emit("info", "probe", "enumerating controllable PWM channels")
 
 	root := rc.HwmonRoot
@@ -96,7 +109,10 @@ func (ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	}
 
 	pwmPaths := hwmon.FindPWMPathsAt(root)
-	art := ProbeArtifact{HwmonRoot: root}
+	art := ProbeArtifact{
+		HwmonRoot: root,
+		CPUTDPW:   readRAPLTDPW(p.PowercapRoot),
+	}
 
 	for _, p := range pwmPaths {
 		enablePath := p + "_enable"
@@ -190,6 +206,34 @@ func readProbeEnableByte(enablePath string) byte {
 		return 0
 	}
 	return byte(n)
+}
+
+// readRAPLTDPW reads the CPU package TDP in watts from Intel RAPL.
+// Returns 0 when RAPL is unavailable (AMD CPUs without amd_energy,
+// virtualised hosts, kernels without intel-rapl, sysfs unreadable).
+// Tries the two layouts kernel versions have used for the
+// intel-rapl:0 package node.
+//
+// powercapRoot is normally /sys/class/powercap; tests inject a
+// fixture dir.
+func readRAPLTDPW(powercapRoot string) int {
+	if powercapRoot == "" {
+		powercapRoot = "/sys/class/powercap"
+	}
+	for _, p := range []string{
+		filepath.Join(powercapRoot, "intel-rapl", "intel-rapl:0", "constraint_0_power_limit_uw"),
+		filepath.Join(powercapRoot, "intel-rapl:0", "constraint_0_power_limit_uw"),
+	} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		uw, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+		if err == nil && uw > 0 {
+			return int(uw / 1_000_000)
+		}
+	}
+	return 0
 }
 
 // readChipNameFromDir reads the hwmon `name` file. Empty on read
