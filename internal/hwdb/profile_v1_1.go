@@ -28,6 +28,55 @@ var boardSupportedVersions = map[string]struct{}{
 // new board catalog entries.
 const BoardCatalogCurrentVersion = "1.3"
 
+// FanProfile is per-channel acoustic-shape metadata for the R33
+// proxy. Catalog entries supply class + physical-dimension hints so
+// the smart-mode acoustic budget builder produces a correct host
+// loudness composition on boards where the operator's labels
+// ("intake_top", "exhaust") give no signal about whether the fan is
+// 120 mm axial, 140 mm axial, a 200 mm slow-spinner, or an AIO pump.
+//
+// Boards without FanProfiles entries fall back to the name-heuristic
+// path in cmd/ventd/smart_builders.go::defaultFanClassFor (no
+// regression). v1.4. (#1283)
+type FanProfile struct {
+	// Channel is the PWM sysfs leaf name (e.g. "pwm1"). Matched
+	// against config.Fan.PWMPath's basename at runtime.
+	Channel string `yaml:"channel"`
+	// Class is one of the proxy.FanClass string values:
+	// "case_120_140", "case_80_92", "case_200", "aio_radiator_120",
+	// "aio_pump", "gpu_shroud_axial", "server_high_rpm",
+	// "nuc_blower", "laptop_blower". Validation defers to the
+	// proxy package — an unknown class falls through to defaults.
+	Class string `yaml:"class"`
+	// DiameterMM is the fan blade diameter in millimetres. The
+	// proxy's tip-speed math scales with diameter² so this is
+	// load-bearing — a 200 mm fan at 600 RPM is much louder
+	// (per the broadband term) than a 120 mm fan at the same RPM.
+	DiameterMM int `yaml:"diameter_mm"`
+	// DefaultBladeCount is the blade count for the tonal (blade-
+	// pass-frequency) term. 0 falls through to the per-class
+	// default in proxy.classes (7 for case axial, 11 for GPU
+	// shroud, 33 for laptop blower, etc.).
+	DefaultBladeCount int `yaml:"default_blade_count"`
+}
+
+// LookupFanProfile finds the FanProfile for a given PWM channel
+// (e.g. "pwm1"), case-insensitive. Returns (FanProfile, true) on
+// match, (zero, false) otherwise. Used by the smart-mode acoustic
+// budget builder to override the name-hint heuristic on boards with
+// curated catalog entries. (#1283)
+func LookupFanProfile(entry *BoardCatalogEntry, pwmChannel string) (FanProfile, bool) {
+	if entry == nil || pwmChannel == "" {
+		return FanProfile{}, false
+	}
+	for _, fp := range entry.FanProfiles {
+		if strings.EqualFold(fp.Channel, pwmChannel) {
+			return fp, true
+		}
+	}
+	return FanProfile{}, false
+}
+
 // PWMGroup describes a single PWM channel that drives multiple physical fans.
 // R29 §4 found Phoenix's MSI Z690-A drives Cpu_Fan + Pump_Fan + Sys_Fan_1 +
 // Sys_Fan_2 with identical PWM values across all 2479 status samples — one
@@ -92,8 +141,9 @@ type BoardCatalogEntry struct {
 	Defaults               *BoardDefaults        `yaml:"defaults,omitempty"`
 	ExperimentalRaw        map[string]any        `yaml:"experimental,omitempty"`
 	Experimental           ExperimentalBlock     `yaml:"-"`
-	PWMGroups              []PWMGroup            `yaml:"pwm_groups,omitempty"` // v1.3
-	ChipProbe              *ChipProbe            `yaml:"chip_probe,omitempty"` // v1.3 — RULE-HWDB-PR2-18
+	PWMGroups              []PWMGroup            `yaml:"pwm_groups,omitempty"`   // v1.3
+	ChipProbe              *ChipProbe            `yaml:"chip_probe,omitempty"`   // v1.3 — RULE-HWDB-PR2-18
+	FanProfiles            []FanProfile          `yaml:"fan_profiles,omitempty"` // v1.4 — #1283
 }
 
 // BoardDMIFingerprint is the DMI match pattern for a board catalog entry.

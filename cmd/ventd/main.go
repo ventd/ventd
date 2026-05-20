@@ -386,6 +386,24 @@ func run() error {
 	}
 	captureDMI, capDMIErr := hwdb.ReadDMI(os.DirFS("/"))
 	captureCat, capCatErr := hwdb.LoadCatalog()
+	if capDMIErr == nil && capCatErr == nil && captureCat != nil {
+		// Publish the matched board entry to smart_builders so the
+		// acoustic-budget builder picks per-channel FanClass +
+		// diameter from the curated catalog when present (#1283).
+		// Heuristics-only when no entry matches — no regression.
+		dmiFP := hwdb.DMIFingerprint{
+			SysVendor:    captureDMI.SysVendor,
+			ProductName:  captureDMI.ProductName,
+			BoardVendor:  captureDMI.BoardVendor,
+			BoardName:    captureDMI.BoardName,
+			BoardVersion: captureDMI.BoardVersion,
+		}
+		if entry := findMatchingBoardEntry(captureCat, dmiFP); entry != nil {
+			SetFanProfileCatalog(entry)
+			logger.Info("acoustic: fan-profile catalog wired",
+				"board_id", entry.ID, "fan_profiles", len(entry.FanProfiles))
+		}
+	}
 	if capDMIErr != nil || capCatErr != nil {
 		logger.Warn("capture: hook disabled (DMI or catalog unavailable)",
 			"dmi_err", capDMIErr, "cat_err", capCatErr)
