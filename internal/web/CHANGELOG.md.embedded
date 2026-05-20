@@ -7,7 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
-## [Unreleased]
+## [v1.0.4] - 2026-05-20
+
+### Headline
+
+Patch release that closes two bugs in the v1.0.2 factory-reset daemon-resident hook, surfaced by live testing on fedora. **(A)** the OOT-driver discovery walked `/lib/modules/<release>/extra/` looking for bare `.ko` files and silently skipped every compressed kernel module — which is essentially every distro kernel today (Fedora `.ko.xz`, Arch `.ko.zst`, Debian `.ko.xz`). On fedora the dell-smm-hwmon.ko.xz was never detected so no rmmod, no DKMS deregister, no `/etc/modules-load.d` cleanup ever happened during factory reset. **(B)** the hook's `systemctl disable --now ventd.service` invocation spawned systemctl as a child of ventd; when systemctl issued the stop, systemd SIGTERM'd the entire ventd.service cgroup including the systemctl child, which then exited with `signal: terminated` and the hook logged a misleading error even though the disable+stop succeeded. v1.0.4 spawns the invocation through `systemd-run --collect --no-block` so it lives in its own transient unit. A related issue (polarity probe can leak `pwm_enable=1` on first-boot exit because the watchdog has no registered entries pre-config) is tracked as #1312 and deferred to a focused follow-up.
 
 ### Fixed
 
