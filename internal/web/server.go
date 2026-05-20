@@ -91,6 +91,11 @@ type Server struct {
 	// /api/v1/smart/channels handler. Lock-free reads via atomic
 	// pointer-swap; nil-safe (monitor-only mode skips wiring).
 	decisions *controller.DecisionCache
+	// kCalPath is the persisted R30 microphone calibration JSON
+	// (default /var/lib/ventd/acoustic/k_cal.json). The smart-mode
+	// status handler reads it to populate the mic_calibrated bool.
+	// Empty falls through to acrunner.DefaultKCalPath. (#1281)
+	kCalPath  string
 	restartCh chan<- struct{}
 	sessions  *sessionStore
 	diag      *hwdiag.Store

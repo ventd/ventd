@@ -16,11 +16,26 @@ import (
 	"net/http"
 	"strconv"
 
+	acrunner "github.com/ventd/ventd/internal/acoustic/runner"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/marginal"
 )
+
+// micCalibrated reports whether a per-host R30 microphone calibration
+// record is present and parseable at s.kCalPath. When true, the
+// smart-mode status handler's acoustic.current_dba is true dBA at the
+// mic position; when false, it is the within-host "au" scale and the
+// UI surfaces a calibrate-mic hint. (#1281)
+func (s *Server) micCalibrated() bool {
+	path := s.kCalPath
+	if path == "" {
+		path = acrunner.DefaultKCalPath
+	}
+	_, present, err := acrunner.LoadResult(path)
+	return err == nil && present
+}
 
 // displayChannelID composes the operator-visible channel_id for the
 // smart-mode JSON surfaces. The internal key (raw PWMPath) stays the
@@ -266,6 +281,12 @@ type smartAcousticBudget struct {
 	Enabled    bool    `json:"enabled"`
 	TargetDBA  float64 `json:"target_dba,omitempty"`
 	CurrentDBA float64 `json:"current_dba,omitempty"`
+	// MicCalibrated is true when a per-host R30 microphone
+	// calibration record is on disk (i.e. /var/lib/ventd/acoustic/
+	// k_cal.json exists). When true, CurrentDBA is true dBA at the
+	// mic position; when false, CurrentDBA is the within-host "au"
+	// scale and the UI surfaces a "calibrate mic" hint. (#1281)
+	MicCalibrated bool `json:"mic_calibrated"`
 }
 
 // smartChannelEntry is the deep per-channel snapshot for
@@ -360,7 +381,11 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.aggregator == nil {
-		s.writeJSON(r, w, smartStatusResponse{Enabled: false, Preset: preset})
+		s.writeJSON(r, w, smartStatusResponse{
+			Enabled:  false,
+			Preset:   preset,
+			Acoustic: smartAcousticBudget{Enabled: false, MicCalibrated: s.micCalibrated()},
+		})
 		return
 	}
 
@@ -420,7 +445,7 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 	// channels (with the candidate ramp folded in) is the closest
 	// proxy for current host loudness we expose. Pre-warmup or
 	// monitor-only hosts get enabled=false / zero values.
-	out.Acoustic = smartAcousticBudget{Enabled: false}
+	out.Acoustic = smartAcousticBudget{Enabled: false, MicCalibrated: s.micCalibrated()}
 	if live != nil && live.AcousticOptimisationEnabled() {
 		preset, _ := controller.PresetFromString(live.Smart.Preset)
 		target := controller.DBATargetFor(preset, live.Smart.DBATarget)

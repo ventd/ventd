@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/acoustic/proxy"
+	acrunner "github.com/ventd/ventd/internal/acoustic/runner"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -588,20 +589,23 @@ func buildBlendFn(
 //   - Target:     PresetDBATargets[preset] (or operator override) — the
 //     dBA cap the gate must not exceed.
 //   - CurrentDBA: proxy.Compose() over every configured hwmon fan whose
-//     RPM is currently readable. The compose result is in
-//     R33 "au" units — calibrated against dBA datasheets,
-//     within-host comparable.
+//     RPM is currently readable, plus R30's per-host K_cal
+//     mic-calibration offset when /var/lib/ventd/acoustic/
+//     k_cal.json is present. Without K_cal the value is in
+//     within-host "au" (today's behaviour); with K_cal it is
+//     dBA at the mic position. (#1281)
 //   - DBAPerPWM:  proxy.CostRate() for the candidate channel using the
 //     fan's measured RPM and a default-classified blade
 //     count. Cost-rate is multiplied by the preset weight
 //     (Silent 3x cost-averse, Performance 0.2x).
 //
 // Per-tick cost: one open+read+close per configured hwmon fan
-// (typically 1-8). At ~50 µs each that's well under the controller's
-// 2 s tick budget. Returns a zero AcousticBudget when no RPMs are
-// readable (host in early boot, every fan tach offline) — the gate
-// treats Target=0 as "disabled" and the controller behaves
-// identically to the v0.5.11 no-budget path.
+// (typically 1-8) + one optional read of the K_cal file. At ~50 µs
+// each that's well under the controller's 2 s tick budget. Returns a
+// zero AcousticBudget when no RPMs are readable (host in early boot,
+// every fan tach offline) — the gate treats Target=0 as "disabled"
+// and the controller behaves identically to the v0.5.11 no-budget
+// path.
 func buildAcousticBudget(live *config.Config, chID string, preset controller.Preset) controller.AcousticBudget {
 	if live == nil {
 		return controller.AcousticBudget{}
@@ -640,7 +644,7 @@ func buildAcousticBudget(live *config.Config, chID string, preset controller.Pre
 		return controller.AcousticBudget{}
 	}
 
-	current := proxy.Compose(fans)
+	current := proxy.Compose(fans) + loadKCalOffset()
 
 	// CostRate for the candidate channel. When the candidate RPM is
 	// unknown (chID didn't match any hwmon fan — typically because
@@ -711,6 +715,35 @@ func defaultFanClassFor(f config.Fan) proxy.FanClass {
 	default:
 		return proxy.ClassCase120140
 	}
+}
+
+// kCalPath is the persisted R30 microphone calibration JSON. Set as
+// a package-level variable so tests can point at a fixture path
+// without monkey-patching the global filesystem. (#1281)
+var kCalPath = acrunner.DefaultKCalPath
+
+// loadKCalOffset returns the K_cal offset (dB) when the per-host
+// microphone calibration record at kCalPath is present and parseable,
+// 0 otherwise. The offset is added to proxy.Compose() so the host
+// loudness reported by /api/v1/smart/status.acoustic.current_dba is
+// true dBA at the mic position when calibrated, and the within-host
+// au scale otherwise. (#1281)
+func loadKCalOffset() float64 {
+	r, present, err := acrunner.LoadResult(kCalPath)
+	if err != nil || !present {
+		return 0
+	}
+	return r.KCalOffset
+}
+
+// micCalibrated reports whether a K_cal calibration record is
+// present and parseable at kCalPath. Used by the smart-mode status
+// handler to surface a mic_calibrated boolean so the UI can render a
+// "calibrate mic" hint when the displayed current_dba is still in au.
+// (#1281)
+func micCalibrated() bool {
+	_, present, err := acrunner.LoadResult(kCalPath)
+	return err == nil && present
 }
 
 // presetMultiplierFor maps the controller's Preset enum to the
