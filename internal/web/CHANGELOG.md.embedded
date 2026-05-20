@@ -7,11 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
-## [v0.10.0] - 2026-05-20
+## [v1.0.0] - 2026-05-20
 
 ### Headline
 
-Calibrate reliability + diagnostics pass. Seven issues from the 2026-05-15 audit closed in one release. RPM sentinels surface as phantom verdicts instead of aborting whole channels (#755). DetectRPMSensor breaks stiction with a 500 ms PWM-max pre-pulse then sweeps absolute 20→80% PWM (#754). Within-chip parallel sweeps cut 8-fan wizards from ~5 min to ~1 min on chip families verified parallel-safe (#1219, opt-in per chip). Calibrate must measure both `pwm_min_start` and `pwm_min_running` before `allow_stop=true` is permitted (#600, safety gate). Read-side phantom-tach classification lays the dashboard foundation that hides ghost-fan zones on multi-zone ECs (#796). Uncontrollable hwmon channels (RPMDetect found no correlation) excluded from active control config instead of silently failing to monitor (#598). New `CapWritePowerProfile` HAL capability + msi-ec `shift_mode` (eco / comfort / turbo) integration with `ventd power-profile` CLI (#1166). The umbrella diagnostic-surface PR (#757) is deferred to a v0.10.1 follow-up — it builds on the artifact fields shipped here.
+**First stable release.** ventd's HAL covers 11 backends (hwmon, NVML, msi-ec, thinkpad, ipmi, nbfc, crosec, asahi, pwmsys, legion, corsair), smart-mode has converged on the HIL fleet, and the wizard now turns a fresh install into a working active-control config in under two minutes. v1.0.0 also closes the 2026-05-15 calibrate audit: RPM sentinels surface as phantom verdicts instead of aborting whole channels (#755). DetectRPMSensor breaks stiction with a 500 ms PWM-max pre-pulse then sweeps absolute 20→80% PWM (#754). Within-chip parallel sweeps cut 8-fan wizards from ~5 min to ~1 min on chip families verified parallel-safe (#1219, opt-in per chip; HIL-confirmed at ~51 s on Phoenix's 13900K + NCT6687D). Calibrate must measure both `pwm_min_start` and `pwm_min_running` before `allow_stop=true` is permitted (#600, safety gate). Read-side phantom-tach classification lays the dashboard foundation that hides ghost-fan zones on multi-zone ECs (#796). Uncontrollable hwmon channels (RPMDetect found no correlation) excluded from active control config instead of silently failing to monitor (#598). New `CapWritePowerProfile` HAL capability + msi-ec `shift_mode` (eco / comfort / turbo) integration with `ventd power-profile` CLI (#1166). The umbrella diagnostic-surface PR (#757) is deferred to a v1.0.1 follow-up — it builds on the artifact fields shipped here.
 
 ### Added
 
