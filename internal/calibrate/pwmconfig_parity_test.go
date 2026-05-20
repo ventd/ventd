@@ -89,7 +89,12 @@ func TestPwmconfigParity_RPMCorrelationBeatsIndexAlignment(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 200 && !stopped.Load(); i++ {
+		// Sleep until the post-#754 baseline read has captured the
+		// 800 RPM starting value; then write the ramped reading so
+		// the post-ramp read sees 1500. The new flow's baseline read
+		// lands at ~t=3.1s and the post-ramp read at ~t=5.1s; ~t=4s
+		// puts the ramped write between them.
+		for i := 0; i < 800 && !stopped.Load(); i++ {
 			time.Sleep(5 * time.Millisecond)
 		}
 		if stopped.Load() {

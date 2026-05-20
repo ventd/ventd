@@ -48,12 +48,24 @@ import (
 // goroutine; fan2_input stays flat. The function returns everything
 // the test needs plus a stop func.
 //
-// We cheat the 2-second sleep by pre-writing the post-ramp RPM to
-// fan1_input BEFORE DetectRPMSensor starts. The baseline read captures
-// the flat initial value on fan2, and by the time the test-PWM write
-// lands fan1_input already holds a high RPM. The ramp-direction check
-// inside DetectRPMSensor (ramped = testPWM > origPWM) matches because
-// origPWM is 100 and testPWM will be 160.
+// We cheat the multi-second sleeps inside DetectRPMSensor by writing
+// the ramped RPM value into fan1_input from a background goroutine
+// timed to land AFTER the baseline read but BEFORE the post-ramp
+// read. The baseline read captures the flat initial value on both
+// fans, and the post-ramp read on fan1 captures rampRPM.
+//
+// The detect flow timeline (#754 stiction-break + 20→80% sweep):
+//
+//	t=0       stiction-break pulse (write PWM=maxPWM), 500ms hold
+//	t=500ms   write baselinePWM (20% of maxPWM), 2s settle
+//	t=2500ms  3×200ms stability sample (baseline reads happen here)
+//	t=3100ms  write testPWM (80% of maxPWM), 2s settle
+//	t=5100ms  post-ramp read
+//
+// The goroutine fires the ramp write at ~4000ms — after baseline,
+// before post-ramp. The ramp-direction check inside DetectRPMSensor
+// (ramped = testPWM > baselinePWM) is always satisfied because the
+// new sweep always goes low → high (20% → 80%).
 //
 // This technique survives because hwmon.ReadRPMPath is a plain file
 // read — the sysfs kernel semantics (which would update fan_input on
@@ -89,10 +101,11 @@ func newRampingHwmon(t *testing.T, rampRPM int) (dir, pwm, fan1In, fan2In string
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Write the ramped value after a brief pause so the baseline
-		// reads happen first. DetectRPMSensor reads the baseline
-		// synchronously at the top, so a short delay is enough.
-		for i := 0; i < 200 && !stopped.Load(); i++ {
+		// Write the ramped value after a delay tuned to land between
+		// the baseline read (~t=3.1s) and the post-ramp read (~t=5.1s)
+		// in the new #754 detect flow. ~4s puts it comfortably in the
+		// middle of the settle-after-testPWM-write window.
+		for i := 0; i < 800 && !stopped.Load(); i++ {
 			time.Sleep(5 * time.Millisecond)
 		}
 		if stopped.Load() {
@@ -191,6 +204,66 @@ func TestDetectRPMSensor_NoCorrelation(t *testing.T) {
 	}
 	if res.RPMPath != "" {
 		t.Fatalf("RPMPath = %q, want empty (no winner)", res.RPMPath)
+	}
+}
+
+// TestRegression_Issue754_StictionBreakPulse verifies that
+// DetectRPMSensor writes maxPWM at the top of its sequence before any
+// other PWM write — the 500ms stiction-break pulse that breaks a
+// stalled rotor on a fan whose previous calibration sweep parked it
+// at PWM=0. Before #754, the routine ramped origPWM±60, which on a
+// fan parked at PWM=0 landed at PWM=60 — below the start-from-
+// standstill threshold for many fans. The sweep returned delta≈0 and
+// the working sensor was misclassified as "no correlation".
+//
+// We assert the pulse by capturing PWM-write history through the
+// fake hwmon's `pwm` file: the first write must be PWM=255 (or
+// maxPWM if non-default). We don't need to assert RPM correlation
+// here — the happy-path test already covers that the wider 20→80%
+// sweep produces measurable deltas.
+func TestRegression_Issue754_StictionBreakPulse(t *testing.T) {
+	dir, pwm, _, _, stop := newRampingHwmon(t, 1600)
+	defer stop()
+
+	m := newQuietManager(t)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
+	// Park PWM at 0 so the pre-#754 origPWM±60 picker would have
+	// produced a too-low test PWM. The stiction-break pulse must
+	// dominate this and write 255 anyway.
+	if err := os.WriteFile(pwm, []byte("0\n"), 0o600); err != nil {
+		t.Fatalf("park pwm at 0: %v", err)
+	}
+
+	fan := &config.Fan{
+		Type:    "hwmon",
+		PWMPath: pwm,
+		MinPWM:  30,
+		MaxPWM:  255,
+	}
+	// Probe the post-pulse PWM by sampling the pwm file 200ms after
+	// DetectRPMSensor starts — well inside the 500ms pulse hold and
+	// before the baseline-write at t=500ms.
+	type sample struct {
+		t   time.Duration
+		pwm string
+	}
+	samplesCh := make(chan sample, 1)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		data, _ := os.ReadFile(pwm)
+		samplesCh <- sample{t: 200 * time.Millisecond, pwm: strings.TrimSpace(string(data))}
+	}()
+
+	_, err := m.DetectRPMSensor(fan)
+	if err != nil {
+		t.Fatalf("DetectRPMSensor: %v", err)
+	}
+
+	s := <-samplesCh
+	if s.pwm != "255" {
+		t.Fatalf("at t=%s expected stiction-break pulse PWM=255, got pwm=%q (dir=%s)",
+			s.t, s.pwm, dir)
 	}
 }
 
