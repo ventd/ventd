@@ -2259,8 +2259,13 @@ func (s *Server) handleResetAndReinstall(w http.ResponseWriter, r *http.Request)
 }
 
 // guessInstalledOOTModule walks /lib/modules/<release>/extra/ and
-// returns the first .ko basename, preferring "it87" when multiple
-// are present. Returns "" when /extra/ is empty or inaccessible.
+// returns the first module basename, preferring "it87" when multiple
+// are present. Tolerates compressed module suffixes (.ko, .ko.xz,
+// .ko.zst, .ko.gz). Returns "" when /extra/ is empty or inaccessible.
+//
+// Fedora and Arch default to compressed modules — without the suffix
+// tolerance every reset-and-reinstall and factory-reset on those
+// distros missed the OOT driver under /lib/modules/<rel>/extra/.
 func guessInstalledOOTModule() string {
 	release := strings.TrimSpace(execOutput("uname", "-r"))
 	if release == "" {
@@ -2272,11 +2277,10 @@ func guessInstalledOOTModule() string {
 	}
 	var first string
 	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".ko") {
+		mod := strippedKernelModuleName(e.Name())
+		if mod == "" {
 			continue
 		}
-		mod := strings.TrimSuffix(name, ".ko")
 		if mod == "it87" {
 			return mod
 		}
@@ -2285,6 +2289,26 @@ func guessInstalledOOTModule() string {
 		}
 	}
 	return first
+}
+
+// strippedKernelModuleName peels any kernel-module compression suffix
+// (xz, zst, gz) and the trailing .ko from filename. Returns "" when
+// filename is not a kernel module. Mirrored under cmd/ventd as
+// strippedModuleName for the factory-reset hook; kept in two places
+// because the packages don't share a helpers boundary today and the
+// fix is one short function.
+func strippedKernelModuleName(filename string) string {
+	name := filename
+	for _, ext := range []string{".xz", ".zst", ".gz"} {
+		if strings.HasSuffix(name, ext) {
+			name = strings.TrimSuffix(name, ext)
+			break
+		}
+	}
+	if !strings.HasSuffix(name, ".ko") {
+		return ""
+	}
+	return strings.TrimSuffix(name, ".ko")
 }
 
 // execOutput runs cmd with args and returns trimmed stdout, or ""

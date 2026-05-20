@@ -2070,14 +2070,36 @@ func makeFactoryResetHook(wd *watchdog.Watchdog, logger *slog.Logger) func(conte
 					"modules_loadd_clean", report.ModulesLoadDClean)
 			}
 		}
-		// Step 3: stop+disable the systemd unit. This terminates the
-		// daemon mid-call, so the function never returns nil on
-		// systemd hosts — exec.Run kills us before Run() does.
-		cmd := exec.Command("systemctl", "disable", "--now", "ventd.service")
+		// Step 3: stop+disable the systemd unit. Spawn via systemd-run
+		// in a transient unit so the systemctl process lives OUTSIDE
+		// ventd.service's cgroup. Without --no-block, the systemctl
+		// child inherited ventd.service's cgroup and got SIGTERM'd
+		// by the very stop it issued — the hook then logged a
+		// confusing "signal: terminated" error even though the unit
+		// disable+stop had in fact succeeded. With systemd-run the
+		// transient unit runs to completion regardless of ventd's
+		// fate; --collect garbage-collects the unit after it exits;
+		// --no-block returns immediately so this goroutine can clean
+		// up before the daemon is torn down.
+		cmd := exec.Command("systemd-run",
+			"--collect", "--no-block",
+			"--unit", "ventd-factory-reset-disable",
+			"--",
+			"systemctl", "disable", "--now", "ventd.service")
 		if err := cmd.Run(); err != nil {
-			logger.Error("factory reset: systemctl disable --now ventd.service failed",
+			// Fall back to inline systemctl when systemd-run isn't on
+			// PATH (non-systemd hosts shouldn't reach this branch but
+			// belt-and-braces). The inline path is the v1.0.2/v1.0.3
+			// behaviour — error logging stays in case something else
+			// goes wrong.
+			logger.Warn("factory reset: systemd-run unavailable; falling back to inline systemctl (cgroup self-kill expected)",
 				"err", err)
-			return err
+			inline := exec.Command("systemctl", "disable", "--now", "ventd.service")
+			if err := inline.Run(); err != nil {
+				logger.Error("factory reset: systemctl disable --now ventd.service failed",
+					"err", err)
+				return err
+			}
 		}
 		return nil
 	}
@@ -2098,11 +2120,10 @@ func guessFactoryResetModule() string {
 	}
 	var first string
 	for _, e := range entries {
-		name := e.Name()
-		if !strings.HasSuffix(name, ".ko") {
+		mod := strippedModuleName(e.Name())
+		if mod == "" {
 			continue
 		}
-		mod := strings.TrimSuffix(name, ".ko")
 		if mod == "it87" {
 			return mod
 		}
@@ -2111,6 +2132,29 @@ func guessFactoryResetModule() string {
 		}
 	}
 	return first
+}
+
+// strippedModuleName returns the bare module name for a /lib/modules
+// /<release>/extra/ entry, peeling any kernel-module compression suffix
+// (xz, zst, gz) before stripping the .ko. Empty when the entry is not
+// a kernel module. Modern distros ship compressed modules: Fedora and
+// Arch default to xz (Fedora 41) or zst (Arch); Debian/Ubuntu use xz;
+// only legacy or custom-built kernels ship bare .ko. The old "strip
+// .ko" path silently skipped every compressed module on every distro
+// except hand-built kernels, which is how factory reset missed the
+// dell-smm-hwmon.ko.xz under /lib/modules/<rel>/extra/ on fedora.
+func strippedModuleName(filename string) string {
+	name := filename
+	for _, ext := range []string{".xz", ".zst", ".gz"} {
+		if strings.HasSuffix(name, ext) {
+			name = strings.TrimSuffix(name, ext)
+			break
+		}
+	}
+	if !strings.HasSuffix(name, ".ko") {
+		return ""
+	}
+	return strings.TrimSuffix(name, ".ko")
 }
 
 func execCommandOutput(name string, args ...string) string {
