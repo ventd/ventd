@@ -73,6 +73,27 @@ func LoadWizardOutcome(db *state.KVDB) (Outcome, bool, error) {
 	}
 }
 
+// WipeCalibration deletes all keys under the calibration KV namespace
+// only — wizard and probe outcomes are preserved. Called by the
+// Settings page "Reset calibration" action so the operator can clear
+// per-channel calibration data without re-running the whole setup
+// wizard. Idempotent on nil db.
+func WipeCalibration(db *state.KVDB) error {
+	if db == nil {
+		return nil
+	}
+	calibKeys, err := db.List(nsCalibration)
+	if err != nil {
+		return fmt.Errorf("probe wipe calibration: list: %w", err)
+	}
+	return db.WithTransaction(func(tx *state.KVTx) error {
+		for k := range calibKeys {
+			tx.Delete(nsCalibration, k)
+		}
+		return nil
+	})
+}
+
 // WipeNamespaces deletes all keys under the wizard, probe, and calibration
 // KV namespaces. Called by "Reset to initial setup" (RULE-PROBE-09,
 // RULE-POLARITY-09).

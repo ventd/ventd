@@ -826,6 +826,30 @@ else
     echo "    will rely on in-binary retry alone (still correct, one layer)"
 fi
 
+# ventd-uninstall: companion to the Settings "Reset to factory" action.
+# The in-UI flow disables the service and wipes runtime state from
+# within the daemon; this script removes the binary, the systemd unit,
+# and (optionally) the persistent data dirs that the daemon can't
+# touch from inside its own process. Idempotent + safe to re-run.
+UNINSTALL_SRC=""
+for candidate in \
+    "${ASSET_DIR}/uninstall.sh" \
+    "${ASSET_DIR}/../scripts/uninstall.sh" \
+    "${TARBALL_ROOT:-}/scripts/uninstall.sh"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        UNINSTALL_SRC="$candidate"
+        break
+    fi
+done
+if [[ -n "$UNINSTALL_SRC" ]]; then
+    install -d -m 755 "$VENTD_SBIN_DIR"
+    install -m 755 "$UNINSTALL_SRC" "$VENTD_SBIN_DIR/ventd-uninstall"
+    echo "  ✓ uninstall helper → $VENTD_SBIN_DIR/ventd-uninstall"
+else
+    echo "  ! scripts/uninstall.sh not found in asset tree — operator can"
+    echo "    still uninstall via package manager or by removing files manually"
+fi
+
 # ventd-recover: emergency pwm_enable restore binary. Installed to
 # /usr/local/sbin so ventd-recover.service can call it as root outside
 # the main daemon's sandbox. Optional in older release tarballs — if

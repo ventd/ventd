@@ -2,7 +2,10 @@
 # install-git-hooks.sh — wire local pre-commit and pre-push hooks for ventd
 #
 # Hooks installed:
-#   pre-commit: rule-index --check, gofmt -l, go vet ./..., go mod tidy drift
+#   pre-commit: auto-mirror CHANGELOG.md + scripts/install.sh into their
+#               internal/web/*.embedded copies (so a single edit yields a
+#               consistent commit), rule-index --check, gofmt -l,
+#               go vet ./..., go mod tidy drift
 #   pre-push:   bash scripts/ci-local.sh (full CI gate sweep)
 #
 # Run from the repo root. Idempotent — safe to re-run.
@@ -48,6 +51,29 @@ fi
 if echo "$staged" | grep -E "^\.claude/rules/" >/dev/null; then
 	rule_changed=true
 fi
+
+# Auto-mirror sync for files that Go embed cannot reach outside its own
+# package directory. Whenever the canonical source is staged, copy it
+# into the in-package mirror and re-stage so a single edit produces a
+# consistent commit. Without this, every CHANGELOG.md or install.sh
+# touch had to be followed by a manual `cp` step, and the embed-drift
+# tests caught the omission on CI.
+sync_embed() {
+	local src=$1
+	local dst=$2
+	if echo "$staged" | grep -qE "^${src//./\\.}$"; then
+		if [[ ! -f "$src" ]]; then
+			return 0
+		fi
+		if ! cmp -s "$src" "$dst" 2>/dev/null; then
+			cp "$src" "$dst"
+			git add "$dst"
+			echo "pre-commit: auto-synced $dst from $src"
+		fi
+	fi
+}
+sync_embed CHANGELOG.md internal/web/CHANGELOG.md.embedded
+sync_embed scripts/install.sh internal/web/install.sh.embedded
 
 # rule-index regen check
 if [[ "$rule_changed" == true ]]; then

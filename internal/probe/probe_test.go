@@ -495,6 +495,53 @@ func TestProbe_Rules(t *testing.T) {
 		}
 	})
 
+	// WipeCalibration deletes ONLY the calibration namespace —
+	// wizard/probe outcomes survive. Backs the Settings "Reset
+	// calibration" action (the affordance for after-fan-swap
+	// recalibration that doesn't bounce the operator through the
+	// whole wizard).
+	t.Run("wipe_calibration_only_clears_calibration_ns", func(t *testing.T) {
+		db := openTestKV(t)
+		r := &probe.ProbeResult{
+			ThermalSources: []probe.ThermalSource{{SourceID: "hwmon0"}},
+		}
+		if err := probe.PersistOutcome(db, r); err != nil {
+			t.Fatalf("PersistOutcome: %v", err)
+		}
+		// Seed the calibration namespace directly — probe.PersistOutcome
+		// only writes wizard/probe, so we need a calibration key to
+		// observe the wipe.
+		if err := db.WithTransaction(func(tx *state.KVTx) error {
+			tx.Set("calibration", "pwm1", "cal-data")
+			return nil
+		}); err != nil {
+			t.Fatalf("seed calibration: %v", err)
+		}
+
+		if err := probe.WipeCalibration(db); err != nil {
+			t.Fatalf("WipeCalibration: %v", err)
+		}
+
+		calKeys, err := db.List("calibration")
+		if err != nil {
+			t.Fatalf("db.List(calibration): %v", err)
+		}
+		if len(calKeys) != 0 {
+			t.Errorf("calibration namespace still has %d key(s) after WipeCalibration", len(calKeys))
+		}
+		// Wizard and probe namespaces must survive — this is the
+		// load-bearing distinction from WipeNamespaces.
+		for _, ns := range []string{"probe", "wizard"} {
+			keys, err := db.List(ns)
+			if err != nil {
+				t.Fatalf("db.List(%s): %v", ns, err)
+			}
+			if len(keys) == 0 {
+				t.Errorf("namespace %q was wiped by WipeCalibration (only calibration should clear)", ns)
+			}
+		}
+	})
+
 	// RULE-PROBE-10: internal/hwdb/bios_known_bad.go MUST NOT exist.
 	// A per-board BIOS-version denylist in hwdb creates a false sense of
 	// security and requires constant maintenance; probe uses catalog overlay

@@ -70,6 +70,7 @@
         <a class="set-nav-item is-active" href="#display">Display</a>
         <a class="set-nav-item" href="#daemon">Daemon</a>
         <a class="set-nav-item" href="#smart-mode">Smart mode</a>
+        <a class="set-nav-item" href="#calibration">Calibration</a>
         <a class="set-nav-item" href="#security">Security</a>
         <a class="set-nav-item" href="#system">System</a>
         <a class="set-nav-item" href="#about">About</a>
@@ -185,6 +186,20 @@
               <input type="checkbox" id="set-acoustic" checked>
               <span class="set-toggle-slider"></span>
             </label>
+          </div>
+        </article>
+
+        <article class="set-section card" id="calibration">
+          <header class="set-section-head">
+            <div class="card-title"><span class="card-title-accent"></span>Calibration</div>
+            <p class="set-section-sub">Stored per-fan response data driving the smart-mode controller. Re-run calibration whenever you change fans — swap a fan, add a fan, or move it to a different header.</p>
+          </header>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Reset calibration</div>
+              <div class="set-row-sub">Clears stored fan characterization (PWM↔RPM curves, response timing, polarity) so calibration starts fresh on the <a href="/calibration">Calibration</a> page. Existing curves keep driving fans in the interim; no config or login change. Use after swapping or adding a fan.</div>
+            </div>
+            <button class="btn btn--ghost" id="set-reset-calibration" type="button">Reset calibration…</button>
           </div>
         </article>
 
@@ -308,28 +323,14 @@
         <article class="set-section card set-section--danger" id="advanced">
           <header class="set-section-head">
             <div class="card-title"><span class="card-title-accent set-accent--danger"></span>Advanced</div>
-            <p class="set-section-sub">Destructive actions. Read carefully.</p>
+            <p class="set-section-sub">Destructive action. Read carefully.</p>
           </header>
           <div class="set-row set-row--danger">
             <div>
-              <div class="set-row-title">Reset to initial setup</div>
-              <div class="set-row-sub">Wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again. Login credentials are kept.</div>
+              <div class="set-row-title">Reset to factory</div>
+              <div class="set-row-sub">Hands every fan back to BIOS auto-control, removes the OOT driver ventd installed (if any), wipes all ventd state (config, calibration, login credentials, smart-mode learning), then disables and stops the ventd service. The web UI goes offline; the host's firmware is back in charge of cooling. The ventd binary is left in place — remove it with your package manager (e.g. <span class="mono">sudo dnf remove ventd</span>) or by running <span class="mono">/usr/local/sbin/ventd-uninstall</span> if you installed via the install script.</div>
             </div>
-            <button class="btn btn--danger" id="set-reset" type="button">Reset…</button>
-          </div>
-          <div class="set-row set-row--danger">
-            <div>
-              <div class="set-row-title">Reset and reinstall driver</div>
-              <div class="set-row-sub">Removes any partially-installed OOT driver state — DKMS registration, .ko files in /lib/modules/&lt;release&gt;/extra/, modules-load.d entries, build dirs under /tmp/ventd-driver-* — so the next wizard run starts from a clean slate. Use after a botched first install or when switching catalog row.</div>
-            </div>
-            <button class="btn btn--danger" id="set-reset-driver" type="button">Reset driver…</button>
-          </div>
-          <div class="set-row set-row--danger">
-            <div>
-              <div class="set-row-title">Factory reset</div>
-              <div class="set-row-sub">Full state wipe — calibration, config, applied marker, AND login credentials. Lands on the password-set screen at /login as if this were a fresh install. The OOT driver under /lib/modules/&lt;release&gt;/extra/ is preserved (use "Reset driver" first if you want it gone too).</div>
-            </div>
-            <button class="btn btn--danger" id="set-factory-reset" type="button">Factory reset…</button>
+            <button class="btn btn--danger" id="set-factory-reset" type="button">Reset to factory…</button>
           </div>
         </article>
 

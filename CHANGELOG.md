@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
+## [Unreleased]
+
+### Changed
+
+- **Settings → Advanced reset surface trimmed from three buttons to two.** The "Reset to initial setup", "Reset and reinstall driver", and "Factory reset" triad all redirected away from the page without surfacing whether the action actually succeeded. The triad is replaced with:
+  - **Settings → Calibration → "Reset calibration"** — clears stored fan characterization (PWM↔RPM curves, response timing, polarity) so the operator can re-run the sweep at `/calibration`. No config, login, or driver change. Intended for after a fan swap or add. Surfaces success/failure inline and only navigates on success (to `/calibration`).
+  - **Settings → Advanced → "Reset to factory"** — hands every controlled fan back to BIOS auto, removes the OOT driver ventd installed under `/lib/modules/<release>/extra/`, wipes all ventd state (config + calibration + applied marker + auth.json + smart-mode learning + orchestrator state dir), and runs `systemctl disable --now ventd.service`. The UI paints a "factory reset complete — ventd is offline" takeover page and points the operator at `sudo dnf remove ventd` or `sudo /usr/local/sbin/ventd-uninstall`. The underlying `/api/v1/setup/reset` and `/api/v1/hwdiag/reset-and-reinstall` endpoints are preserved (wizard-recovery flows still need them) but no longer surfaced from Settings.
+
+### Added
+
+- `internal/probe/persist.go::WipeCalibration` — calibration-namespace-only wipe primitive (siblings `WipeNamespaces` which clears wizard + probe + calibration). Backs the new `/api/v1/calibrate/reset` endpoint.
+- `internal/web/server.go::handleCalibrationReset` — POST `/api/v1/calibrate/reset` handler. Wipes the calibration KV namespace and `/var/lib/ventd/setup/calibration.json`. Returns `{"status":"ok"}` on success, 500 with the underlying error on wiper failure (no more silent redirect-to-login).
+- `Server.SetCalibrationWiper` / `Server.SetFactoryResetHook` — setter pair plumbing the calibration wiper and the factory-reset daemon-resident hook (watchdog.RestoreCtx + OOT driver rmmod + `systemctl disable --now`) into the web server. Wired in `cmd/ventd/main.go::makeFactoryResetHook`.
+- `scripts/uninstall.sh` — companion to "Reset to factory" that removes the ventd binary, systemd unit, drop-ins, and (optionally, via `--keep-data`) the persistent state under `/var/lib/ventd`. Installed by `scripts/install.sh` to `/usr/local/sbin/ventd-uninstall` alongside `ventd-wait-hwmon`.
+- **`scripts/install-git-hooks.sh` pre-commit auto-syncs `internal/web/CHANGELOG.md.embedded` from `CHANGELOG.md` and `internal/web/install.sh.embedded` from `scripts/install.sh`.** Eliminates the recurring "edit CHANGELOG → CI fails on embed drift → manual `cp` to refresh" cycle: a single edit to the canonical source now yields a consistent commit. The `TestChangelogEmbedded_SyncedWithRepoCopy` and `TestInstallShEmbedded_SyncedWithScriptsCopy` tests stay in place as the safety net for commits that bypass the hook (`--no-verify`, fresh clones that skipped `bash scripts/install-git-hooks.sh`).
+
+### Fixed
+
+- **Reset actions no longer silently bounce to the login page.** Every reset path now surfaces an inline alert with the underlying HTTP error on failure (previously the UI navigated away before the operator could read the cause). Successful factory reset paints a deliberate takeover page rather than redirecting into a daemon that's mid-shutdown.
+
 ## [v1.0.1] - 2026-05-20
 
 ### Headline
