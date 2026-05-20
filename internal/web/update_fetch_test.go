@@ -296,6 +296,28 @@ func TestBuildUpdateCmd_SystemdRun_IncludesRuntimeMaxSec(t *testing.T) {
 	}
 }
 
+// TestBuildUpdateCmd_SystemdRun_IncludesPrivateTmp pins the Fedora
+// in-UI-update fix: the transient unit must run with PrivateTmp=yes
+// so install.sh gets a fresh /tmp namespace, isolating it from any
+// stale host-side debris at a fixed temp path. The original bug was
+// a 0-byte phoenix-owned /tmp/ventd-preflight.json that, under SELinux
+// Enforcing, caused install.sh's redirect to fail with EACCES and the
+// daemon to wedge at v0.9.0 indefinitely.
+func TestBuildUpdateCmd_SystemdRun_IncludesPrivateTmp(t *testing.T) {
+	prev := systemdRunPath
+	systemdRunPath = func() string { return "/usr/bin/systemd-run" }
+	t.Cleanup(func() { systemdRunPath = prev })
+	prevAvail := systemdAvailable
+	systemdAvailable = func() bool { return true }
+	t.Cleanup(func() { systemdAvailable = prevAvail })
+
+	cmd := buildUpdateCmd("v0.5.99", "/tmp/install.sh")
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "--property=PrivateTmp=yes") {
+		t.Errorf("systemd-run args missing --property=PrivateTmp=yes: %s", args)
+	}
+}
+
 // TestBuildUpdateCmd_NohupFallback_IncludesTimeout pins that the
 // non-systemd fallback wraps install.sh in `timeout 600` so a
 // wedged update doesn't leave the daemon offline forever on OpenRC
