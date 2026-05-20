@@ -56,6 +56,7 @@ Calibrate-to-curve pipeline rewrite: the wizard now emits **per-fan** curves anc
 ### Fixed
 
 - Doctor surface returned `severity: ok` when calibrate had flagged non-monotonic curves but no consumer existed for the flag. Now the `calibration_curve_quality` detector reads the artifact and emits Warnings (#1274).
+- `internal/calibrate/calibrate.go::runSyncPWM` — a persistent RPM sentinel (`0xFFFF` / 65535) during the up-ramp used to abort the entire channel with a `"sentinel persisted, aborting sweep"` error, leaving the channel excluded with no diagnostic record on the resulting artifact. Single transient sensor glitches would take out the channel that the sentinel filter was meant to protect (#755). Now: persistent sentinel marks the channel **phantom** with `PhantomReason="no_tach"` and returns a non-error `Result`. `CalibrateFanResult` gains a `PhantomReason` field so the verdict propagates through `ApplyPhase` to the doctor surface like any other phantom outcome. The down-ramp's existing graceful-degradation behaviour on sentinel reads is unchanged.
 
 ## [v0.9.0] - 2026-05-20
 

@@ -58,7 +58,21 @@ type CalibrateFanResult struct {
 	// (MaxRPM > 0) but the sustained check sampled zero RPM, the
 	// curve evidence wins and DisagreedWithSustainedCheck is set
 	// instead of Phantom.
+	//
+	// Issue #755 added a second path to Phantom=true: a persistent
+	// RPM-sentinel during the up-ramp surfaces as
+	// PhantomReason="no_tach" from calibrate.Result and bypasses the
+	// sustained-spin check (the curve has no usable RPM data to
+	// agree-or-disagree with).
 	Phantom bool `json:"phantom,omitempty"`
+
+	// PhantomReason explains why Phantom is true. One of the polarity
+	// package's PhantomReason* string constants:
+	//   - "no_tach"      — RPM sensor glitched (sentinel) or curve had no usable RPM
+	//   - "no_response"  — PWM writes produced no RPM movement (sustained check)
+	// Empty when Phantom is false. Surfaced verbatim by the doctor
+	// page and dashboard banner (#757).
+	PhantomReason string `json:"phantom_reason,omitempty"`
 
 	// SustainedRPMs is the sample slice from the post-sweep
 	// sustained-spin check. Empty when the check was skipped (no
@@ -351,6 +365,23 @@ func sweepOne(
 			entry.Curve[i] = CalibrateCurvePoint{PWM: p.PWM, RPM: p.RPM}
 		}
 	}
+
+	// Issue #755: propagate a calibrate-side phantom verdict (sentinel
+	// glitch on the tach during sweep) before any further classification.
+	// The sustained-spin check below would otherwise re-run against a
+	// glitching sensor and produce noisy follow-on output. Calibrate has
+	// already decided this channel is unfit; we honour the decision and
+	// short-circuit the rest of sweepOne.
+	if result.Phantom {
+		entry.Phantom = true
+		entry.PhantomReason = result.PhantomReason
+		rc.Log().Warn("calibrate: phantom verdict from sweep",
+			"fan", fan.LabelHint,
+			"pwm_path", fan.PWMPath,
+			"reason", result.PhantomReason)
+		return entry
+	}
+
 	rc.Log().Info("calibrate success",
 		"fan", fan.LabelHint,
 		"start_pwm", result.StartPWM,
@@ -395,6 +426,7 @@ func sweepOne(
 			case zero:
 				// No evidence in either direction → phantom.
 				entry.Phantom = true
+				entry.PhantomReason = "no_response"
 				rc.Log().Info("calibrate: phantom channel (zero RPM in sweep + sustained check)",
 					"fan", fan.LabelHint,
 					"pwm_path", fan.PWMPath)

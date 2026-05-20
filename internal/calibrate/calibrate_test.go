@@ -1053,3 +1053,54 @@ func TestRegression_Issue467_AbortPreservesTerminalState(t *testing.T) {
 		}
 	}
 }
+
+// TestRegression_Issue755_SentinelMarksPhantomNotAbort verifies the v0.9.1
+// failure-mode rework: a persistent RPM sentinel (0xFFFF / 65535) during the
+// up-ramp must mark the channel phantom (PhantomReason="no_tach") and return
+// a non-error Result, so the orchestrator can propagate the verdict like any
+// other phantom outcome. Pre-#755 the sweep aborted the whole channel with a
+// "sentinel persisted" error, leaving the channel excluded with no diagnostic
+// record on the resulting artifact.
+//
+// The fake hwmon's fan1_input is seeded with the SentinelRPMRaw value
+// (65535). Every readCalRPMWithRetry retry sees the same sentinel, so the
+// 4-attempt window exhausts and the new fall-through branch fires on the
+// first up-ramp step.
+func TestRegression_Issue755_SentinelMarksPhantomNotAbort(t *testing.T) {
+	const sentinelRPM = 65535 // halhwmon.SentinelRPMRaw — duplicated here to avoid the dep
+	pwmPath := makeFakeHwmon(t, 0, 2, sentinelRPM)
+	calPath := filepath.Join(t.TempDir(), "calibration.json")
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	m := New(calPath, logger, nil)
+	resolver, _ := makeHwmonResolver(t)
+	m.SetChannelResolver(resolver)
+
+	fan := &config.Fan{
+		Name:    "sentinel",
+		Type:    "hwmon",
+		PWMPath: pwmPath,
+		MinPWM:  0,
+		MaxPWM:  255,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := m.RunSync(ctx, fan)
+	if err != nil {
+		t.Fatalf("RunSync should not return error on sentinel-persist (channel is marked phantom instead); got: %v", err)
+	}
+	if !result.Phantom {
+		t.Errorf("expected Phantom=true on sentinel-persist; got result=%+v", result)
+	}
+	if result.PhantomReason != "no_tach" {
+		t.Errorf("expected PhantomReason=%q, got %q", "no_tach", result.PhantomReason)
+	}
+	if result.Partial {
+		t.Errorf("phantom verdict should be terminal (Partial=false); got Partial=%v", result.Partial)
+	}
+	if result.CompletedSteps != 0 || result.DownRampPWM != 0 {
+		t.Errorf("phantom verdict should zero the resume anchors; got CompletedSteps=%d DownRampPWM=%d",
+			result.CompletedSteps, result.DownRampPWM)
+	}
+}
