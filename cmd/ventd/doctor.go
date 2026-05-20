@@ -85,6 +85,10 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// curve; the detector reads the orchestrator state file and
 		// warns per-fan. #1274.
 		detectors.NewCalibrationCurveQualityDetector(detectors.FileCalibrationArtifactLoader{}),
+		// #1285: chassis cooling-capacity-W estimator. Reads the
+		// same calibrate artifact + RAPL TDP and warns when the
+		// estimated capacity falls below CPU TDP × 1.25.
+		detectors.NewCoolingCapacityDetector(detectors.FileCoolingCapacityLoader{}),
 	}
 	if len(modules) > 0 {
 		dets = append(dets,

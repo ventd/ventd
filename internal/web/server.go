@@ -95,7 +95,14 @@ type Server struct {
 	// (default /var/lib/ventd/acoustic/k_cal.json). The smart-mode
 	// status handler reads it to populate the mic_calibrated bool.
 	// Empty falls through to acrunner.DefaultKCalPath. (#1281)
-	kCalPath  string
+	kCalPath string
+	// coolingFn computes the live chassis cooling-capacity-W
+	// estimate (#1285) on demand for /api/v1/smart/status. Nil means
+	// the surface is disabled — the response carries has_signal=false
+	// and adequate=true so the UI hides the panel. Pure-function
+	// seam: tests inject a fixture; production wires it from the
+	// daemon main via SetCoolingCapacityFn.
+	coolingFn func() CoolingStatus
 	restartCh chan<- struct{}
 	sessions  *sessionStore
 	diag      *hwdiag.Store
@@ -649,6 +656,15 @@ func (s *Server) loadPolarityChannels() []*probe.ControllableChannel {
 // a nil hook is skipped (legacy behaviour for callers that don't pass a
 // watchdog).
 func (s *Server) SetRebootRestore(fn func(ctx context.Context)) { s.rebootRestore = fn }
+
+// SetCoolingCapacityFn wires the chassis cooling-capacity-W
+// estimator (#1285) into the smart-mode status surface. Pass nil to
+// disable (UI hides the panel). Pure-function shape lets the daemon
+// resolve the estimate however it likes — read the calibrate
+// artifact, query a precomputed cache, anything stateless. (#1285)
+func (s *Server) SetCoolingCapacityFn(fn func() CoolingStatus) {
+	s.coolingFn = fn
+}
 
 // writeJSON sets Content-Type to application/json, encodes v as JSON, and
 // logs any encode failure at warn level with the request path. Callers that
