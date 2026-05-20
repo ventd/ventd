@@ -110,8 +110,8 @@ func TestChassisCapacityW_UncalibratedFanContributesNothing(t *testing.T) {
 // stays silent on hosts where the data isn't available yet.
 func TestCapacityAdequate(t *testing.T) {
 	tests := []struct {
-		name             string
-		capacityW, tdpW  float64
+		name                     string
+		capacityW, tdpW          float64
 		wantAdequate, wantSignal bool
 	}{
 		{"comfortable_overhead", 200, 125, true, true},

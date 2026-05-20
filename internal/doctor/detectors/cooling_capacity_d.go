@@ -163,10 +163,10 @@ func (d *CoolingCapacityDetector) Probe(ctx context.Context, _ doctor.Deps) ([]d
 		return nil, nil
 	}
 	return []doctor.Fact{{
-		Detector:   d.Name(),
-		Severity:   doctor.SeverityWarning,
-		Class:      recovery.ClassUnknown,
-		Title:      "Chassis cooling capacity may be inadequate",
+		Detector: d.Name(),
+		Severity: doctor.SeverityWarning,
+		Class:    recovery.ClassUnknown,
+		Title:    "Chassis cooling capacity may be inadequate",
 		Detail: fmt.Sprintf(
 			"Estimated chassis cooling capacity is %.0f W at 70 °C ΔT; CPU TDP is %d W. "+
 				"Sustained loads may cause thermal throttling. Consider adding case fans "+

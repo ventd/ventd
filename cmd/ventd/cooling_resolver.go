@@ -131,4 +131,3 @@ func readCalibrateMaxRPM(statePath string) map[string]int {
 	}
 	return out
 }
-
