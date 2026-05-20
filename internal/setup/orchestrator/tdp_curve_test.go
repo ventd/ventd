@@ -249,4 +249,3 @@ func TestProbePhase_PopulatesCPUTDPW(t *testing.T) {
 		t.Errorf("CPUTDPW = %d, want 65", art.CPUTDPW)
 	}
 }
-
