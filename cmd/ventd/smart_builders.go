@@ -40,6 +40,7 @@ import (
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
+	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/platformprofile"
 	"github.com/ventd/ventd/internal/probe"
@@ -615,29 +616,51 @@ func buildAcousticBudget(live *config.Config, chID string, preset controller.Pre
 		return controller.AcousticBudget{}
 	}
 
-	// Compose host loudness from every hwmon fan with a readable RPM.
-	// Non-hwmon fans (NVIDIA) don't participate — NVML exposes fan%
-	// not RPM directly, and the proxy's acoustic anchors assume axial
-	// fan geometry. v0.6.x extension: thread NVIDIA fan RPM via NVML
-	// when wired into the host total.
+	// Compose host loudness from every fan with a readable RPM.
+	// hwmon fans read /sys; NVIDIA fans call nvmlDeviceGetFanSpeedRPM
+	// (R535+); ErrFanRPMUnsupported / older driver / pre-Maxwell GPU
+	// silently skips the fan rather than failing the whole budget.
+	// (#1282)
 	fans := make([]proxy.Fan, 0, len(live.Fans))
 	var candidateRPM float64
 	for _, f := range live.Fans {
-		if f.Type != "hwmon" || f.RPMPath == "" {
+		var (
+			rpm        float64
+			ok         bool
+			class      = defaultFanClassFor(f)
+			diameterMM = float64(120)
+		)
+		switch f.Type {
+		case "hwmon":
+			if f.RPMPath == "" {
+				continue
+			}
+			r, gotRPM := readRPMSafe(f.RPMPath)
+			if !gotRPM || r <= 0 {
+				continue
+			}
+			rpm, ok = float64(r), true
+		case "nvidia":
+			r, err := readNvidiaFanRPM(f.PWMPath)
+			if err != nil || r <= 0 {
+				continue
+			}
+			rpm, ok = float64(r), true
+			class = proxy.ClassGPUShroud
+			diameterMM = nvidiaShroudDiameterMM(f.Name)
+		default:
 			continue
 		}
-		rpm, ok := readRPMSafe(f.RPMPath)
-		if !ok || rpm <= 0 {
+		if !ok {
 			continue
 		}
-		class := defaultFanClassFor(f)
 		fans = append(fans, proxy.Fan{
 			Class:      class,
-			DiameterMM: 120,
-			RPM:        float64(rpm),
+			DiameterMM: diameterMM,
+			RPM:        rpm,
 		})
 		if f.Name == chID || f.PWMPath == chID {
-			candidateRPM = float64(rpm)
+			candidateRPM = rpm
 		}
 	}
 	if len(fans) == 0 {
@@ -692,6 +715,41 @@ func readRPMSafe(path string) (int, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// readNvidiaFanRPMFn is the package-level seam tests use to inject a
+// deterministic RPM source without spinning up libnvidia-ml. Default
+// is nvidia.ReadFanRPM; smart_builders_nvidia_rpm_test.go points it
+// at a fixture. (#1282)
+var readNvidiaFanRPMFn = nvidia.ReadFanRPM
+
+// readNvidiaFanRPM resolves a config.Fan{Type:"nvidia"} entry's
+// PWMPath (encoded as the GPU index decimal string) into the live
+// NVML-reported fan RPM. Failure surfaces (0, err) so the budget
+// builder skips the fan rather than failing the host total. (#1282)
+func readNvidiaFanRPM(pwmPath string) (uint32, error) {
+	idx, err := strconv.ParseUint(strings.TrimSpace(pwmPath), 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return readNvidiaFanRPMFn(uint(idx))
+}
+
+// nvidiaShroudDiameterMM picks an axial-shroud diameter heuristic
+// from the GPU fan's operator-visible name: triple-fan aftermarket
+// AIBs (Aorus, Strix, TUF, Gaming X) ship 120mm shrouds; everything
+// else defaults to the 80mm Founders-Edition-class shroud. The
+// proxy's tip-speed math scales with diameter², so this distinction
+// matters for multi-GPU workstations whose loudness is GPU-fan-
+// dominated. (#1282)
+func nvidiaShroudDiameterMM(name string) float64 {
+	lname := strings.ToLower(name)
+	for _, hint := range []string{"aorus", "strix", "tuf", "gaming x", "trinity", "amp", "triple"} {
+		if strings.Contains(lname, hint) {
+			return 120
+		}
+	}
+	return 80
 }
 
 // defaultFanClassFor returns the acoustic-proxy FanClass for a config

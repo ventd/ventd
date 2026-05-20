@@ -94,6 +94,11 @@ var (
 	pDeviceGetFanControlPolicy_v2 uintptr // R520+ (may be 0 on older drivers)
 	pDeviceGetUUID                uintptr // R450+
 	pSystemGetDriverVersion       uintptr // R450+
+	// pDeviceGetFanSpeedRPM is R535+. Absence is non-fatal (older
+	// driver / Maxwell-or-earlier silicon); ReadFanRPM returns
+	// ErrFanRPMUnsupported so the acoustic-budget builder skips
+	// the fan rather than failing. (#1282)
+	pDeviceGetFanSpeedRPM uintptr
 
 	// Init/Shutdown refcount.
 	initMu       sync.Mutex
@@ -395,6 +400,58 @@ func ReadMetric(index uint, metric string) (float64, error) {
 	}
 }
 
+// ErrFanRPMUnsupported is returned by ReadFanRPM when the host NVML
+// is older than R535 (the introduction of nvmlDeviceGetFanSpeedRPM)
+// or when the GPU's silicon predates the RPM telemetry path.
+// Callers treat this as a "no signal" condition and skip the fan
+// rather than failing the whole budget computation. (#1282)
+var ErrFanRPMUnsupported = errors.New("nvml: nvmlDeviceGetFanSpeedRPM unsupported on this driver/GPU")
+
+// fanSpeedInfoV1Version is the NVML_STRUCT_VERSION encoding for
+// nvmlFanSpeedInfo_v1_t. The macro encodes
+// (sizeof(struct) | (ver << 24)); the struct is three uint32s (12 B),
+// version 1, so the byte-level value is 0x01_00_00_0C.
+const fanSpeedInfoV1Version uint32 = 12 | (1 << 24)
+
+// fanSpeedInfo mirrors NVML's nvmlFanSpeedInfo_v1_t. The pointer is
+// passed straight to purego.SyscallN so field ordering and size are
+// load-bearing — must stay synchronised with NVML 12.0+ headers.
+type fanSpeedInfo struct {
+	Version uint32
+	Fan     uint32
+	Speed   uint32 // RPM
+}
+
+// ReadFanRPM returns the current fan-0 RPM on the GPU at the given
+// NVML device index. Calls nvmlDeviceGetFanSpeedRPM (R535+); when the
+// symbol isn't loaded (older driver or pre-Maxwell GPU), returns
+// ErrFanRPMUnsupported so the acoustic-budget builder skips the fan.
+// (#1282)
+func ReadFanRPM(index uint) (uint32, error) {
+	if !Available() {
+		return 0, ErrNotAvailable
+	}
+	if pDeviceGetFanSpeedRPM == 0 {
+		return 0, ErrFanRPMUnsupported
+	}
+	dev, err := deviceHandle(index)
+	if err != nil {
+		return 0, err
+	}
+	info := fanSpeedInfo{
+		Version: fanSpeedInfoV1Version,
+		Fan:     0,
+	}
+	r, _, _ := purego.SyscallN(pDeviceGetFanSpeedRPM,
+		dev,
+		uintptr(unsafe.Pointer(&info)),
+	)
+	if rc := int32(r); rc != nvmlSuccess {
+		return 0, fmt.Errorf("nvml: read fan RPM device %d: %s", index, nvmlErrorString(rc))
+	}
+	return info.Speed, nil
+}
+
 // ReadFanSpeed returns the current fan speed as a PWM value (0-255).
 // NVML reports percentage (0-100); we convert to match the hwmon PWM scale.
 // Reads fan 0 on the device.
@@ -661,6 +718,12 @@ func loadLibrary(logger *slog.Logger) error {
 	}
 	if p, err := purego.Dlsym(h, "nvmlDeviceGetFanControlPolicy_v2"); err == nil {
 		pDeviceGetFanControlPolicy_v2 = p
+	}
+	// Optional symbol: R535+. The acoustic-budget builder consumes
+	// the RPM reading when present; absence falls through to the
+	// fan-percent path via the existing ReadFanSpeed surface. (#1282)
+	if p, err := purego.Dlsym(h, "nvmlDeviceGetFanSpeedRPM"); err == nil {
+		pDeviceGetFanSpeedRPM = p
 	}
 	return nil
 }

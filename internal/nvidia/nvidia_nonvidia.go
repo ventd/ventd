@@ -21,6 +21,7 @@ var (
 	ErrLibraryUnavailable = errors.New("libnvidia-ml.so.1 not loadable")
 	ErrInitFailed         = errors.New("nvmlInit_v2 failed")
 	ErrNotAvailable       = errors.New("nvml not available (built with -tags nonvidia)")
+	ErrFanRPMUnsupported  = errors.New("nvml: nvmlDeviceGetFanSpeedRPM unsupported (built with -tags nonvidia)")
 )
 
 const (
@@ -54,6 +55,7 @@ func PowerLimitW(index uint) int                                    { return 0 }
 func ReadTemp(index uint) (float64, error)                          { return 0, ErrNotAvailable }
 func ReadMetric(index uint, metric string) (float64, error)         { return 0, ErrNotAvailable }
 func ReadFanSpeed(index uint) (uint8, error)                        { return 0, ErrNotAvailable }
+func ReadFanRPM(index uint) (uint32, error)                         { return 0, ErrNotAvailable }
 func WriteFanSpeed(index uint, pwm uint8) error                     { return ErrNotAvailable }
 func ResetFanSpeed(index uint) error                                { return ErrNotAvailable }
 func GetFanControlPolicy(index uint, fanIdx int) (int, bool, error) { return 0, false, ErrNotAvailable }
