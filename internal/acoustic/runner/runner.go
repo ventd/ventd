@@ -234,6 +234,39 @@ func GuessMicID(device string) string {
 	return hex.EncodeToString(h[:])[:16]
 }
 
+// DefaultKCalPath is the canonical filesystem location where the
+// `ventd calibrate --acoustic` runner persists the per-host
+// microphone calibration result. Downstream consumers (the smart-
+// mode acoustic-budget builder, the /api/v1/smart/status handler)
+// read from this path to thread the K_cal offset into the dBA
+// budget so `current_dba` is true dBA at the mic position, not au.
+// (#1281)
+const DefaultKCalPath = "/var/lib/ventd/acoustic/k_cal.json"
+
+// LoadResult reads and decodes a previously-persisted calibration
+// result. Returns the parsed Result + present=true on success,
+// (zero, false, nil) when path doesn't exist (no calibration done
+// yet — the daemon falls back to within-host au scoring), and
+// (zero, false, err) on any other I/O or JSON failure.
+//
+// Used by the smart-mode acoustic-budget builder to thread K_cal
+// into Compose() so the host loudness is in dBA at the mic
+// position, not within-host au. (#1281)
+func LoadResult(path string) (Result, bool, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Result{}, false, nil
+		}
+		return Result{}, false, fmt.Errorf("read %s: %w", path, err)
+	}
+	var r Result
+	if err := json.Unmarshal(body, &r); err != nil {
+		return Result{}, false, fmt.Errorf("decode %s: %w", path, err)
+	}
+	return r, true, nil
+}
+
 // WriteResultJSON does an atomic tempfile-and-rename write of the result
 // to path. The parent directory is created with MkdirAll if absent.
 func WriteResultJSON(path string, r Result) error {
