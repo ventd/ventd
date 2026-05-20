@@ -9,6 +9,26 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v0.9.0] - 2026-05-20
+
+### Headline
+
+Ventd now actively drives the kernel's generic `platform_profile` interface (cool / quiet / balanced / performance on Dell, Lenovo, HP, ASUS, …), selecting the right BIOS thermal envelope based on TJmax, RAPL power draw, fan capability, and live CPU load — with a persisted learning store so a future revision can adapt thresholds from observed outcomes. Same release also lands the v1.4 hwdb schema extensions discovered during the Latitude 7280 investigation (`state_quantized_n` driver field, `direct_ec_pwm_unavailable` board override), updates the Dell SMM catalog to reflect v7.0.0-ventd.3 driver behaviour, and adds a startup driver-version diagnostic that recommends the ventd fork when the in-tree dell-smm-hwmon is loaded.
+
+### Added
+
+- `internal/platformprofile/` — **new active controller for the kernel's generic `platform_profile` interface**. `DetectHardware()` surveys CPU model, TJmax (coretemp `temp1_crit`), TDP (RAPL `constraint_0_power_limit_uw`), fan max RPM, fan count, chassis class. `Selector.Pick(inputs)` combines thermal headroom + fan saturation + CPU load + power draw into a 0..1 pressure score and maps it to the quietest / balanced / hottest available profile. `Controller.Run()` polls every 15s, applies the choice with 60s hysteresis, observes external sysfs writes and backs off auto-control for 10 minutes after one. `LearningStore` persists per-profile rolling means + the last 64 transitions to `/var/lib/ventd/platform_profile.json` so future revisions can adapt thresholds from observed data without code changes. Silently no-ops on hardware that doesn't expose the interface.
+- `internal/web/platform_profile.go` — **GET `/api/v1/platform-profile`** returns the current snapshot (available choices, current profile, sysfs path, `present` flag). Read-only — manual override is via the kernel's standard interface, which the controller respects.
+- `internal/hwdb/profile_v1.go` — **new optional `state_quantized_n` field on `DriverProfile`** (v1.4). Declares the driver's PWM surface is state-quantized to N discrete stable values; only valid when `pwm_unit=step_0_N` and must equal `pwm_unit_max+1`. Resolved into `EffectiveControllerProfile.StateQuantizedN` so observation + future calibration-interpreter code reads a single field. `dell-smm-hwmon.yaml` set to 3 (OFF / LOW / HIGH).
+- `internal/hwdb/profile_v1_1.go` — **new `direct_ec_pwm_unavailable` board override**. Declares NBFC-style direct EC PWM control is not feasible (fan PWM/tach registers SMM-private). Latitude 7280 board entry set to `true` — empirical EC RAM investigation 2026-05-20 confirmed Dell EC fan registers are not exposed via the standard ACPI EC channel. Installer code can consume this to suppress NBFC config offers on hardware where it cannot work.
+- `internal/hwmon/diagnose_dellsmm.go` — **`DiagnoseDellSMMVersion()` startup check** shells out to `modinfo dell_smm_hwmon`, parses the `version:` line, and surfaces three outcomes: INFO when the ventd fork at or above v7.0.0-ventd.3 is installed; WARN with an install pointer when the in-tree driver is loaded (in-tree returns -EINVAL on pwm_enable=2 for non-whitelist Dells and makes pwm_enable write-only on whitelist matches); WARN when an older ventd-fork build is installed.
+
+### Changed
+
+- `cmd/ventd/main.go` — **`makePWMUnitMaxResolver()` now logs a structured INFO line per chip** when `state_quantized_n` is set in the resolved catalog, including a `signature=state_quantized_N` attribute. Same path logs the `direct_ec_pwm_unavailable` flag once per chip so operators can grep journalctl for NBFC dead-end hardware classes.
+- `internal/hwdb/catalog/drivers/dell-smm-hwmon.yaml` — **description refreshed** to reflect v7.0.0-ventd.3 driver behaviour (whitelist-matched Dells now have all 3 SMM states usable; pwm_enable readable; pwm_enable=2 fallback gated to `set_fan(i8k_fan_max)` on non-whitelist Dells). New citation for the ventd-org driver release.
+- `internal/hwdb/catalog/boards/dell.yaml` — **Latitude 7280 board entry updated**: assumes v7.0.0-ventd.3 driver is installed (preflight modinfo check enforces this assumption); `direct_ec_pwm_unavailable: true`; expanded notes explaining the SMM-private EC finding.
+
 ## [v0.8.8] - 2026-05-19
 
 ### Headline

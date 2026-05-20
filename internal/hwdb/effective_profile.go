@@ -9,11 +9,17 @@ import "time"
 // based on it.
 type EffectiveControllerProfile struct {
 	// From driver profile (layer 1)
-	Module                            string
-	Family                            string
-	Capability                        Capability
-	PWMUnit                           PWMUnit
-	PWMUnitMax                        *int
+	Module     string
+	Family     string
+	Capability Capability
+	PWMUnit    PWMUnit
+	PWMUnitMax *int
+	// StateQuantizedN, when non-nil, declares the channel's PWM surface is
+	// state-quantized to N discrete stable values (see DriverProfile.StateQuantizedN).
+	// Observation / diagnose surfaces this so the controller and calibration
+	// interpreter can treat the sweep as an N-step staircase instead of a
+	// continuous curve. v1.4.
+	StateQuantizedN                   *int
 	PWMEnableModes                    map[string]string // key: enable int as string, val: mode name
 	OffBehaviour                      OffBehaviour
 	PollingLatencyHint                time.Duration
@@ -36,6 +42,10 @@ type EffectiveControllerProfile struct {
 	CPUTINFloats            bool
 	Unsupported             bool // v1.1: overrides.unsupported true → sensors-only mode
 	CoolingDeviceMustDetach bool // ARM boards that need cooling-device detach before PWM
+	// DirectECPWMUnavailable: NBFC-style direct EC PWM is not feasible — fan
+	// registers are SMM-private or otherwise not exposed via the standard ACPI
+	// EC channel. Installer suppresses NBFC config offers when set. v1.4.
+	DirectECPWMUnavailable bool
 
 	// From calibration (layer 4 — per channel; nil map means no calibration loaded)
 	CalibrationByChannel map[ChannelKey]*ChannelCalibration
@@ -62,6 +72,7 @@ func ResolveEffectiveProfile(
 		Capability:                        driver.Capability,
 		PWMUnit:                           driver.PWMUnit,
 		PWMUnitMax:                        driver.PWMUnitMax,
+		StateQuantizedN:                   driver.StateQuantizedN,
 		PWMEnableModes:                    driver.PWMEnableModes,
 		OffBehaviour:                      driver.OffBehaviour,
 		PollingLatencyHint:                time.Duration(driver.PollingLatencyMSHint) * time.Millisecond,
@@ -90,6 +101,7 @@ func ResolveEffectiveProfile(
 		ecp.CPUTINFloats = board.Overrides.CPUTINFloats
 		ecp.Unsupported = board.Overrides.Unsupported
 		ecp.CoolingDeviceMustDetach = board.Overrides.CoolingDeviceMustDetach
+		ecp.DirectECPWMUnavailable = board.Overrides.DirectECPWMUnavailable
 		// Board-level modprobe args and conflicts are additive.
 		ecp.RequiredModprobeArgs = append(ecp.RequiredModprobeArgs, board.RequiredModprobeArgs...)
 		ecp.ConflictsWithUserspace = append(ecp.ConflictsWithUserspace, board.ConflictsWithUserspace...)
@@ -178,4 +190,5 @@ type BoardOverrides struct {
 	PollingLatencyMSHint    *int `yaml:"polling_latency_ms_hint,omitempty"`
 	Unsupported             bool `yaml:"unsupported,omitempty"`                // v1.1: sensors-only mode
 	CoolingDeviceMustDetach bool `yaml:"cooling_device_must_detach,omitempty"` // ARM boards
+	DirectECPWMUnavailable  bool `yaml:"direct_ec_pwm_unavailable,omitempty"`  // v1.4
 }

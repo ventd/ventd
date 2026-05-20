@@ -497,6 +497,7 @@ func run() error {
 	// hal.Enumerate and downgrade to INFO when a non-hwmon backend
 	// (msi-ec, thinkpad, ipmi, …) owns the fan-control surface (#1163).
 	hwmon.DiagnoseHwmon(logger)
+	hwmon.DiagnoseDellSMMVersion(logger)
 
 	// Synchronous system-class detection. Reads the probe result persisted
 	// earlier in run() and classifies the system hardware.
@@ -1137,6 +1138,14 @@ func runDaemonInternal(
 		startHwmonSwapMonitor(ctx, &wg, smartMode.Channels, logger)
 	}
 
+	// Platform-profile auto-control: ventd actively drives the kernel's
+	// generic platform_profile interface based on hardware capabilities
+	// (TJmax, TDP, fan max RPM) and live inputs (CPU temp, load, RAPL
+	// draw). Per feedback-ventd-zero-config-smart this is on by default;
+	// the only way to disable is to remove the platform_profile sysfs
+	// interface (or use an OS that doesn't expose one).
+	startPlatformProfileController(ctx, &wg, logger)
+
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
@@ -1733,9 +1742,38 @@ func makePWMUnitMaxResolver(logger *slog.Logger) func(chipName string) int {
 			logger.Info("controller: pwm_unit_max resolved from catalog",
 				"chip", chipName, "pwm_unit_max", v)
 		}
+		// v1.4 catalog surface: announce state-quantized fan detection and
+		// the NBFC dead-end flag so operators can grep journalctl for these
+		// hardware classes. Logged once per chip via the resolver's cache.
+		if matchErr == nil && ecp != nil {
+			if ecp.StateQuantizedN != nil {
+				logger.Info("controller: state-quantized fan channel detected",
+					"chip", chipName,
+					"module", ecp.Module,
+					"state_quantized_n", *ecp.StateQuantizedN,
+					"polling_latency_hint", ecp.PollingLatencyHint.String(),
+					"signature", fmt.Sprintf("state_quantized_%d", *ecp.StateQuantizedN))
+			}
+			if ecp.DirectECPWMUnavailable {
+				logger.Info("controller: direct EC PWM control unavailable on this board (do not offer NBFC install)",
+					"chip", chipName,
+					"module", ecp.Module,
+					"board_id", ptrStringOr(ecp.BoardID, ""))
+			}
+		}
 		cache[chipName] = v
 		return v
 	}
+}
+
+// ptrStringOr returns the string the pointer references, or fallback if nil.
+// Used by structured-log helpers that consume optional *string fields on
+// the effective controller profile.
+func ptrStringOr(p *string, fallback string) string {
+	if p == nil {
+		return fallback
+	}
+	return *p
 }
 
 // loadCalibrationByChannel reads the most recently written calibration run for
