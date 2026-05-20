@@ -143,6 +143,7 @@ archives:
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
+      - scripts/uninstall.sh
       - scripts/postinstall.sh
       - scripts/_ventd_account.sh
       - scripts/ventd-wait-hwmon
@@ -175,6 +176,7 @@ archives:
       - scripts/ventd.openrc
       - scripts/ventd.runit
       - scripts/install.sh
+      - scripts/uninstall.sh
       - scripts/postinstall.sh
       - scripts/_ventd_account.sh
       - scripts/ventd-wait-hwmon
@@ -268,6 +270,18 @@ nfpms:
         dst: /usr/local/sbin/ventd-wait-hwmon
         file_info:
           mode: 0755
+      # uninstall.sh ships at /usr/local/sbin/ventd-uninstall — the
+      # companion to Settings → Reset to factory. The in-UI takeover
+      # page points operators at this path, and scripts/install.sh's
+      # own uninstall-helper deploy step also tries this location.
+      # Symmetric with install.sh's release-asset shape so the
+      # candidate-list lookup in cmd/ventd's uninstall doc and the
+      # /usr/local/sbin/ PATH expectation are both satisfied from one
+      # source-of-truth file.
+      - src: scripts/uninstall.sh
+        dst: /usr/local/sbin/ventd-uninstall
+        file_info:
+          mode: 0755
       - src: config.example.yaml
         dst: /etc/ventd/config.example.yaml
         type: config
@@ -312,3 +326,11 @@ release:
   #      between its own build and the target version.
   extra_files:
     - glob: scripts/install.sh
+    # Also ship uninstall.sh as a top-level release asset so operators
+    # who installed via curl-pipe-bash can grab the matching uninstall
+    # script with `curl -fsSL https://github.com/ventd/ventd/releases/
+    # download/<tag>/uninstall.sh | sudo bash`. scripts/install.sh's
+    # uninstall-companion-deploy path also picks this up — without it
+    # an in-UI update silently warns "scripts/uninstall.sh not found
+    # in asset tree" and leaves /usr/local/sbin/ventd-uninstall absent.
+    - glob: scripts/uninstall.sh

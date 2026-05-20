@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
+## [Unreleased]
+
+### Fixed
+
+- `.goreleaser.yml` — **`scripts/uninstall.sh` was missing from every shipping channel** (linux + musl tar.gz files lists, .deb/.rpm contents, top-level release `extra_files`). v1.0.2 added the script but didn't wire it into the release; on the in-UI update path, `install.sh`'s uninstall-companion-deploy step printed `! scripts/uninstall.sh not found in asset tree` and left `/usr/local/sbin/ventd-uninstall` absent, so the "Reset to factory" takeover page's `sudo /usr/local/sbin/ventd-uninstall` instruction had no target. v1.0.3 ships the script in all four locations (the .deb/.rpm install it directly to `/usr/local/sbin/ventd-uninstall` mode 0755) so the path the UI advertises actually exists after a fresh install or an in-UI update.
+
 ## [v1.0.2] - 2026-05-20
 
 ### Headline
