@@ -195,6 +195,21 @@ type ChipProfile struct {
 	Overrides        DriverProfileOverrides     `yaml:"overrides"`
 	ChannelOverrides map[string]ChannelOverride `yaml:"channel_overrides"`
 	Citations        []string                   `yaml:"citations"`
+
+	// CalibrateWithinChipParallel is the per-chip-family safety
+	// assertion for the orchestrator's CalibratePhase: when true, fans
+	// on this chip may be swept in parallel (within-chip-group fanout);
+	// when false (the default), fans on this chip stay serial within
+	// the chip group (cross-chip parallelism is unaffected).
+	//
+	// Some Super-I/O parts (early NCT6775 / shared pwm_enable register
+	// designs) race the chip's fan-control state machine when two
+	// pwmN sweeps overlap on the same chip. Others (NCT6687-class
+	// chips with per-channel pwm_enable registers) are independently
+	// addressable and parallel-safe. Verified per chip family — opt
+	// in here only after HIL confirmation; default-false keeps
+	// pre-#1219 behaviour. (#1219)
+	CalibrateWithinChipParallel bool `yaml:"calibrate_within_chip_parallel,omitempty"`
 }
 
 // DriverProfileOverrides holds the subset of DriverProfile fields a chip can override.
@@ -311,6 +326,26 @@ var (
 	ErrPhantom        = errors.New("channel is monitor-only (phantom)")
 	ErrBIOSOverridden = errors.New("channel is monitor-only (bios_overridden: BIOS actively overrides PWM writes)")
 )
+
+// IsChipCalibrateWithinChipParallel reports whether the chip family
+// named by chipName has been verified parallel-safe for within-chip
+// calibrate sweeps (#1219). A nil catalog or unknown chip name returns
+// false — conservative default that preserves the pre-#1219 serial-
+// within-chip behaviour.
+//
+// The orchestrator's CalibratePhase consults this to decide whether
+// to fan out fans inside a single chip group; cross-chip parallelism
+// is unconditional regardless of the flag.
+func IsChipCalibrateWithinChipParallel(cat *Catalog, chipName string) bool {
+	if cat == nil || chipName == "" {
+		return false
+	}
+	cp := cat.Chips[chipName]
+	if cp == nil {
+		return false
+	}
+	return cp.CalibrateWithinChipParallel
+}
 
 // ErrCatalog is the sentinel for catalog validation failures.
 var ErrCatalog = fmt.Errorf("hwdb catalog")

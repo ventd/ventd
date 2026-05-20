@@ -172,6 +172,14 @@ type CalibratePhase struct {
 	// requires path + logger + watchdog dependencies the orchestrator
 	// doesn't own).
 	Calibrator Calibrator
+
+	// WithinChipParallel reports whether a given chip name is verified
+	// parallel-safe for within-chip-group calibrate sweeps (#1219).
+	// nil → conservative serial-within-chip default (pre-#1219
+	// behaviour). Production wires this to
+	// hwdb.IsChipCalibrateWithinChipParallel against the loaded catalog;
+	// tests inject a stub returning the desired flag.
+	WithinChipParallel func(chipName string) bool
 }
 
 // Name identifies this phase in the checkpoint store and the wizard UI.
@@ -213,13 +221,24 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 	}
 
 	// Fan-out fanout: group probed fans by ChipName so fans on
-	// different chips sweep concurrently while fans on the same chip
-	// stay sequential. Without this, six fans on one Super-I/O chip
-	// serialise to ~5+ minutes (52s × 6); the legacy Manager.run
-	// Phase 6 path completed the same set in ~1 minute by running one
-	// goroutine per chip. Same-chip serialisation is the safety
-	// constraint — shared PWM-enable registers on Super-I/O parts can
-	// race when two pwmN sweeps happen in parallel.
+	// different chips sweep concurrently. Within a chip group, the
+	// inner loop runs serial OR parallel depending on
+	// p.WithinChipParallel(chipName) (#1219). Without within-chip
+	// parallelism, six fans on one Super-I/O chip serialise to
+	// ~5+ minutes (50 s × 6); the cross-chip path alone completed
+	// the same set in ~1 minute by running one goroutine per chip.
+	// Within-chip parallelism takes the 8-fan single-chip case from
+	// ~5 minutes to ~1 minute by stacking N goroutines on one chip
+	// when the chip's pwm_enable register layout permits it.
+	//
+	// Same-chip serialisation is the legacy safety posture — some
+	// Super-I/O parts (early NCT6775 / shared pwm_enable designs)
+	// race the chip's fan-control state machine when two pwmN sweeps
+	// overlap. Others (NCT6687-class chips with per-channel
+	// pwm_enable registers) are independently addressable and
+	// parallel-safe. Per-chip-family opt-in encoded in
+	// internal/hwdb/catalog/chips/*.yaml as calibrate_within_chip_parallel
+	// and consulted via p.WithinChipParallel.
 	//
 	// Each slot in `results` is written by exactly one goroutine, so
 	// no mutex is needed on the slice. rc.Sink().Emit and rc.Log()
@@ -235,18 +254,44 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		chipGroups[fan.ChipName] = append(chipGroups[fan.ChipName], job{idx: i, fan: fan})
 	}
 
+	withinParallel := p.WithinChipParallel
+	if withinParallel == nil {
+		// Conservative default: pre-#1219 serial-within-chip behaviour.
+		withinParallel = func(string) bool { return false }
+	}
+
 	var wg sync.WaitGroup
-	for _, jobs := range chipGroups {
+	for chipName, jobs := range chipGroups {
 		wg.Add(1)
-		go func(jobs []job) {
+		parallelInner := withinParallel(chipName)
+		if parallelInner {
+			rc.Log().Info("calibrate: parallelising within chip group",
+				"chip", chipName, "fan_count", len(jobs))
+		}
+		go func(chipName string, jobs []job, parallelInner bool) {
 			defer wg.Done()
+			if !parallelInner {
+				for _, j := range jobs {
+					if ctx.Err() != nil {
+						return
+					}
+					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+				}
+				return
+			}
+			var inner sync.WaitGroup
 			for _, j := range jobs {
 				if ctx.Err() != nil {
 					return
 				}
-				results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+				inner.Add(1)
+				go func(j job) {
+					defer inner.Done()
+					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+				}(j)
 			}
-		}(jobs)
+			inner.Wait()
+		}(chipName, jobs, parallelInner)
 	}
 	wg.Wait()
 
