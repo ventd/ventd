@@ -7,7 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
-## [Unreleased]
+## [v1.0.2] - 2026-05-20
+
+### Headline
+
+Patch release that fixes the broken reset surface on Settings → Advanced. Pre-1.0.2 the three reset buttons all redirected away from the page on click without surfacing whether the action succeeded; operators read it as "the reset options all silently fail and take you back to the login screen." 1.0.2 collapses the surface to two purpose-built actions: **Settings → Calibration → "Reset calibration"** (clears stored fan characterization so you can re-run calibration after swapping or adding a fan; stays on-page, only navigates to `/calibration` on success) and **Settings → Advanced → "Reset to factory"** (hands every controlled fan back to BIOS auto via `watchdog.RestoreCtx`, removes the OOT driver under `/lib/modules/<release>/extra/` via the existing `CleanupOrphanInstall` path, wipes all ventd state, and runs `systemctl disable --now ventd.service`; the UI paints a deliberate "ventd is offline" takeover page rather than redirecting into a daemon that's mid-shutdown). The companion `/usr/local/sbin/ventd-uninstall` script (deployed by `install.sh`) handles binary + systemd-unit + persistent-state removal so "factory reset" can mean "and ventd is gone." Also fixes the recurring CHANGELOG + install.sh embed-drift: the pre-commit hook now auto-syncs the in-package mirrors from the canonical sources, so a single edit produces a consistent commit.
 
 ### Changed
 
