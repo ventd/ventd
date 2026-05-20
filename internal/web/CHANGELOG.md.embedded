@@ -9,6 +9,36 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Headline
+
+Calibrate-to-curve pipeline rewrite: the wizard now emits **per-fan** curves anchored on each fan's measured PWM→RPM data, capping `max_pwm_pct` at the saturation knee so the daemon never wastes duty cycle past the point where a fan stops responding. Acoustic dBA budget gate wired into `BlendedController.Compute` consuming the R33 proxy + preset target — `acoustic_optimisation: true` is now a real switch, not a config no-op. Five additional latent issues from the 2026-05-20 audit fixed in the same pass.
+
+### Added
+
+- `internal/setup/orchestrator/apply.go` — **per-fan curve generation** (#1272). `buildPerFanCurve` synthesises a `config.CurveConfig` per admitted hwmon fan with top anchor PWM% capped at the saturation knee (highest PWM whose RPM ≥ 95% of MaxRPM in the rising envelope of the measured `Result.Curve`). Bottom anchor PWM% pinned at the measured `StartPWM` (floored at `minSpinPctFloor` 15%). Anchors uniform-temp across [40°C, tjmax-10°C]; count derived from each fan's MinPWM-MaxPWM range, not the widest fan in the system. NVIDIA + non-calibrated fans fall through to `buildGenericCurve` (a generic linear ramp with the same bounds). `controls[]` references each fan's per-fan curve name (`fan-<sanitized-name>`).
+- `internal/setup/orchestrator/calibrate.go` — **`CalibrateFanResult.Curve` field** now carries the per-step PWM→RPM map forward into the apply artifact. `CalibrateCurvePoint` is a local mirror of `calibrate.PWMRPMPoint` so downstream consumers (apply, doctor detectors) can decode without taking the `internal/calibrate` dependency.
+- `internal/sysclass/cpu.go` — **`TjmaxFromCPUInfo()` exported helper** (#1276). Reads `/proc/cpuinfo` and returns the CPU-model-derived Tjmax via the existing in-package regex profile table (Intel N-series 105°C, AMD HEDT 95°C, Intel HEDT 100°C, etc.). Returns 0 on unrecognised CPU. Used by the wizard's curve-gen fallback when the active CPU sensor doesn't surface `tempN_crit`.
+- `internal/doctor/detectors/calibration_curve_quality_d.go` — **new doctor detector** (#1274). Reads the orchestrator's calibrate artifact (`/var/lib/ventd/setup/state.json`), surfaces a Warning Fact per fan flagged `NonMonotonicCurve` by `CalibratePhase`. Vendor-EC clamping (Dell SMM, ASUS Q-Fan, HP Omen) is the typical cause. `FileCalibrationArtifactLoader` is the production loader; tests inject a stub via the `CalibrationArtifactLoader` interface. Wired into both `cmd/ventd doctor` and the web `/api/v1/doctor` runner.
+- `cmd/ventd/smart_builders.go` — **`buildAcousticBudget()`** assembles the per-tick `AcousticBudget` for the candidate channel using R33 (`acoustic/proxy.Compose` for host loudness + `proxy.CostRate` for marginal dBA-per-PWM). Honours `Config.AcousticOptimisationEnabled()` as the on/off switch; per-tick sysfs cost is one read per hwmon fan (typically 1-8, ~50µs each). `defaultFanClassFor()` classifies each fan into the proxy's FanClass enum based on `is_pump`, name hints, and type. (#1273)
+- `internal/controller/blended.go` — **`BlendedController.Preset()` accessor** so the wiring layer can resolve `PresetDBATargets` without re-reading config every tick.
+- `internal/web/smart_handlers.go` — **`/api/v1/smart/status` returns the live acoustic budget**: `{enabled, target_dba, current_dba}`. UI can render a quietness meter alongside the temperature stats. Sourced from the per-channel `DecisionCache.LoadAll()`; pre-warmup hosts surface `enabled=false`.
+
+### Changed
+
+- `internal/setup/orchestrator/apply.go` — **`PumpMinimum` now auto-set** when `cal.IsPump=true` (#1275). Closes the latent reload-time crash where a wizard-detected pump produced `is_pump=true, pump_minimum=0`, which `config.Validate` would reject on next reload — leaving the daemon stuck in monitor-only. Resolved value is `max(MinPumpPWM, cal.StartPWM)`; MinPWM is bumped to match so the curve floor stays at the pump's safe minimum.
+- `internal/setup/orchestrator/apply.go` — **curve ceiling now uses `sysclass.Tjmax` as fallback** before the conservative 95°C blanket (#1276). Lookup order: hwmon `tempN_crit` → `sysclass.TjmaxFromCPUInfo()` → 95°C. Laptops on N-series Atom (acpitz only) get MaxTemp 95°C (105-10) instead of 85.
+- `internal/setup/orchestrator/apply.go` — **apply log emits per-fan non-monotonic summary** when one or more fans were flagged by the calibrate sweep. Operator reading `journalctl -u ventd` sees the affected fans on the same line as the apply-complete record.
+- `internal/sysclass/ambient.go` — **plausibility filter on ambient picker** (#1277). Sensors reading outside [12, 40]°C are rejected at picker level so an unconnected NCT6687 thermistor pad (reading ~8.5°C on the proxmox HIL) can't silently win the lowest-at-idle race and trip envelope's "ambient implausible" refusal downstream.
+- `cmd/ventd/smart_builders.go` — **BlendedController.Compute receives a real `AcousticBudget`** when `acoustic_optimisation: true` (default). Previously the config flag had zero production consumers; now it gates whether the controller calls `EvalDBABudget` per tick (#1273, closes #1278).
+
+### Removed
+
+- `internal/setup/orchestrator/apply.go::defaultCurvePoints` — replaced by per-fan `buildPerFanCurve` + `buildGenericCurve`. The "one curve fits all fans" model is gone.
+
+### Fixed
+
+- Doctor surface returned `severity: ok` when calibrate had flagged non-monotonic curves but no consumer existed for the flag. Now the `calibration_curve_quality` detector reads the artifact and emits Warnings (#1274).
+
 ## [v0.9.0] - 2026-05-20
 
 ### Headline
