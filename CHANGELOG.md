@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
+## [Unreleased]
+
+### Fixed
+
+- `cmd/ventd/main.go::guessFactoryResetModule` + `internal/web/server.go::guessInstalledOOTModule` — **factory reset and reset-and-reinstall missed compressed kernel modules** under `/lib/modules/<release>/extra/`. The walk matched only bare `.ko`, so Fedora's `.ko.xz`, Arch's `.ko.zst`, and Debian's `.ko.xz` were silently skipped on every distro that ships compressed modules (effectively all of them). On fedora the dell-smm-hwmon.ko.xz under `/lib/modules/<rel>/extra/` was never detected → no rmmod, no DKMS deregister, no `/etc/modules-load.d/ventd-*.conf` cleanup. New `strippedModuleName` / `strippedKernelModuleName` helpers peel `.xz`/`.zst`/`.gz` before matching `.ko`. Unit-tested in both packages.
+- `cmd/ventd/main.go::makeFactoryResetHook` — **factory-reset's `systemctl disable --now ventd.service` self-terminated mid-call**. The hook spawned systemctl as a child of ventd; systemctl issued the stop; systemd sent SIGTERM to the ventd.service cgroup (which includes the systemctl child); the child exited with `signal: terminated`; the hook logged a misleading "factory reset: systemctl disable --now ventd.service failed" error even though the disable+stop had in fact succeeded. v1.0.4 spawns the systemctl invocation through `systemd-run --collect --no-block` so it lives in a transient unit OUTSIDE ventd.service's cgroup and runs to completion regardless of the parent's fate. Falls back to inline systemctl on non-systemd hosts.
+
+### Known issue
+
+- **First-boot daemons can leak `pwm_enable=1` on exit** (tracked as #1312). The polarity auto-probe writes PWM without registering the channel with the watchdog, so `wd.Restore()` finds 0 entries on exit and leaves the fan in manual mode. Masked on dell-smm hardware (SMI-private fan control ignores sysfs `pwm_enable`); real on hosts with direct-control hwmon drivers (NCT6687, IT87, k10temp-based ECs). Fix deferred to a focused follow-up PR with proper hwmon-write-path watchdog registration.
+
 ## [v1.0.3] - 2026-05-20
 
 ### Headline
