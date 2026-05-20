@@ -27,6 +27,12 @@ chip_profiles:
         "1": "manual"
         "2": "bios_auto"
     channel_overrides: {}
+    # NCT6687D's per-channel pwm_enable registers are independently
+    # addressable; concurrent sweeps on different fans of the same
+    # chip don't race the SmartFan-vs-manual mode flip (it's a one-
+    # time per-channel write at sweep start, not per-tick). Verified
+    # 2026-05-20 on Phoenix's 13900K + MSI PRO Z690-A DDR4 HIL (#1219).
+    calibrate_within_chip_parallel: true
     citations:
       - "https://github.com/Fred78290/nct6687d"
 
@@ -43,5 +49,10 @@ chip_profiles:
         "1": "manual"
         "2": "bios_auto"
     channel_overrides: {}
+    # NCT6686D shares the same per-channel register layout as nct6687
+    # (both ship from the same Nuvoton revision family); the OOT
+    # driver is a sibling fork of nct6687d with the same channel
+    # independence (#1219).
+    calibrate_within_chip_parallel: true
     citations:
       - "https://github.com/s25g5d4/nct6686d"

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/recovery"
 	"github.com/ventd/ventd/internal/setup/orchestrator"
@@ -256,6 +257,17 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		StateDir:  orchestratorStateRoot(),
 		Events:    managerEventSink{m: m},
 	}
+	// Catalog is consulted by CalibratePhase to decide whether
+	// within-chip parallel sweeps are safe for each chip family
+	// (#1219). A nil catalog → conservative serial-within-chip
+	// default; load-failure is non-fatal here because the rest of
+	// the orchestrator doesn't need the catalog.
+	cat, catErr := hwdb.LoadCatalog()
+	if catErr != nil {
+		m.logger.Warn("orchestrator: catalog load for within-chip-parallel decision failed; serial-within-chip",
+			"err", catErr)
+	}
+
 	o, oerr := orchestrator.New(rc,
 		orchestrator.InventoryPhase{},
 		orchestrator.ConflictHuntPhase{AutoStop: true, AutoStopVendor: false},
@@ -265,7 +277,12 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		orchestrator.ProbePhase{},
 		orchestrator.RPMDetectPhase{Detector: managerRPMDetector{m: m}},
 		orchestrator.PolarityPhase{},
-		orchestrator.CalibratePhase{Calibrator: managerCalibrator{m: m}},
+		orchestrator.CalibratePhase{
+			Calibrator: managerCalibrator{m: m},
+			WithinChipParallel: func(chipName string) bool {
+				return hwdb.IsChipCalibrateWithinChipParallel(cat, chipName)
+			},
+		},
 		orchestrator.ApplyPhase{ConfigPath: m.applyConfigPathOverride},
 	)
 	if oerr != nil {

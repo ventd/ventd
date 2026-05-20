@@ -236,26 +236,70 @@ func TestCalibratePhase_FansOnDifferentChipsRunInParallel(t *testing.T) {
 
 // TestCalibratePhase_FansOnSameChipRunSerially proves the safety
 // constraint of the fanout: fans on the SAME chip MUST sweep one at a
-// time. Super-I/O parts share PWM-enable registers across pwmN
-// channels; concurrent sweeps on one chip can race the chip's
-// fan-control state machine. Asserts the barrier never sees >1
-// in-flight when both fans share a chip name.
+// time WHEN the chip family is not in the within-chip-parallel-safe
+// allowlist. Super-I/O parts that share PWM-enable registers across
+// pwmN channels can race the chip's fan-control state machine when
+// two pwmN sweeps overlap. The barrier never sees >1 in-flight when
+// WithinChipParallel returns false (the default).
 func TestCalibratePhase_FansOnSameChipRunSerially(t *testing.T) {
 	rc := &RunContext{StateDir: t.TempDir()}
 	seedProbeCheckpoint(t, rc, ProbeArtifact{
 		Fans: []ProbedFan{
-			{Index: 1, PWMPath: "/sys/hwmon0/pwm1", ChipName: "nct6687", LabelHint: "F1"},
-			{Index: 2, PWMPath: "/sys/hwmon0/pwm2", ChipName: "nct6687", LabelHint: "F2"},
+			{Index: 1, PWMPath: "/sys/hwmon0/pwm1", ChipName: "nct6798", LabelHint: "F1"},
+			{Index: 2, PWMPath: "/sys/hwmon0/pwm2", ChipName: "nct6798", LabelHint: "F2"},
 		},
 	})
 
 	cal := newBarrierCalibrator(1) // releases as soon as one goroutine arrives
+	// nil WithinChipParallel → conservative default (serial-within-chip)
 	out := (CalibratePhase{Calibrator: cal}).Execute(context.Background(), rc)
 	if out.Status != StatusSuccess {
 		t.Fatalf("status=%q", out.Status)
 	}
 	if got := cal.peakInFlight(); got != 1 {
-		t.Errorf("same-chip fans must serialise; peak in-flight = %d, want 1", got)
+		t.Errorf("same-chip fans without within-chip-parallel must serialise; peak in-flight = %d, want 1", got)
+	}
+}
+
+// TestCalibratePhase_FansOnSameChipParallelWhenSafe proves the #1219
+// within-chip-parallel path: when WithinChipParallel returns true for
+// the chip family, fans on the same chip enter Calibrate concurrently.
+// The barrier waits for 4 simultaneous goroutines to prove a stronger
+// shape than 2-of-2 (which a flaky scheduler could produce sequentially
+// on a slow runner).
+func TestCalibratePhase_FansOnSameChipParallelWhenSafe(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	const chipName = "nct6687"
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{Index: 1, PWMPath: "/sys/hwmon0/pwm1", ChipName: chipName, LabelHint: "F1"},
+			{Index: 2, PWMPath: "/sys/hwmon0/pwm2", ChipName: chipName, LabelHint: "F2"},
+			{Index: 3, PWMPath: "/sys/hwmon0/pwm3", ChipName: chipName, LabelHint: "F3"},
+			{Index: 4, PWMPath: "/sys/hwmon0/pwm4", ChipName: chipName, LabelHint: "F4"},
+		},
+	})
+
+	cal := newBarrierCalibrator(4) // releases once all 4 are inside
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	phase := CalibratePhase{
+		Calibrator: cal,
+		WithinChipParallel: func(c string) bool {
+			return c == chipName
+		},
+	}
+	out := phase.Execute(ctx, rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	if got := cal.peakInFlight(); got < 4 {
+		t.Errorf("within-chip parallel: peak in-flight = %d, want >= 4 (#1219 regressed)", got)
+	}
+
+	var art CalibrateArtifact
+	_ = json.Unmarshal(out.Artifact, &art)
+	if len(art.Results) != 4 {
+		t.Errorf("artifact should record all 4 fans; got %d", len(art.Results))
 	}
 }
 
