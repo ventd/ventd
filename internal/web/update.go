@@ -337,7 +337,14 @@ func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
 			"--collect",
 			"--unit=ventd-update",
 			"--description=ventd in-UI update",
-			"--service-type=oneshot",
+			// No --service-type=oneshot: systemd refuses to honour
+			// RuntimeMaxSec= on oneshot units (journal warns
+			// "RuntimeMaxSec= has no effect in combination with
+			// Type=oneshot. Ignoring."), which silently disabled
+			// the #975 wedge protection. Default Type=simple makes
+			// RuntimeMaxSec= take effect, and SubState transitions
+			// for the outcome watcher are equivalent (success→dead,
+			// failure→failed — both already handled in update_outcome.go).
 			"--property=KillMode=process",
 			// RuntimeMaxSec caps install.sh at 10 min — a wedged
 			// install (DNS hang, dpkg lock, kernel build runaway)
@@ -347,6 +354,15 @@ func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
 			// operator can re-run the in-UI update once they fix
 			// whatever wedged the previous attempt (#975).
 			"--property=RuntimeMaxSec=600",
+			// PrivateTmp=yes gives the transient unit a fresh /tmp
+			// namespace, isolating install.sh from any host-side
+			// debris that could collide with a fixed temp path —
+			// e.g. a stale 0-byte /tmp/ventd-preflight.json owned by
+			// another user that, under SELinux Enforcing on Fedora,
+			// caused install.sh's redirect to fail with EACCES and
+			// the daemon to wedge at v0.9.0 indefinitely. Defence
+			// in depth alongside the install.sh /dev/null switch.
+			"--property=PrivateTmp=yes",
 			"--setenv=VENTD_VERSION="+version,
 			"--setenv=VENTD_SKIP_PREFLIGHT_CHECKS="+inUIUpdateSkipChecks,
 			"bash", scriptPath,

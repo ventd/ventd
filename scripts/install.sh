@@ -80,6 +80,79 @@ if [[ $EUID -ne 0 && "$VENTD_TEST_MODE" != "1" ]]; then
     exit 1
 fi
 
+# ── Host-class guards ───────────────────────────────────────────────────────
+#
+# Refuse early on hosts where the binary-into-/usr/local install model is
+# fundamentally wrong, with a clear message pointing at the right path.
+# Each guard prints a one-screen explanation rather than letting the
+# install fail later with a cryptic write error or kernel-side EACCES.
+
+check_host_class() {
+    # Containers don't expose hwmon — ventd has nothing to control there.
+    # Catches LXC, Docker, podman, systemd-nspawn, lxd. Hosts running
+    # ventd via Proxmox PVE itself (the bare-metal hypervisor) pass this
+    # check; only container GUESTS fail it.
+    if command -v systemd-detect-virt >/dev/null 2>&1; then
+        local virt
+        virt="$(systemd-detect-virt --container 2>/dev/null || true)"
+        if [[ -n "$virt" && "$virt" != "none" ]]; then
+            echo "error: ventd does not run in containers (detected: $virt)" >&2
+            echo "" >&2
+            echo "  Containers don't expose /sys/class/hwmon to guests, so" >&2
+            echo "  there are no PWM files for ventd to write. Run ventd on" >&2
+            echo "  the bare-metal host (or VM) instead — Proxmox PVE itself" >&2
+            echo "  is a supported host; only container GUESTS are blocked." >&2
+            exit 1
+        fi
+    fi
+
+    # NixOS: the imperative /usr/local/bin install model doesn't fit the
+    # Nix store. Operators should install via a flake or nixpkgs entry,
+    # not curl-pipe-bash.
+    if [[ -f /etc/NIXOS || -d /run/current-system/sw/bin ]]; then
+        echo "error: ventd cannot be installed via install.sh on NixOS" >&2
+        echo "" >&2
+        echo "  NixOS manages /run/current-system declaratively; an" >&2
+        echo "  imperative install into /usr/local/bin would be invisible" >&2
+        echo "  to nixos-rebuild and lost on the next switch." >&2
+        echo "" >&2
+        echo "  Track https://github.com/ventd/ventd/issues for a Nix" >&2
+        echo "  flake; until then ventd does not support NixOS." >&2
+        exit 1
+    fi
+
+    # Atomic / immutable distros (Silverblue, Kinoite, openSUSE MicroOS,
+    # Fedora IoT) have a read-only /usr overlay. /usr/local/bin may be
+    # writable on some of them (it's a symlink to /var/usrlocal/bin on
+    # rpm-ostree) — probe writability and only bail if it actually fails.
+    if [[ -d /usr/local/bin ]] || mkdir -p /usr/local/bin 2>/dev/null; then
+        if ! ( probe="$(mktemp -p /usr/local/bin .ventd-write-probe.XXXXXX 2>/dev/null)" \
+                && rm -f "$probe" ) ; then
+            echo "error: /usr/local/bin is not writable on this host" >&2
+            echo "" >&2
+            if [[ -f /run/ostree-booted ]]; then
+                echo "  This appears to be an rpm-ostree (Silverblue / Kinoite /" >&2
+                echo "  Fedora IoT) host. Use the layer-install path instead:" >&2
+                echo "" >&2
+                echo "    sudo rpm-ostree install ventd     # once packaging lands" >&2
+                echo "" >&2
+                echo "  Until ventd ships a Copr package, manual install into" >&2
+                echo "  /var/usrlocal/bin (the writable shadow of /usr/local) is" >&2
+                echo "  possible but unsupported." >&2
+            else
+                echo "  /usr/local/bin appears read-only or missing. Set" >&2
+                echo "  VENTD_PREFIX=/some/writable/dir before re-running, or" >&2
+                echo "  investigate the mount layout." >&2
+            fi
+            exit 1
+        fi
+    fi
+}
+
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    check_host_class
+fi
+
 # ── Resolve source: local binary, local tarball layout, or remote release ───
 
 # When the script is read from a pipe (curl | bash), BASH_SOURCE may be empty
@@ -655,12 +728,23 @@ if [[ "${VENTD_SKIP_PREFLIGHT:-0}" != "1" ]]; then
         "$VENTD_STAGED" preflight --interactive "${PREFLIGHT_SKIP_ARGS[@]}"
         rc=$?
     else
-        # Piped form (curl ... | sudo bash): cannot prompt. Run JSON
+        # Piped form (curl ... | sudo bash) AND the in-UI updater path
+        # (transient ventd-update.service): cannot prompt. Run JSON
         # detect-only; if any blocker is found, print the human-
         # readable summary and the actionable re-entry command, then
         # exit 1. The staged binary is wiped by the EXIT trap so the
         # running daemon stays on its current inode.
-        if ! "$VENTD_STAGED" preflight --json "${PREFLIGHT_SKIP_ARGS[@]}" >/tmp/ventd-preflight.json 2>/dev/null; then
+        #
+        # JSON stdout is discarded — it was never consumed, and a
+        # fixed /tmp path used to collide with stale user-owned debris
+        # on SELinux-enforcing hosts (Fedora et al.), making bash's
+        # redirect fail with EACCES inside the transient unit and the
+        # whole script bail with a false "blockers detected" message.
+        # See PR closing issue: fedora-laptop in-UI update wedged at
+        # v0.9.0 because /tmp/ventd-preflight.json was 0644 phoenix:phoenix.
+        "$VENTD_STAGED" preflight --json "${PREFLIGHT_SKIP_ARGS[@]}" >/dev/null 2>&1
+        preflight_rc=$?
+        if (( preflight_rc != 0 )); then
             echo
             "$VENTD_STAGED" preflight "${PREFLIGHT_SKIP_ARGS[@]}" 2>/dev/null || true
             echo

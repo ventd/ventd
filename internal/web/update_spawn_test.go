@@ -19,8 +19,6 @@ import (
 //     the operator before install.sh starts.
 //   - --collect frees the unit on completion so successive update
 //     attempts don't accumulate failed transient units.
-//   - --service-type=oneshot matches install.sh's start-do-exit
-//     contract.
 //   - --property=KillMode=process keeps install.sh alive when
 //     install.sh itself triggers `systemctl try-restart ventd`,
 //     which would otherwise SIGTERM the entire ventd cgroup.
@@ -43,7 +41,6 @@ func TestBuildUpdateCmd_PrefersSystemdRun(t *testing.T) {
 		"--no-block",
 		"--collect",
 		"--unit=ventd-update",
-		"--service-type=oneshot",
 		"--property=KillMode=process",
 		"--setenv=VENTD_VERSION=v0.5.26",
 		"--setenv=VENTD_SKIP_PREFLIGHT_CHECKS=" + inUIUpdateSkipChecks,
@@ -52,6 +49,17 @@ func TestBuildUpdateCmd_PrefersSystemdRun(t *testing.T) {
 	} {
 		if !strings.Contains(args, must) {
 			t.Errorf("cmd.Args missing %q\nfull: %s", must, args)
+		}
+	}
+	// Pin the inverse: oneshot was REMOVED to let RuntimeMaxSec= take
+	// effect (systemd refuses RuntimeMaxSec on Type=oneshot). Guard
+	// against an accidental revert.
+	for _, mustNot := range []string{
+		"--service-type=oneshot",
+		"--property=Type=oneshot",
+	} {
+		if strings.Contains(args, mustNot) {
+			t.Errorf("cmd.Args must not contain %q (re-enables Type=oneshot, disables RuntimeMaxSec): %s", mustNot, args)
 		}
 	}
 }
