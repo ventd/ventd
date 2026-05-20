@@ -279,6 +279,19 @@ func run() error {
 		logger.Info("config loaded", "path", *configPath, "controls", len(cfg.Controls))
 	}
 
+	// Safety-gate (#600, RULE-CAL-ALLOW-STOP-GATED): refuse to start if
+	// any fan has allow_stop=true without stall calibration backing it.
+	// MinPWM=0 + allow_stop=true means the daemon will write PWM=0 on
+	// the curve's bottom — but unless calibrate measured both pwm_min_start
+	// and pwm_min_running, the daemon has no way to know whether PWM=0
+	// gracefully stops or unsafely stalls the fan. Fresh installs without
+	// AllowStop fans pass vacuously.
+	if !firstBoot {
+		if err := calibrate.VerifyAllowStopGate(cfg, calibrate.DefaultCalibrationPath); err != nil {
+			return fmt.Errorf("startup safety: %w", err)
+		}
+	}
+
 	// Resolve active experimental flags: CLI > config > default (all-false).
 	cliExpFlags := experimental.Flags{
 		AMDOverdrive:    *enableAMDOverdrive,
