@@ -106,6 +106,16 @@
               <button type="button" data-value="f">°F</button>
             </div>
           </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row-title">Show all sensors</div>
+              <div class="set-row-sub">By default the dashboard hides the mirror and phantom <span class="mono">fan*_input</span> zones some embedded controllers expose for non-existent fans, so a one-fan mini-PC reads as one fan instead of four. Switch on to surface every channel — useful when mapping a new board or debugging an EC.</div>
+            </div>
+            <label class="set-toggle">
+              <input type="checkbox" id="set-show-phantoms">
+              <span class="set-toggle-slider"></span>
+            </label>
+          </div>
         </article>
 
         <article class="set-section card" id="daemon">

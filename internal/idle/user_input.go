@@ -39,6 +39,28 @@ var inputIRQClassifierKeywords = []string{
 // snapshots to detect input activity since the last sample.
 type IRQCounters map[string]uint64
 
+// interruptsPath maps a procRoot to the absolute path of the
+// interrupts file beneath it. Treats procRoot as the `/proc`-
+// equivalent directory (matching the convention used by
+// cpuidle.go, quiescence.go, and preconditions.go in this
+// package), so production wiring `procRoot="/proc"` resolves to
+// `/proc/interrupts` and test fixtures rooted at
+// `<tempdir>/proc` resolve to `<tempdir>/proc/interrupts`.
+//
+// Pre-fix (v1.0.0 and earlier) the joins added an extra "proc"
+// path segment, producing `/proc/proc/interrupts` in production —
+// every read failed, every opportunistic gate refused with
+// ReasonProcInterruptsUnreadable, and the prober has never run
+// on any real host. The bug was masked by unit tests injecting
+// `IRQReader` overrides, so the production-only path was never
+// exercised.
+func interruptsPath(procRoot string) string {
+	if procRoot == "" || procRoot == "/" {
+		return "/proc/interrupts"
+	}
+	return filepath.Join(procRoot, "interrupts")
+}
+
 // ReadIRQCounters reads /proc/interrupts under procRoot and returns the
 // per-IRQ summed-across-CPUs counter. The caller is responsible for
 // holding two snapshots and comparing for delta.
@@ -48,10 +70,7 @@ type IRQCounters map[string]uint64
 // surfaces; caller should treat that as "input activity unknown" and
 // refuse the gate.
 func ReadIRQCounters(procRoot string) (IRQCounters, error) {
-	path := filepath.Join(procRoot, "proc", "interrupts")
-	if procRoot == "" || procRoot == "/" {
-		path = "/proc/interrupts"
-	}
+	path := interruptsPath(procRoot)
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
@@ -137,10 +156,7 @@ func readIRQActions(sysRoot, id string) []string {
 // trailing label column for the given IRQ id. Used as a fallback when
 // /sys/kernel/irq/<id>/actions is missing.
 func readIRQLabelFromInterrupts(procRoot, id string) []string {
-	path := filepath.Join(procRoot, "proc", "interrupts")
-	if procRoot == "" || procRoot == "/" {
-		path = "/proc/interrupts"
-	}
+	path := interruptsPath(procRoot)
 	f, err := os.Open(path)
 	if err != nil {
 		return nil

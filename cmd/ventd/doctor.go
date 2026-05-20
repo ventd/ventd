@@ -85,6 +85,12 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// curve; the detector reads the orchestrator state file and
 		// warns per-fan. #1274.
 		detectors.NewCalibrationCurveQualityDetector(detectors.FileCalibrationArtifactLoader{}),
+		// #757: stuck-fan diagnosis. Walks live hwmon for channels
+		// reporting RPM=0 at a duty cycle above the stiction floor
+		// and joins them to the wizard's exclusion reasons. One
+		// Warning Fact per stalled channel, with per-vendor BIOS
+		// guidance pulled from DMI BoardVendor.
+		detectors.NewStuckFanDetector("", detectors.FileStuckFanArtifactLoader{}),
 		// #1285: chassis cooling-capacity-W estimator. Reads the
 		// same calibrate artifact + RAPL TDP and warns when the
 		// estimated capacity falls below CPU TDP × 1.25.

@@ -1,7 +1,7 @@
 # ventd stripped binary size baseline
 #
 # Established: 2026-04-19 by Cassidy (ultrareview-4 tooling half)
-# Last updated: 2026-05-04 (v0.5.12 acoustic stack: PRs #885–#894)
+# Last updated: 2026-05-20 (v1.0.1 baseline reset)
 # Build: CGO_ENABLED=0 go build -ldflags='-s -w' -o ./ventd ./cmd/ventd
 #
 # Threshold: ULTRA-08 warns on >10% growth, blocks on >25% growth.
@@ -13,8 +13,19 @@
 # rate, IT5570 chip-probe, calibrate_acoustic gate + runner + --mic
 # wiring) accounts for the growth. TEXT/DATA/BSS are not consulted by
 # the CI drift check; only BYTES is gated.
+#
+# 2026-05-20 bump: 11821348 → 14885156 (+26%). Intentional growth
+# across v0.10.0 (calibrate reliability + diagnostics pass) and v1.0.0
+# (HAL coverage of 11 backends: hwmon, NVML, msi-ec, thinkpad, ipmi,
+# nbfc, crosec, asahi, pwmsys, legion, corsair; smart-mode acoustic
+# proxy; per-fan curve generator; chassis cooling-capacity estimator;
+# board-catalog matcher + DMI fingerprinting). v1.0.0 itself shipped
+# without bumping the baseline — that PR went in via the same ratchet
+# the drift check is meant to guard, so this bump catches the floor up.
+# v1.0.1 (this commit) adds the stuck-fan detector + per-vendor BIOS
+# guidance strings + the read-side phantom-tach filter on top.
 
-BYTES=11821348
-TEXT=9038366
-DATA=391339
-BSS=319920
+BYTES=14885156
+TEXT=14140670
+DATA=733819
+BSS=340080

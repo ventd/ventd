@@ -978,8 +978,21 @@
   }
 
   // ── poll loop ──────────────────────────────────────────────────
+  // The Hardware page deliberately defaults to the same hidden-by-
+  // default behaviour as the dashboard (#796). Operators flip the
+  // Settings → "Show all sensors" toggle to surface mirror /
+  // phantom rows here too, so the page stays consistent across
+  // navigation rather than showing a different set of fans than
+  // the dashboard does for the same host.
+  function inventoryURL() {
+    var include = false;
+    try { include = localStorage.getItem('ventd-show-phantoms') === '1'; } catch (_) {}
+    return include
+      ? '/api/v1/hardware/inventory?include_phantoms=1'
+      : '/api/v1/hardware/inventory';
+  }
   function load() {
-    return fetch('/api/v1/hardware/inventory', { credentials: 'same-origin' })
+    return fetch(inventoryURL(), { credentials: 'same-origin' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();

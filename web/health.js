@@ -240,9 +240,19 @@
   // versus "the inventory endpoint 500'd". The mode pill turns
   // 'warn' on any partial failure + a one-line cause lands in the
   // sub-line so the operator knows what they're looking at.
+  // #796: honour the Settings → "Show all sensors" toggle so the
+  // monitor-only Health view aligns with what the dashboard shows
+  // on the same host.
+  function inventoryURL() {
+    var include = false;
+    try { include = localStorage.getItem('ventd-show-phantoms') === '1'; } catch (_) {}
+    return include
+      ? '/api/v1/hardware/inventory?include_phantoms=1'
+      : '/api/v1/hardware/inventory';
+  }
   function tick() {
     Promise.all([
-      fetchJSON('/api/v1/hardware/inventory').catch(function (e) { return { __err: e }; }),
+      fetchJSON(inventoryURL()).catch(function (e) { return { __err: e }; }),
       fetchJSON('/api/v1/doctor').catch(function (e) { return { __err: e }; }),
       fetchJSON('/api/v1/version').catch(function (e) { return { __err: e }; })
     ]).then(function (rs) {

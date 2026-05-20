@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/recovery"
 	"github.com/ventd/ventd/internal/sysclass"
 )
@@ -65,6 +66,18 @@ type ApplyArtifact struct {
 	// and why; the channels stay in monitor-only as raw PWM/RPM rows
 	// (no curve assignment, no control).
 	Uncontrollable []UncontrollableFan `json:"uncontrollable,omitempty"`
+
+	// MonitorChannels mirrors ProbeArtifact.MonitorChannels (#796) —
+	// the read-side classification of every `fan*_input` file under
+	// the hwmon root, with each channel marked real / mirror /
+	// phantom. ApplyPhase echoes the field forward unchanged (it
+	// does not re-classify) so the daemon's hardware-inventory
+	// endpoint can join visibility verdicts to live tach readings
+	// without re-loading ProbeArtifact separately. Mirror / phantom
+	// channels are hidden from the default dashboard view; the
+	// `?include_phantoms=1` query param + Settings toggle reveals
+	// them.
+	MonitorChannels []probe.MonitorChannel `json:"monitor_channels,omitempty"`
 }
 
 // UncontrollableFan describes one channel that was excluded from the
@@ -279,12 +292,13 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	}
 
 	art := ApplyArtifact{
-		ConfigPath:     path,
-		Fans:           len(cfg.Fans),
-		MonitorOnly:    monitorOnly,
-		MonitorReason:  monitorReason,
-		EnableRestored: enableRestored,
-		Uncontrollable: uncontrollable,
+		ConfigPath:      path,
+		Fans:            len(cfg.Fans),
+		MonitorOnly:     monitorOnly,
+		MonitorReason:   monitorReason,
+		EnableRestored:  enableRestored,
+		Uncontrollable:  uncontrollable,
+		MonitorChannels: probeArt.MonitorChannels,
 	}
 	raw, _ := EncodeArtifact(art)
 

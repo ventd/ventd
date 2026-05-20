@@ -147,7 +147,7 @@ func TestEnumerateMonitorChannels_ClassifiesMinipcShape(t *testing.T) {
 	t.Run("classifies minipc shape", func(t *testing.T) {
 		// 500ms baseline window is acceptable here.
 		start := time.Now()
-		got := EnumerateMonitorChannels(sysFS, "class/hwmon", read, pairedPWMs)
+		got := EnumerateMonitorChannels(sysFS, "class/hwmon", "/sys", read, pairedPWMs)
 		elapsed := time.Since(start)
 		if elapsed > 2*time.Second {
 			t.Errorf("classifier took %s, expected <2s", elapsed)
@@ -184,7 +184,7 @@ func TestEnumerateMonitorChannels_ClassifiesMinipcShape(t *testing.T) {
 func TestEnumerateMonitorChannels_HandlesAbsentRoot(t *testing.T) {
 	sysFS := fstest.MapFS{}
 	read := func(string) (int, error) { return 0, nil }
-	got := EnumerateMonitorChannels(sysFS, "sys/class/hwmon", read, nil)
+	got := EnumerateMonitorChannels(sysFS, "sys/class/hwmon", "/sys", read, nil)
 	if got != nil {
 		t.Errorf("expected nil channels on absent root; got %d", len(got))
 	}

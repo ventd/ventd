@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
+## [v1.0.1] - 2026-05-20
+
+### Headline
+
+Patch release that lands the two UX surfaces v1.0.0 deferred: read-side phantom-tach hiding (#796, dashboard + Settings toggle) and the umbrella stuck-fan diagnosis (#757, doctor detector + dashboard banner + one-shot journal warn). Also fixes a since-day-one bug where ventd's opportunistic prober has never run on any host because `/proc/interrupts` was opened at the wrong path.
+
+### Added
+
+- `internal/setup/orchestrator/probe.go::ProbeArtifact.MonitorChannels` — the read-side classification (real / mirror / phantom) is now populated by `ProbePhase` and persisted in the orchestrator state. Closes the wiring gap from #796: `EnumerateMonitorChannels` had no production caller in v1.0.0.
+- `internal/setup/orchestrator/apply.go::ApplyArtifact.MonitorChannels` — `ApplyPhase` echoes the classification forward unchanged so the daemon's web layer can read a single artifact rather than joining ProbePhase + ApplyPhase outputs.
+- `internal/setup/orchestrator/monitor_channels.go::LoadMonitorChannels` — public loader that reads the most-recent ApplyArtifact (falling back to ProbeArtifact pre-Apply, empty pre-wizard) and returns the classification slice. Consumed by the web layer's phantom filter without crossing the orchestrator's internal layering.
+- `internal/web/hardware_inventory.go` — **`?include_phantoms=1` query-param filter** (#796). Hidden by default: `fan*_input` readings whose classifier verdict is mirror or phantom drop out of the dashboard inventory, so a minipc with one physical fan + four EC-reported tach zones renders as one row. Operators flip the Settings → "Show all sensors" toggle to surface every channel.
+- `web/settings.html` + `web/settings.js` — **"Show all sensors" toggle** (#796) in the Display section. Persists `ventd-show-phantoms` in localStorage. `dashboard.js`, `hardware.js`, and `health.js` all honour the preference so the three monitor-only surfaces stay consistent.
+- `internal/doctor/detectors/stuck_fan_d.go::StuckFanDetector` — **new doctor detector** (#757). Walks live hwmon for channels with `pwm_enable ∈ {1, 2}` and `pwm ≥ 30%` and `rpm = 0`, joins to the wizard's exclusion reasons (Uncontrollable, calibrate-phantom) from state.json, and emits one Warning Fact per stalled channel with **per-vendor BIOS guidance** keyed off DMI BoardVendor (Gigabyte / ASUS / MSI / ASRock / Dell / Lenovo / HP / generic fallback).
+- `web/dashboard.html` + `web/dashboard.js` + `web/dashboard.css` — **stuck-fan banner** (#757). `aliveTick` now polls `/api/v1/doctor` alongside the four existing alive-overlay endpoints; the banner counts active `stuck_fan_diagnosis` facts and links to the doctor page. Auto-hides when zero facts are reported (operator fixed the BIOS or the fan started spinning).
+- `internal/controller/controller.go::maybeWarnStuckFan` — **one-shot slog.LevelWarn per channel per daemon lifetime** (#757). After each completed tick, if the channel was just written above the stiction floor (PWM ≥ 30%) and the tach reads zero, the controller emits a single `controller: fan not spinning` warn line with the pwm path and a pointer at `ventd doctor`. Gated by per-Controller `stuckFanWarnFired` so the journal trail stays short — the dashboard banner + doctor surfaces own the recurring view.
+
+### Fixed
+
+- `internal/idle/user_input.go::ReadIRQCounters` — **opportunistic prober has never run on any host since the code was written**. Production wired `procRoot="/proc"` and the function joined with `"proc/interrupts"` → every read targeted `/proc/proc/interrupts`, every read failed, every gate refused with `proc_interrupts_unreadable`. The opportunistic-probe scheduler initialised and ticked forever without ever firing a probe. New `interruptsPath()` helper resolves the path consistently with the rest of the `idle` package (treats `procRoot` as the `/proc`-equivalent dir, files are direct children). Unit tests masked the bug by injecting `IRQReader` overrides; the new `TestReadIRQCounters_ReadsRealProcRoot` exercises the real reader. Affects every host on every version up to and including v1.0.0.
+- `internal/probe/tach_classify.go::EnumerateMonitorChannels` signature — added a `sysAbsRoot string` argument so the classifier can construct TachPath against any mount root, not just a hard-coded `/sys/`. Required for the ProbePhase integration to work in tests where `HwmonRoot` is a `t.TempDir()` subtree.
+
 ## [v1.0.0] - 2026-05-20
 
 ### Headline
