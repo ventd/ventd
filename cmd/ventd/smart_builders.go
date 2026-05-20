@@ -22,6 +22,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,7 @@ import (
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/coupling/signguard"
 	"github.com/ventd/ventd/internal/fallback"
+	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
@@ -627,8 +629,9 @@ func buildAcousticBudget(live *config.Config, chID string, preset controller.Pre
 		var (
 			rpm        float64
 			ok         bool
-			class      = defaultFanClassFor(f)
-			diameterMM = float64(120)
+			class      proxy.FanClass
+			diameterMM float64
+			bladeCount int
 		)
 		switch f.Type {
 		case "hwmon":
@@ -640,12 +643,19 @@ func buildAcousticBudget(live *config.Config, chID string, preset controller.Pre
 				continue
 			}
 			rpm, ok = float64(r), true
+			// hwmon fans honour the curated hwdb fan_profiles entry
+			// when present; otherwise resolveFanShape falls through
+			// to the name-hint heuristic + 120mm default. (#1283)
+			class, diameterMM, bladeCount = resolveFanShape(f)
 		case "nvidia":
 			r, err := readNvidiaFanRPM(f.PWMPath)
 			if err != nil || r <= 0 {
 				continue
 			}
 			rpm, ok = float64(r), true
+			// GPU fans use ClassGPUShroud + a name-hint diameter
+			// heuristic (#1282); the hwdb catalog doesn't carry
+			// per-GPU FanProfiles today.
 			class = proxy.ClassGPUShroud
 			diameterMM = nvidiaShroudDiameterMM(f.Name)
 		default:
@@ -657,6 +667,7 @@ func buildAcousticBudget(live *config.Config, chID string, preset controller.Pre
 		fans = append(fans, proxy.Fan{
 			Class:      class,
 			DiameterMM: diameterMM,
+			BladeCount: bladeCount,
 			RPM:        rpm,
 		})
 		if f.Name == chID || f.PWMPath == chID {
@@ -750,6 +761,81 @@ func nvidiaShroudDiameterMM(name string) float64 {
 		}
 	}
 	return 80
+}
+
+// fanProfileCatalogPtr is the catalog source of per-fan class +
+// diameter metadata. The daemon's startup wires the matched
+// BoardCatalogEntry here (when DMI / DT / chip-probe matched a
+// tier-1/1.5 board); buildAcousticBudget reads from it to replace
+// the name-hint heuristics with the curated catalog template.
+// Nil = no catalog match (no regression — falls back to defaults).
+// (#1283)
+var fanProfileCatalogPtr atomic.Pointer[hwdb.BoardCatalogEntry]
+
+// findMatchingBoardEntry returns the first hwdb board entry whose
+// DMI fingerprint matches the live host. Mirrors hwdb.MatchV1's tier-1
+// preference (skip wildcard-only "*" entries — those are tier-3
+// generics with no board-specific FanProfiles to contribute).
+// Returns nil when nothing matches. (#1283)
+func findMatchingBoardEntry(cat *hwdb.Catalog, dmi hwdb.DMIFingerprint) *hwdb.BoardCatalogEntry {
+	if cat == nil {
+		return nil
+	}
+	for _, entry := range cat.Boards {
+		if entry == nil || entry.DMIFingerprint == nil {
+			continue
+		}
+		if isWildcardDMIFingerprint(entry.DMIFingerprint) {
+			continue
+		}
+		if hwdb.MatchBoardEntry(entry, dmi, hwdb.LiveDTData{}, true) {
+			return entry
+		}
+	}
+	return nil
+}
+
+// isWildcardDMIFingerprint returns true when every field in the DMI
+// fingerprint is empty or "*". Tier-3 generic entries use this shape
+// and never carry board-specific FanProfiles. (#1283)
+func isWildcardDMIFingerprint(f *hwdb.BoardDMIFingerprint) bool {
+	if f == nil {
+		return true
+	}
+	wild := func(s string) bool { return s == "" || s == "*" }
+	return wild(f.SysVendor) && wild(f.ProductName) &&
+		wild(f.BoardVendor) && wild(f.BoardName) &&
+		wild(f.BoardVersion) && wild(f.BiosVersion)
+}
+
+// SetFanProfileCatalog publishes the matched board entry so the
+// smart-mode acoustic-budget builder can look up per-fan class +
+// diameter overrides. Safe to call multiple times: lock-free atomic
+// swap. Passing nil disables the catalog path (heuristics-only).
+// (#1283)
+func SetFanProfileCatalog(entry *hwdb.BoardCatalogEntry) {
+	fanProfileCatalogPtr.Store(entry)
+}
+
+// resolveFanShape returns the (class, diameter_mm, blade_count) for
+// a config fan. When the matched hwdb board entry has a FanProfile
+// keyed on this fan's PWM channel (the basename of f.PWMPath), the
+// catalog values take precedence; otherwise the name-hint heuristic
+// + 120mm default + per-class blade-count default applies. (#1283)
+func resolveFanShape(f config.Fan) (proxy.FanClass, float64, int) {
+	entry := fanProfileCatalogPtr.Load()
+	if entry != nil && f.Type == "hwmon" && f.PWMPath != "" {
+		channel := filepath.Base(f.PWMPath)
+		if fp, ok := hwdb.LookupFanProfile(entry, channel); ok {
+			class := proxy.FanClass(fp.Class)
+			diameter := float64(fp.DiameterMM)
+			if diameter <= 0 {
+				diameter = 120
+			}
+			return class, diameter, fp.DefaultBladeCount
+		}
+	}
+	return defaultFanClassFor(f), 120, 0
 }
 
 // defaultFanClassFor returns the acoustic-proxy FanClass for a config
