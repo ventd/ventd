@@ -180,6 +180,15 @@ type Controller struct {
 	// Used to detect the engagement transition and reset piState exactly once.
 	wasInPanic bool
 
+	// stuckFanWarnFired gates the once-per-daemon-lifetime
+	// slog.LevelWarn for the #757 "fan not spinning" surface. The
+	// controller emits a single Warn line the first time it sees a
+	// fresh tick land on this channel with the stuck pattern (PWM
+	// above the stiction floor, RPM=0). One emission per channel
+	// per daemon lifetime — the journal trail stays short while the
+	// dashboard banner + doctor surfaces own the recurring view.
+	stuckFanWarnFired bool
+
 	// fatalErr carries a fatal error from tick() to Run(). Size-1 buffer
 	// so tick can signal without blocking; Run reads it in the next select
 	// iteration and returns the error so systemd's Restart=on-failure fires.
@@ -620,8 +629,7 @@ func (c *Controller) tick() {
 			return
 		}
 		c.emitObservationFor(fan, pwm)
-		c.lastTickAt = now
-		c.hasLastTickAt = true
+		c.markTickCompleted(now, fan, pwm)
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
 		return
 	}
@@ -795,8 +803,7 @@ func (c *Controller) tick() {
 			// Hysteresis-suppressed ticks are still legitimate control
 			// ticks: the curve evaluated, the gate fired, the next tick
 			// should compute dt against this tick. Advance lastTickAt.
-			c.lastTickAt = now
-			c.hasLastTickAt = true
+			c.markTickCompleted(now, fan, c.lastPWM)
 			return
 		}
 	}
@@ -826,8 +833,7 @@ func (c *Controller) tick() {
 
 	// Legitimate control-loop tick committed. Advance lastTickAt so the
 	// next tick computes dt against this one (RULE-CTRL-DT-YIELD-01).
-	c.lastTickAt = now
-	c.hasLastTickAt = true
+	c.markTickCompleted(now, fan, pwm)
 
 	c.logger.Debug("controller: tick",
 		"sensors", sensors,
@@ -1175,6 +1181,58 @@ func (c *Controller) emitObservationFor(fan config.Fan, pwm uint8) {
 		SignatureLabel: label,
 		SensorReadings: sensors,
 	})
+}
+
+// markTickCompleted advances lastTickAt + hasLastTickAt and runs
+// the once-per-daemon-lifetime stuck-fan warn check (#757). All
+// successful tick sites in tick() (manual write, hysteresis hold,
+// curve-driven write) flow through this helper so the warn gate
+// is uniform.
+func (c *Controller) markTickCompleted(now time.Time, fan config.Fan, pwm uint8) {
+	c.lastTickAt = now
+	c.hasLastTickAt = true
+	c.maybeWarnStuckFan(fan, pwm)
+}
+
+// stuckFanWarnPWMFloor mirrors the doctor detector's
+// stuckFanMinimumPWM: a fan at PWM < this byte is below the
+// stiction floor for most chassis fans, so RPM=0 there is working
+// as intended, not a stuck-fan signal.
+const stuckFanWarnPWMFloor uint8 = 77 // 30% of 255
+
+// maybeWarnStuckFan emits one slog.LevelWarn the first time the
+// channel matches the "fan not spinning" pattern: a PWM above the
+// stiction floor was just committed and the tach reads zero. Gated
+// by c.stuckFanWarnFired so the journal trail stays short — the
+// dashboard banner + doctor surfaces own the recurring view.
+//
+// Only hwmon channels are evaluated; non-hwmon HAL backends report
+// RPM via their own paths and the polarity / phantom classifiers on
+// the read side already cover their stuck-fan analogs.
+func (c *Controller) maybeWarnStuckFan(fan config.Fan, pwm uint8) {
+	if c.stuckFanWarnFired {
+		return
+	}
+	if c.fanType != "hwmon" && c.fanType != "" {
+		return
+	}
+	if pwm < stuckFanWarnPWMFloor {
+		return
+	}
+	rpm := c.readRPMForObs(fan)
+	if rpm <= 0 {
+		// rpm == -1 means "tach read failed / not configured"; we
+		// cannot distinguish that from "fan dead", so emit anyway —
+		// the warn text below names the path so the operator can
+		// triage. The fire-once gate prevents log spam.
+		c.logger.Warn("controller: fan not spinning",
+			"pwm_path", c.pwmPath,
+			"fan", c.fanName,
+			"pwm", pwm,
+			"rpm", rpm,
+			"guidance", "run 'ventd doctor' for chip-mode and connector diagnosis")
+		c.stuckFanWarnFired = true
+	}
 }
 
 // readRPMForObs returns the current tach RPM for the channel, or -1

@@ -95,9 +95,20 @@ type TachReader func(path string) (int, error)
 // hwmon root (paired with a PWM or not) and classifies each as real /
 // mirror / phantom per the 5-sample baseline algorithm (#796).
 //
-// `sysFS` is rooted at /sys (same convention as ProbeConfig.SysFS);
-// `hwmonRoot` is the relative directory beneath /sys that holds the
-// hwmonN tree (production: "class/hwmon").
+// `sysFS` is the filesystem the classifier walks; `hwmonRoot` is the
+// fs.FS-relative directory containing the hwmonN subtree. The
+// production wiring is sysFS=os.DirFS("/sys"), hwmonRoot="class/hwmon";
+// the orchestrator integration uses sysFS=os.DirFS("/"),
+// hwmonRoot=strings.TrimPrefix(absHwmon, "/") so tests staged in a
+// t.TempDir() see TachPath values that point at the staged fixture
+// rather than the live host's /sys.
+//
+// `sysAbsRoot` is prepended to relative chipDir+name to construct
+// each MonitorChannel.TachPath. Pass "/sys" in production (matches
+// sysFS rooted at /sys), "/" when sysFS is rooted at the filesystem
+// root, or any absolute prefix the caller wants the TachReader to
+// open. Empty falls back to "/sys" for backwards compatibility with
+// the v1.0.0 single call signature.
 //
 // Synchronous and bounded: the function returns after
 // PhantomBaselineSamples × PhantomBaselineInterval (default 500ms)
@@ -108,11 +119,14 @@ type TachReader func(path string) (int, error)
 // existing ControllableChannel enumeration so the classifier can
 // surface PairedPWM on the MonitorChannel. The classifier itself
 // does not perform PWM writes — that's the polarity probe's job.
-func EnumerateMonitorChannels(sysFS fs.FS, hwmonRoot string, read TachReader, pairedPWMs map[string]string) []MonitorChannel {
+func EnumerateMonitorChannels(sysFS fs.FS, hwmonRoot, sysAbsRoot string, read TachReader, pairedPWMs map[string]string) []MonitorChannel {
 	if read == nil {
 		return nil
 	}
-	tachs := discoverTachFiles(sysFS, hwmonRoot)
+	if sysAbsRoot == "" {
+		sysAbsRoot = "/sys"
+	}
+	tachs := discoverTachFiles(sysFS, hwmonRoot, sysAbsRoot)
 	if len(tachs) == 0 {
 		return nil
 	}
@@ -237,22 +251,32 @@ type tachCandidate struct {
 }
 
 // discoverTachFiles walks every hwmonN directory under hwmonRoot
-// (relative to sysFS, which is rooted at /sys) and collects each
-// `fanN_input` file as a candidate. Errors during walk are swallowed
-// silently — the classifier degrades gracefully on a host with
-// partial sysfs (e.g. unprivileged read on /sys with a container's
-// restricted view). Honours the same `fs.FS` injection as the rest of
-// the probe package so tests can use an fstest.MapFS fixture.
+// (relative to sysFS) and collects each `fanN_input` file as a
+// candidate. Errors during walk are swallowed silently — the
+// classifier degrades gracefully on a host with partial sysfs (e.g.
+// unprivileged read on /sys with a container's restricted view).
+// Honours the same `fs.FS` injection as the rest of the probe
+// package so tests can use an fstest.MapFS fixture.
 //
-// Returns absolute paths beneath /sys so the caller can pass them
-// straight to a sysfs reader without re-rooting.
-func discoverTachFiles(sysFS fs.FS, hwmonRoot string) []tachCandidate {
+// sysAbsRoot is prepended to the fs.FS-relative chip dir + filename
+// to produce TachPath. Pass "/sys" when sysFS is rooted at /sys
+// (production) or "/" when sysFS is rooted at the filesystem root
+// (orchestrator integration). Either way callers receive TachPath
+// values they can hand straight to a sysfs reader.
+func discoverTachFiles(sysFS fs.FS, hwmonRoot, sysAbsRoot string) []tachCandidate {
 	if sysFS == nil {
 		return nil
 	}
 	entries, err := fs.ReadDir(sysFS, hwmonRoot)
 	if err != nil {
 		return nil
+	}
+	prefix := sysAbsRoot
+	if prefix == "" {
+		prefix = "/sys"
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
 	}
 	out := make([]tachCandidate, 0)
 	for _, e := range entries {
@@ -273,7 +297,7 @@ func discoverTachFiles(sysFS fs.FS, hwmonRoot string) []tachCandidate {
 			}
 			out = append(out, tachCandidate{
 				SourceID: hwmonName,
-				TachPath: "/sys/" + chipDir + "/" + name,
+				TachPath: prefix + chipDir + "/" + name,
 				Driver:   driver,
 			})
 		}

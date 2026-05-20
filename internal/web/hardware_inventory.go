@@ -17,6 +17,8 @@ import (
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/monitor"
+	"github.com/ventd/ventd/internal/probe"
+	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
 
 // historyCap is the per-sensor sample ring size. ~90 s at 1.5 s
@@ -69,6 +71,22 @@ var (
 // through to monitor.Scan(); tests swap to a fixed []monitor.Device
 // fixture so the handler is exercisable without a real /sys.
 var scanFn = monitor.Scan
+
+// loadMonitorChannelsFn is the orchestrator-state injection point
+// for the #796 phantom filter. Production reads state.json via
+// orchestrator.LoadMonitorChannels(orchestratorStateDir); tests
+// inject a literal slice. Returns ([], nil) when no classifications
+// are persisted yet — callers treat that as "show everything".
+var loadMonitorChannelsFn = func() ([]probe.MonitorChannel, error) {
+	return orchestrator.LoadMonitorChannels(orchestratorStateDir)
+}
+
+// includePhantomsQueryKey gates whether the dashboard surfaces
+// mirror / phantom fan*_input rows. Default-off matches the #796
+// design intent: the user with one physical fan sees one row.
+// Operators opt in via the Settings → "Show all sensors" toggle,
+// which appends the query param to subsequent inventory fetches.
+const includePhantomsQueryKey = "include_phantoms"
 
 func recordHistory(key string, v float64) []float64 {
 	historyMu.Lock()
@@ -144,6 +162,24 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 
 	devices := scanFn()
 	cfg := s.cfg.Load()
+
+	// #796 phantom filter — build a tach_path → visibility lookup
+	// from the orchestrator's most-recent ApplyArtifact (falls back
+	// to ProbeArtifact pre-Apply, empty pre-wizard). When the query
+	// param `include_phantoms=1` is absent, the inventory hides any
+	// `fan*_input` reading whose visibility is mirror or phantom so
+	// a 4-tach-zone EC with 1 physical fan renders as 1 row instead
+	// of 4. Operators reveal phantoms by toggling the Settings
+	// "Show all sensors" switch, which appends the query param.
+	visByTach := map[string]probe.MonitorChannelVisibility{}
+	if chs, err := loadMonitorChannelsFn(); err == nil {
+		for _, ch := range chs {
+			visByTach[ch.TachPath] = ch.Visibility
+		}
+	} else {
+		s.logger.Warn("web: load monitor channels", "err", err)
+	}
+	includePhantoms := r.URL.Query().Get(includePhantomsQueryKey) == "1"
 
 	// Build alias-by-path indices for fast lookup. Sensors and fans
 	// are keyed by their sysfs path, which is also the
@@ -228,6 +264,19 @@ func (s *Server) handleHardwareInventory(w http.ResponseWriter, r *http.Request)
 		bus := chipBus(d)
 		sensorsOut := make([]InventorySensor, 0, len(d.Readings))
 		for _, rd := range d.Readings {
+			// #796 phantom filter: drop fan*_input readings whose
+			// probe-time visibility verdict is mirror or phantom,
+			// unless the operator opted in via `include_phantoms=1`.
+			// Non-fan readings (temp / volt / power) flow through
+			// untouched — the classifier has nothing to say about
+			// them. NVML readings sit outside the hwmon tach
+			// classifier entirely, so they're never filtered here.
+			if !includePhantoms && rd.SensorType == "hwmon" && rd.Unit == "RPM" {
+				if vis, ok := visByTach[rd.SensorPath]; ok && vis != probe.VisibilityReal {
+					continue
+				}
+			}
+
 			// Stable per-(chip, reading) sensor ID. The hwmon path is
 			// already unique per reading (.../temp1_input vs ../fan1_input
 			// etc.). The NVML path is just the GPU index ("0") and is

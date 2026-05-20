@@ -9,6 +9,7 @@ import (
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/monitor"
+	"github.com/ventd/ventd/internal/probe"
 )
 
 // stubScan returns a fixed device fixture so the handler is
@@ -232,6 +233,129 @@ func TestHardwareInventory_PositionPropagated(t *testing.T) {
 // liveCfg.Store(...) used in the test-server constructor.
 func pinCfg(srv *Server, cfg *config.Config) {
 	(*atomic.Pointer[config.Config])(srv.cfg).Store(cfg)
+}
+
+// pinMonitorChannels swaps the orchestrator-state loader for the
+// duration of the test so the inventory handler sees a deterministic
+// classification set without touching /var/lib/ventd. Reverts on
+// t.Cleanup.
+func pinMonitorChannels(t *testing.T, chs []probe.MonitorChannel) {
+	t.Helper()
+	prev := loadMonitorChannelsFn
+	t.Cleanup(func() { loadMonitorChannelsFn = prev })
+	loadMonitorChannelsFn = func() ([]probe.MonitorChannel, error) { return chs, nil }
+}
+
+// TestHardwareInventory_HidesPhantomTachsByDefault covers the
+// minipc HIL case from #796: a chip exposes 4 fan*_input zones
+// (1 real + 2 mirrors + 1 phantom) plus a temp sensor. By default
+// the inventory returns the real fan + the temp sensor (mirror /
+// phantom rows dropped). With `?include_phantoms=1` the full set
+// is returned — the operator opted in via Settings.
+func TestHardwareInventory_HidesPhantomTachsByDefault(t *testing.T) {
+	resetInventoryFixtures(t)
+
+	fan1 := "/sys/class/hwmon/hwmon3/fan1_input" // real
+	fan2 := "/sys/class/hwmon/hwmon3/fan2_input" // mirror of fan1
+	fan3 := "/sys/class/hwmon/hwmon3/fan3_input" // mirror of fan1
+	fan4 := "/sys/class/hwmon/hwmon3/fan4_input" // phantom (all-zero, no PWM)
+	temp1 := "/sys/class/hwmon/hwmon3/temp1_input"
+
+	scanFn = stubScan([]monitor.Device{{
+		Name: "Intel EC", Path: "hwmon3",
+		Readings: []monitor.Reading{
+			{Label: "Package", Value: 55.0, Unit: "°C", SensorType: "hwmon", SensorPath: temp1},
+			{Label: "fan1", Value: 1500, Unit: "RPM", SensorType: "hwmon", SensorPath: fan1},
+			{Label: "fan2", Value: 1500, Unit: "RPM", SensorType: "hwmon", SensorPath: fan2},
+			{Label: "fan3", Value: 1500, Unit: "RPM", SensorType: "hwmon", SensorPath: fan3},
+			{Label: "fan4", Value: 0, Unit: "RPM", SensorType: "hwmon", SensorPath: fan4},
+		},
+	}})
+
+	pinMonitorChannels(t, []probe.MonitorChannel{
+		{TachPath: fan1, Visibility: probe.VisibilityReal},
+		{TachPath: fan2, Visibility: probe.VisibilityMirror, MirrorOf: fan1},
+		{TachPath: fan3, Visibility: probe.VisibilityMirror, MirrorOf: fan1},
+		{TachPath: fan4, Visibility: probe.VisibilityPhantom},
+	})
+
+	srv := newVersionTestServer(t)
+	pinCfg(srv, config.Empty())
+
+	// Default request — phantoms hidden.
+	w := httptest.NewRecorder()
+	srv.handleHardwareInventory(w, httptest.NewRequest(http.MethodGet, "/api/v1/hardware/inventory", nil))
+	var got InventoryResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Chips) != 1 {
+		t.Fatalf("got %d chips, want 1", len(got.Chips))
+	}
+	defaultIDs := map[string]bool{}
+	for _, s := range got.Chips[0].Sensors {
+		defaultIDs[s.ID] = true
+	}
+	if !defaultIDs[temp1] {
+		t.Errorf("default view should keep temp1 (non-fan readings unaffected by the filter)")
+	}
+	if !defaultIDs[fan1] {
+		t.Errorf("default view should keep fan1 (real channel)")
+	}
+	for _, p := range []string{fan2, fan3, fan4} {
+		if defaultIDs[p] {
+			t.Errorf("default view leaked phantom/mirror %q — should be hidden until include_phantoms=1", p)
+		}
+	}
+
+	// Opt-in request — every channel surfaces.
+	w = httptest.NewRecorder()
+	srv.handleHardwareInventory(w, httptest.NewRequest(http.MethodGet, "/api/v1/hardware/inventory?include_phantoms=1", nil))
+	var got2 InventoryResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got2.Chips) != 1 {
+		t.Fatalf("got %d chips on include_phantoms=1, want 1", len(got2.Chips))
+	}
+	if len(got2.Chips[0].Sensors) != 5 {
+		t.Errorf("include_phantoms=1 should surface all 5 readings (1 temp + 4 fans); got %d",
+			len(got2.Chips[0].Sensors))
+	}
+}
+
+// TestHardwareInventory_PhantomFilterNoOpWithoutClassifications
+// pins the pre-wizard fallback: when LoadMonitorChannels returns
+// an empty slice (state.json missing or no Probe / Apply outcome
+// yet), the filter degrades to a no-op. Without this, a fresh
+// install would hide every fan because the visByTach map is empty
+// and the strict "vis == real" check would drop everything.
+func TestHardwareInventory_PhantomFilterNoOpWithoutClassifications(t *testing.T) {
+	resetInventoryFixtures(t)
+
+	fan1 := "/sys/class/hwmon/hwmon0/fan1_input"
+	fan2 := "/sys/class/hwmon/hwmon0/fan2_input"
+	scanFn = stubScan([]monitor.Device{{
+		Name: "Super-I/O", Path: "hwmon0",
+		Readings: []monitor.Reading{
+			{Label: "fan1", Value: 1100, Unit: "RPM", SensorType: "hwmon", SensorPath: fan1},
+			{Label: "fan2", Value: 1200, Unit: "RPM", SensorType: "hwmon", SensorPath: fan2},
+		},
+	}})
+
+	pinMonitorChannels(t, nil) // no classifications yet — first boot.
+
+	srv := newVersionTestServer(t)
+	pinCfg(srv, config.Empty())
+
+	w := httptest.NewRecorder()
+	srv.handleHardwareInventory(w, httptest.NewRequest(http.MethodGet, "/api/v1/hardware/inventory", nil))
+	var got InventoryResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Chips) != 1 || len(got.Chips[0].Sensors) != 2 {
+		t.Fatalf("pre-wizard inventory should pass every reading through; got %d chips / %d sensors",
+			len(got.Chips), len(got.Chips[0].Sensors))
+	}
 }
 
 // TestHardwareInventory_NVMLAliasKeyedByMetric pins the regression on

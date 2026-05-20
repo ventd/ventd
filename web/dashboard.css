@@ -104,6 +104,39 @@
 }
 .dash-demo-banner-action:hover { color: var(--fg1); }
 
+/* Stuck-fan banner (#757) — same shape as the demo banner but a
+ * distinct color so the operator can tell at a glance that this is
+ * "a fan needs attention" rather than "the dashboard lost its
+ * upstream". Surfaces whenever the doctor's stuck_fan_diagnosis
+ * detector returns at least one Warning; auto-hides as soon as
+ * the channel starts spinning or the operator dismisses via the
+ * doctor page. */
+.dash-stuck-fan-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: var(--amber-bg);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  color: var(--amber);
+  font-size: 0.82rem;
+  margin-bottom: 16px;
+}
+.dash-stuck-fan-banner-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dash-demo-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.dash-stuck-fan-banner-action {
+  margin-left: auto;
+  color: var(--amber);
+  text-decoration: underline;
+  font-weight: 500;
+}
+.dash-stuck-fan-banner-action:hover { color: var(--fg1); }
+
 /* ── section heads ────────────────────────────────────────── */
 .dash-section { display: flex; flex-direction: column; gap: 12px; }
 .dash-section-head {

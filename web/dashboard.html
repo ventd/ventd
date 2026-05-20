@@ -106,6 +106,21 @@
         <a href="/login" class="dash-demo-banner-action">Re-authenticate</a>
       </div>
 
+      <!-- Stuck-fan banner — surfaces a warning whenever the doctor's
+           `stuck_fan_diagnosis` detector returns at least one Fact
+           (#757). One or more fans are not spinning at a duty cycle
+           that should drive them; the most common cause is a BIOS
+           Smart Fan / Q-Fan misconfiguration. The "View diagnosis"
+           link opens the doctor page where each affected channel
+           has per-vendor remediation guidance. The banner auto-
+           hides the moment the doctor reports zero stuck-fan facts
+           (operator fixed the BIOS or re-ran setup). -->
+      <div class="dash-stuck-fan-banner" id="dash-stuck-fan-banner" hidden role="status" aria-live="polite">
+        <span class="dash-stuck-fan-banner-dot"></span>
+        <span id="dash-stuck-fan-banner-text">One or more fans are not spinning.</span>
+        <a href="/doctor" class="dash-stuck-fan-banner-action">View diagnosis</a>
+      </div>
+
       <!-- Decision-narration strip — plain single-line narration of the
            most recent real PWM transition observed by the alive overlay.
            Sourced from the diff of fan duty across consecutive polls;

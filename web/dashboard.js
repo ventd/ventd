@@ -906,6 +906,7 @@
     smart: null,             // /api/v1/smart/status payload
     channels: null,          // /api/v1/smart/channels payload
     opp: null,               // /api/v1/probe/opportunistic/status payload
+    doctor: null,            // /api/v1/doctor payload (drives stuck-fan banner, #757)
     lastFanDuty: {},         // fan-name → last seen duty_pct (for sparkline + tile intent)
     fanDutyWindow: {},       // fan-name → array of last ALIVE_DECISION_WINDOW duty_pct values
     fanLastDecisionAt: {},   // fan-name → epoch ms of last emitted decision (rate limit)
@@ -935,30 +936,78 @@
     });
   }
 
-  /* aliveTick: parallel poll of the four alive-overlay endpoints.
+  /* inventoryURL: builds the /api/v1/hardware/inventory URL, honouring
+     the Settings → "Show all sensors" toggle (#796). When the local
+     preference 'ventd-show-phantoms' is set, the query param
+     `include_phantoms=1` is appended so the backend skips the
+     mirror / phantom filter and returns every fan*_input row. */
+  function inventoryURL() {
+    var include = false;
+    try { include = localStorage.getItem('ventd-show-phantoms') === '1'; } catch (_) {}
+    return include
+      ? '/api/v1/hardware/inventory?include_phantoms=1'
+      : '/api/v1/hardware/inventory';
+  }
+
+  /* aliveTick: parallel poll of the five alive-overlay endpoints.
      Coalesces into a single render pass. Failures are downgraded
      to "feature absent" — the overlay degrades gracefully rather
      than putting a banner in the user's face (the steady-state
-     dashboard already owns the demo banner for /api/v1/status). */
+     dashboard already owns the demo banner for /api/v1/status).
+     #757 adds the /api/v1/doctor poll so the stuck-fan banner
+     stays in sync with the doctor's classification. */
   function aliveTick() {
     Promise.all([
-      aliveFetchJSON('/api/v1/hardware/inventory').catch(function () { return null; }),
+      aliveFetchJSON(inventoryURL()).catch(function () { return null; }),
       aliveFetchJSON('/api/v1/smart/status').catch(function () { return null; }),
       aliveFetchJSON('/api/v1/smart/channels').catch(function () { return null; }),
-      aliveFetchJSON('/api/v1/probe/opportunistic/status').catch(function () { return null; })
+      aliveFetchJSON('/api/v1/probe/opportunistic/status').catch(function () { return null; }),
+      aliveFetchJSON('/api/v1/doctor').catch(function () { return null; })
     ]).then(function (rs) {
       aliveState.inventory = rs[0];
       aliveState.smart     = rs[1];
       aliveState.channels  = rs[2];
       aliveState.opp       = rs[3];
+      aliveState.doctor    = rs[4];
       aliveState.pollOk = true;
       aliveRenderHeroForecast();
       aliveRenderInsightRail();
       aliveRenderNarrator(false);
       aliveUpdateOppPill();
+      aliveRenderStuckFanBanner();
     }).catch(function () {
       aliveState.pollOk = false;
     });
+  }
+
+  /* aliveRenderStuckFanBanner: surfaces the stuck-fan banner when
+     the doctor's stuck_fan_diagnosis detector reports one or more
+     Warning facts (#757). The banner text counts affected channels
+     so the operator sees "3 fans not spinning" rather than the
+     plural-aware default. Hidden when the doctor returns zero
+     stuck-fan facts. */
+  function aliveRenderStuckFanBanner() {
+    var banner = document.getElementById('dash-stuck-fan-banner');
+    var text   = document.getElementById('dash-stuck-fan-banner-text');
+    if (!banner || !text) return;
+    var rep = aliveState.doctor;
+    var n = 0;
+    if (rep && Array.isArray(rep.facts)) {
+      for (var i = 0; i < rep.facts.length; i++) {
+        var f = rep.facts[i];
+        if (f && f.detector === 'stuck_fan_diagnosis' && f.severity !== 'ok') {
+          n++;
+        }
+      }
+    }
+    if (n === 0) {
+      banner.hidden = true;
+      return;
+    }
+    text.textContent = n === 1
+      ? 'One fan is not spinning. ventd has the diagnostic data.'
+      : (n + ' fans are not spinning. ventd has the diagnostic data.');
+    banner.hidden = false;
   }
 
   /* aliveExtractSensorHistory: pull the 60-sample history array for

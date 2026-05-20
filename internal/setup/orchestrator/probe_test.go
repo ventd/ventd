@@ -170,3 +170,64 @@ func TestProbePhase_NoPairedFanInputLeavesRPMPathEmpty(t *testing.T) {
 		t.Error("PWMPath should always be populated")
 	}
 }
+
+// TestProbePhase_PopulatesMonitorChannels covers the #796 wiring:
+// ProbePhase must call EnumerateMonitorChannels and surface the
+// per-channel visibility verdicts on the artifact so ApplyPhase and
+// the dashboard can filter ghost fans. Stages a real chip with one
+// controllable PWM + a paired fan1_input, plus a second unpaired
+// fan2_input on the same chip. Asserts:
+//   - len(MonitorChannels) == 2 (one per fan*_input file)
+//   - the paired channel has PairedPWM populated
+//   - the unpaired all-zero channel is classified phantom
+//
+// Detailed verdict-rule coverage (real / mirror / phantom transitions,
+// MirrorOf back-references) lives in probe.tach_classify_test.go; this
+// test asserts only the orchestrator-side wiring (artifact field,
+// pairedPWMs derivation from art.Fans).
+func TestProbePhase_PopulatesMonitorChannels(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	// pwm1 controllable + fan1_input non-zero → real (paired).
+	stageProbeFixture(t, root, "nct6687", []pwmFixture{
+		{idx: 1, hasEnable: true, hasFanInput: true},
+	})
+	// Add an unpaired fan2_input reading 0 in the same hwmon0 chip
+	// dir so the classifier sees the phantom case alongside.
+	chipDir := filepath.Join(root, "hwmon0")
+	if err := os.WriteFile(filepath.Join(chipDir, "fan2_input"), []byte("0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rc := &RunContext{HwmonRoot: root}
+	out := (ProbePhase{}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	var art ProbeArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(art.MonitorChannels) != 2 {
+		t.Fatalf("expected 2 monitor channels (fan1_input + fan2_input); got %d: %+v",
+			len(art.MonitorChannels), art.MonitorChannels)
+	}
+
+	byTach := map[string]bool{}
+	var paired, phantom int
+	for _, ch := range art.MonitorChannels {
+		byTach[ch.TachPath] = true
+		if ch.PairedPWM != "" {
+			paired++
+		}
+		if ch.Visibility == "phantom" {
+			phantom++
+		}
+	}
+	if paired != 1 {
+		t.Errorf("expected exactly 1 paired channel; got %d (%+v)", paired, art.MonitorChannels)
+	}
+	if phantom != 1 {
+		t.Errorf("expected fan2_input classified phantom (all-zero, no paired PWM); got phantom=%d (%+v)",
+			phantom, art.MonitorChannels)
+	}
+}

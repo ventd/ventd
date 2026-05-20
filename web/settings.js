@@ -51,6 +51,26 @@
         paintSegment('unit-seg', b.dataset.value);
       });
     });
+    // Phantom-sensor reveal (#796). Persists the operator's "show
+    // mirror + phantom fan*_input zones" choice in localStorage as
+    // 'ventd-show-phantoms'. The dashboard reads this key on each
+    // /api/v1/hardware/inventory fetch and appends
+    // ?include_phantoms=1 when truthy.
+    var phantomToggle = $('set-show-phantoms');
+    if (phantomToggle) {
+      var stored = false;
+      try { stored = localStorage.getItem('ventd-show-phantoms') === '1'; } catch (_) {}
+      phantomToggle.checked = stored;
+      phantomToggle.addEventListener('change', function () {
+        try {
+          if (phantomToggle.checked) {
+            localStorage.setItem('ventd-show-phantoms', '1');
+          } else {
+            localStorage.removeItem('ventd-show-phantoms');
+          }
+        } catch (_) {}
+      });
+    }
   }
   initSegments();
   var topThemeBtn = $('theme-toggle');

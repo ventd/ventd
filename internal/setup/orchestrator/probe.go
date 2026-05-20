@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/recovery"
 )
 
@@ -71,6 +72,16 @@ type ProbeArtifact struct {
 	// gets a gentler middle-band rise than a 250W HEDT chip across
 	// the same temperature anchors.
 	CPUTDPW int `json:"cpu_tdp_w,omitempty"`
+	// MonitorChannels is the read-side classification of every
+	// `fan*_input` file under HwmonRoot — distinct from Fans (which
+	// is only the controllable PWM channels). The minipc HIL case:
+	// 1 controllable PWM + 4 fan*_input zones → Fans has 1 entry,
+	// MonitorChannels has 4 (1 real + 2 mirrors + 1 phantom). The
+	// daemon's hardware-inventory endpoint filters non-real entries
+	// out of the dashboard by default; operators reveal them via
+	// the `?include_phantoms=1` query param backed by a Settings
+	// toggle (#796).
+	MonitorChannels []probe.MonitorChannel `json:"monitor_channels,omitempty"`
 }
 
 // ProbePhase enumerates controllable PWM channels under HwmonRoot and
@@ -142,9 +153,26 @@ func (p ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		return art.Fans[i].Index < art.Fans[j].Index
 	})
 
+	// Read-side classification of every fan*_input under the same
+	// hwmon root (#796). Includes channels with no controllable PWM
+	// surface — those are the dashboard "ghost fans" the user wants
+	// hidden by default. Synchronous + bounded (default 500ms baseline
+	// window) and degrades to nil when sysfs isn't walkable. The
+	// pairedPWMs map carries the same-index pairing ProbePhase
+	// already discovered above so the classifier can attach a
+	// paired_pwm reference per channel.
+	pairedPWMs := make(map[string]string, len(art.Fans))
+	for _, f := range art.Fans {
+		if f.RPMPath != "" {
+			pairedPWMs[f.RPMPath] = f.PWMPath
+		}
+	}
+	art.MonitorChannels = enumerateMonitorChannelsAt(root, pairedPWMs)
+
 	rc.Log().Info("probe complete",
 		"hwmon_root", root,
-		"controllable_pwms", len(art.Fans))
+		"controllable_pwms", len(art.Fans),
+		"monitor_channels", len(art.MonitorChannels))
 
 	raw, err := EncodeArtifact(art)
 	if err != nil {
@@ -245,6 +273,36 @@ func readChipNameFromDir(chipDir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// enumerateMonitorChannelsAt classifies every `fan*_input` file under
+// an absolute hwmon root via probe.EnumerateMonitorChannels. The
+// orchestrator works in absolute paths (rc.HwmonRoot is "/sys/class/
+// hwmon" in production, a t.TempDir()/sys/class/hwmon in tests); the
+// classifier's fs.FS API expects a relative path under a sys-rooted
+// filesystem. This helper bridges by mounting os.DirFS at "/" and
+// stripping the leading slash from hwmonAbsRoot. The TachReader uses
+// the same hwmon.ReadRPMPath the live runtime does so test fixtures
+// staged on real disk read back the staged RPM values without
+// trapdoors. Returns nil silently when the root is unreadable —
+// classification is best-effort; an inability to enumerate
+// monitor channels is not an error worth failing ProbePhase over.
+func enumerateMonitorChannelsAt(hwmonAbsRoot string, pairedPWMs map[string]string) []probe.MonitorChannel {
+	if hwmonAbsRoot == "" {
+		return nil
+	}
+	rel := strings.TrimPrefix(hwmonAbsRoot, "/")
+	if rel == "" {
+		return nil
+	}
+	sysFS := os.DirFS("/")
+	read := func(p string) (int, error) { return hwmon.ReadRPMPath(p) }
+	// sysAbsRoot="/" because sysFS is mounted at the filesystem root,
+	// so chipDir is the absolute path with the leading slash stripped.
+	// TachPath comes back as "/<chipDir>/<name>" — directly openable
+	// by hwmon.ReadRPMPath in both production (`/sys/...`) and tests
+	// (`/tmp/X/sys/...`).
+	return probe.EnumerateMonitorChannels(sysFS, rel, "/", read, pairedPWMs)
 }
 
 // synthesiseLabel produces a best-effort human-facing fan label.
