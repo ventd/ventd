@@ -52,6 +52,34 @@ type ApplyArtifact struct {
 	// pwm<N>_enable restored to the probe-time value. Surfaced for
 	// the doctor page so operators can see whether the cleanup ran.
 	EnableRestored int `json:"enable_restored,omitempty"`
+
+	// Uncontrollable lists hwmon fans excluded from the applied config
+	// because the wizard could not find a correlated RPM sensor for
+	// them (#598, RULE-CAL-UNCONTROLLABLE-MARK). Driving a PWM channel
+	// with no observable RPM means the daemon has no closed-loop
+	// signal — the channel is either BIOS-controlled (firmware
+	// overrides daemon writes), physically disconnected, or a
+	// voltage-mode 3-pin fan whose tach was wired to a non-paired
+	// header. ApplyPhase emits the entries so the doctor surface +
+	// dashboard can show the operator which channels were left out
+	// and why; the channels stay in monitor-only as raw PWM/RPM rows
+	// (no curve assignment, no control).
+	Uncontrollable []UncontrollableFan `json:"uncontrollable,omitempty"`
+}
+
+// UncontrollableFan describes one channel that was excluded from the
+// applied config because no tach correlated with its PWM writes during
+// the wizard's RPMDetect / Calibrate phases (#598).
+type UncontrollableFan struct {
+	PWMPath  string `json:"pwm_path"`
+	Label    string `json:"label"`
+	ChipName string `json:"chip_name"`
+	// Reason is one of:
+	//   "no_sensor_correlated"   — RPMDetect's PWM ramp found no fan*_input
+	//                              moving in correlation. Possible causes:
+	//                              BIOS-controlled channel, disconnected
+	//                              header, 3-pin DC fan on a PWM-only chip.
+	Reason string `json:"reason"`
 }
 
 // ApplyPhase writes the daemon's config.yaml from prior phases'
@@ -139,10 +167,18 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	// RPMDetectArtifact is best-effort: missing → ApplyPhase uses
 	// ProbeArtifact's same-index pairing without overrides.
 	rpmOverrides := map[string]string{}
+	// #598: PWMPaths that RPMDetect actively swept and found NO
+	// correlation for. ApplyPhase excludes these channels from
+	// active control because the daemon has no closed-loop RPM
+	// signal to drive against.
+	uncontrollablePaths := map[string]bool{}
 	if rpmArt, rpmErr := loadRPMDetectArtifact(rc); rpmErr == nil {
 		for _, r := range rpmArt.Results {
 			if r.Improved && r.ResolvedRPM != "" {
 				rpmOverrides[r.PWMPath] = r.ResolvedRPM
+			}
+			if r.Uncontrollable {
+				uncontrollablePaths[r.PWMPath] = true
 			}
 		}
 	}
@@ -173,7 +209,7 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	// CPU model; buildConfig falls through to the 95°C blanket.
 	sysclassTjmax := sysclass.TjmaxFromCPUInfo()
 
-	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor, sysclassTjmax, probeArt.CPUTDPW)
+	cfg, uncontrollable := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, uncontrollablePaths, nvmlFans, cpuSensor, sysclassTjmax, probeArt.CPUTDPW)
 	monitorOnly := len(cfg.Controls) == 0
 	nonMonoFans := nonMonotonicSummary(calByPath, cfg.Fans)
 
@@ -248,8 +284,24 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		MonitorOnly:    monitorOnly,
 		MonitorReason:  monitorReason,
 		EnableRestored: enableRestored,
+		Uncontrollable: uncontrollable,
 	}
 	raw, _ := EncodeArtifact(art)
+
+	// #598: surface uncontrollable channels in the journal and the
+	// event sink so operators see exactly which fans were left out
+	// and why. The doctor surface and dashboard banner (#757) consume
+	// the structured artifact field; this is the first-line emission.
+	for _, u := range uncontrollable {
+		rc.Log().Warn("apply: channel excluded as uncontrollable",
+			"pwm_path", u.PWMPath,
+			"label", u.Label,
+			"chip", u.ChipName,
+			"reason", u.Reason)
+		rc.Sink().Emit("warn", "apply",
+			fmt.Sprintf("excluded %s (%s): %s — daemon cannot drive a fan without a correlated tach",
+				u.Label, u.ChipName, u.Reason))
+	}
 
 	rc.Sink().Emit("info", "apply",
 		fmt.Sprintf("config written to %s (%d fan(s); monitor-only=%v)",
@@ -298,11 +350,13 @@ func buildConfig(
 	polByPath map[string]string,
 	calByPath map[string]CalibrateFanResult,
 	rpmOverrides map[string]string,
+	uncontrollablePaths map[string]bool,
 	nvmlFans []NVMLGPUFan,
 	cpuSensor DiscoveredSensor,
 	sysclassTjmax float64,
 	cpuTDPW int,
-) *config.Config {
+) (*config.Config, []UncontrollableFan) {
+	var uncontrollable []UncontrollableFan
 	cfg := &config.Config{
 		Version:      1,
 		PollInterval: config.Duration{Duration: 2 * time.Second},
@@ -365,6 +419,32 @@ func buildConfig(
 			}
 		}
 
+		// #598 RULE-CAL-UNCONTROLLABLE-MARK: a hwmon fan whose
+		// RPMDetect sweep finished with no correlated tach has no
+		// closed-loop signal; the daemon cannot safely drive it.
+		// Exclude from cfg.Fans and record the exclusion in the
+		// returned uncontrollable slice so the caller can surface it
+		// in the artifact + doctor + dashboard. Distinct from the
+		// polarity=phantom path (no PWM surface) and the
+		// calibrate.Phantom path (PWM works but RPM stayed zero
+		// during the sweep) — this is the "RPMDetect found no
+		// correlation" case.
+		//
+		// The decision is gated on uncontrollablePaths so a test
+		// (or a wizard run that skipped RPMDetect) still admits
+		// fans with empty RPMPath using the pre-#598 behaviour.
+		// Only fans RPMDetect actively cleared as uncontrollable
+		// get excluded here.
+		if uncontrollablePaths[fan.PWMPath] {
+			uncontrollable = append(uncontrollable, UncontrollableFan{
+				PWMPath:  fan.PWMPath,
+				Label:    fan.LabelHint,
+				ChipName: fan.ChipName,
+				Reason:   "no_sensor_correlated",
+			})
+			continue
+		}
+
 		cfg.Fans = append(cfg.Fans, config.Fan{
 			Name:        fan.LabelHint,
 			Type:        "hwmon",
@@ -417,7 +497,7 @@ func buildConfig(
 	// Active control only when we have BOTH a sensor and at least
 	// one fan. Otherwise stay monitor-only.
 	if cpuSensor.Path == "" || len(cfg.Fans) == 0 {
-		return cfg
+		return cfg, uncontrollable
 	}
 
 	// Curve ceiling: prefer the chip's hwmon tempN_crit (TjMax
@@ -473,7 +553,7 @@ func buildConfig(
 		})
 	}
 
-	return cfg
+	return cfg, uncontrollable
 }
 
 // perFanCurveName produces a stable, schema-safe curve identifier from

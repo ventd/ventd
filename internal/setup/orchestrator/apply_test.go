@@ -192,3 +192,92 @@ func TestApplyPhase_MissingProbeArtifactFails(t *testing.T) {
 		t.Errorf("missing prior ProbePhase should yield Failed, got %q", out.Status)
 	}
 }
+
+// seedRPMDetectCheckpoint writes an RPMDetectArtifact under the state
+// dir so ApplyPhase has something to consume. Used by the #598
+// uncontrollable-channel test below.
+func seedRPMDetectCheckpoint(t *testing.T, rc *RunContext, art RPMDetectArtifact) {
+	t.Helper()
+	store := NewCheckpointStore(rc.StateDir)
+	state, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(art)
+	state.Outcomes[(RPMDetectPhase{}).Name()] = Outcome{
+		Phase:    (RPMDetectPhase{}).Name(),
+		Status:   StatusSuccess,
+		Artifact: raw,
+	}
+	if err := store.Save(state); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestApplyPhase_UncontrollableFromRPMDetectExcludesFan verifies the
+// #598 path: when RPMDetect's sweep found no fan_input correlation for
+// a channel, ApplyPhase excludes the channel from the active control
+// config and records the exclusion in ApplyArtifact.Uncontrollable.
+//
+// The reason this is gated on the RPMDetect flag (not just empty
+// RPMPath) is so tests without RPMDetect artifacts still admit fans
+// with the pre-#598 behaviour — only fans RPMDetect actively cleared
+// as uncontrollable are excluded.
+func TestApplyPhase_UncontrollableFromRPMDetectExcludesFan(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+
+	const goodPath = "/sys/hwmon0/pwm1"
+	const badPath = "/sys/hwmon0/pwm2"
+
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{Index: 1, PWMPath: goodPath, RPMPath: "/sys/hwmon0/fan1_input", ChipName: "nct6687", LabelHint: "Cpu Fan"},
+			{Index: 2, PWMPath: badPath, ChipName: "nct6687", LabelHint: "Mystery Fan"}, // no tach paired by probe
+		},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{
+			{PWMPath: goodPath, Polarity: "normal"},
+			{PWMPath: badPath, Polarity: "normal"}, // PWM works but no RPM tach
+		},
+	})
+	// Pre-#598: this fan would be added with RPMPath="" and the
+	// daemon would silently fail to monitor it. With Uncontrollable=true
+	// in the RPMDetectArtifact, ApplyPhase excludes it.
+	seedRPMDetectCheckpoint(t, rc, RPMDetectArtifact{
+		Results: []RPMDetectFanResult{
+			{PWMPath: badPath, Uncontrollable: true, Skipped: "no fan_input responded to PWM ramp"},
+		},
+	})
+
+	out := (ApplyPhase{ConfigPath: cfgPath}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	var art ApplyArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("decode artifact: %v", err)
+	}
+	if len(art.Uncontrollable) != 1 {
+		t.Fatalf("artifact should record 1 uncontrollable fan; got %d (%+v)", len(art.Uncontrollable), art.Uncontrollable)
+	}
+	if art.Uncontrollable[0].PWMPath != badPath {
+		t.Errorf("uncontrollable.PWMPath=%q want %q", art.Uncontrollable[0].PWMPath, badPath)
+	}
+	if art.Uncontrollable[0].Reason != "no_sensor_correlated" {
+		t.Errorf("uncontrollable.Reason=%q want %q", art.Uncontrollable[0].Reason, "no_sensor_correlated")
+	}
+
+	// The good fan still made it through.
+	body, _ := os.ReadFile(cfgPath)
+	var cfg config.Config
+	_ = yaml.Unmarshal(body, &cfg)
+	if len(cfg.Fans) != 1 {
+		t.Fatalf("cfg.Fans len=%d want 1 (only the good fan); got %+v", len(cfg.Fans), cfg.Fans)
+	}
+	if cfg.Fans[0].PWMPath != goodPath {
+		t.Errorf("admitted fan PWMPath=%q want %q", cfg.Fans[0].PWMPath, goodPath)
+	}
+}
