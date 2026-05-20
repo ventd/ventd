@@ -134,6 +134,24 @@ type Result struct {
 	// RPMCurve holds the per-step samples for an RPM-target sweep. Unused in
 	// PWM mode.
 	RPMCurve []RPMTargetPoint `json:"rpm_curve,omitempty"`
+	// Phantom marks the channel as not usefully controllable when set. The
+	// sweep ran to whatever point a hardware-side fault permitted; the field
+	// signals the orchestrator's ApplyPhase to exclude it from the active
+	// config rather than treating the partial PWM-side data as authoritative.
+	//
+	// Issue #755: a persistent RPM-sentinel (0xFFFF / implausible value)
+	// during the up-ramp used to abort the entire channel with an error.
+	// That over-rejected: a single glitching tach register took the channel
+	// out, instead of triggering the sentinel filter's intended degradation
+	// (mark phantom, keep moving). Now: sentinel-persist sets this field
+	// with PhantomReason="no_tach" and returns a non-error Result so the
+	// orchestrator can propagate the verdict like any other phantom outcome.
+	Phantom bool `json:"phantom,omitempty"`
+	// PhantomReason is one of the polarity-package PhantomReason* string
+	// constants ("no_tach", "no_response", etc.); set when Phantom is true.
+	// Kept as a string at this layer to avoid importing internal/polarity
+	// (which would cycle through internal/probe).
+	PhantomReason string `json:"phantom_reason,omitempty"`
 }
 
 // fanFingerprint produces the identity string compared on resume. Any field
@@ -673,13 +691,24 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			rpm = int(r.PWM) // PWM readback used as a proxy for "spinning"
 		} else {
 			// Sentinel-guarded read: rejects 0xFFFF and implausible values with
-			// up to 3 retries before aborting the calibration with a clear error.
+			// up to 3 retries. Issue #755 changed the failure mode: a
+			// persistent sentinel on one channel now flags the channel
+			// phantom with reason "no_tach" instead of aborting the sweep
+			// with an error. The sentinel filter was protecting against a
+			// glitching tach register; aborting the whole channel was a
+			// stronger reaction than the symptom warranted.
 			var rpmErr error
 			rpm, rpmErr = readCalRPMWithRetry(ctx, b, ch, fan.RPMPath, 3)
 			if rpmErr != nil {
-				m.logger.Error("calibrate: RPM sentinel persisted, aborting sweep",
+				m.logger.Warn("calibrate: RPM sensor sentinel persisted, marking channel phantom",
 					"pwm_path", pwmPath, "pwm", pwm, "err", rpmErr)
-				return snapshot(0, step), rpmErr
+				phantomRes := snapshot(0, step)
+				phantomRes.Partial = false
+				phantomRes.CompletedSteps = 0
+				phantomRes.DownRampPWM = 0
+				phantomRes.Phantom = true
+				phantomRes.PhantomReason = "no_tach"
+				return phantomRes, nil
 			}
 		}
 
