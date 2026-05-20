@@ -138,6 +138,15 @@ func run() error {
 		os.Exit(runImportSensorsConf(os.Args[2:], logger))
 	}
 
+	// `ventd power-profile [get | set <name>]` exposes the optional
+	// hal.PowerProfileBackend surface (#1166). Today this is msi-ec's
+	// shift_mode (eco / comfort / turbo); future thinkpad / asus /
+	// Legion HAL backends extend the same subcommand without code
+	// changes here.
+	if len(os.Args) >= 2 && os.Args[1] == "power-profile" {
+		powerProfileMain()
+	}
+
 	// `ventd version` mirrors the --version flag for operators who
 	// type the subcommand instinctively. Both forms must short-circuit
 	// before any subsystem init — they MUST NOT load /etc/ventd/config.yaml

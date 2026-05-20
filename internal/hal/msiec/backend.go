@@ -105,6 +105,20 @@ const (
 	ModeAdvanced = "advanced"
 )
 
+// Canonical shift_mode names. The msi-ec driver exposes these in
+// available_shift_modes / shift_mode (see drivers/msi-ec.c
+// MSIEC_SHIFTMODE_DESC and CONF_G2_6 mapping). shift_mode is MSI
+// Center's "User Scenario" surface — it shapes CPU PL1/PL2 limits and
+// the BIOS fan curve that runs underneath ventd's fan_mode writes.
+// On boards with incomplete mappings the kernel may emit
+// "unknown (NN)" verbatim; backends pass that through so the operator
+// can see what the firmware reports (#1166).
+const (
+	ShiftModeEco     = "eco"
+	ShiftModeComfort = "comfort"
+	ShiftModeTurbo   = "turbo"
+)
+
 // State is the per-channel payload carried in hal.Channel.Opaque.
 // Exported so the contract test (and any future channel-minting site)
 // can construct channels without going through Enumerate.
@@ -122,6 +136,14 @@ type State struct {
 	// of this slice's index range — len 2 splits at PWM 128, len 3
 	// at PWM 85/170, etc.
 	WritableModes []string
+
+	// WritableShiftModes is the ordered (low-power → high-power) set
+	// of shift_mode values the platform accepts (#1166). Populated
+	// from available_shift_modes at Enumerate time. Empty on boards
+	// whose msi-ec firmware allow-list group doesn't expose the file
+	// (Enumerate degrades cleanly: the channel still works for
+	// fan_mode-only control without CapWritePowerProfile set).
+	WritableShiftModes []string
 }
 
 // Backend is the msi-ec implementation of hal.FanBackend. One instance
@@ -194,13 +216,28 @@ func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 			"root", root, "modes", modes)
 		return nil, nil
 	}
+	// Optional shift_mode surface — present on most CONF_G2_x boards,
+	// absent on the early G1 group. Missing → drop the capability
+	// silently (board still works for fan_mode-only control).
+	shiftModes, shiftErr := readAvailableShiftModes(root)
+	if shiftErr != nil && !errors.Is(shiftErr, fs.ErrNotExist) {
+		b.logger.Warn("msiec: read available_shift_modes",
+			"root", root, "err", shiftErr)
+	}
+	caps := hal.CapRead | hal.CapWritePWM | hal.CapRestore
+	if len(shiftModes) > 0 {
+		caps |= hal.CapWritePowerProfile
+		b.logger.Info("msiec: shift_mode (power-profile) surface available",
+			"root", root, "shift_modes", shiftModes)
+	}
 	return []hal.Channel{{
 		ID:   root,
 		Role: hal.RoleCPU,
-		Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+		Caps: caps,
 		Opaque: State{
-			SysfsRoot:     root,
-			WritableModes: writable,
+			SysfsRoot:          root,
+			WritableModes:      writable,
+			WritableShiftModes: shiftModes,
 		},
 	}}, nil
 }
@@ -378,6 +415,106 @@ func readAvailableModes(sysfsRoot string) ([]string, error) {
 	sort.Strings(extra)
 	out = append(out, extra...)
 	return out, nil
+}
+
+// readAvailableShiftModes parses sysfsRoot/available_shift_modes,
+// mirroring readAvailableModes but for the shift_mode surface (#1166).
+// Returns (nil, fs.ErrNotExist) wrapped when the file is absent so
+// Enumerate can drop the capability silently on boards without it.
+// Otherwise: deduplicated, sorted in eco → comfort → turbo canonical
+// order, with any unknown forward-compat values appended alphabetically.
+func readAvailableShiftModes(sysfsRoot string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(sysfsRoot, "available_shift_modes"))
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, tok := range strings.Fields(string(data)) {
+		seen[tok] = true
+	}
+	out := make([]string, 0, len(seen))
+	for _, m := range canonicalShiftModeOrder {
+		if seen[m] {
+			out = append(out, m)
+			delete(seen, m)
+		}
+	}
+	extra := make([]string, 0, len(seen))
+	for m := range seen {
+		extra = append(extra, m)
+	}
+	sort.Strings(extra)
+	out = append(out, extra...)
+	return out, nil
+}
+
+// canonicalShiftModeOrder is the low-power → high-power ordering of
+// the upstream msi-ec shift_mode set. Roughly: eco aggressive thermal
+// throttling + longest battery life, comfort balanced (default),
+// turbo max sustained power + lifted BIOS fan curve.
+var canonicalShiftModeOrder = []string{ShiftModeEco, ShiftModeComfort, ShiftModeTurbo}
+
+// AvailablePowerProfiles satisfies hal.PowerProfileBackend (#1166).
+// Returns the channel's WritableShiftModes verbatim; empty slice when
+// the board's msi-ec firmware allow-list group doesn't expose
+// shift_mode.
+func (b *Backend) AvailablePowerProfiles(ch hal.Channel) ([]string, error) {
+	st, err := stateFrom(ch)
+	if err != nil {
+		return nil, err
+	}
+	if len(st.WritableShiftModes) == 0 {
+		return nil, fmt.Errorf("msiec: shift_mode surface not exposed on %q", ch.ID)
+	}
+	// Defensive copy: caller mutations must not bleed into channel state.
+	out := make([]string, len(st.WritableShiftModes))
+	copy(out, st.WritableShiftModes)
+	return out, nil
+}
+
+// ReadPowerProfile satisfies hal.PowerProfileBackend (#1166). Returns
+// the current shift_mode verbatim. On boards with incomplete CONF_G2_6
+// mappings the kernel may emit a raw "unknown (NN)" string; we pass it
+// through so the operator sees what the firmware reports.
+func (b *Backend) ReadPowerProfile(ch hal.Channel) (string, error) {
+	st, err := stateFrom(ch)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(st.SysfsRoot, "shift_mode"))
+	if err != nil {
+		return "", fmt.Errorf("msiec: read shift_mode: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// WritePowerProfile satisfies hal.PowerProfileBackend (#1166). Refuses
+// values not in WritableShiftModes so a typo can't silently set an
+// unmapped raw value. Errors from the sysfs write surface verbatim.
+func (b *Backend) WritePowerProfile(ch hal.Channel, profile string) error {
+	st, err := stateFrom(ch)
+	if err != nil {
+		return err
+	}
+	if len(st.WritableShiftModes) == 0 {
+		return fmt.Errorf("msiec: shift_mode surface not exposed on %q", ch.ID)
+	}
+	matched := false
+	for _, m := range st.WritableShiftModes {
+		if m == profile {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return fmt.Errorf("msiec: %w: %q (available=%v)",
+			ErrInvalidShiftMode, profile, st.WritableShiftModes)
+	}
+	path := filepath.Join(st.SysfsRoot, "shift_mode")
+	if werr := b.writeFile(path, []byte(profile), 0o644); werr != nil {
+		return fmt.Errorf("msiec: write shift_mode %q: %w", profile, werr)
+	}
+	return nil
 }
 
 // canonicalModeOrder is the low-airflow → high-airflow ordering of

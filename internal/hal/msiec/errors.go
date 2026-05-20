@@ -27,3 +27,10 @@ var ErrNoWritableModes = errors.New("msiec: only 'auto' fan_mode available; no d
 // added upstream) surfaces as a clean log line instead of a quiet wrong
 // mapping.
 var ErrInvalidFanMode = errors.New("msiec: unrecognised fan_mode value")
+
+// ErrInvalidShiftMode is returned by WritePowerProfile when the
+// requested profile is not in the board's available_shift_modes set
+// (#1166). Backends refuse to silently substitute on unknown values
+// for the same reason ErrInvalidFanMode does: a kernel-driver change
+// must surface, not be papered over.
+var ErrInvalidShiftMode = errors.New("msiec: unrecognised shift_mode value")
