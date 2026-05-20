@@ -1074,21 +1074,9 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 		return DetectResult{}, fmt.Errorf("detect: read current pwm: %w", err)
 	}
 
-	// Choose test PWM: ramp up by 60, or ramp down if already near max.
-	// Guard against uint8 wrap.
-	var testPWM uint8
 	maxPWM := fan.MaxPWM
 	if maxPWM == 0 {
 		maxPWM = 255
-	}
-	const delta = 60
-	if int(origPWM)+delta <= int(maxPWM) {
-		testPWM = origPWM + delta
-	} else if int(origPWM)-delta >= int(fan.MinPWM) {
-		testPWM = origPWM - delta
-	} else {
-		// Range too narrow for a meaningful test; use the max instead.
-		testPWM = maxPWM
 	}
 
 	// Always restore the original PWM when we're done.
@@ -1097,6 +1085,52 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	// mode 0/2 is worse than a best-effort one, because the fan would otherwise
 	// stay at the test PWM until the next controller tick.
 	defer func() { _ = b.Write(ch, origPWM) }()
+
+	// Stiction-break pulse (#754) — write full PWM briefly to break a
+	// stalled rotor before measuring. The original ±60-from-origPWM
+	// detection routine couldn't break stiction on a fan whose previous
+	// calibration sweep had parked it at PWM=0: the new test write
+	// landed below the fan's start-from-standstill threshold, so the
+	// "delta" sample came back ~0 and the working sensor was
+	// misclassified as "no correlation". Now: always fire a 500ms
+	// PWM=maxPWM pulse, then sweep absolute 20→80% PWM (large, signal-
+	// rich span), then restore. Cost: ~500 ms per detection — with 8
+	// fans on a SuperIO that's +4 s of wizard wall-clock for a far more
+	// reliable detection step.
+	const stictionBreakPulse = 500 * time.Millisecond
+	if pulseErr := b.Write(ch, maxPWM); pulseErr != nil {
+		return DetectResult{}, fmt.Errorf("detect: stiction-break write: %w", pulseErr)
+	}
+	time.Sleep(stictionBreakPulse)
+
+	// Absolute 20→80% PWM endpoints — independent of origPWM. The
+	// previous origPWM±60 picker drove ramp direction off the last
+	// controller write, which on a fan parked at PWM=0 (post-polarity
+	// probe, pre-controller-tick) was either a no-op delta or an
+	// under-spin-threshold write. Honour fan.MinPWM as a floor on the
+	// baseline write so chip-private "min PWM" constraints aren't
+	// violated; clip the test endpoint to maxPWM.
+	baselinePWM := uint8(float64(maxPWM) * 0.20)
+	testPWM := uint8(float64(maxPWM) * 0.80)
+	if int(baselinePWM) < int(fan.MinPWM) {
+		baselinePWM = fan.MinPWM
+	}
+	if testPWM > maxPWM {
+		testPWM = maxPWM
+	}
+	if baselinePWM >= testPWM {
+		// Pathological MinPWM/MaxPWM gap; fall through to max-vs-min
+		// so the delta is at least measurable.
+		baselinePWM = fan.MinPWM
+		testPWM = maxPWM
+	}
+
+	// Settle at baselinePWM after the pulse so the stability gate and
+	// baseline read both see a steady-state RPM, not a coasting one.
+	if writeErr := b.Write(ch, baselinePWM); writeErr != nil {
+		return DetectResult{}, fmt.Errorf("detect: baseline write: %w", writeErr)
+	}
+	time.Sleep(2 * time.Second)
 
 	// Find all fan*_input files in the same hwmon directory.
 	dir := filepath.Dir(pwmPath)
@@ -1159,7 +1193,10 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	// Post-ramp read. Only count deltas in the expected direction — this filters
 	// out ambient fluctuations from other fans on the same chip, which would
 	// appear as random positive/negative noise regardless of our PWM change.
-	ramped := testPWM > origPWM // true = we increased PWM, expect RPM to increase
+	// The 20→80% sweep is always increasing, so `ramped` is always true; the
+	// variable is retained for symmetry with the original code path and so a
+	// future inverted-sweep variant can reuse the delta-direction logic.
+	ramped := testPWM > baselinePWM
 	best, bestDelta := "", 0
 	for _, p := range matches {
 		v, _ := readSysfsInt(p)
