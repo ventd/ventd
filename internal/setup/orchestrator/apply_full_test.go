@@ -62,14 +62,17 @@ func TestApplyPhase_FullConfigWhenSensorAndCalAvailable(t *testing.T) {
 	if cfg.Fans[0].MinPWM != 50 {
 		t.Errorf("Fan MinPWM should be from calibration (50), got %d", cfg.Fans[0].MinPWM)
 	}
-	if len(cfg.Curves) != 1 || cfg.Curves[0].Name != "default" {
-		t.Errorf("Curves wrong: %+v", cfg.Curves)
+	// Per-fan curve naming (#1272): one curve per admitted fan,
+	// keyed off the fan's normalised name. "Cpu Fan" -> "fan-cpu-fan".
+	wantCurve := "fan-cpu-fan"
+	if len(cfg.Curves) != 1 || cfg.Curves[0].Name != wantCurve {
+		t.Errorf("Curves wrong (want one curve named %q): %+v", wantCurve, cfg.Curves)
 	}
 	if len(cfg.Controls) != 1 {
 		t.Errorf("Controls wrong: %+v", cfg.Controls)
 	}
-	if cfg.Controls[0].Fan != "Cpu Fan" || cfg.Controls[0].Curve != "default" {
-		t.Errorf("Control mapping wrong: %+v", cfg.Controls[0])
+	if cfg.Controls[0].Fan != "Cpu Fan" || cfg.Controls[0].Curve != wantCurve {
+		t.Errorf("Control mapping wrong (want curve=%q): %+v", wantCurve, cfg.Controls[0])
 	}
 }
 

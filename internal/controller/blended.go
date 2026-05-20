@@ -353,6 +353,11 @@ func NewBlended(cfg BlendedConfig) *BlendedController {
 	}
 }
 
+// Preset returns the configured smart-mode preset. Exposed so the
+// wiring layer (cmd/ventd's per-tick acoustic-budget builder) can
+// resolve PresetDBATargets without re-reading config every tick.
+func (b *BlendedController) Preset() Preset { return b.cfg.Preset }
+
 // Compute is the per-tick hot path. Pure-math: every dependency
 // is supplied via `BlendedInputs`. Returns a populated
 // `BlendedResult`; never panics; never blocks.

@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/recovery"
+	"github.com/ventd/ventd/internal/sysclass"
 )
 
 // DefaultConfigPath is the production location for ventd's config.
@@ -163,8 +165,16 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 	}
 	cpuSensor := DiscoverCPUSensor(hwmonRoot)
 
-	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor)
+	// CPU-model-derived Tjmax used as fallback when the active CPU
+	// sensor doesn't surface tempN_crit — acpitz, some laptop ECs,
+	// several ARM SoCs. The sysclass table maps Intel N-series →
+	// 105°C, AMD HEDT → 95°C, etc. (#1276). Returns 0 on unknown
+	// CPU model; buildConfig falls through to the 95°C blanket.
+	sysclassTjmax := sysclass.TjmaxFromCPUInfo()
+
+	cfg := buildConfig(probeArt, polByPath, calByPath, rpmOverrides, nvmlFans, cpuSensor, sysclassTjmax)
 	monitorOnly := len(cfg.Controls) == 0
+	nonMonoFans := nonMonotonicSummary(calByPath, cfg.Fans)
 
 	// Diagnose the monitor-only path so the artifact carries a
 	// reason field the UI + doctor can surface. The two distinct
@@ -253,8 +263,16 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		rc.Log().Info("apply complete",
 			"path", path,
 			"fans", art.Fans,
+			"curves", len(cfg.Curves),
 			"monitor_only", art.MonitorOnly,
 			"pwm_enable_restored", enableRestored)
+	}
+	if len(nonMonoFans) > 0 {
+		rc.Log().Warn("apply: calibration flagged non-monotonic PWM→RPM curves",
+			"fans", nonMonoFans,
+			"hint", "vendor-EC interference is the usual cause; see doctor")
+		rc.Sink().Emit("warn", "apply",
+			fmt.Sprintf("non-monotonic curves on %d fan(s): %s", len(nonMonoFans), strings.Join(nonMonoFans, ", ")))
 	}
 
 	return Outcome{Status: StatusSuccess, Artifact: raw}
@@ -281,6 +299,7 @@ func buildConfig(
 	rpmOverrides map[string]string,
 	nvmlFans []NVMLGPUFan,
 	cpuSensor DiscoveredSensor,
+	sysclassTjmax float64,
 ) *config.Config {
 	cfg := &config.Config{
 		Version:      1,
@@ -314,8 +333,24 @@ func buildConfig(
 			minPWM = cal.StartPWM
 		}
 		isPump := false
+		var pumpMinimum uint8
 		if cal, ok := calByPath[fan.PWMPath]; ok {
 			isPump = cal.IsPump
+			if isPump {
+				// Pumps must never stop (config.Validate rule 6). Set
+				// pump_minimum from the measured StartPWM, floored at
+				// the package-wide MinPumpPWM (20). Without this auto-
+				// derivation the wizard would emit is_pump=true with
+				// pump_minimum=0 — which the validator rejects, leaving
+				// the daemon in monitor-only on next reload (#1275).
+				pumpMinimum = uint8(config.MinPumpPWM)
+				if cal.StartPWM > pumpMinimum {
+					pumpMinimum = cal.StartPWM
+				}
+				if minPWM < pumpMinimum {
+					minPWM = pumpMinimum
+				}
+			}
 		}
 
 		// Prefer RPMDetectPhase's detected path when ProbePhase
@@ -338,6 +373,7 @@ func buildConfig(
 			MinPWM:      minPWM,
 			MaxPWM:      255,
 			IsPump:      isPump,
+			PumpMinimum: pumpMinimum,
 		})
 	}
 
@@ -382,107 +418,284 @@ func buildConfig(
 		return cfg
 	}
 
-	// Default curve: hardware-aware. The chip's reported tempN_crit
-	// (TjMax — Intel/AMD shutdown threshold) caps the curve's ramp
-	// so fans hit 100% with safe thermal headroom. Falls back to a
-	// conservative 95°C ceiling when the chip doesn't report it
-	// (rare; coretemp / k10temp / k8temp all populate _crit).
-	//
-	// Curve shape: linear from MinTemp (idle baseline) → 20% to
-	// MaxTemp (TjMax - 10°C safety margin) → 100%. Operators reshape
-	// in the web UI; this is the "works on day one" default.
-	maxTemp := cpuSensor.CritC - 10
+	// Curve ceiling: prefer the chip's hwmon tempN_crit (TjMax
+	// shutdown threshold) which coretemp/k10temp/k8temp populate per-
+	// chip. When the active sensor is acpitz or another driver that
+	// doesn't surface _crit, fall back to sysclass.Detection.Tjmax —
+	// CPU-model regex lookup (Intel N-series 105°C, AMD HEDT 95°C,
+	// etc.) — before the conservative 95°C blanket (#1276).
+	maxTemp := cpuSensor.CritC
 	if maxTemp <= 0 {
-		maxTemp = 95 // fallback when _crit isn't reported
+		maxTemp = sysclassTjmax
 	}
-	minTemp := 40.0 // idle baseline for most CPUs; refined per-chip in a future PR
-	// Type:"points" — NOT "linear" — because Linear.Evaluate uses the
-	// flat MinPWM/MaxPWM struct fields and ignores Points[] entirely;
-	// emitting the curve under Type:"linear" parses MaxPWM=0 and clamps
-	// every fan to per-fan min_pwm regardless of temperature (#1224).
-	// Points.Evaluate consumes the anchor list as intended.
-	cfg.Curves = []config.CurveConfig{
-		{
-			Name:    "default",
-			Type:    "points",
-			Sensor:  "cpu_temp",
-			MinTemp: minTemp,
-			MaxTemp: maxTemp,
-			Points:  defaultCurvePoints(minTemp, maxTemp, cfg.Fans),
-		},
+	if maxTemp <= 0 {
+		maxTemp = 95
 	}
+	maxTemp -= 10 // -10°C safety margin between top-anchor and shutdown
+	minTemp := 40.0
 
+	// Per-fan curves (#1272). Each admitted fan gets its own
+	// config.CurveConfig keyed off its name, with:
+	//
+	//   - max_pwm_pct  capped at the fan's saturation knee — the highest
+	//                  PWM whose RPM is ≥ kneeRPMFraction × MaxRPM in the
+	//                  rising portion of the measured Curve[]. Above the
+	//                  knee, additional duty cycle produces audible
+	//                  whine + EC fight on vendor firmwares without
+	//                  additional airflow.
+	//   - min_pwm_pct  = StartPWM / 255 × 100 (or PumpMinimum-equivalent
+	//                  for pumps), so the curve never asks for a duty
+	//                  the fan won't honour.
+	//   - anchor count derived from this fan's MinPWM-MaxPWM range, not
+	//                  the widest fan in the system. A narrow-range fan
+	//                  stays at 3 anchors; a wide-range desktop fan gets
+	//                  up to 9.
+	//   - PWM% spread  linear between the fan's clamped min and max
+	//                  pwm_pct (no longer hard-coded 20→100).
+	//
+	// NVIDIA and other non-hwmon fans without calibration data fall back
+	// to the generic minTemp→maxTemp / 20→100% shape.
 	for _, f := range cfg.Fans {
+		curveName := perFanCurveName(f.Name)
+		var c config.CurveConfig
+		if cal, ok := calByPath[f.PWMPath]; ok && f.Type == "hwmon" && len(cal.Curve) > 0 {
+			c = buildPerFanCurve(curveName, f, cal, minTemp, maxTemp)
+		} else {
+			c = buildGenericCurve(curveName, f, minTemp, maxTemp)
+		}
+		cfg.Curves = append(cfg.Curves, c)
 		cfg.Controls = append(cfg.Controls, config.Control{
 			Fan:   f.Name,
-			Curve: "default",
+			Curve: curveName,
 		})
 	}
 
 	return cfg
 }
 
-func ptrU8(v uint8) *uint8 { return &v }
+// perFanCurveName produces a stable, schema-safe curve identifier from
+// a fan's display name. Lowercased; non-alphanumeric collapsed to "-";
+// prefixed with "fan-" so the names are distinguishable from operator-
+// authored curves in the web UI. Duplicate normalised names collide on
+// the first writer wins — buildConfig only emits one curve per Fan, so
+// the only collision risk is two fans whose LabelHint normalises
+// identically (unusual; HAL labels include the chip + channel index).
+func perFanCurveName(fanName string) string {
+	var b strings.Builder
+	b.WriteString("fan-")
+	prevHyphen := false
+	for _, r := range strings.ToLower(fanName) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevHyphen = false
+		default:
+			if !prevHyphen {
+				b.WriteRune('-')
+				prevHyphen = true
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "-")
+}
 
-// defaultCurvePoints builds the wizard's default piecewise-linear
-// anchor list. Anchor count is derived from the widest hwmon fan's
-// PWM range so wide-range fans (laptop blowers, AIO pumps, full-range
-// NCT SuperIO desktop fans) get small per-step PWM deltas — a 3-anchor
-// curve on a 240-byte PWM range translates a 1 °C bump near the
-// midpoint into ~2 PWM units / ~50 RPM, but a 5 °C load transient
-// crosses ~30 PWM units / ~700 RPM in a single step; the fan can't
-// physically ramp through that without overshoot → opposite swing →
-// audible hunting cycle (#1231).
+// saturationKneePct returns the saturation-knee PWM byte expressed as a
+// percentage in [0, 100]. The knee is the highest PWM in the rising
+// portion (PWM ≥ startPWM, monotonic envelope) whose RPM is at least
+// kneeRPMFraction × MaxRPM. Above the knee, additional duty cycle does
+// not produce additional airflow — either the fan has hit its
+// mechanical ceiling or vendor EC firmware is clamping it.
 //
-// Targeting ~30 PWM units per segment keeps each step a ~10-12% duty
-// change so the fan can absorb it without overshoot. Dell SMM at
-// MinPWM=76 / MaxPWM=255 (range 179) → 7 anchors; an NCT SuperIO at
-// MinPWM=12 / MaxPWM=255 (range 243) → 9 anchors. Minimum is 3 so the
-// monitor-only or single-narrow-range path still gets a useful curve.
-//
-// nvidia fans use MaxPWM=100 (percent), so their range alone wouldn't
-// drive any extra density — the function ignores them so a GPU-only
-// host still picks up the 3-anchor floor.
-//
-// Temperatures are spaced uniformly across [minTemp, maxTemp]; PWM
-// percentages are spaced uniformly from 20% (idle floor) to 100% (top
-// anchor). Operators reshape in the web UI; this is the "no hunting
-// out of the box" default. Calibrate-data-driven anchor placement
-// (inflection-point-aware) is a follow-up.
-func defaultCurvePoints(minTemp, maxTemp float64, fans []config.Fan) []config.CurvePoint {
-	maxRange := 0
-	for _, f := range fans {
-		if f.Type != "hwmon" {
+// Returns 100 when no useful knee can be detected (sparse or all-noise
+// curve), letting the curve drive to PWM=255 as a safe fallback.
+func saturationKneePct(curve []CalibrateCurvePoint, startPWM uint8, maxRPM int) uint8 {
+	if maxRPM <= 0 || len(curve) == 0 {
+		return 100
+	}
+	threshold := int(float64(maxRPM) * kneeRPMFraction)
+	// Walk monotonic-rising envelope from the right edge. A non-monotonic
+	// curve (e.g. EC clamping above PWM=200) shouldn't cap higher than
+	// the last sample whose RPM was within threshold — anything past
+	// that is duty cycle being burned without airflow.
+	knee := uint8(255)
+	envelope := -1
+	// Build a running max-RPM envelope so a single low sample at high
+	// PWM doesn't fool us into picking a too-low knee.
+	for _, p := range curve {
+		if p.PWM < startPWM {
 			continue
 		}
-		r := int(f.MaxPWM) - int(f.MinPWM)
-		if r > maxRange {
-			maxRange = r
+		if p.RPM > envelope {
+			envelope = p.RPM
+		}
+		if p.RPM >= threshold {
+			knee = p.PWM
 		}
 	}
-	anchors := 3
-	if maxRange > 0 {
-		// Round to nearest: range 60 → 2 (clamped to floor 3), 179 → 6,
-		// 243 → 8. ~30 PWM units per segment translates to a ~10-12%
-		// duty change per anchor, which is small enough that the fan
-		// can absorb the step without overshoot.
-		anchors = (maxRange + 15) / 30
-		if anchors < 3 {
-			anchors = 3
+	if envelope < threshold {
+		// Whole rising portion below the knee threshold. Fan can't
+		// hit MaxRPM at all (vendor-EC clamp throughout, broken
+		// tach, etc). Fall through to full range.
+		return 100
+	}
+	// Express byte as integer percent, rounded down so we don't
+	// overshoot the measured knee.
+	pct := int(knee) * 100 / 255
+	if pct < int(kneePctMin) {
+		pct = int(kneePctMin)
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return uint8(pct)
+}
+
+// kneeRPMFraction is the fraction of MaxRPM a sample must reach for its
+// PWM to qualify as a saturation-knee candidate. 0.95 keeps a 5% tach-
+// noise margin: a fan that genuinely hits 98% of its max at PWM=240 and
+// 100% at PWM=255 still gets PWM=240 as the knee (5% noise tolerance),
+// and a fan whose Curve peaks at PWM=229 with RPM=2575 and drops to
+// RPM=2307 at PWM=255 gets the knee capped at 229 — the daemon writes
+// no higher and the user hears no rising-PWM-falling-RPM hunt.
+const kneeRPMFraction = 0.95
+
+// kneePctMin floors the saturation-knee percentage so a degenerate
+// calibration (extreme stiction, EC clamping at very low PWM) can't
+// emit a curve whose top anchor sits below the operator's idle floor.
+const kneePctMin = 30
+
+// minSpinPctFloor caps the curve's bottom anchor percentage low enough
+// that we don't accidentally floor a fan above its natural idle (some
+// fans spin freely from PWM=10), high enough that the curve top still
+// has room to rise. Empirically 15%.
+const minSpinPctFloor = 15
+
+// curveAnchorCount derives the per-fan anchor count from the fan's PWM
+// range, targeting ~30 PWM units per segment (= ~10-12% duty change per
+// anchor) so the fan can absorb each step without overshoot.
+//
+//	range 60  → 3 anchors (clamped floor)
+//	range 179 → 6 anchors (typical Dell SMM laptop blower)
+//	range 243 → 8 anchors (typical NCT6687 desktop fan)
+//
+// nvidia fans use MaxPWM=100 (percent), which would give too few anchors
+// (range = 70 → ~2). NVIDIA path falls back to a 6-anchor default so
+// the curve has enough resolution for a 0-100% sweep.
+func curveAnchorCount(f config.Fan) int {
+	if f.Type != "hwmon" {
+		return 6
+	}
+	r := int(f.MaxPWM) - int(f.MinPWM)
+	if r <= 0 {
+		return 3
+	}
+	a := (r + 15) / 30
+	if a < 3 {
+		a = 3
+	}
+	if a > 12 {
+		a = 12
+	}
+	return a
+}
+
+// buildPerFanCurve synthesises a config.CurveConfig from a fan's
+// calibrate-measured PWM→RPM curve. Top anchor PWM% capped at the
+// saturation knee; bottom anchor PWM% pinned at the fan's measured
+// StartPWM (with a minSpinPctFloor safety floor). Anchors are
+// uniform-temp in [minTemp, maxTemp]; PWM% are linear between the
+// clamped floor and ceiling.
+func buildPerFanCurve(name string, f config.Fan, cal CalibrateFanResult, minTemp, maxTemp float64) config.CurveConfig {
+	// Bottom-anchor PWM%: prefer the fan's measured StartPWM
+	// expressed as a percentage. Floored at minSpinPctFloor so a
+	// fan with a freak StartPWM=2 doesn't produce a 1% bottom
+	// anchor that the operator can't audibly notice as "idle".
+	bottomPct := uint8(minSpinPctFloor)
+	if cal.StartPWM > 0 {
+		p := int(cal.StartPWM) * 100 / 255
+		if p > int(bottomPct) {
+			bottomPct = uint8(p)
 		}
 	}
+	if f.IsPump && f.PumpMinimum > 0 {
+		// Pumps must never stop. Their bottom anchor is the
+		// PumpMinimum byte, not the StartPWM (which would be 0 by
+		// definition for a pump — they always spin).
+		p := int(f.PumpMinimum) * 100 / 255
+		if p > int(bottomPct) {
+			bottomPct = uint8(p)
+		}
+	}
+	topPct := saturationKneePct(cal.Curve, cal.StartPWM, cal.MaxRPM)
+	if topPct <= bottomPct {
+		topPct = 100 // pathological cal data; let the operator reshape in the UI
+	}
+
+	anchors := curveAnchorCount(f)
 	pts := make([]config.CurvePoint, anchors)
 	for i := 0; i < anchors; i++ {
 		fraction := float64(i) / float64(anchors-1)
 		temp := minTemp + fraction*(maxTemp-minTemp)
-		// Linear PWM% from 20% (idle floor at minTemp) to 100% (top
-		// anchor at maxTemp). The 20% floor keeps fans audibly quiet
-		// at idle without dipping into the stall band of most fans.
-		pct := uint8(20 + fraction*80)
+		pct := uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
 		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
 	}
-	return pts
+	return config.CurveConfig{
+		Name:    name,
+		Type:    "points",
+		Sensor:  "cpu_temp",
+		MinTemp: minTemp,
+		MaxTemp: maxTemp,
+		Points:  pts,
+	}
 }
+
+// buildGenericCurve is the fallback used for NVIDIA fans (no per-fan
+// calibrate sweep) and any hwmon fan without calibration data.
+// Bottom = fan.MinPWM expressed as a percentage, top = 100.
+func buildGenericCurve(name string, f config.Fan, minTemp, maxTemp float64) config.CurveConfig {
+	bottomPct := uint8(minSpinPctFloor)
+	if f.Type == "nvidia" {
+		bottomPct = f.MinPWM // already a percentage for nvidia
+	} else if f.MinPWM > 0 {
+		p := int(f.MinPWM) * 100 / 255
+		if p > int(bottomPct) {
+			bottomPct = uint8(p)
+		}
+	}
+	topPct := uint8(100)
+	anchors := curveAnchorCount(f)
+	pts := make([]config.CurvePoint, anchors)
+	for i := 0; i < anchors; i++ {
+		fraction := float64(i) / float64(anchors-1)
+		temp := minTemp + fraction*(maxTemp-minTemp)
+		pct := uint8(float64(bottomPct) + fraction*float64(topPct-bottomPct))
+		pts[i] = config.CurvePoint{Temp: temp, PWMPct: ptrU8(pct)}
+	}
+	return config.CurveConfig{
+		Name:    name,
+		Type:    "points",
+		Sensor:  "cpu_temp",
+		MinTemp: minTemp,
+		MaxTemp: maxTemp,
+		Points:  pts,
+	}
+}
+
+// nonMonotonicSummary returns the names of fans whose calibrate sweep
+// flagged NonMonotonicCurve. Used by the apply log to surface the
+// quality signal to operators reading journalctl, alongside the doctor
+// surface that picks up the same data from the calibrate artifact.
+func nonMonotonicSummary(calByPath map[string]CalibrateFanResult, fans []config.Fan) []string {
+	out := []string{}
+	for _, f := range fans {
+		if cal, ok := calByPath[f.PWMPath]; ok && cal.NonMonotonicCurve {
+			out = append(out, f.Name)
+		}
+	}
+	return out
+}
+
+func ptrU8(v uint8) *uint8 { return &v }
 
 // resolveStableHwmonDevice returns the canonical /sys/devices/... path
 // for the hwmon chip whose pwm/temp file lives at sysfsPath. The result

@@ -19,6 +19,14 @@ func stageSensorFixture(t *testing.T, root, chipName string, temps map[int]strin
 		if err := os.WriteFile(filepath.Join(root, base+"_input"), []byte("45000\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		// Write a deterministic _crit so curve-gen tests aren't
+		// host-dependent — sysclass.TjmaxFromCPUInfo() returns
+		// different values depending on the test runner's CPU model.
+		// Use 100°C (Intel coretemp default) so the per-fan curve's
+		// MaxTemp lands at 90°C across all platforms.
+		if err := os.WriteFile(filepath.Join(root, base+"_crit"), []byte("100000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		if label != "" {
 			if err := os.WriteFile(filepath.Join(root, base+"_label"), []byte(label+"\n"), 0o644); err != nil {
 				t.Fatal(err)

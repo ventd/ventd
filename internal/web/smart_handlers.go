@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/marginal"
 )
@@ -250,6 +251,21 @@ type smartStatusResponse struct {
 	// from the v0.5.26 bug-floor probe.
 	ConfidenceMin *float64 `json:"confidence_min"` // min w_pred across channels (0..1); null pre-warmup
 	ConfidenceMax *float64 `json:"confidence_max"` // max w_pred across channels; null pre-warmup
+
+	// Acoustic is the live acoustic-budget snapshot used by the
+	// dBA-gate (#1273). target_dba is the operator-resolved dBA cap
+	// (PresetDBATargets[preset] or smart.dba_target override).
+	// current_dba is the R33-proxy-composed host loudness across all
+	// hwmon fans, sampled at the most recent controller tick.
+	// enabled reflects Config.AcousticOptimisationEnabled() — when
+	// false the gate never refuses regardless of preset.
+	Acoustic smartAcousticBudget `json:"acoustic"`
+}
+
+type smartAcousticBudget struct {
+	Enabled    bool    `json:"enabled"`
+	TargetDBA  float64 `json:"target_dba,omitempty"`
+	CurrentDBA float64 `json:"current_dba,omitempty"`
 }
 
 // smartChannelEntry is the deep per-channel snapshot for
@@ -395,6 +411,38 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 			out.ConfidenceMax = &cmax
 		}
 	}
+
+	// Acoustic budget surface (#1273): mirror back the operator-
+	// resolved dBA cap and the most-recent-tick CurrentDBA so the web
+	// UI can render a quietness meter alongside the temperature
+	// stats. The Decisions cache holds per-channel
+	// BlendedResult.PredictedDBA from the last tick; the max across
+	// channels (with the candidate ramp folded in) is the closest
+	// proxy for current host loudness we expose. Pre-warmup or
+	// monitor-only hosts get enabled=false / zero values.
+	out.Acoustic = smartAcousticBudget{Enabled: false}
+	if live != nil && live.AcousticOptimisationEnabled() {
+		preset, _ := controller.PresetFromString(live.Smart.Preset)
+		target := controller.DBATargetFor(preset, live.Smart.DBATarget)
+		out.Acoustic.Enabled = target > 0
+		if out.Acoustic.Enabled {
+			out.Acoustic.TargetDBA = target
+			// Pull the most-recent predicted dBA across channels as a
+			// proxy for current host loudness. We take the max because
+			// PredictedDBA is the per-channel candidate-ramp loudness
+			// estimate — the host total tracks the loudest fan plus
+			// the energetic-sum tail, well-approximated by max for the
+			// dashboard surface.
+			if s.decisions != nil {
+				for _, dec := range s.decisions.LoadAll() {
+					if dec.Result.PredictedDBA > out.Acoustic.CurrentDBA {
+						out.Acoustic.CurrentDBA = dec.Result.PredictedDBA
+					}
+				}
+			}
+		}
+	}
+
 	s.writeJSON(r, w, out)
 }
 
