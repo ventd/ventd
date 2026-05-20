@@ -12,6 +12,16 @@ Releases predating v0.5.0 are archived in
 ### Added
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+- `internal/probe/tach_classify.go::EnumerateMonitorChannels` — **read-side phantom classification** for `fan*_input` channels (#796). Walks every tach file under `/sys/class/hwmon` (paired with a PWM or not), captures a 5-sample baseline at 100 ms spacing, and classifies each as **real / mirror / phantom** via the new `MonitorChannelVisibility` enum:
+  - **real** — RPM > 0 in at least one sample (or RPM = 0 but the channel has a paired PWM the polarity probe will judge).
+  - **mirror** — RPM tracks another channel on the same chip within `±MirrorEpsilonRPM` (5) at every sample. Common on laptop ECs that mirror one physical fan into 2-4 virtual zones (CPU/GPU/chassis/spare).
+  - **phantom** — RPM is consistently 0 AND no paired PWM. The EC reports the zone but no fan is wired.
+- `internal/probe/tach_classify.go::MonitorChannel` — read-side analog of `ControllableChannel`. Carries `SourceID`, `TachPath`, `Driver`, optional `PairedPWM`, the `Visibility` verdict, the raw baseline samples (for diagnostic completeness), and `MirrorOf` (the representative real channel a mirror collapses into).
+- Classification is the foundation for a future dashboard toggle that hides mirror + phantom channels by default — operators with a single physical fan on a multi-zone EC no longer see four ghost RPMs in the dashboard. UI integration deferred to a follow-up PR.
+
+>>>>>>> 6818667 (feat(probe): read-side phantom classification for fan*_input (#796))
 - `internal/hwdb/profile_v1.go::ChipProfile.CalibrateWithinChipParallel` — **per-chip-family parallel-safe flag** (#1219). YAML key `calibrate_within_chip_parallel: true` opts a chip family into within-chip-group parallel calibrate sweeps. Default false preserves the pre-#1219 serial-within-chip behaviour; cross-chip parallelism is unaffected either way. Enabled for `nct6687` + `nct6686` (per-channel pwm_enable registers, HIL-verified 2026-05-20 on Phoenix's 13900K + MSI PRO Z690-A DDR4). NCT6798/IT8688/IT8665 stay opt-in pending HIL verification.
 - `internal/hwdb/profile_v1.go::IsChipCalibrateWithinChipParallel` — accessor consulted by the orchestrator's `CalibratePhase`. A nil catalog or unknown chip returns false (conservative default).
 - `internal/setup/orchestrator/calibrate.go::CalibratePhase.WithinChipParallel` — new injectable predicate field. Production wiring at `internal/setup/orchestrator_bridge.go` passes a closure backed by `hwdb.IsChipCalibrateWithinChipParallel`. With the flag on, an 8-fan-on-one-chip wizard drops from ~5 min to ~1 min of calibrate wall-clock (legacy in-chip serialisation × 8 → 8-way fan-out × ~50 s).
