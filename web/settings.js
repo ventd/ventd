@@ -4,7 +4,8 @@
 //   GET  /api/v1/config           → web settings, profile, etc
 //   GET  /api/v1/system/watchdog  → watchdog state
 //   POST /api/v1/system/reboot    → reboots host (confirm gate)
-//   POST /api/v1/setup/reset      → wipes calibration KV and active config
+//   POST /api/v1/calibrate/reset  → wipes stored fan calibration data
+//   POST /api/v1/admin/factory-reset → fans→BIOS + driver rmmod + state wipe + service disable
 //   POST /api/v1/set-password     → admin password change
 //
 // Theme + temperature unit live in localStorage; the Display section
@@ -605,63 +606,73 @@
       .then(function () { alert('Reboot requested. The web UI will stop responding for ~30 seconds.'); });
   });
 
-  $('set-reset').addEventListener('click', function () {
-    if (!window.confirm('Reset to initial setup?\n\nThis wipes the calibration KV namespace and the active config. The daemon restarts and the setup wizard opens again. Existing fan curves and profiles are lost.\n\nLogin credentials are KEPT.')) return;
-    if (!window.confirm('Final confirmation: this is destructive and cannot be undone. Proceed?')) return;
-    fetch('/api/v1/setup/reset', { method: 'POST', credentials: 'same-origin' })
-      .then(function (r) {
-        if (r.ok) { window.location.assign('/setup'); }
-        else      { alert('Reset failed (HTTP ' + r.status + ').'); }
+  // Reset calibration — clears stored fan characterization (PWM↔RPM
+  // curves, response timing, polarity). Curves keep driving fans
+  // unchanged; the operator immediately lands on /calibration so they
+  // can re-run the sweep (typical trigger: swapped or added a fan).
+  var btnResetCal = $('set-reset-calibration');
+  if (btnResetCal) btnResetCal.addEventListener('click', function () {
+    if (!window.confirm('Reset calibration?\n\nClears stored fan characterization so calibration starts fresh. Existing curves keep driving fans in the interim.\n\nNo config or login change. Use after swapping or adding a fan.')) return;
+    btnResetCal.disabled = true;
+    fetch('/api/v1/calibrate/reset', { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: {} }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          alert('Calibration data cleared. Opening the Calibration page so you can re-run the sweep.');
+          window.location.assign('/calibration');
+          return;
+        }
+        var why = (res.body && (res.body.error || res.body.message)) || ('HTTP ' + res.status);
+        alert('Reset calibration failed: ' + why + '.');
+        btnResetCal.disabled = false;
+      })
+      .catch(function (err) {
+        alert('Reset calibration failed: ' + err.message);
+        btnResetCal.disabled = false;
       });
   });
 
-  // Reset and reinstall driver — calls the existing hwdiag endpoint
-  // that's also surfaced as a recovery card on the calibration banner
-  // for ClassDKMSStateCollision / ClassInTreeConflict failures
-  // (RULE-WIZARD-RECOVERY-*). Exposing it here in Settings makes it
-  // discoverable WITHOUT first hitting one of those specific failure
-  // classes — useful when switching catalog rows or recovering from
-  // a botched first install.
-  var btnResetDriver = $('set-reset-driver');
-  if (btnResetDriver) btnResetDriver.addEventListener('click', function () {
-    if (!window.confirm('Reset and reinstall driver?\n\nThis removes any partially-installed OOT driver state — DKMS registration, .ko files in /lib/modules/<release>/extra/, modules-load.d entries, build dirs under /tmp/ventd-driver-*. The next wizard run will re-attempt the install from a clean slate.\n\nCalibration data and login credentials are KEPT.')) return;
-    if (!window.confirm('Final confirmation: this is destructive and cannot be undone. Proceed?')) return;
-    fetch('/api/v1/hwdiag/reset-and-reinstall', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-      .then(function (res) {
-        if (res.ok) {
-          alert('Driver reset complete.\n\n' + (res.body.lines ? res.body.lines.join('\n') : 'See journalctl for details.') + '\n\nReturn to /setup to re-run the wizard.');
-          window.location.assign('/setup');
-        } else {
-          alert('Driver reset failed: ' + (res.body && res.body.error ? res.body.error : 'see journalctl for details') + '.');
-        }
-      })
-      .catch(function (err) { alert('Driver reset failed: ' + err.message); });
-  });
-
-  // Factory reset — full state wipe including auth.json. Redirects to
-  // /login (where the daemon will render the password-set form per
-  // the v0.5.8.1 first-boot flow #765/#794).
+  // Reset to factory — fans handed back to BIOS, OOT driver removed,
+  // state wiped, ventd.service disabled+stopped. The daemon goes
+  // offline mid-call; we paint a takeover so the user doesn't sit
+  // staring at a dead settings page when the connection drops.
   var btnFactory = $('set-factory-reset');
   if (btnFactory) btnFactory.addEventListener('click', function () {
-    if (!window.confirm('FACTORY RESET?\n\nThis wipes EVERYTHING:\n  • Calibration KV namespace\n  • Active config\n  • Applied marker\n  • Login credentials (auth.json)\n\nThe daemon will land on /login\'s password-set screen as if this were a fresh install. Existing fan curves, profiles, and the operator account are LOST.\n\nThe OOT driver under /lib/modules/<release>/extra/ is preserved — use "Reset driver" first if you want that gone too.')) return;
-    if (!window.confirm('Final confirmation: factory reset is destructive and cannot be undone. The next person to load this URL will be prompted to set a new password. Proceed?')) return;
+    if (!window.confirm('Reset to factory?\n\nThis hands every fan back to BIOS auto-control, removes the OOT driver ventd installed, wipes ALL ventd state (config, calibration, login credentials, smart-mode learning), and disables + stops the ventd service.\n\nThe web UI goes offline. Your firmware takes over cooling.\n\nThe ventd binary is left on disk — remove it with your package manager or run /usr/local/sbin/ventd-uninstall.\n\nThis cannot be undone.')) return;
+    if (!window.confirm('Final confirmation: factory reset is destructive and irreversible. Proceed?')) return;
+    btnFactory.disabled = true;
     fetch('/api/v1/admin/factory-reset', { method: 'POST', credentials: 'same-origin' })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }, function () { return { ok: r.ok, status: r.status, body: {} }; }); })
       .then(function (res) {
         if (res.ok) {
-          window.location.assign(res.body.redirect || '/login');
-        } else {
-          alert('Factory reset failed (HTTP ' + (res.body && res.body.error ? res.body.error : 'unknown') + ').');
+          paintFactoryResetTakeover();
+          return;
         }
+        var why = (res.body && (res.body.error || res.body.message)) || ('HTTP ' + res.status);
+        alert('Factory reset failed: ' + why + '.');
+        btnFactory.disabled = false;
       })
-      .catch(function (err) { alert('Factory reset failed: ' + err.message); });
+      .catch(function (err) {
+        alert('Factory reset failed: ' + err.message);
+        btnFactory.disabled = false;
+      });
   });
+
+  function paintFactoryResetTakeover() {
+    var html = ''
+      + '<main style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:48px 24px;font-family:inherit;background:var(--bg, #081518);color:var(--fg, #e8f3f1);">'
+      + '  <section style="max-width:560px;text-align:left;">'
+      + '    <h1 style="margin:0 0 16px;font-size:24px;font-weight:600;">Factory reset in progress</h1>'
+      + '    <p style="margin:0 0 12px;line-height:1.6;">Fans have been returned to BIOS control. The OOT driver (if any) is being removed and the ventd service is being disabled and stopped.</p>'
+      + '    <p style="margin:0 0 12px;line-height:1.6;">When the daemon shuts down this connection will drop. That is expected — ventd is offline.</p>'
+      + '    <p style="margin:0 0 12px;line-height:1.6;">The ventd binary is still on disk. To remove it, run one of:</p>'
+      + '    <pre style="background:rgba(255,255,255,0.05);padding:12px 16px;border-radius:6px;font-family:ui-monospace,Menlo,monospace;font-size:13px;overflow-x:auto;">sudo dnf remove ventd     # or apt / pacman / zypper\nsudo /usr/local/sbin/ventd-uninstall</pre>'
+      + '    <p style="margin:16px 0 0;line-height:1.6;opacity:0.7;font-size:14px;">You may close this tab.</p>'
+      + '  </section>'
+      + '</main>';
+    document.title = 'ventd — factory reset';
+    document.body.innerHTML = html;
+  }
 
   // ── live status ──────────────────────────────────────────────────
   function setLive(ok) {

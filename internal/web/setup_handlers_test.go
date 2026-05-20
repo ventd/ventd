@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -225,9 +226,10 @@ func TestHandleFactoryReset_NonPOST_RejectedAs405(t *testing.T) {
 
 // TestHandleFactoryReset_RemovesConfigAndAuth — happy path. With both
 // config.yaml and auth.json on disk, factory-reset removes both. The
-// response body's "redirect" field is "/login" (vs setup-reset's
-// implicit "/setup") so the UI knows to push the operator to the
-// password-set screen.
+// response body's "status" field is "uninstalling" so the UI knows to
+// paint the takeover page (the daemon is in the process of disabling
+// its own systemd unit; redirecting to /login would land on a dead
+// listener).
 func TestHandleFactoryReset_RemovesConfigAndAuth(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	tempDir := t.TempDir()
@@ -267,8 +269,8 @@ func TestHandleFactoryReset_RemovesConfigAndAuth(t *testing.T) {
 		t.Errorf("factory-reset: auth.json not removed: stat err = %v", err)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, `"redirect":"/login"`) {
-		t.Errorf("factory-reset: response body missing redirect to /login: %q", body)
+	if !strings.Contains(body, `"status":"uninstalling"`) {
+		t.Errorf("factory-reset: response body missing uninstalling status: %q", body)
 	}
 }
 
@@ -308,6 +310,82 @@ func TestHandleFactoryReset_MissingFiles_Idempotent(t *testing.T) {
 
 	if got := w.Result().StatusCode; got != http.StatusOK {
 		t.Fatalf("factory-reset-no-files: status = %d, want %d", got, http.StatusOK)
+	}
+}
+
+// TestHandleCalibrationReset_NonPOST_RejectedAs405 — method enforcement
+// for the calibration-reset endpoint, same shape as the other resets.
+func TestHandleCalibrationReset_NonPOST_RejectedAs405(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/calibrate/reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleCalibrationReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /api/calibrate/reset: status = %d, want %d",
+			got, http.StatusMethodNotAllowed)
+	}
+}
+
+// TestHandleCalibrationReset_HappyPath — calibration-reset removes the
+// stored calibration.json file and invokes the calibrationWiper hook.
+// Config, auth, and applied-marker are NOT touched (the differentiator
+// from setup-reset and factory-reset).
+func TestHandleCalibrationReset_HappyPath(t *testing.T) {
+	srv, configPath, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	wiped := false
+	srv.SetCalibrationWiper(func() error {
+		wiped = true
+		return nil
+	})
+
+	if err := os.WriteFile(configPath, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/calibrate/reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleCalibrationReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusOK {
+		t.Fatalf("calibrate/reset: status = %d, want %d (body=%q)",
+			got, http.StatusOK, w.Body.String())
+	}
+	if !wiped {
+		t.Errorf("calibrate/reset: calibrationWiper hook not invoked")
+	}
+	// Config must survive a calibration-only reset.
+	if _, err := os.Stat(configPath); err != nil {
+		t.Errorf("calibrate/reset: config removed (should be preserved): %v", err)
+	}
+}
+
+// TestHandleCalibrationReset_WiperFailureSurfaces500 — when the
+// calibrationWiper returns an error, the handler must return 500 with
+// the error in the body so the UI can show the operator something
+// actionable instead of silently navigating away.
+func TestHandleCalibrationReset_WiperFailureSurfaces500(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	srv.SetCalibrationWiper(func() error {
+		return errors.New("kv unavailable")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/calibrate/reset", nil)
+	w := httptest.NewRecorder()
+	srv.handleCalibrationReset(w, req)
+
+	if got := w.Result().StatusCode; got != http.StatusInternalServerError {
+		t.Fatalf("calibrate/reset (wiper-fail): status = %d, want %d (body=%q)",
+			got, http.StatusInternalServerError, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "kv unavailable") {
+		t.Errorf("calibrate/reset: response body missing wiper error: %q", w.Body.String())
 	}
 }
 

@@ -208,6 +208,20 @@ type Server struct {
 	// set via SetKVWiper in main.go after Server construction.
 	kvWiper func() error
 
+	// calibrationWiper wipes ONLY the calibration KV namespace. Called by
+	// handleCalibrationReset, the Settings "Reset calibration" action.
+	// Wizard/probe outcomes survive. Nil in tests that don't exercise the
+	// endpoint.
+	calibrationWiper func() error
+
+	// factoryResetHook runs the daemon-resident half of factory reset
+	// AFTER all state files have been wiped: fans handed back to BIOS
+	// (watchdog.RestoreCtx), OOT driver removed, systemd unit
+	// disabled-and-stopped (which terminates the daemon). Nil makes
+	// factory reset a state-wipe-only operation — useful in tests and
+	// non-systemd hosts.
+	factoryResetHook func(ctx context.Context) error
+
 	// polarityChannels carries the live probe.ControllableChannel slice
 	// used by handlePanic's writeMaxPWMToAllFans so the PANIC, MAX
 	// COOLING write routes through polarity.WritePWM (RULE-POLARITY-05).
@@ -401,6 +415,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		{name: "probe/opportunistic/status", handler: s.handleOpportunisticStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
 		{name: "calibrate/abort", handler: s.handleCalibrateAbort, auth: true},
+		{name: "calibrate/reset", handler: s.handleCalibrationReset, auth: true},
 		{name: "detect-rpm", handler: s.handleDetectRPM, auth: true},
 		{name: "setup/status", handler: s.handleSetupStatus, auth: true},
 		{name: "setup/events", handler: s.handleSetupEvents, auth: true},
@@ -614,6 +629,19 @@ func (s *Server) SetReadyState(r *ReadyState) { s.ready = r }
 // wizard and probe KV namespaces on "Reset to initial setup" (RULE-PROBE-09).
 // Pass probe.WipeNamespaces(st.KV) from main.go.
 func (s *Server) SetKVWiper(fn func() error) { s.kvWiper = fn }
+
+// SetCalibrationWiper registers the calibration-only KV wipe used by the
+// Settings page "Reset calibration" action. Pass probe.WipeCalibration(st.KV)
+// from main.go.
+func (s *Server) SetCalibrationWiper(fn func() error) { s.calibrationWiper = fn }
+
+// SetFactoryResetHook registers the daemon-resident half of factory reset:
+// fans handed back to BIOS, OOT driver removed, systemd unit disabled+stopped.
+// Wired in main.go after the watchdog is constructed. nil leaves factory
+// reset as state-wipe-only.
+func (s *Server) SetFactoryResetHook(fn func(ctx context.Context) error) {
+	s.factoryResetHook = fn
+}
 
 // SetPolarityChannels wires the live probe.ControllableChannel slice
 // so handlePanic's MaxPWM writes route through polarity.WritePWM
@@ -1457,6 +1485,45 @@ func (s *Server) handleCalibrateAbort(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleCalibrationReset POST /api/calibrate/reset
+//
+// Wipes the calibration KV namespace AND /var/lib/ventd/setup/calibration.json
+// so the operator can re-run calibration from scratch — typically after
+// swapping or adding a fan. Curves and config are preserved; the daemon
+// continues controlling fans against the existing curve until the operator
+// recalibrates (curve resolution falls back to non-calibrated PWM mapping
+// in the interim).
+//
+// Distinct from handleSetupReset (which wipes config + applied marker + KV)
+// and handleFactoryReset (which also removes auth + uninstalls). Stays on
+// the Settings page on success; the UI redirects to /calibration so the
+// operator can immediately start a fresh sweep.
+//
+// Returns 200 + {"status":"ok"} on success, 500 on KV wipe failure.
+func (s *Server) handleCalibrationReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.calibrationWiper != nil {
+		if err := s.calibrationWiper(); err != nil {
+			s.logger.Error("calibration reset: KV wipe failed", "err", err)
+			http.Error(w, "calibration wipe failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	// Remove the on-disk calibration.json snapshot. ENOENT is not an
+	// error — a host that never finished calibration won't have one.
+	if err := os.Remove(calibrate.DefaultCalibrationPath); err != nil && !os.IsNotExist(err) {
+		s.logger.Error("calibration reset: remove calibration.json failed",
+			"err", err, "path", calibrate.DefaultCalibrationPath)
+		http.Error(w, "remove calibration.json: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.logger.Info("calibration reset: stored calibration data wiped; operator can re-run /calibration")
+	s.writeJSON(r, w, map[string]string{"status": "ok"})
+}
+
 // handleSetupCalibrateAbort POST /api/setup/calibrate/abort
 // Idempotent: cancels the setup wizard's current run (including its parallel
 // per-fan calibration sweeps). Returns 204 whether or not setup is active.
@@ -1656,31 +1723,37 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 
 // handleFactoryReset POST /api/admin/factory-reset
 //
-// Like handleSetupReset, but ALSO removes auth.json so the next
-// daemon start lands on /login's password-set form instead of
-// the password-prompt form. Use this when transferring a host to
-// a new operator or when restoring to true factory state.
+// Returns the host to its pre-ventd state in one operator-visible step:
+// every controlled fan is handed back to BIOS auto, the OOT driver ventd
+// installed (if any) is rmmod'd + de-registered from DKMS, all ventd
+// state on disk is wiped, and the systemd service is disabled + stopped.
+// After this completes the daemon is no longer running and the host's
+// firmware is in charge of cooling.
 //
 // Wipes (in order):
-//  1. The config file (s.configPath) — same as setup/reset.
-//  2. The wizard / probe / calibration KV namespaces (via kvWiper).
-//  3. The applied-marker so the wizard runs again on next start.
-//  4. auth.json (s.authPath) — the password hash. Daemon's next
-//     start sees no credentials and renders the password-set form
-//     at /login per the v0.5.8.1 first-boot flow (#765, #794).
+//  1. Wizard / probe / calibration KV namespaces (via kvWiper).
+//  2. config.yaml (s.configPath).
+//  3. The applied marker so the wizard runs again on next start.
+//  4. auth.json (s.authPath) — the password hash.
+//  5. /var/lib/ventd/setup/ — orchestrator state dir.
 //
-// The response includes redirect: "/login" so the UI can navigate
-// the operator after the daemon reload — distinct from
-// handleSetupReset's redirect: "/setup".
+// Then, in a detached goroutine that runs AFTER the HTTP response has
+// flushed, the factoryResetHook performs the daemon-resident half:
+//   - watchdog.RestoreCtx → fans returned to BIOS auto
+//   - OOT driver cleanup (rmmod + DKMS deregister + modules-load.d)
+//   - systemctl disable --now ventd.service → terminates this process
 //
-// DOES NOT wipe:
-//   - Installed OOT driver under /lib/modules/<rel>/extra/ (use the
-//     reset-and-reinstall endpoint).
-//   - /etc/modprobe.d/ventd-*.conf (driver-cleanup endpoint owns those).
-//   - /var/lib/ventd/blob/, /var/lib/ventd/log/ (durable telemetry
-//     persists across factory reset by design — operators can clear
-//     manually if desired).
-//   - The signature salt (regenerates on next start anyway).
+// On success the response carries {"status":"uninstalling"}; the UI
+// shows a takeover page explaining that ventd is offline. The
+// connection drops once the service shuts down — the UI handles that
+// gracefully.
+//
+// DOES NOT remove:
+//   - The ventd binary at /usr/local/bin/ventd. A separate
+//     /usr/local/sbin/ventd-uninstall script handles binary +
+//     packaging-artefact removal; running it is the operator's
+//     choice (e.g. `dnf remove ventd` for distro-packaged installs).
+//   - /var/lib/ventd/blob/, /var/lib/ventd/log/ — durable telemetry.
 func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1719,14 +1792,43 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 	if err := wipeOrchestratorStateDir(s.logger); err != nil {
 		s.logger.Warn("factory reset: orchestrator state dir wipe failed", "err", err)
 	}
-	s.logger.Info("factory reset: full state wipe complete; triggering reload", "config", s.configPath, "auth", s.authPath)
+	s.logger.Info("factory reset: state wiped; running daemon-resident hook (fan restore + driver rmmod + systemctl disable)",
+		"config", s.configPath, "auth", s.authPath)
 
 	w.Header().Set("Connection", "close")
-	s.writeJSON(r, w, map[string]string{
-		"status":   "ok",
-		"redirect": "/login",
-	})
-	s.triggerReload()
+	s.writeJSON(r, w, map[string]string{"status": "uninstalling"})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	hook := s.factoryResetHook
+	if hook == nil {
+		// No hook wired (tests, non-systemd hosts): the daemon stays
+		// running with empty state. Logging at INFO so the absence is
+		// observable; the prior behaviour was an implicit no-op.
+		s.logger.Info("factory reset: no factoryResetHook registered; daemon continues with empty state")
+		return
+	}
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				s.logger.Error("factory reset hook panicked; daemon survives",
+					"panic", rec)
+			}
+		}()
+		// Brief delay so the HTTP response reaches the browser before
+		// the daemon starts tearing itself down.
+		select {
+		case <-time.After(300 * time.Millisecond):
+		case <-s.ctx.Done():
+			return
+		}
+		hctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := hook(hctx); err != nil {
+			s.logger.Error("factory reset hook returned error", "err", err)
+		}
+	}()
 }
 
 // handleSetupLoadModule POST /api/setup/load-module

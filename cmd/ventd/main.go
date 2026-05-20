@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -633,6 +634,7 @@ func run() error {
 	defer signal.Stop(sigCh)
 
 	kvWiper := func() error { return probe.WipeNamespaces(st.KV) }
+	calibrationWiper := func() error { return probe.WipeCalibration(st.KV) }
 
 	// v0.5.8 sign-guard: shared per-channel sign-vote detector. Fed by
 	// every successful opportunistic probe (from the prober's
@@ -684,7 +686,7 @@ func run() error {
 			smartMode.Coupling, smartMode.Marginal, smartMode.LayerA)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
 }
 
 // buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
@@ -820,11 +822,12 @@ func runDaemon(
 	sigCh <-chan os.Signal,
 	expFlags experimental.Flags,
 	kvWiper func() error,
+	calibrationWiper func() error,
 	oppFactory OpportunisticFactory,
 	smartMode *SmartModeBundle,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, expFlags, kvWiper, oppFactory, smartMode)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -937,6 +940,7 @@ func runDaemonInternal(
 	restartCh chan struct{},
 	expFlags experimental.Flags,
 	kvWiper func() error,
+	calibrationWiper func() error,
 	oppFactory OpportunisticFactory,
 	smartMode *SmartModeBundle,
 ) error {
@@ -1195,6 +1199,8 @@ func runDaemonInternal(
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)
+	webSrv.SetCalibrationWiper(calibrationWiper)
+	webSrv.SetFactoryResetHook(makeFactoryResetHook(wd, logger))
 	// #1285: wire the chassis cooling-capacity-W estimator so
 	// /api/v1/smart/status surfaces (capacity_w, cpu_tdp_w, adequate)
 	// for the dashboard's "chassis cooling capacity" panel and the
@@ -2012,6 +2018,109 @@ func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
 }
 
 // convertSensorReadings translates the controller's name→°C map into
+// makeFactoryResetHook returns the daemon-resident half of factory
+// reset, fired AFTER the web handler has wiped all state files and
+// flushed its HTTP response:
+//
+//  1. Watchdog.RestoreCtx — every controlled fan handed back to BIOS
+//     auto (RULE-WD-RESTORE-EXIT). Runs first so a hang in the next
+//     steps doesn't leave fans pinned.
+//  2. OOT driver cleanup — rmmod + DKMS deregister +
+//     /etc/modules-load.d entry removal for whichever module ventd
+//     installed under /lib/modules/<release>/extra/. Best-effort: any
+//     error is logged and the next step proceeds.
+//  3. systemctl disable --now ventd.service — stops the running unit
+//     and prevents auto-start on next boot. The disable inevitably
+//     terminates the daemon mid-step, so this MUST be last; the
+//     deferred wd.Restore() in runDaemonInternal runs as the process
+//     unwinds, which is a no-op when step 1 already ran successfully.
+//
+// nil-safe: a non-systemd host (PID 1 ventd, OpenRC, runit) gets a
+// best-effort fan restore + driver cleanup, with the systemctl step
+// returning the underlying exec error so the operator sees it in the
+// journal.
+func makeFactoryResetHook(wd *watchdog.Watchdog, logger *slog.Logger) func(context.Context) error {
+	return func(ctx context.Context) error {
+		// Step 1: hand fans back to BIOS auto. RestoreCtx honours its
+		// own per-channel goroutine budget; ctx here only bounds the
+		// wait for ALL channels — a hung fan no longer blocks the
+		// other steps after its goroutine times out.
+		if wd != nil {
+			wd.RestoreCtx(ctx)
+		}
+		// Step 2: rmmod + DKMS cleanup for whichever OOT driver ventd
+		// installed. guessInstalledOOTModule walks /lib/modules/<rel>/extra/
+		// to identify the module; an empty result means nothing was
+		// installed (catalog row never required an OOT build) and we
+		// skip cleanup silently.
+		module := guessFactoryResetModule()
+		release := strings.TrimSpace(execCommandOutput("uname", "-r"))
+		if module != "" && release != "" {
+			report, err := hwmon.CleanupOrphanInstall(
+				hwmon.DriverNeed{Module: module}, release, logger,
+			)
+			if err != nil {
+				logger.Warn("factory reset: OOT driver cleanup failed (continuing to disable)",
+					"module", module, "err", err)
+			} else if report != nil {
+				logger.Info("factory reset: OOT driver removed",
+					"module", module,
+					"modules_removed", report.ModulesRemoved,
+					"dkms_removed", report.DKMSRemoved,
+					"modules_loadd_clean", report.ModulesLoadDClean)
+			}
+		}
+		// Step 3: stop+disable the systemd unit. This terminates the
+		// daemon mid-call, so the function never returns nil on
+		// systemd hosts — exec.Run kills us before Run() does.
+		cmd := exec.Command("systemctl", "disable", "--now", "ventd.service")
+		if err := cmd.Run(); err != nil {
+			logger.Error("factory reset: systemctl disable --now ventd.service failed",
+				"err", err)
+			return err
+		}
+		return nil
+	}
+}
+
+// guessFactoryResetModule re-exports the web package's
+// /lib/modules/<release>/extra/ probe under a stable name so the
+// factory-reset hook in main.go doesn't reach across package boundaries
+// for an internal helper.
+func guessFactoryResetModule() string {
+	release := strings.TrimSpace(execCommandOutput("uname", "-r"))
+	if release == "" {
+		return ""
+	}
+	entries, err := os.ReadDir("/lib/modules/" + release + "/extra")
+	if err != nil {
+		return ""
+	}
+	var first string
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".ko") {
+			continue
+		}
+		mod := strings.TrimSuffix(name, ".ko")
+		if mod == "it87" {
+			return mod
+		}
+		if first == "" {
+			first = mod
+		}
+	}
+	return first
+}
+
+func execCommandOutput(name string, args ...string) string {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
 // the observation log's SensorID→centi-celsius shape. Skips readings
 // outside the sensible plausibility band so a sentinel that escaped
 // the controller's read-side filter cannot reach the persisted log.
