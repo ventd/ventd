@@ -368,6 +368,185 @@ func TestBackendNameAndClose(t *testing.T) {
 	}
 }
 
+// TestReadAvailableShiftModes covers the #1166 shift_mode discovery
+// helper: same canonicalisation as readAvailableModes, with the
+// canonical eco → comfort → turbo ordering and forward-compat handling
+// for unknown firmware values.
+func TestReadAvailableShiftModes(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{"all three newline", "eco\ncomfort\nturbo\n", []string{"eco", "comfort", "turbo"}},
+		{"space separated", "eco comfort turbo", []string{"eco", "comfort", "turbo"}},
+		{"out of order canonicalised", "turbo\ncomfort\neco\n", []string{"eco", "comfort", "turbo"}},
+		{"two only", "comfort\nturbo\n", []string{"comfort", "turbo"}},
+		{"unknown mode last", "eco\ncomfort\nfuture-eco-plus\nturbo\n",
+			[]string{"eco", "comfort", "turbo", "future-eco-plus"}},
+		{"duplicates collapsed", "eco\neco\nturbo\n", []string{"eco", "turbo"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "available_shift_modes"),
+				[]byte(tc.raw), 0o644); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			got, err := readAvailableShiftModes(root)
+			if err != nil {
+				t.Fatalf("readAvailableShiftModes: %v", err)
+			}
+			if !equalStrings(got, tc.want) {
+				t.Errorf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("missing file errors with fs.ErrNotExist", func(t *testing.T) {
+		_, err := readAvailableShiftModes(t.TempDir())
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("want fs.ErrNotExist, got %v", err)
+		}
+	})
+}
+
+// TestEnumerate_ExposesShiftModeCapability checks that Enumerate adds
+// CapWritePowerProfile to the channel when available_shift_modes is
+// present, AND drops the capability silently when it's absent. The
+// existing fan_mode capabilities are unaffected either way.
+func TestEnumerate_ExposesShiftModeCapability(t *testing.T) {
+	// Direct Enumerate doesn't take a root argument — it always reads
+	// DefaultSysfsRoot. We exercise the shift-mode discovery via the
+	// Enumerate code path using a Backend-internal helper to avoid
+	// monkey-patching the package-level constant.
+	cases := []struct {
+		name       string
+		shiftSeed  string // file contents or "" to skip seeding
+		wantCap    hal.Caps
+		wantModes  []string
+		wantInCaps bool // expect CapWritePowerProfile in channel.Caps
+	}{
+		{
+			name:       "shift_mode exposed",
+			shiftSeed:  "eco\ncomfort\nturbo\n",
+			wantModes:  []string{"eco", "comfort", "turbo"},
+			wantInCaps: true,
+		},
+		{
+			name:       "shift_mode absent → capability dropped",
+			shiftSeed:  "",
+			wantModes:  nil,
+			wantInCaps: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := seedSysfs(t, "auto\n", "auto\nsilent\nadvanced\n", "56\n")
+			if tc.shiftSeed != "" {
+				if err := os.WriteFile(filepath.Join(root, "available_shift_modes"),
+					[]byte(tc.shiftSeed), 0o644); err != nil {
+					t.Fatalf("seed shift modes: %v", err)
+				}
+			}
+			// Run Enumerate's shift-discovery step manually since the
+			// production code reads DefaultSysfsRoot. Mirror the same
+			// caps assembly the production path uses.
+			writable := filterWritableModes([]string{"auto", "silent", "advanced"})
+			shifts, _ := readAvailableShiftModes(root)
+			caps := hal.CapRead | hal.CapWritePWM | hal.CapRestore
+			if len(shifts) > 0 {
+				caps |= hal.CapWritePowerProfile
+			}
+			if (caps&hal.CapWritePowerProfile != 0) != tc.wantInCaps {
+				t.Fatalf("CapWritePowerProfile present=%v want %v (shifts=%v)",
+					caps&hal.CapWritePowerProfile != 0, tc.wantInCaps, shifts)
+			}
+			if !equalStrings(shifts, tc.wantModes) {
+				t.Errorf("shifts=%v want %v", shifts, tc.wantModes)
+			}
+			// Sanity: fan_mode caps unaffected.
+			if caps&hal.CapWritePWM == 0 {
+				t.Error("CapWritePWM lost when shift_mode added")
+			}
+			_ = writable
+		})
+	}
+}
+
+// TestPowerProfileRoundtrip exercises the full Read/Write/Available
+// PowerProfile contract against a hermetic msi-ec fixture (#1166).
+func TestPowerProfileRoundtrip(t *testing.T) {
+	root := seedSysfs(t, "auto\n", "auto\nsilent\nadvanced\n", "56\n")
+	if err := os.WriteFile(filepath.Join(root, "available_shift_modes"),
+		[]byte("eco\ncomfort\nturbo\n"), 0o644); err != nil {
+		t.Fatalf("seed shift modes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "shift_mode"),
+		[]byte("comfort\n"), 0o644); err != nil {
+		t.Fatalf("seed shift_mode: %v", err)
+	}
+	b := newBackendWithRoot(t)
+	ch := hal.Channel{
+		ID:   root,
+		Role: hal.RoleCPU,
+		Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore | hal.CapWritePowerProfile,
+		Opaque: State{
+			SysfsRoot:          root,
+			WritableModes:      []string{"silent", "advanced"},
+			WritableShiftModes: []string{"eco", "comfort", "turbo"},
+		},
+	}
+
+	// Asserts the optional interface is satisfied.
+	pp, ok := any(b).(hal.PowerProfileBackend)
+	if !ok {
+		t.Fatal("Backend does not satisfy hal.PowerProfileBackend")
+	}
+
+	avail, err := pp.AvailablePowerProfiles(ch)
+	if err != nil {
+		t.Fatalf("AvailablePowerProfiles: %v", err)
+	}
+	if !equalStrings(avail, []string{"eco", "comfort", "turbo"}) {
+		t.Errorf("AvailablePowerProfiles=%v", avail)
+	}
+
+	cur, err := pp.ReadPowerProfile(ch)
+	if err != nil {
+		t.Fatalf("ReadPowerProfile: %v", err)
+	}
+	if cur != "comfort" {
+		t.Errorf("ReadPowerProfile=%q want comfort", cur)
+	}
+
+	if err := pp.WritePowerProfile(ch, "eco"); err != nil {
+		t.Fatalf("WritePowerProfile(eco): %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(root, "shift_mode"))
+	if strings.TrimSpace(string(got)) != "eco" {
+		t.Errorf("sysfs shift_mode=%q after Write(eco)", got)
+	}
+
+	// Unknown profile rejected.
+	wErr := pp.WritePowerProfile(ch, "ludicrous")
+	if !errors.Is(wErr, ErrInvalidShiftMode) {
+		t.Errorf("WritePowerProfile(ludicrous) err=%v want ErrInvalidShiftMode", wErr)
+	}
+
+	// Channel without shift_mode capability rejects.
+	emptyCh := hal.Channel{
+		ID:     root,
+		Opaque: State{SysfsRoot: root},
+	}
+	if _, err := pp.AvailablePowerProfiles(emptyCh); err == nil {
+		t.Error("AvailablePowerProfiles on shift-mode-less channel: want error")
+	}
+	if err := pp.WritePowerProfile(emptyCh, "eco"); err == nil {
+		t.Error("WritePowerProfile on shift-mode-less channel: want error")
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

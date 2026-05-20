@@ -71,6 +71,21 @@ const (
 	// its pre-ventd state (e.g. pwm_enable = 2 on hwmon, auto-curve
 	// on NVML).
 	CapRestore
+
+	// CapWritePowerProfile — the channel exposes a secondary, enum-
+	// valued write surface that selects a board-wide power profile
+	// (eco / comfort / turbo on msi-ec's shift_mode; balanced /
+	// performance on platform-profile-class drivers). Distinct from
+	// CapWritePWM because the value space is a closed set of names,
+	// not a 0..255 duty cycle, and the surface shapes BIOS-managed
+	// behaviour (CPU PL1/PL2, BIOS fan curve, thermal headroom) on
+	// top of whatever PWM the daemon writes.
+	//
+	// Channels that advertise this bit MUST also satisfy
+	// hal.PowerProfileBackend on their backend. The capability is
+	// orthogonal to CapWritePWM — a channel may have one, both, or
+	// neither (#1166).
+	CapWritePowerProfile
 )
 
 // Channel is a single fan endpoint exposed by a backend. ID is
@@ -142,4 +157,44 @@ type FanBackend interface {
 	// Name is the short, stable identifier used when channels are
 	// tagged by the registry (e.g. "hwmon", "nvml").
 	Name() string
+}
+
+// PowerProfileBackend is an optional capability bolted onto a
+// FanBackend for laptops / platforms that expose a board-wide
+// power-profile surface in parallel with the per-fan PWM surface —
+// msi-ec's shift_mode (eco / comfort / turbo), thinkpad_acpi's
+// thermal_mode, asus-wmi's throttle_thermal_policy, etc.
+//
+// Distinct from FanBackend.Write because the value space is a closed
+// set of named modes rather than a 0..255 duty cycle, and writes here
+// shape BIOS-managed behaviour (CPU PL1/PL2 limits, the underlying
+// fan curve, platform thermal headroom) on top of whatever PWM the
+// fan controller is writing.
+//
+// Consumers SHOULD discover this surface via channel.Caps &
+// CapWritePowerProfile and a runtime type-assertion on the backend
+// (`if pp, ok := backend.(hal.PowerProfileBackend); ok { ... }`).
+//
+// Implementations MUST be safe to call from multiple goroutines.
+// Writes are unconditional from the kernel's perspective — the
+// underlying drivers do not have an acquire/release contract on this
+// surface. (#1166).
+type PowerProfileBackend interface {
+	// AvailablePowerProfiles returns the closed set of profile names
+	// the channel accepts for WritePowerProfile, in implementation-
+	// defined order (typically low-power → high-power; e.g.
+	// {eco, comfort, turbo} on msi-ec).
+	AvailablePowerProfiles(ch Channel) ([]string, error)
+
+	// ReadPowerProfile returns the channel's current power profile
+	// value verbatim from the kernel surface. Backends that surface
+	// unknown raw values (msi-ec emits "unknown (192)" on boards with
+	// incomplete CONF_G2_6 mappings) return the raw string so the
+	// operator sees what the firmware reports.
+	ReadPowerProfile(ch Channel) (string, error)
+
+	// WritePowerProfile commands the channel to a profile value. The
+	// value MUST be one of AvailablePowerProfiles; backends return an
+	// error otherwise so callers can't accidentally substitute.
+	WritePowerProfile(ch Channel, profile string) error
 }
