@@ -9,6 +9,11 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Added
+
+- `internal/setup/orchestrator/probe.go` — **`ProbeArtifact.CPUTDPW`** field carries the host CPU package TDP in watts (read from Intel RAPL `constraint_0_power_limit_uw` at probe time). 0 on AMD CPUs without amd_energy, virtualised hosts, or kernels without intel-rapl. (#1280)
+- `internal/setup/orchestrator/apply.go` — **TDP-aware curve aggressiveness** (#1280). `tdpAggressivenessGamma` maps `ProbeArtifact.CPUTDPW` to a power-law exponent in [0.5, 2.0]: high-TDP hosts (≥250 W → γ=0.5, concave) ramp PWM% sharply through the lower-middle band; low-TDP hosts (≤35 W → γ=2.0, convex) ramp gently across the same temperature anchors. `cpuTDPW=0` falls back to γ=1.0 (linear, strict no-regression for AMD / virtualised hosts). Both `buildPerFanCurve` and `buildGenericCurve` now shape their PWM% spread via `shapePWMPct(fraction, γ, bottom, top)`; endpoints remain pinned at the fan's StartPWM and saturation-knee regardless of γ.
+
 ### Headline
 
 Calibrate-to-curve pipeline rewrite: the wizard now emits **per-fan** curves anchored on each fan's measured PWM→RPM data, capping `max_pwm_pct` at the saturation knee so the daemon never wastes duty cycle past the point where a fan stops responding. Acoustic dBA budget gate wired into `BlendedController.Compute` consuming the R33 proxy + preset target — `acoustic_optimisation: true` is now a real switch, not a config no-op. Five additional latent issues from the 2026-05-20 audit fixed in the same pass.
