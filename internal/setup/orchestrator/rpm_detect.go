@@ -32,6 +32,21 @@ type RPMDetectFanResult struct {
 	Improved    bool   `json:"improved,omitempty"`     // true when detection found a non-empty path
 	Skipped     string `json:"skipped,omitempty"`      // skip reason
 	Error       string `json:"error,omitempty"`
+
+	// Uncontrollable is set when DetectRPMSensor swept the channel's
+	// full PWM range and no fan*_input correlated (#598,
+	// RULE-CAL-UNCONTROLLABLE-MARK). The channel is either BIOS-
+	// controlled (firmware overrides daemon writes), physically
+	// disconnected, or a 3-pin DC fan on a PWM-only chip whose tach
+	// was wired to a non-paired header. ApplyPhase consults this
+	// field to exclude the channel from the active control config —
+	// driving a fan with no closed-loop RPM signal is unsafe.
+	//
+	// Distinct from Skipped (which carries skipped-by-policy reasons
+	// like "already paired by probe" / "polarity=phantom"); a fan can
+	// have Skipped=="" AND Uncontrollable=true (sweep ran, no
+	// correlation found).
+	Uncontrollable bool `json:"uncontrollable,omitempty"`
 }
 
 // RPMDetectArtifact is the structured result of the RPMDetectPhase.
@@ -145,6 +160,9 @@ func (p RPMDetectPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 				"delta", res.Delta)
 		} else {
 			entry.Skipped = "no fan_input responded to PWM ramp (DC fan or disconnected tach)"
+			// #598: structured marker for ApplyPhase to exclude
+			// this channel from the active control config.
+			entry.Uncontrollable = true
 		}
 		art.Results = append(art.Results, entry)
 	}
