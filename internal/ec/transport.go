@@ -47,6 +47,16 @@ var (
 	// preflight check surfaces a modprobe-options-write remediation;
 	// see RULE-NBFC-EC-04.
 	ErrECSysWriteSupportDisabled = errors.New("ec: ec_sys.write_support is not set; load module with `ec_sys.write_support=1`")
+
+	// ErrECLockdownActive is returned by Available() when the kernel's
+	// Lockdown LSM is in "integrity" or "confidentiality" mode and
+	// userspace EC transports are therefore blocked. Wraps
+	// ErrECNotAvailable so existing callers branching on the parent
+	// sentinel continue to work, but callers can also discriminate
+	// this specific cause and emit a doctor card pointing at the
+	// signed-kernel-module remediation path instead of suggesting
+	// `modprobe ec_sys write_support=1` (which lockdown will refuse).
+	ErrECLockdownActive = errors.New("ec: kernel lockdown is active; userspace EC transports are unavailable (use a signed kernel module instead)")
 )
 
 // Transport is the narrow interface every EC backend implements.

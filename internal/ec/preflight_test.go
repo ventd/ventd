@@ -6,9 +6,20 @@ import (
 	"testing"
 )
 
+// installNoLockdown forces LockdownActive() to return false for the
+// duration of the test. The transport-precedence tests rely on this
+// because otherwise the lockdown short-circuit would fire before
+// either transport was attempted.
+func installNoLockdown(t *testing.T) {
+	saved := readLockdownFile
+	readLockdownFile = func() (string, error) { return "[none] integrity confidentiality\n", nil }
+	t.Cleanup(func() { readLockdownFile = saved })
+}
+
 // TestAvailable_PrefersECSys pins the precedence: ec_sys is tried
 // first and used when it opens cleanly. RULE-NBFC-EC-01.
 func TestAvailable_PrefersECSys(t *testing.T) {
+	installNoLockdown(t)
 	installFakeECSys(t)
 	installFakeDevPort(t)
 	tr, err := Available()
@@ -24,6 +35,7 @@ func TestAvailable_PrefersECSys(t *testing.T) {
 // TestAvailable_FallsBackToDevPort pins that /dev/port is used when
 // ec_sys fails to open (kernel module not loaded, etc.).
 func TestAvailable_FallsBackToDevPort(t *testing.T) {
+	installNoLockdown(t)
 	saved := openECSysFn
 	openECSysFn = func() (ecSysFile, error) { return nil, errors.New("ec_sys not loaded") }
 	t.Cleanup(func() { openECSysFn = saved })
@@ -43,6 +55,7 @@ func TestAvailable_FallsBackToDevPort(t *testing.T) {
 // are surfaced when neither transport opens. RULE-NBFC-EC-01's
 // chain-of-causes contract.
 func TestAvailable_BothFailReturnsCombinedError(t *testing.T) {
+	installNoLockdown(t)
 	savedSys, savedPort := openECSysFn, openDevPortFn
 	openECSysFn = func() (ecSysFile, error) { return nil, errors.New("ec_sys broken") }
 	openDevPortFn = func() (devPortFile, error) { return nil, errors.New("port broken") }
@@ -62,6 +75,33 @@ func TestAvailable_BothFailReturnsCombinedError(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should name %q; got %v", want, err)
 		}
+	}
+}
+
+// TestAvailable_LockdownShortCircuits pins that when the kernel
+// Lockdown LSM is active, Available() does NOT attempt the
+// userspace transports (they would fail anyway, but the kernel can
+// log spurious EPERM events). Returns an error wrapping BOTH
+// ErrECLockdownActive (specific cause) and ErrECNotAvailable (the
+// generic sentinel existing callers branch on).
+func TestAvailable_LockdownShortCircuits(t *testing.T) {
+	saved := readLockdownFile
+	readLockdownFile = func() (string, error) { return "none [integrity] confidentiality\n", nil }
+	t.Cleanup(func() { readLockdownFile = saved })
+
+	// Even if transports WOULD succeed, lockdown must short-circuit.
+	installFakeECSys(t)
+	installFakeDevPort(t)
+
+	_, err := Available()
+	if err == nil {
+		t.Fatal("expected error under lockdown=integrity")
+	}
+	if !errors.Is(err, ErrECLockdownActive) {
+		t.Errorf("expected ErrECLockdownActive in chain; got %v", err)
+	}
+	if !errors.Is(err, ErrECNotAvailable) {
+		t.Errorf("ErrECLockdownActive must also satisfy ErrECNotAvailable; got %v", err)
 	}
 }
 
