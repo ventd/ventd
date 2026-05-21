@@ -75,6 +75,16 @@ flaky:
             Roadmap fix is clock injection (Stage 1.5 PR-8); registry entry
             is removed once that lands.
     since: 2026-05-11
+  - test: github.com/ventd/ventd/cmd/ventd:TestRegression_Issue466_NoSelfRestart
+    issue: https://github.com/ventd/ventd/issues/623
+    reason: 2-second polling deadline (regression_466_test.go:184) for the
+            controller-tick handshake fires too tight on the QEMU-emulated
+            arm64 GHA runner under -race; same timing class as the
+            already-registered Issue466_ReloadFailureIsNonFatal and
+            Issue466_FirstBootReloadStartsControllers siblings. Roadmap
+            fix is clock injection (Stage 1.5 PR-8); registry entry is
+            removed once that lands.
+    since: 2026-05-21
   - test: github.com/ventd/ventd/internal/setup:TestCalibrate_CtxCancelStopsRunSync
     issue: https://github.com/ventd/ventd/issues/623
     reason: 100ms sleep at calibration_backend_test.go:211 before Abort()
