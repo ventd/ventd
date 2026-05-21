@@ -1,51 +1,56 @@
 {
  "NotebookModel": "HP Laptop 15s-fq5xxx",
- "Author": "CarlosGS",
- "EcPollInterval": 2000,
+ "Author": "CarlosGS; F.22 BIOS correction by PhoenixDnB",
+ "EcPollInterval": 500,
  "ReadWriteWords": false,
  "CriticalTemperature": 95,
  "FanConfigurations": [
 	{
-	 "ReadRegister": 177,
-	 "WriteRegister": 244,
-	 "MinSpeedValue": 51,
-	 "MaxSpeedValue": 64,
+	 "ReadRegister": 176,
+	 "WriteRegister": 46,
+	 "MinSpeedValue": 81,
+	 "MaxSpeedValue": 12,
 	 "IndependentReadMinMaxValues": true,
 	 "MinSpeedValueRead": 0,
-	 "MaxSpeedValueRead": 20,
-	 "ResetRequired": true,
+	 "MaxSpeedValueRead": 255,
+	 "ResetRequired": false,
 	 "FanSpeedResetValue": 0,
 	 "FanDisplayName": "Fan",
 	 "TemperatureThresholds": [
 	  {
-	   "UpThreshold": 75,
+	   "UpThreshold": 60,
 	   "DownThreshold": 0,
 	   "FanSpeed": 0
 	  },
 	  {
-	   "UpThreshold": 85,
-	   "DownThreshold": 40,
-	   "FanSpeed": 1
+	   "UpThreshold": 75,
+	   "DownThreshold": 50,
+	   "FanSpeed": 40
 	  },
 	  {
-	   "UpThreshold": 90,
-	   "DownThreshold": 50,
-	   "FanSpeed": 85
+	   "UpThreshold": 85,
+	   "DownThreshold": 65,
+	   "FanSpeed": 70
 	  },
 	  {
 	   "UpThreshold": 95,
-	   "DownThreshold": 60,
+	   "DownThreshold": 75,
 	   "FanSpeed": 100
 	  }
 	 ],
-	 "FanSpeedPercentageOverrides": [
-	  {
-	   "FanSpeedPercentage": 0,
-	   "FanSpeedValue": 2,
-	   "TargetOperation": "Write"
-	  }
-	 ]
+	 "FanSpeedPercentageOverrides": []
 	}
  ],
- "RegisterWriteConfigurations": []
+ "RegisterWriteConfigurations": [
+	{
+	 "WriteMode": "Set",
+	 "WriteOccasion": "OnInitialization",
+	 "Register": 44,
+	 "Value": 8,
+	 "ResetRequired": true,
+	 "ResetValue": 255,
+	 "ResetWriteMode": "Set",
+	 "Description": "Unlock manual fan control (handoff from BIOS curve)"
+	}
+ ]
 }
