@@ -49,6 +49,21 @@ func (h HardPreconditions) Reason() Reason {
 // allowOverride skips items 3–6 per R5 §7.7 (battery and container are
 // NEVER skipped, per RULE-IDLE-09).
 func CheckHardPreconditions(procRoot, sysRoot string, allowOverride bool) HardPreconditions {
+	return checkHardPreconditionsImpl(procRoot, sysRoot, allowOverride, false)
+}
+
+// checkHardPreconditionsSkipBlocked is CheckHardPreconditions but with
+// item 4 (blocked process) suppressed. Used by softOpportunisticGate
+// which evaluates the blocklist itself via evalBlockedProcesses with
+// the per-tick ProcessBaseline so steady-state homelab work (Plex
+// transcoding etc.) is tolerated rather than refused on every tick.
+// StartupGate and RuntimeCheck keep the strict refuse-on-any
+// semantics by calling CheckHardPreconditions.
+func checkHardPreconditionsSkipBlocked(procRoot, sysRoot string, allowOverride bool) HardPreconditions {
+	return checkHardPreconditionsImpl(procRoot, sysRoot, allowOverride, true)
+}
+
+func checkHardPreconditionsImpl(procRoot, sysRoot string, allowOverride, skipBlocked bool) HardPreconditions {
 	var h HardPreconditions
 
 	// Item 1: battery — never skippable.
@@ -65,11 +80,14 @@ func CheckHardPreconditions(procRoot, sysRoot string, allowOverride bool) HardPr
 	sf := captureStructuralFlags(procRoot, sysRoot)
 	h.StorageMaintenance = sf.MDRAIDActive || sf.ZFSScrub || sf.BTRFSScrub
 
-	// Item 4: blocked process.
-	procs := captureProcesses(procRoot)
-	for name := range procs {
-		h.BlockedProcess = name
-		break
+	// Item 4: blocked process. Caller may suppress when it owns the
+	// check itself (softOpportunisticGate → evalBlockedProcesses).
+	if !skipBlocked {
+		procs := captureProcesses(procRoot)
+		for name := range procs {
+			h.BlockedProcess = name
+			break
+		}
 	}
 
 	// Item 5: boot warmup < 600s.
