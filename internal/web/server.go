@@ -30,6 +30,7 @@ import (
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/hwdiag"
 	"github.com/ventd/ventd/internal/hwmon"
+	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
 	"github.com/ventd/ventd/internal/monitor"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -1417,13 +1418,29 @@ func (s *Server) handleCalibrateStatus(w http.ResponseWriter, r *http.Request) {
 // not been wired (e.g., monitor-only mode with no controllable
 // channels), responds with running=false and a stable empty struct so
 // the frontend never sees a 404.
+//
+// Adds last_reason_human alongside last_reason: the raw sentinel
+// stays as the canonical machine-readable form (logs, metrics,
+// operator tooling) and the friendly text drives the dashboard. The
+// frontend renders last_reason_human when present, falls back to
+// last_reason otherwise, so older clients on a newer daemon keep
+// working unchanged.
 func (s *Server) handleOpportunisticStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	type statusWithHuman struct {
+		opportunistic.Status
+		LastReasonHuman string `json:"last_reason_human,omitempty"`
+	}
 	if s.opp == nil {
-		s.writeJSON(r, w, opportunistic.Status{Running: false})
+		s.writeJSON(r, w, statusWithHuman{Status: opportunistic.Status{Running: false}})
 		return
 	}
-	s.writeJSON(r, w, s.opp.Status())
+	st := s.opp.Status()
+	out := statusWithHuman{Status: st}
+	if st.LastReason != "" {
+		out.LastReasonHuman = idle.Reason(st.LastReason).Human()
+	}
+	s.writeJSON(r, w, out)
 }
 
 // SetOpportunisticScheduler wires the v0.5.5 scheduler so the live

@@ -320,13 +320,14 @@ func TestSoftIdleGate_AdmitsAtRelaxedThresholds(t *testing.T) {
 
 // TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling asserts that
 // the soft PSI predicate refuses for a laptop-class host when CPU
-// PSI exceeds the laptop ceiling (10 %). Other classes admit at the
-// same load — see TestSoftIdleGate_ServerClass_AdmitsAtLaptopThreshold
-// below for the contrast.
+// PSI exceeds the laptop ceiling (20 %). Other classes (server,
+// NAS, HEDT) admit at the same load — see
+// TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel below for
+// the contrast.
 func TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling(t *testing.T) {
 	procRoot, sysRoot := makeIdleProcRoot(t)
-	// cpu.some avg60 = 15 %, above laptop's 10 % ceiling.
-	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=15.00 avg300=10.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	// cpu.some avg60 = 25 %, above laptop's 20 % ceiling.
+	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=25.00 avg300=15.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	clk := newFakeClock(time.Unix(1_000_000, 0))
 
 	cfg := OpportunisticGateConfig{
@@ -354,14 +355,14 @@ func TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling(t *testing.T) {
 }
 
 // TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel asserts the
-// load-bearing per-class behaviour: at cpu.some avg60 = 15 % a laptop
-// refuses (above its 10 % ceiling) but a server admits (below its
+// load-bearing per-class behaviour: at cpu.some avg60 = 25 % a laptop
+// refuses (above its 20 % ceiling) but a server admits (below its
 // 40 % ceiling). This is the homelab-fitness fix — without per-class
-// ceilings the global 10 % ceiling refused every probe on any 24/7
-// services box, so opportunistic learning never happened.
+// ceilings the original global 10 % ceiling refused every probe on
+// any 24/7 services box, so opportunistic learning never happened.
 func TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel(t *testing.T) {
 	procRoot, sysRoot := makeIdleProcRoot(t)
-	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=15.00 avg300=10.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=25.00 avg300=15.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	clk := newFakeClock(time.Unix(1_000_000, 0))
 
 	cfg := OpportunisticGateConfig{
