@@ -417,6 +417,40 @@
 
     var latestVersion = null;
 
+    var lastApplyRow = $('upd-last-apply-row');
+    var lastApplyTailWrap = $('upd-last-apply-tail-wrap');
+
+    // renderLastApplyError populates the persistent "last update attempt
+    // failed" surface from /api/v1/update/check.last_apply_error. Visible
+    // for both spawn shapes (systemd-run transient unit and nohup-
+    // detached subshell — #1305) so an operator who saw "scheduled" then
+    // silence has an explanation. Null/undefined clears the row.
+    function renderLastApplyError(lae) {
+      if (!lastApplyRow) return;
+      if (!lae || !lae.status) {
+        lastApplyRow.hidden = true;
+        return;
+      }
+      lastApplyRow.hidden = false;
+      var title = 'Last update attempt failed';
+      if (lae.version) title += ' · ' + lae.version;
+      if (lae.at) {
+        // RFC3339Nano → readable local time. Truncate to seconds.
+        var dt = new Date(lae.at);
+        if (!isNaN(dt.getTime())) title += ' (' + dt.toLocaleString() + ')';
+      }
+      setT('upd-last-apply-title', title);
+      setT('upd-last-apply-sub', lae.detail || ('Status: ' + lae.status));
+      if (lastApplyTailWrap) {
+        if (lae.journal_tail && lae.journal_tail.length > 0) {
+          lastApplyTailWrap.hidden = false;
+          setT('upd-last-apply-tail', lae.journal_tail);
+        } else {
+          lastApplyTailWrap.hidden = true;
+        }
+      }
+    }
+
     checkBtn.addEventListener('click', function () {
       checkBtn.disabled = true;
       checkBtn.textContent = 'Checking…';
@@ -427,6 +461,11 @@
         .then(function (j) {
           checkBtn.disabled = false;
           checkBtn.textContent = 'Check for updates';
+          // Always surface the last-apply error regardless of the
+          // current check outcome — it's a separate signal ("did the
+          // most recent apply succeed?") from "is a new release
+          // available?".
+          renderLastApplyError(j.last_apply_error);
           if (j.error) {
             if (errRow) {
               errRow.hidden = false;

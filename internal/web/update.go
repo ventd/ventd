@@ -377,10 +377,31 @@ func buildUpdateCmd(version, scriptPath string) *exec.Cmd {
 	// install.sh is killed (SIGTERM, then SIGKILL after grace);
 	// without this, a wedged install would leave the daemon
 	// permanently offline on non-systemd hosts (#975).
+	//
+	// Sentinel writes (#1305): the inner subshell removes any stale
+	// exitcode file, runs install.sh under timeout(1), then writes
+	// the exit status to /run/ventd/update.exitcode. The Go-side
+	// watcher (watchUpdateApplyOutcomeNohup) polls for the file and
+	// surfaces a non-zero exit code via LastApplyOutcome — matching
+	// the systemd-run path's behaviour for OpenRC / runit hosts that
+	// would otherwise see "scheduled" then silent success/failure.
+	// The parens group the subshell so the trailing `&` backgrounds
+	// the entire pipeline (sleep → install → sentinel write), not
+	// just the last command in the chain.
 	return exec.Command("nohup", "bash", "-c",
-		fmt.Sprintf("sleep 1 && VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s timeout 600 bash %s >/var/log/ventd-update.log 2>&1 &",
-			shellQuote(version), shellQuote(inUIUpdateSkipChecks), shellQuote(scriptPath)))
+		fmt.Sprintf("(mkdir -p %s >/dev/null 2>&1; rm -f %s/update.exitcode; sleep 1; VENTD_VERSION=%s VENTD_SKIP_PREFLIGHT_CHECKS=%s timeout 600 bash %s >/var/log/ventd-update.log 2>&1; rc=$?; printf '%%s\\n' \"$rc\" > %s/update.exitcode) &",
+			shellQuote(updateSentinelDir), shellQuote(updateSentinelDir),
+			shellQuote(version), shellQuote(inUIUpdateSkipChecks), shellQuote(scriptPath),
+			shellQuote(updateSentinelDir)))
 }
+
+// updateSentinelDir is where the nohup-path install wrapper writes
+// the install.sh exit-code sentinel. /run is the standard host-shared
+// ephemeral fs (not namespaced by PrivateTmp=yes) so a Go-side
+// watcher on the running daemon can observe writes from the detached
+// install subshell. Mirrors installStagingDir for consistency.
+// Overridable for tests.
+var updateSentinelDir = "/run/ventd"
 
 // findInstallScript walks the candidate path list; returns the first
 // existing path. If no on-disk copy is found AND the embedded
@@ -607,13 +628,17 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("update: install scheduled", "version", req.Version, "script", scriptPath)
-	// Watch the spawned transient unit for up-to-watch-timeout
-	// seconds and capture failure outcomes for /update/check to
-	// surface. Only relevant when systemd-run was the spawn
-	// primitive — the nohup fallback has no transient unit and
-	// the watcher would observe nothing useful.
+	// Watch the spawned install for up-to-watch-timeout seconds and
+	// capture failure outcomes for /update/check to surface.
+	//
+	// systemd-run path: poll the transient ventd-update.service for
+	// Result + SubState transitions.
+	// nohup path (#1305): poll /run/ventd/update.exitcode for the
+	// sentinel written by the install subshell when install.sh exits.
 	if systemdRunPath() != "" && systemdAvailable() {
 		go watchUpdateApplyOutcome(req.Version, "ventd-update.service", scriptPath, s.logger)
+	} else {
+		go watchUpdateApplyOutcomeNohup(req.Version, scriptPath, s.logger)
 	}
 	w.WriteHeader(http.StatusAccepted)
 	s.writeJSON(r, w, updateApplyResponse{

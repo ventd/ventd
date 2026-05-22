@@ -85,6 +85,35 @@
 }
 .set-row--danger { border-top-color: rgba(var(--rgb-red), 0.3); }
 
+/* Collapsible install-log tail under the last-update-attempt-failed
+ * row (issue 1305). Sits underneath the row's set-row-sub line so
+ * the default render is compact (one line) and only expands when
+ * the operator clicks the disclosure triangle. The pre inherits the
+ * row's mono font and pads inside a slightly darker chrome to read
+ * as distinct from the surrounding row body. */
+.set-row-detail {
+  margin-top: 6px;
+  font-size: 0.74rem;
+  color: var(--fg2);
+}
+.set-row-detail > summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--fg3);
+}
+.set-row-detail > pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--bg3);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  max-height: 16em;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Narrow numeric input used by the smart-mode dBA override (#789).
    Reuses .set-pw-input's chrome — same border / focus ring / mono
    glyphs — but caps width at ~6 characters so a sub-100 dBA value

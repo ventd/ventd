@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -188,4 +190,113 @@ func watchUpdateApplyOutcome(version, unitName, scriptPath string, logger *slog.
 // tests can run hermetic without cross-contamination. Test-only.
 func resetLastApplyOutcomeForTest() {
 	lastApplyOutcomePtr.Store(nil)
+}
+
+// updateNohupLogPath is the install log path the nohup wrapper writes
+// to. Tail of this file is captured into LastApplyOutcome.JournalTail
+// on a non-zero sentinel — the operator-facing equivalent of the
+// systemd-run path's `journalctl -u ventd-update.service` tail.
+// Overridable for tests.
+var updateNohupLogPath = "/var/log/ventd-update.log"
+
+// updateNohupLogTailLines is the number of trailing lines from
+// updateNohupLogPath to attach to LastApplyOutcome.JournalTail when
+// the sentinel reports a non-zero exit. Matches the systemd-run
+// path's `journalctl -u ... -n 30` budget so the in-UI surface is
+// symmetrical across the two spawn shapes.
+const updateNohupLogTailLines = 30
+
+// watchUpdateApplyOutcomeNohup polls the nohup-path exit-code
+// sentinel (/run/ventd/update.exitcode by default) for up to
+// updateOutcomeWatchTimeout. On non-zero exit, captures the tail of
+// /var/log/ventd-update.log and stores the outcome in
+// lastApplyOutcomePtr so /api/v1/update/check surfaces it. On
+// timeout or sentinel never appearing, returns silently — the
+// operator can re-poll /update/check.
+//
+// Mirrors watchUpdateApplyOutcome for the systemd-run path so
+// OpenRC / runit / Gentoo-openrc operators get the same in-UI
+// failure surface as systemd hosts. (Issue #1305.)
+//
+// sentinelDir is the directory the nohup wrapper writes the
+// exitcode file to. Injected for tests; production threads
+// updateSentinelDir from update.go.
+func watchUpdateApplyOutcomeNohup(version, scriptPath string, logger *slog.Logger) {
+	watchNohupSentinelInDir(version, scriptPath, updateSentinelDir, logger)
+}
+
+// watchNohupSentinelInDir is the directory-injectable form of
+// watchUpdateApplyOutcomeNohup, factored out so tests can drive the
+// poll loop against a t.TempDir() without mocking the package-level
+// sentinel-dir seam.
+func watchNohupSentinelInDir(version, scriptPath, sentinelDir string, logger *slog.Logger) {
+	sentinel := filepath.Join(sentinelDir, "update.exitcode")
+	ctx, cancel := context.WithTimeout(context.Background(), updateOutcomeWatchTimeout)
+	defer cancel()
+	ticker := time.NewTicker(updateOutcomePollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Sentinel never showed up. Two paths land here:
+			// (a) install.sh swapped the binary + asked for a service
+			// restart and the daemon is winding down (sentinel write
+			// hasn't reached us yet); (b) genuine wedge that timeout(1)
+			// also couldn't kill. Either way, no surface-able outcome.
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(sentinel)
+			if err != nil {
+				continue
+			}
+			rcStr := strings.TrimSpace(string(data))
+			rc, parseErr := strconv.Atoi(rcStr)
+			if parseErr != nil {
+				if logger != nil {
+					logger.Warn("update: nohup sentinel unparseable; ignoring",
+						"path", sentinel, "raw", rcStr, "err", parseErr)
+				}
+				return
+			}
+			if rc == 0 {
+				// Success — install.sh has already swapped the binary
+				// and is signalling the init system to restart ventd.
+				// Don't store a success outcome; the new daemon's
+				// startup is the user-visible success signal.
+				return
+			}
+			tail := tailFile(updateNohupLogPath, updateNohupLogTailLines)
+			outcome := &LastApplyOutcome{
+				At:          time.Now().UTC().Format(time.RFC3339Nano),
+				Version:     version,
+				Status:      "failed",
+				Detail:      "nohup install exited rc=" + rcStr + " (script=" + scriptPath + ", log=" + updateNohupLogPath + ")",
+				JournalTail: tail,
+			}
+			lastApplyOutcomePtr.Store(outcome)
+			if logger != nil {
+				logger.Warn("update: in-UI nohup apply failed",
+					"version", version,
+					"rc", rc,
+					"script", scriptPath,
+					"log", updateNohupLogPath)
+			}
+			return
+		}
+	}
+}
+
+// tailFile returns the last n lines of path. Best-effort: errors
+// (missing log, EACCES, etc.) surface as an empty string so the
+// caller still records a useful LastApplyOutcome with status + rc.
+func tailFile(path string, n int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
