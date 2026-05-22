@@ -250,6 +250,15 @@ func watchNohupSentinelInDir(version, scriptPath, sentinelDir string, logger *sl
 				continue
 			}
 			rcStr := strings.TrimSpace(string(data))
+			if rcStr == "" {
+				// Empty content — the install subshell has created
+				// the file but not finished writing the exit code yet
+				// (the shell writes `printf '%s\n' "$rc"` as two
+				// operations: open+truncate, then write). Poll again
+				// on the next tick so we don't give up on a partial
+				// read race that the next 20ms will resolve.
+				continue
+			}
 			rc, parseErr := strconv.Atoi(rcStr)
 			if parseErr != nil {
 				if logger != nil {

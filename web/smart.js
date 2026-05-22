@@ -345,6 +345,8 @@
     if (state.fetchError) stage.appendChild(buildErrorBanner());
 
     stage.appendChild(buildHeader());
+    var firstVisit = buildFirstVisitBanner();
+    if (firstVisit) stage.appendChild(firstVisit);
     stage.appendChild(buildBridge());
     stage.appendChild(buildScope());
 
@@ -378,6 +380,99 @@
     return ok.indexOf(s) >= 0 ? s : 'unknown';
   }
 
+  // buildPresetSwitcher renders the 3-position Silent/Balanced/Performance
+  // segmented switch (#1254 MVP-2). Wired to the existing
+  // PUT /api/v1/confidence/preset endpoint. The currently-active preset
+  // is highlighted; clicking another segment fires the PUT and the next
+  // poll picks up the change (no optimistic local-state mutation —
+  // the daemon is the source of truth).
+  function buildPresetSwitcher(active) {
+    var wrap = el('div', { cls: 'sm-preset-switch' });
+    var presets = [
+      { id: 'silent',      label: 'Silent' },
+      { id: 'balanced',    label: 'Balanced' },
+      { id: 'performance', label: 'Performance' }
+    ];
+    presets.forEach(function (p) {
+      var btn = el('button', {
+        cls: 'sm-preset-btn' + (p.id === active ? ' is-active' : ''),
+        attrs: { type: 'button', 'aria-pressed': (p.id === active) ? 'true' : 'false' },
+        text: p.label
+      });
+      btn.addEventListener('click', function () {
+        if (p.id === active) return;
+        // Disable the whole switch while in flight so a double-click
+        // doesn't queue two competing PUTs.
+        Array.prototype.forEach.call(wrap.querySelectorAll('button'), function (b) {
+          b.disabled = true;
+        });
+        fetch('/api/v1/confidence/preset', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preset: p.id })
+        }).then(function (r) {
+          if (!r.ok) {
+            // Re-enable so the operator can retry. The next poll will
+            // re-render and (if the daemon ignored the change for
+            // some reason) the active state will reflect reality.
+            Array.prototype.forEach.call(wrap.querySelectorAll('button'), function (b) {
+              b.disabled = false;
+            });
+          }
+        }).catch(function () {
+          Array.prototype.forEach.call(wrap.querySelectorAll('button'), function (b) {
+            b.disabled = false;
+          });
+        });
+      });
+      wrap.appendChild(btn);
+    });
+    return wrap;
+  }
+
+  // buildFirstVisitBanner renders the friendly "Smart mode is learning"
+  // banner when global_state=warming AND converged=0 (#1254 MVP-4). The
+  // banner is dismissible per-session via localStorage; it returns null
+  // when dismissed or when smart mode is past the warming-no-converged
+  // state so the page isn't cluttered once learning starts producing
+  // results.
+  function buildFirstVisitBanner() {
+    var globalState = state.smart && state.smart.global_state;
+    var converged   = (state.smart && state.smart.converged) || 0;
+    if (globalState !== 'warming' || converged > 0) return null;
+    try {
+      if (localStorage.getItem('ventd-smart-warming-banner-dismissed') === '1') {
+        return null;
+      }
+    } catch (_) { /* ignore */ }
+
+    var banner = el('div', { cls: 'sm-warming-banner' });
+    var icon = el('div', { cls: 'sm-warming-banner-icon', text: '⏱' });
+    banner.appendChild(icon);
+    var body = el('div', { cls: 'sm-warming-banner-body' });
+    body.appendChild(el('div', {
+      cls: 'sm-warming-banner-title',
+      text: 'Smart mode is learning your system’s thermal behaviour.'
+    }));
+    body.appendChild(el('div', {
+      cls: 'sm-warming-banner-text',
+      text: 'This usually takes 1–6 hours of normal use. Come back later, or pick a preset above to adjust the balance between quiet and cool.'
+    }));
+    banner.appendChild(body);
+    var close = el('button', {
+      cls: 'sm-warming-banner-close',
+      attrs: { type: 'button', 'aria-label': 'Dismiss' },
+      text: '×'
+    });
+    close.addEventListener('click', function () {
+      try { localStorage.setItem('ventd-smart-warming-banner-dismissed', '1'); } catch (_) {}
+      banner.remove();
+    });
+    banner.appendChild(close);
+    return banner;
+  }
+
   // ── header ──────────────────────────────────────────────────────
   function buildHeader() {
     var head = el('div', { cls: 'sm-head' });
@@ -405,6 +500,15 @@
     var sub = el('div', { cls: 'sm-head-sub',
       text: 'Preset: ' + preset + ' · ' + prettyState(state.smart.global_state || 'unknown') });
     txt.appendChild(sub);
+
+    // MVP-2 (#1254): preset switcher wired to PUT /api/v1/confidence/preset.
+    // Three-position segmented switch — Silent · Balanced · Performance —
+    // directly under the header sub so a first-time user can change the
+    // balance between quiet and cool without diving into Settings. The
+    // PUT path already exists; this surface just makes it discoverable.
+    var presetSwitch = buildPresetSwitcher(preset);
+    txt.appendChild(presetSwitch);
+
     left.appendChild(txt);
 
     head.appendChild(left);
