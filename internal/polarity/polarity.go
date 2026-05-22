@@ -14,6 +14,19 @@ import (
 	"github.com/ventd/ventd/internal/probe"
 )
 
+// Polarity verdicts. The string values are persisted in the KV store
+// and read back by the orchestrator bridge into the wizard UI's
+// FanState.PolarityPhase, so any new value here must round-trip
+// through the WebUI surfaces in web/calibration.js and the badge CSS
+// in web/calibration.css.
+const (
+	PolarityNormal      = "normal"
+	PolarityInverted    = "inverted"
+	PolarityPhantom     = "phantom"
+	PolarityProbational = "probational"
+	PolarityUnknown     = "unknown"
+)
+
 // Phantom reason constants surfaced in diagnostics and doctor output.
 const (
 	PhantomReasonNoTach         = "no_tach"
@@ -22,6 +35,22 @@ const (
 	PhantomReasonProfileOnly    = "profile_only"
 	PhantomReasonDriverTooOld   = "driver_too_old"
 	PhantomReasonWriteFailed    = "write_failed"
+
+	// PhantomReasonColdECSuspected is the reason recorded when a no-
+	// response probe outcome hit a backend whose EC is known to veto
+	// manual writes under a thermal floor (BackendCaps.EcCanThermalVeto).
+	// Paired with PolarityProbational, not PolarityPhantom: the
+	// channel is admitted with conservative defaults and the wizard
+	// UI explains the verdict to the operator so they aren't left
+	// staring at "monitor-only" with no context.
+	PhantomReasonColdECSuspected = "cold_ec_suspected"
+
+	// PhantomReasonMonotonicByConstruction is recorded when the probe
+	// is skipped entirely because the backend driver's kernel API
+	// cannot present an inverted channel. The verdict is always
+	// PolarityNormal in this path; the reason string ships alongside
+	// for diagnostics.
+	PhantomReasonMonotonicByConstruction = "monotonic_by_construction"
 )
 
 // Threshold constants (spec §3.1, §3.2).
@@ -121,16 +150,23 @@ func ApplyToChannel(ch *probe.ControllableChannel, r ChannelResult) {
 // It inverts value for inverted channels and refuses writes to phantom/unknown.
 // The actual write is dispatched via fn, which must forward the adjusted byte
 // to the backend.
+//
+// Probational channels (BackendCaps.EcCanThermalVeto backends whose probe
+// returned no_response, typically a cold-chassis Dell SMM EC) are written
+// straight through as if normal: the EC will start honouring writes once
+// thermals rise and the runtime closed-loop will recover. The conservative
+// default curve baked in by ApplyPhase keeps the channel safe in the
+// meantime.
 func WritePWM(ch *probe.ControllableChannel, value uint8, fn func(uint8) error) error {
 	var actual uint8
 	switch ch.Polarity {
-	case "normal":
+	case PolarityNormal, PolarityProbational:
 		actual = value
-	case "inverted":
+	case PolarityInverted:
 		actual = 255 - value
-	case "phantom":
+	case PolarityPhantom:
 		return ErrChannelNotControllable
-	case "unknown":
+	case PolarityUnknown:
 		return ErrPolarityNotResolved
 	default:
 		return fmt.Errorf("polarity: invalid polarity %q for channel %s", ch.Polarity, ch.PWMPath)
@@ -139,8 +175,11 @@ func WritePWM(ch *probe.ControllableChannel, value uint8, fn func(uint8) error) 
 }
 
 // IsControllable reports whether ch has a resolved non-phantom polarity.
+// Probational channels count as controllable — see WritePWM.
 func IsControllable(ch *probe.ControllableChannel) bool {
-	return ch.Polarity == "normal" || ch.Polarity == "inverted"
+	return ch.Polarity == PolarityNormal ||
+		ch.Polarity == PolarityInverted ||
+		ch.Polarity == PolarityProbational
 }
 
 // Prober probes a single ControllableChannel and returns its resolved polarity.

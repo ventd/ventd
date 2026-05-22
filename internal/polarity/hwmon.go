@@ -24,6 +24,10 @@ type HwmonProber struct {
 	// Now returns the current time; defaults to time.Now. Injected in tests
 	// to control how many iterations readRPMMean executes.
 	Now func() time.Time
+	// Caps overrides the driver-name → BackendCaps lookup. Tests inject
+	// a stub to exercise the EcCanThermalVeto branch without touching
+	// the static package-level table. nil → CapsForDriver.
+	Caps func(driver string) BackendCaps
 }
 
 func (p *HwmonProber) clock() func(time.Duration) {
@@ -71,8 +75,41 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		ProbedAt: time.Now(),
 	}
 
+	// Short-circuit on backends whose kernel API cannot present an
+	// inverted channel (BackendCaps.MonotonicByConstruction). Probing
+	// these wastes 14 s per fan AND is an active misclassification
+	// risk: an EC that declines to spin the fan during the probe
+	// window (cold chassis, ambient below the firmware-enforced
+	// fan-on threshold) returns ΔRPM=0 and the bipolar classifier
+	// would record a false phantom verdict on a fan that is
+	// perfectly controllable once thermals rise.
+	//
+	// When the same backend ALSO has EcCanThermalVeto=true (dell_smm
+	// is today the only example) the short-circuit verdict is
+	// PolarityProbational rather than PolarityNormal: the chip's API
+	// is monotonic by spec so we never need to probe direction, but
+	// the EC's thermal-veto behaviour means we still don't know that
+	// writes will land THIS BOOT — calibrate may also be vetoed,
+	// producing a phantom verdict that the apply path needs to
+	// override. PolarityProbational is what threads that signal
+	// through to ApplyPhase + the WebUI's amber surface.
+	capsFn := p.Caps
+	if capsFn == nil {
+		capsFn = CapsForDriver
+	}
+	caps := capsFn(ch.Driver)
+	if caps.MonotonicByConstruction {
+		res.PhantomReason = PhantomReasonMonotonicByConstruction
+		if caps.EcCanThermalVeto {
+			res.Polarity = PolarityProbational
+		} else {
+			res.Polarity = PolarityNormal
+		}
+		return res, nil
+	}
+
 	if ch.TachPath == "" {
-		res.Polarity = "phantom"
+		res.Polarity = PolarityPhantom
 		res.PhantomReason = PhantomReasonNoTach
 		return res, nil
 	}
@@ -150,12 +187,25 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 
 	switch {
 	case math.Abs(delta) < ThresholdRPM:
-		res.Polarity = "phantom"
-		res.PhantomReason = PhantomReasonNoResponse
+		// A no-response verdict on a backend whose EC is known to
+		// veto manual writes at low chassis temperatures is
+		// reclassified as probational rather than locked phantom.
+		// ApplyPhase admits probational fans with conservative
+		// defaults so the wizard delivers active control instead of
+		// silently falling back to monitor-only, and the runtime
+		// closed-loop recovers automatically once thermals rise and
+		// the EC starts honouring writes again.
+		if caps.EcCanThermalVeto {
+			res.Polarity = PolarityProbational
+			res.PhantomReason = PhantomReasonColdECSuspected
+		} else {
+			res.Polarity = PolarityPhantom
+			res.PhantomReason = PhantomReasonNoResponse
+		}
 	case delta > 0:
-		res.Polarity = "normal"
+		res.Polarity = PolarityNormal
 	default:
-		res.Polarity = "inverted"
+		res.Polarity = PolarityInverted
 	}
 	return res, nil
 }

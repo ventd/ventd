@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 Releases predating v0.5.0 are archived in
 [docs/changelog/v0.4-and-earlier.md](docs/changelog/v0.4-and-earlier.md).
 
+## [Unreleased]
+
+### Headline
+
+The first-boot wizard on Dell SMM laptops (and other backends whose embedded controllers thermally veto manual fan writes at idle) no longer silently lands in monitor-only mode. The polarity probe now skips backends whose write surface is monotonic by construction, and a no-response verdict on a known EC-vetoable backend is classified as **probational** rather than terminal phantom — the channel is admitted with safe defaults, the daemon takes control, and the wizard UI surfaces an amber **Provisional** strip with a "EC cold during probe · control enabled · verifies under load" explanation instead of leaving the operator staring at a "0 fans calibrated" done banner with no context.
+
+### Added
+
+- `internal/polarity/backendcaps.go` — static lookup of backend polarity capabilities keyed by hwmon `name`. `dell_smm` is declared `MonotonicByConstruction=true, EcCanThermalVeto=true` (the SMM I8K_SET_FAN call is a monotonic state index, and the EC behind it is documented to ignore manual writes below an internal thermal threshold). `thinkpad` / `thinkpad_acpi` are declared monotonic without the veto cap. Add an entry only after primary-source confirmation; the zero value preserves existing bipolar-probe behaviour for every chip not listed.
+- `polarity.PolarityProbational` + `polarity.PhantomReasonColdECSuspected` + `polarity.PhantomReasonMonotonicByConstruction` constants. `WritePWM` and `IsControllable` accept probational channels (write passes through as-is; no inversion). The constants are persisted to the calibration KV namespace and round-trip to the WebUI via `FanState.PolarityPhase`.
+- WebUI `web/calibration.{js,css}` — new `provisional` per-fan strip state (amber, `--rgb-amber` palette tokens) with `pillFor` / `fanMessage` / `fanState` cases; an amber roster pill (`N provisional`) on the system row; and two new done-banner copy paths — "1 fan admitted as provisional · control enabled" (cold-EC-only outcome) and the mixed "N calibrated · M provisional" variant. The default demo (`?demo=1`) now includes a `dell_smm`-shaped provisional fan so design review and screenshot runs cover the new state.
+
+### Changed
+
+- `internal/polarity/hwmon.go::ProbeChannel` consults `BackendCaps` before running the bipolar pulse. `MonotonicByConstruction` short-circuits to `PolarityNormal` with no writes (saves 14 s per fan on Dell / ThinkPad and removes the cold-EC false-phantom risk). On every other backend, a sub-threshold `|ΔRPM|` verdict is reclassified to `PolarityProbational` when `EcCanThermalVeto` is set — terminal phantom is preserved for generic Super-I/O chips (NCT6687 et al.) so the #1110 inverted-fan regression coverage stays intact.
+- `internal/setup/orchestrator/apply.go::buildConfig` admits probational fans with the existing safe-default heuristic (`MinPWM=80, MaxPWM=255`) and overrules a calibrate-side `Phantom=true` verdict on probational channels — the runtime closed-loop recovers once the EC starts honouring writes again. New `ApplyArtifact.Probational` count for doctor / dashboard.
+- `internal/setup/orchestrator/polarity.go` keeps probational channels out of the post-probe `pwm_enable` restore loop — the calibrate sweep will assert pwm_enable on them within seconds, same as `normal` fans. The phase log now reports a `probational` count alongside `normal` / `inverted` / `phantom` / `unknown`.
+
+### Fixed
+
+- **Dell Latitude 7280 (and structurally similar Dell SMM laptops) no longer end the wizard in monitor-only mode on a cold-boot run.** The polarity probe on the cold-idle dell_smm EC was returning ΔRPM=0 because the firmware was refusing to spin the fan at idle temperatures — ventd treated this as terminal phantom, calibrate skipped the channel, apply admitted zero fans, and the WebUI sat at "0 fans calibrated · curve ready" with no operator explanation. With Layer 1 + Layer 2 of the probe rework, the channel is admitted, the daemon writes through, and the WebUI explicitly tells the operator what happened and why.
+
 ## [v1.0.4] - 2026-05-20
 
 ### Headline

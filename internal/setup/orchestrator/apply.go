@@ -67,6 +67,16 @@ type ApplyArtifact struct {
 	// (no curve assignment, no control).
 	Uncontrollable []UncontrollableFan `json:"uncontrollable,omitempty"`
 
+	// Probational counts fans admitted with polarity=probational —
+	// classified by the polarity prober as no-response on a backend
+	// whose EC is known to veto manual writes at low chassis
+	// temperatures (BackendCaps.EcCanThermalVeto, today: dell_smm).
+	// The fan is in the applied config with conservative defaults;
+	// the WebUI surfaces this state on the wizard's done banner so
+	// the operator understands why some channels show "Provisional"
+	// instead of "Locked" without being dropped to monitor-only.
+	Probational int `json:"probational,omitempty"`
+
 	// MonitorChannels mirrors ProbeArtifact.MonitorChannels (#796) —
 	// the read-side classification of every `fan*_input` file under
 	// the hwmon root, with each channel marked real / mirror /
@@ -115,9 +125,14 @@ type UncontrollableFan struct {
 //
 // Fan exclusion rules:
 //   - polarity == "phantom"          → exclude (no PWM surface)
+//   - polarity == "probational"      → include with safe defaults
+//     (EC-vetoable backend; calibrate
+//     phantom verdict overruled — runtime
+//     control recovers once thermals rise)
 //   - calibrate Phantom              → exclude (sustained-spin check
 //     saw zero RPM AND the sweep
 //     itself measured MaxRPM == 0)
+//     UNLESS polarity == probational
 //   - calibration skipped/failed     → include with safe defaults
 //   - polarity == "unknown"          → include; daemon's polarity-
 //     aware WritePWM refuses to
@@ -291,6 +306,19 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		enableRestored++
 	}
 
+	probationalCount := 0
+	includedPWMSet := make(map[string]bool, len(cfg.Fans))
+	for _, f := range cfg.Fans {
+		includedPWMSet[f.PWMPath] = true
+	}
+	for _, fan := range probeArt.Fans {
+		if !includedPWMSet[fan.PWMPath] {
+			continue
+		}
+		if polByPath[fan.PWMPath] == "probational" {
+			probationalCount++
+		}
+	}
 	art := ApplyArtifact{
 		ConfigPath:      path,
 		Fans:            len(cfg.Fans),
@@ -298,6 +326,7 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		MonitorReason:   monitorReason,
 		EnableRestored:  enableRestored,
 		Uncontrollable:  uncontrollable,
+		Probational:     probationalCount,
 		MonitorChannels: probeArt.MonitorChannels,
 	}
 	raw, _ := EncodeArtifact(art)
@@ -391,11 +420,22 @@ func buildConfig(
 	}
 
 	for _, fan := range probeArt.Fans {
-		if polByPath[fan.PWMPath] == "phantom" {
+		pol := polByPath[fan.PWMPath]
+		if pol == "phantom" {
 			continue
 		}
+		// Probational polarity overrules a calibrate-side phantom
+		// verdict on EC-vetoable backends (today: dell_smm). The EC
+		// declined to honour writes during both the polarity probe
+		// and the calibrate sweep — both cold-chassis windows — but
+		// the channel is structurally controllable (the chip's
+		// PWM API is monotonic by construction). The fan is admitted
+		// with safe defaults; the runtime closed-loop adapts once
+		// thermals rise above the EC's internal "fan-on" threshold.
 		if cal, ok := calByPath[fan.PWMPath]; ok && cal.Phantom {
-			continue
+			if pol != "probational" {
+				continue
+			}
 		}
 
 		minPWM := uint8(80)
