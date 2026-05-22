@@ -20,18 +20,37 @@ import (
 // exposes as a comma-separated list of driver names attached to the IRQ.
 // Older kernels expose the same names through /proc/interrupts itself
 // (the trailing label column); IRQActions also falls back to that column.
+// inputIRQClassifierKeywords names IRQ-action / IRQ-label substrings
+// that indicate human input. Used by IsInputIRQ to decide whether a
+// delta on a given IRQ should refuse the opportunistic gate
+// (RULE-OPP-IDLE-02).
+//
+// Scope deliberately excludes USB host controllers (xhci_hcd,
+// ehci_hcd, uhci_hcd, ohci_hcd). /sys/kernel/irq/<id>/actions lists
+// only the IRQ HANDLER drivers (the HCI driver registers; the
+// upstream USB stack runs in URB-completion callbacks, not IRQ
+// handlers). For a USB IRQ the actions list is always just the HCI
+// driver name regardless of what USB devices are attached —
+// matching it would refuse on ANY USB activity (USB storage scans,
+// audio DACs, UPS heartbeats, wireless-dongle polling, autosuspend
+// wake-ups). On the proxmox 13900K homelab this single false-match
+// refused every other tick with `recent_input_irq:irq=131` —
+// IRQ 131 is xhci_hcd with no attached HID device.
+//
+// USB-keyboard detection on systems without an i8042 (modern slim
+// laptops) is therefore no longer covered by this IRQ path. The
+// remaining gates (PSI workload, active SSH session, blocked
+// processes) protect those hosts from probing mid-work; a future
+// follow-up could read /proc/bus/input/devices for input-device-
+// level event detection but that's out of scope for v1.1.0.
 var inputIRQClassifierKeywords = []string{
-	"i8042",
-	"xhci_hcd",
-	"ehci_hcd",
-	"uhci_hcd",
-	"ohci_hcd",
-	"hid",
-	"usbhid",
-	"kbd",
-	"mouse",
-	"synaptics",
-	"elan",
+	"i8042",     // PS/2 keyboard + touchpad on most x86 laptops
+	"hid",       // HID-class drivers — set on actions when registered
+	"usbhid",    // USB HID umbrella driver
+	"kbd",       // generic keyboard label
+	"mouse",     // generic mouse label
+	"synaptics", // Synaptics touchpad driver
+	"elan",      // ELAN touchpad driver
 }
 
 // IRQCounters maps IRQ identifier (e.g. "1", "12", "NMI") -> total count
