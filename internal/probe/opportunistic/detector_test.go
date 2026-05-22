@@ -165,13 +165,19 @@ func TestDetector_ExcludesBinsWithin7Days(t *testing.T) {
 // TestDetector_AbortedOpportunisticDoesNotCount asserts that an
 // opportunistic probe record with the abort flag set does NOT count
 // as a visited bin — the bin remains eligible for retry on the next
-// gate window (RULE-OPP-PROBE-06).
+// gate window (RULE-OPP-PROBE-06), UP TO MaxAbortsPerBin per bin.
+// Below the cap, aborts are tolerated (transient workload spikes
+// shouldn't permanently disqualify a bin). At/above the cap, the
+// bin is treated as visited so the scheduler doesn't loop forever
+// on a structurally-unsafe bin — see
+// TestDetector_AbortCapDropsBinFromGaps below.
 func TestDetector_AbortedOpportunisticDoesNotCount(t *testing.T) {
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	ch := &probe.ControllableChannel{PWMPath: "/sys/class/hwmon/hwmon3/pwm1", Polarity: "normal"}
 	chID := observation.ChannelID(ch.PWMPath)
 
-	// One record: opportunistic + aborted on PWM 24.
+	// One record: opportunistic + aborted on PWM 24. One abort is
+	// well below MaxAbortsPerBin, so the bin must still appear.
 	flags := observation.EventFlag_OPPORTUNISTIC_PROBE | observation.EventFlag_ENVELOPE_C_ABORT
 	store := newFakeLogStore(now,
 		fakeRec(now.Add(-1*24*time.Hour), chID, 24, flags),
@@ -192,5 +198,45 @@ func TestDetector_AbortedOpportunisticDoesNotCount(t *testing.T) {
 	}
 	if !found24 {
 		t.Error("aborted opportunistic probe at PWM 24 should leave bin eligible for retry")
+	}
+}
+
+// TestDetector_AbortCapDropsBinFromGaps asserts that once a bin has
+// accumulated MaxAbortsPerBin aborted opportunistic probes in the
+// cooldown window, it's dropped from the gap set so the scheduler
+// advances to other bins instead of looping on a structurally-
+// unsafe bin (the canonical case: probing PWM=0 on a thermally-
+// loaded host reliably aborts because the fan actually stops
+// cooling). Pre-cap aborts are tolerated for transient workload
+// spikes — see TestDetector_AbortedOpportunisticDoesNotCount above.
+func TestDetector_AbortCapDropsBinFromGaps(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	ch := &probe.ControllableChannel{PWMPath: "/sys/class/hwmon/hwmon3/pwm1", Polarity: "normal"}
+	chID := observation.ChannelID(ch.PWMPath)
+
+	flags := observation.EventFlag_OPPORTUNISTIC_PROBE | observation.EventFlag_ENVELOPE_C_ABORT
+
+	// Seed exactly MaxAbortsPerBin aborts on PWM 0 (the canonical
+	// fan-off bin that aborts on thermally-loaded hosts).
+	records := make([]*observation.Record, 0, MaxAbortsPerBin)
+	for i := 0; i < MaxAbortsPerBin; i++ {
+		records = append(records, fakeRec(now.Add(-time.Duration(i+1)*time.Hour), chID, 0, flags))
+	}
+	store := newFakeLogStore(now, records...)
+	rd := observation.NewReader(store)
+	d := NewDetector(rd, []*probe.ControllableChannel{ch}, nil)
+	gaps, err := d.Gaps(now)
+	if err != nil {
+		t.Fatalf("Gaps: %v", err)
+	}
+	for _, g := range gaps[chID] {
+		if g == 0 {
+			t.Errorf("PWM 0 with %d aborts (>= MaxAbortsPerBin=%d) must be dropped "+
+				"from gap set; got gaps=%v", MaxAbortsPerBin, MaxAbortsPerBin, gaps[chID])
+		}
+	}
+	// Sanity: other bins still present.
+	if len(gaps[chID]) == 0 {
+		t.Error("all bins dropped — abort cap should only affect PWM 0, not the entire grid")
 	}
 }

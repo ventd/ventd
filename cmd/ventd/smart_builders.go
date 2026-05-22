@@ -233,6 +233,23 @@ func buildOpportunisticScheduler(
 		idleCfg.Mode = idle.ModeSoftIdle
 		logger.Info("opportunistic: soft idle gate active (default v0.6.0+); single-shot eval + relaxed PSI thresholds (RULE-OPP-IDLE-SOFT-MODE)")
 	}
+	// Per-channel min_pwm floor for the scheduler's gap filter.
+	// Bins below the configured floor are dropped from the gap set
+	// before pick — they're fan-off territory by operator declaration
+	// (config Fans[i].MinPWM is "below this the fan doesn't spin
+	// usefully") so probing there produces no calibration data and
+	// reliably trips the slope abort on thermally-loaded hosts.
+	minPWMs := map[uint16]uint8{}
+	if liveCfg != nil {
+		if c := liveCfg.Load(); c != nil {
+			for _, f := range c.Fans {
+				if f.MinPWM <= 0 || f.MinPWM > 255 {
+					continue
+				}
+				minPWMs[observation.ChannelID(f.PWMPath)] = uint8(f.MinPWM)
+			}
+		}
+	}
 	cfg := opportunistic.SchedulerConfig{
 		Channels:               channels,
 		Detector:               det,
@@ -243,6 +260,7 @@ func buildOpportunisticScheduler(
 		Disabled:               disabledFn,
 		IsManualMode:           manualFn,
 		LastProbeAt:            opportunistic.NewKVLastProbeStore(st.KV),
+		MinPWMs:                minPWMs,
 		Logger:                 logger,
 	}
 	sched, err := opportunistic.NewScheduler(cfg)

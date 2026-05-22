@@ -55,6 +55,13 @@ type SchedulerConfig struct {
 	// ChannelKnowns maps observation.ChannelID to stall/min-spin
 	// anchors. Forwarded to Detector at gap-computation time.
 	Knowns map[uint16]ChannelKnowns
+	// MinPWMs maps observation.ChannelID to the operator-declared
+	// minimum useful PWM for the channel (Config.Fans[i].MinPWM —
+	// the floor below which the fan doesn't spin usefully and
+	// probing produces no calibration value while risking
+	// fan-off thermal events). Bins below the floor are removed
+	// from the gap set before pick. nil disables filtering.
+	MinPWMs map[uint16]uint8
 	// LastProbeAt persists the most-recent successful-or-aborted
 	// probe timestamp per channel. Loaded at construction; saved on
 	// every fire. Used by tie-break when multiple channels have
@@ -207,6 +214,31 @@ func (s *Scheduler) tick(ctx context.Context) {
 		s.cfg.Logger.Warn("opportunistic gap detection", "err", err)
 		s.lastReason.Store("gap_detection_error")
 		return
+	}
+	// Filter per-channel gaps by the operator-declared min_pwm
+	// floor. Bins below the floor (i.e. fan-off territory by config)
+	// produce no calibration value AND reliably trip the slope abort
+	// on thermally-loaded hosts because the fan actually stops
+	// cooling. Skipping them up-front avoids the abort loop AND
+	// keeps the rest of the grid available for probing.
+	if len(s.cfg.MinPWMs) > 0 {
+		for id, pwms := range gaps {
+			floor, ok := s.cfg.MinPWMs[id]
+			if !ok || floor == 0 {
+				continue
+			}
+			filtered := pwms[:0]
+			for _, p := range pwms {
+				if p >= floor {
+					filtered = append(filtered, p)
+				}
+			}
+			if len(filtered) > 0 {
+				gaps[id] = filtered
+			} else {
+				delete(gaps, id)
+			}
+		}
 	}
 	if len(gaps) == 0 {
 		s.lastReason.Store("no_gaps")
