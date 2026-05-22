@@ -75,7 +75,7 @@ func TestEvalBlockedProcesses_NewProcess_Refuses(t *testing.T) {
 	// "rsync has been running for an hour, it's now steady state"
 	// intuition the docstring promises.
 	if _, ok := baseline["rsync"]; !ok {
-		t.Error("baseline did not absorb the new process after refusal — "+
+		t.Error("baseline did not absorb the new process after refusal — " +
 			"would cause permanent refusal on every subsequent tick")
 	}
 }
@@ -93,7 +93,7 @@ func TestEvalBlockedProcesses_ExitedProcess_DropsFromBaseline(t *testing.T) {
 		t.Fatal("expected admit when snap is a subset of baseline")
 	}
 	if _, ok := baseline["rsync"]; ok {
-		t.Error("baseline did not drop exited rsync — would mistakenly tolerate "+
+		t.Error("baseline did not drop exited rsync — would mistakenly tolerate " +
 			"a fresh rsync invocation later as if it were baseline-resident")
 	}
 	if _, ok := baseline["ffmpeg"]; !ok {

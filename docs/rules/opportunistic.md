@@ -303,8 +303,9 @@ Proxmox soak), the relaxed-threshold calibration against Tdarr
 transcoding lulls, and the mode-flag rationale.
 
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_AdmitsAtRelaxedThresholds
-Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_RefusesAboveSoftPSICeiling
-Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_AdmitsBetweenStrictAndSoftCeiling
+Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling
+Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_LaptopClass_AdmitsBetweenStrictAndSoftCeiling
+Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_StrictModeStillRefusesAtSameLevel
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_ModeConstants
 Bound: internal/idle/opportunistic_test.go:TestSoftIdleGate_NilIRQBaselineAdmitsFirstCall
