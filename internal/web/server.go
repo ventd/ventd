@@ -143,6 +143,12 @@ type Server struct {
 	// flags a plain field even when only one goroutine actually writes.
 	nowFn atomic.Pointer[nowFnValue]
 
+	// tzWarnFired latches the one-shot "scheduler.timezone not
+	// recognised" WARN from scheduleTZWarnOnce (#624). atomic.Bool
+	// because the scheduler tick runs on its own goroutine and the
+	// CAS would be racy otherwise.
+	tzWarnFired atomic.Bool
+
 	// rescan holds the before/after/current snapshots from the most
 	// recent /api/hardware/rescan call. Lazily initialised by the
 	// handlers themselves — zero value is a ready-to-use mutex.
@@ -1103,10 +1109,17 @@ type sensorStatus struct {
 }
 
 type fanStatus struct {
-	Name string  `json:"name"`
-	PWM  uint8   `json:"pwm"`
-	Duty float64 `json:"duty_pct"`
-	RPM  *int    `json:"rpm"`
+	Name string `json:"name"`
+	// Label is the operator-facing display string for this fan. Equal
+	// to Name when no DisplayLabel override is set in config.yaml; the
+	// override path lets operators rename hwmon-reported labels
+	// (CPU_FAN / CHA_FAN1 / etc.) to something meaningful without
+	// disturbing the fan's internal identity, which the controller +
+	// watchdog + polarity store all key off Name. (#631.)
+	Label string  `json:"label"`
+	PWM   uint8   `json:"pwm"`
+	Duty  float64 `json:"duty_pct"`
+	RPM   *int    `json:"rpm"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -1212,9 +1225,10 @@ func (s *Server) buildStatus() statusResponse {
 			s.logger.Warn("web: fan read failed", "fan", fan.Name, "err", err)
 		}
 		fs := fanStatus{
-			Name: fan.Name,
-			PWM:  pwm,
-			Duty: float64(pwm) / 255.0 * 100.0,
+			Name:  fan.Name,
+			Label: fan.Display(),
+			PWM:   pwm,
+			Duty:  float64(pwm) / 255.0 * 100.0,
 		}
 		switch fan.Type {
 		case "nvidia":

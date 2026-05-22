@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -200,14 +201,65 @@ func (s *Server) applyProfile(name string) (*config.Config, error) {
 	return next, nil
 }
 
-// now returns the server's notion of the current instant. The atomic
-// pointer test seam (SetNowFn) wins when set; production leaves it
-// nil and falls back to wall time.
+// now returns the server's notion of the current instant in the
+// scheduler's configured timezone (#624). The atomic pointer test
+// seam (SetNowFn) wins when set; production leaves it nil and falls
+// back to wall time converted into the configured timezone before
+// returning. config.Schedule.Matches() reads t.Hour()/t.Minute()/
+// t.Weekday() against whatever zone the time carries, so the
+// time.In() conversion here is the single point that pins the
+// scheduler's "now" semantics across the codebase.
+//
+// Default timezone is Local for back-compat with pre-#624 configs;
+// new configs should set `scheduler.timezone: utc` (or an explicit
+// IANA name) to avoid drift across geographic moves + DST.
 func (s *Server) now() time.Time {
+	var t time.Time
 	if p := s.nowFn.Load(); p != nil && p.fn != nil {
-		return p.fn()
+		t = p.fn()
+	} else {
+		t = time.Now()
 	}
-	return time.Now()
+	if live := s.cfg.Load(); live != nil {
+		if loc, ok := live.Scheduler.Location(); ok {
+			return t.In(loc)
+		}
+		// LoadLocation failed for a non-empty / non-utc / non-local
+		// Timezone setting. Falling back to Local matches the zero-
+		// value default; the warning is logged at startup
+		// (scheduleTZWarnOnce) so we don't spam every tick.
+		return t.In(time.Local)
+	}
+	return t
+}
+
+// scheduleTZWarnOnce logs a single-shot warning when the configured
+// scheduler.timezone is non-empty but doesn't resolve to a known
+// location. Fires from runScheduler the first tick so the warning
+// surfaces near daemon startup rather than only when an operator
+// queries the schedule API.
+//
+// Idempotent on a per-daemon basis via tzWarnFired.
+func (s *Server) scheduleTZWarnOnce() {
+	if s.tzWarnFired.Load() {
+		return
+	}
+	live := s.cfg.Load()
+	if live == nil {
+		return
+	}
+	tz := strings.TrimSpace(live.Scheduler.Timezone)
+	if tz == "" {
+		s.tzWarnFired.Store(true)
+		return
+	}
+	if _, ok := live.Scheduler.Location(); ok {
+		s.tzWarnFired.Store(true)
+		return
+	}
+	s.logger.Warn("scheduler: configured timezone not recognised; falling back to Local",
+		"scheduler.timezone", tz)
+	s.tzWarnFired.Store(true)
 }
 
 // runScheduler is the scheduler goroutine's main loop. It exits when
@@ -219,6 +271,7 @@ func (s *Server) now() time.Time {
 // that lower the cadence after New() see it take effect within one
 // current-period wait — avoiding a race on a captured local.
 func (s *Server) runScheduler() {
+	s.scheduleTZWarnOnce()
 	s.scheduleTick()
 	for {
 		interval := s.schedulerInterval()
@@ -275,12 +328,46 @@ func (s *Server) scheduleTick() {
 	s.logger.Info("schedule: switched profile", "profile", winner)
 }
 
+// schedulerTZString returns the operator-readable timezone label the
+// scheduler is currently evaluating against. Empty / "local" config
+// resolves to "Local" (capitalised so it reads as a name); "utc" to
+// "UTC"; an explicit IANA name (e.g. "Australia/Sydney") is echoed
+// back. If LoadLocation failed (warned on first tick) the string is
+// "Local (fallback from <bad-value>)" so the API consumer can show
+// the operator that ventd ignored the config setting.
+func schedulerTZString(cfg *config.Config) string {
+	if cfg == nil {
+		return "Local"
+	}
+	tz := strings.TrimSpace(cfg.Scheduler.Timezone)
+	switch strings.ToLower(tz) {
+	case "":
+		return "Local"
+	case "local":
+		return "Local"
+	case "utc":
+		return "UTC"
+	default:
+		if _, ok := cfg.Scheduler.Location(); ok {
+			return tz
+		}
+		return "Local (fallback from " + tz + ")"
+	}
+}
+
 // scheduleStatus is the JSON body returned by GET /api/schedule/status.
 // NextTransition is a pointer so the field serialises as null when the
 // schedule is stable (no transition within 24h).
+//
+// Timezone is the resolved IANA name (or "Local" / "UTC") the
+// scheduler is evaluating schedule strings against (#624). UI surfaces
+// this next to the active profile so an operator at a glance knows
+// whether a 22:00 schedule will fire at their wall clock's 22:00 or
+// at 22:00 UTC.
 type scheduleStatus struct {
 	ActiveProfile  string     `json:"active_profile"`
 	Source         string     `json:"source"` // "schedule" | "manual"
+	Timezone       string     `json:"timezone"`
 	NextTransition *time.Time `json:"next_transition,omitempty"`
 	NextProfile    string     `json:"next_profile,omitempty"`
 }
@@ -309,6 +396,7 @@ func (s *Server) handleScheduleStatus(w http.ResponseWriter, r *http.Request) {
 	resp := scheduleStatus{
 		ActiveProfile: live.ActiveProfile,
 		Source:        source,
+		Timezone:      schedulerTZString(live),
 	}
 	if t, next, ok := nextTransition(live, scheds, active, now); ok {
 		resp.NextTransition = &t

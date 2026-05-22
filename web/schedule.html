@@ -71,6 +71,11 @@
           <div class="card-eyebrow">ACTIVE</div>
           <div class="sched-stat-value" id="sched-active-name">—</div>
           <div class="sched-stat-sub mono" id="sched-active-sub">—</div>
+          <!-- Scheduler timezone (#624). Hidden until the daemon emits
+               status.timezone; populated by schedule.js renderHeader so
+               operators editing schedule strings see whether 22:00
+               fires at their wall clock or at UTC. -->
+          <div class="sched-stat-sub mono" id="sched-active-tz" hidden>—</div>
         </div>
         <div class="sched-stat">
           <div class="card-eyebrow">NEXT SWITCH</div>

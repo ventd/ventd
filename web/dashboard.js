@@ -196,9 +196,15 @@
         tile = document.createElement('div');
         tile.className = 'dash-tile';
         tile.dataset.key = key;
+        // Prefer the operator-overridable label (#631); fall back to
+        // the immutable name for back-compat with daemons that don't
+        // emit the label field. f.name remains the dataset.key so
+        // every internal reference (sparkline buffer, alive-flash
+        // map, narrator state) keys off the stable identity.
+        var fanDisplay = (f.label && f.label.length > 0) ? f.label : f.name;
         tile.innerHTML =
             '<div class="dash-tile-head">'
-          +   '<span class="dash-tile-name">' + escapeHTML(f.name) + '</span>'
+          +   '<span class="dash-tile-name">' + escapeHTML(fanDisplay) + '</span>'
           +   '<span class="dash-tile-source mono js-source">RPM</span>'
           + '</div>'
           + '<div class="dash-tile-value">'
@@ -219,6 +225,14 @@
           +   '<div class="dash-fan-duty mono"><span class="js-duty">—</span>%</div>'
           + '</div>';
         grid.appendChild(tile);
+      }
+      // Keep the displayed label in sync on every tick so an operator
+      // who edits DisplayLabel in config.yaml + reloads sees the name
+      // change without a page refresh (#631).
+      var nameEl = tile.querySelector('.dash-tile-name');
+      if (nameEl) {
+        var liveLabel = (f.label && f.label.length > 0) ? f.label : f.name;
+        if (nameEl.textContent !== liveLabel) nameEl.textContent = liveLabel;
       }
       var valEl = tile.querySelector('.js-val');
       if (primaryVal == null) valEl.textContent = '—';
