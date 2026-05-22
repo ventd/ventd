@@ -97,6 +97,10 @@ func diffConfigs(live, next *config.Config) ConfigDiff {
 		out.Sections = append(out.Sections, scalarDiff("hwmon", "", "dynamic_rebind",
 			boolStr(live.Hwmon.DynamicRebindEnabled()), boolStr(next.Hwmon.DynamicRebindEnabled())))
 	}
+	if live.Scheduler.Timezone != next.Scheduler.Timezone {
+		out.Sections = append(out.Sections, scalarDiff("scheduler", "", "timezone",
+			live.Scheduler.Timezone, next.Scheduler.Timezone))
+	}
 	if live.Web.Listen != next.Web.Listen {
 		out.Sections = append(out.Sections, scalarDiff("web", "", "listen",
 			live.Web.Listen, next.Web.Listen))
@@ -224,6 +228,9 @@ func diffFans(live, next []config.Fan) []DiffSection {
 
 func diffFanFields(a, b config.Fan) []DiffField {
 	var f []DiffField
+	if a.DisplayLabel != b.DisplayLabel {
+		f = append(f, DiffField{Name: "display_label", From: a.DisplayLabel, To: b.DisplayLabel})
+	}
 	if a.Type != b.Type {
 		f = append(f, DiffField{Name: "type", From: a.Type, To: b.Type})
 	}

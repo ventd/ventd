@@ -119,6 +119,7 @@ type Config struct {
 	Controls      []Control          `yaml:"controls" json:"controls"`
 	Profiles      map[string]Profile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
 	ActiveProfile string             `yaml:"active_profile,omitempty" json:"active_profile,omitempty"`
+	Scheduler     Scheduler          `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	Experimental  ExperimentalConfig `yaml:"experimental,omitempty" json:"experimental,omitempty"`
 	Envelope      EnvelopeConfig     `yaml:"envelope,omitempty" json:"envelope,omitempty"`
 	Idle          IdleConfig         `yaml:"idle,omitempty" json:"idle,omitempty"`
@@ -406,6 +407,66 @@ type Profile struct {
 	Schedule string            `yaml:"schedule,omitempty" json:"schedule,omitempty"`
 }
 
+// Scheduler groups runtime knobs for the profile scheduler. Currently
+// the only knob is the timezone used to interpret schedule strings —
+// historically these were evaluated in the daemon's local time
+// (time.Now() with no .UTC()), which silently shifted when a laptop /
+// NAS moved timezones or DST transitioned. Issue #624.
+//
+// Zero value (empty Timezone) preserves the pre-#624 behaviour
+// (Local) for back-compat with existing configs; the documented
+// recommendation for new installs is "utc" or an explicit IANA name.
+type Scheduler struct {
+	// Timezone controls how the scheduler interprets schedule strings
+	// like "22:00-07:00 mon,tue". Accepted values:
+	//
+	//	""        — back-compat: Local time (pre-#624 behaviour).
+	//	"local"   — explicit Local (same as empty; new configs should
+	//	            prefer this over the empty form so the intent reads
+	//	            clearly on the config file).
+	//	"utc"     — UTC; recommended for new installs because it doesn't
+	//	            drift across geographic moves or DST transitions.
+	//	"<IANA>"  — any IANA zone name (e.g. "Australia/Sydney"). The
+	//	            scheduler converts the live wall clock into the
+	//	            named zone before evaluating Matches().
+	//
+	// Empty / unrecognised names log a one-time WARN at daemon start
+	// and fall back to Local. Per RULE-SCHEDULE-TZ-01.
+	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+}
+
+// SchedulerLocation resolves the scheduler's configured Timezone into a
+// *time.Location the scheduler can pass through time.In(). Empty / "local"
+// returns time.Local. "utc" returns time.UTC. Any other value is treated
+// as an IANA name and looked up via time.LoadLocation; a lookup failure
+// returns time.Local with `ok=false` so the caller can log the
+// fallback.
+//
+// Test seam: loadLocationFn is the package-level seam tests use to stub
+// time.LoadLocation; nil → use the real LoadLocation.
+func (sc Scheduler) Location() (loc *time.Location, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(sc.Timezone)) {
+	case "", "local":
+		return time.Local, true
+	case "utc":
+		return time.UTC, true
+	default:
+		lookup := loadLocationFn
+		if lookup == nil {
+			lookup = time.LoadLocation
+		}
+		l, err := lookup(sc.Timezone)
+		if err != nil || l == nil {
+			return time.Local, false
+		}
+		return l, true
+	}
+}
+
+// loadLocationFn is the test seam for time.LoadLocation. Production
+// leaves it nil.
+var loadLocationFn func(name string) (*time.Location, error)
+
 // HWDB groups knobs for the hardware fingerprint database. All fields are
 // optional; zero values preserve existing behaviour so configs without an
 // hwdb: block load unchanged.
@@ -607,8 +668,21 @@ type Sensor struct {
 }
 
 type Fan struct {
-	Name        string `yaml:"name" json:"name"`
-	Type        string `yaml:"type" json:"type"`
+	Name string `yaml:"name" json:"name"`
+	// DisplayLabel is the operator-overridable user-facing label for
+	// this fan (#631). Empty (default) → the wizard's auto-derived
+	// Name is also the display name; non-empty supersedes Name for
+	// display purposes only (Controls bindings, watchdog identity,
+	// and every internal reference continue to key off Name). The
+	// hwmon-reported fan label (CPU_FAN, CHA_FAN1, etc.) bakes into
+	// Name at wizard time via hwmonFanName; an operator who finds it
+	// wrong or unhelpful sets DisplayLabel without disturbing the
+	// fan's stable identity. Surfaced through fanStatus.Label so the
+	// dashboard / curve-editor / settings UI render the override
+	// transparently. Defer to Display() rather than reaching into
+	// the field directly.
+	DisplayLabel string `yaml:"display_label,omitempty" json:"display_label,omitempty"`
+	Type         string `yaml:"type" json:"type"`
 	PWMPath     string `yaml:"pwm_path" json:"pwm_path"`
 	RPMPath     string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"`         // override auto-derived fan*_input path
 	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
@@ -629,6 +703,17 @@ type Fan struct {
 	// inside the case heatmap, both in [0,1]. Optional; nil omits the
 	// fan from the heatmap view. Independent of any control logic.
 	Position *Position `yaml:"position,omitempty" json:"position,omitempty"`
+}
+
+// Display returns the operator-facing label for this fan: DisplayLabel
+// when set, otherwise Name. Internal references (Control.Fan,
+// watchdog identity, polarity persistence) always use Name; only the
+// UI layer reaches through Display(). Issue #631.
+func (f Fan) Display() string {
+	if dl := strings.TrimSpace(f.DisplayLabel); dl != "" {
+		return dl
+	}
+	return f.Name
 }
 
 // Position is the normalised (x, y) coordinate of a sensor or fan

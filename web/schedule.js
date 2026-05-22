@@ -101,6 +101,16 @@
       pp.textContent = src;
       pp.className = 'status-pill no-dot ' + (src === 'schedule' ? 'ok' : 'info');
     }
+    // Surface the scheduler's interpretation timezone (#624). Operators
+    // editing schedule strings can see at a glance whether "22:00" will
+    // fire at their wall clock's 22:00 or at 22:00 in another zone.
+    var tzEl = $('sched-active-tz');
+    if (tzEl && statusData && statusData.timezone) {
+      tzEl.textContent = statusData.timezone;
+      tzEl.hidden = false;
+    } else if (tzEl) {
+      tzEl.hidden = true;
+    }
 
     if (statusData && statusData.next_transition) {
       var t = new Date(statusData.next_transition);
