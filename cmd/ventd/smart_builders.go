@@ -203,6 +203,14 @@ func buildOpportunisticScheduler(
 	// every subsequent tick computes the delta vs the prior tick's
 	// counters per RULE-OPP-IDLE-02.
 	irqBaseline := idle.IRQCounters{}
+	// ProcessBaseline gives the soft gate baseline-tolerance for the
+	// blocklist check: long-running media transcoders (ffmpeg,
+	// plex-transcoder, etc.) on a Plex / Jellyfin homelab are
+	// steady-state load and shouldn't permanently refuse the probe,
+	// while a fresh rsync or dnf invocation still triggers a refusal
+	// because it's new vs the previous tick's baseline. Same
+	// scheduler-heap pattern as irqBaseline.
+	processBaseline := map[string]int{}
 	idleCfg := idle.OpportunisticGateConfig{
 		GateConfig: idle.GateConfig{
 			ProcRoot:      "/proc",
@@ -214,8 +222,9 @@ func buildOpportunisticScheduler(
 		// through to MidDesktop defaults; with the detected class
 		// homelab boxes (server / NAS / mini-PC) get the looser
 		// ceilings their steady-state services need.
-		Class:       cls,
-		IRQBaseline: &irqBaseline,
+		Class:           cls,
+		IRQBaseline:     &irqBaseline,
+		ProcessBaseline: &processBaseline,
 	}
 	if strictIdleGate {
 		idleCfg.Mode = idle.ModeStrictIdle

@@ -90,6 +90,20 @@ type OpportunisticGateConfig struct {
 	// baseline" — soft mode seeds it from the current read and
 	// admits the first call without enforcing the IRQ check.
 	IRQBaseline *IRQCounters
+	// ProcessBaseline is the caller-owned snapshot of blocked
+	// processes that were already running at the previous gate
+	// evaluation. The soft evaluator uses it to distinguish NEW
+	// blocked work (e.g., a one-off rsync the operator just started
+	// — refuse the probe) from steady-state blocked workload (e.g.,
+	// the always-running ffmpeg on a Plex / Jellyfin homelab —
+	// tolerate). Same caller-owned-baseline shape as IRQBaseline:
+	// scheduler initialises an empty map per scheduler-lifetime,
+	// passes the same pointer on every tick; the soft path admits
+	// the first call (no baseline) and seeds, then on subsequent
+	// ticks refuses only when snap.Processes \ baseline is non-empty.
+	// Nil means "no baseline tracking" — every blocked process found
+	// in the current snapshot refuses, matching pre-fix behaviour.
+	ProcessBaseline *map[string]int
 }
 
 // softThresholds returns the per-class soft-mode thresholds for this
@@ -155,9 +169,20 @@ func softOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bo
 
 	snap := Capture(deps)
 
-	// Process blocklist (RULE-IDLE-06).
-	for name := range snap.Processes {
-		return false, ReasonBlockedProcess.WithDetail(name), nil
+	// Process blocklist (RULE-IDLE-06). Baseline-tolerant: a
+	// blocked-listed process that was already running at the
+	// previous gate evaluation is treated as steady-state homelab
+	// load (Plex transcoding, an always-on backup daemon, etc.)
+	// and tolerated. Only NEW blocked processes — present this
+	// tick but not the previous tick — refuse the probe, which is
+	// what catches the "operator just kicked off a one-off rsync"
+	// case the blocklist was designed for. Caller wires
+	// ProcessBaseline (scheduler heap, same pattern as IRQBaseline)
+	// so the comparison is across ~60 s scheduler ticks. Nil
+	// baseline = first-call seeding (admit + record), matching
+	// IRQBaseline first-call semantics.
+	if r, refuse := evalBlockedProcesses(snap.Processes, cfg.ProcessBaseline); refuse {
+		return false, r, nil
 	}
 
 	// Soft PSI / loadavg (RULE-OPP-IDLE-SOFT-MODE relaxed thresholds).
@@ -245,6 +270,69 @@ func strictOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (
 		}
 		clk.Sleep(tick)
 	}
+}
+
+// evalBlockedProcesses implements the soft-mode process blocklist check
+// with caller-owned baseline tolerance. The blocklist names heavy
+// transient work (rsync, ffmpeg, dnf, …); on a laptop these are
+// genuinely transient and refusing is correct, but on a 24/7 homelab
+// the media-transcoder entries (ffmpeg, plex-transcoder, jellyfin-
+// ffmpeg, x265, HandBrakeCLI) are steady-state services that would
+// permanently block opportunistic learning.
+//
+// Baseline-tolerance idiom (mirrors evalInputIRQActivity):
+//   - prev == nil: caller hasn't wired baseline tracking; behave
+//     like pre-fix code and refuse on any blocked process found.
+//   - prev empty: first call — seed the baseline from snap, admit
+//     without enforcing the check. The next tick will diff against
+//     this seed.
+//   - prev non-empty: refuse only on processes present in snap but
+//     NOT in prev (i.e. NEW since the previous tick); update prev
+//     to the current snap whether we refuse or admit.
+//
+// Returns (Reason, refuse) where refuse=true means caller should
+// return Reason as the refusal reason. Reason is ReasonOK when
+// admitting.
+func evalBlockedProcesses(snap map[string]int, prev *map[string]int) (Reason, bool) {
+	if prev == nil {
+		for name := range snap {
+			return ReasonBlockedProcess.WithDetail(name), true
+		}
+		return ReasonOK, false
+	}
+	if len(*prev) == 0 {
+		// Seed the baseline; admit without enforcing the check.
+		next := make(map[string]int, len(snap))
+		for name, n := range snap {
+			next[name] = n
+		}
+		*prev = next
+		return ReasonOK, false
+	}
+	// Refuse on any process present in snap but not in prev.
+	for name := range snap {
+		if _, baseline := (*prev)[name]; !baseline {
+			// New blocked process — refuse, but ALSO update prev to
+			// the current snap so the same process doesn't keep
+			// triggering refusal forever (matches the "rsync that's
+			// been running for an hour is now steady state" intuition).
+			next := make(map[string]int, len(snap))
+			for n, c := range snap {
+				next[n] = c
+			}
+			*prev = next
+			return ReasonBlockedProcess.WithDetail(name), true
+		}
+	}
+	// Everything in snap is baseline-resident; admit and refresh
+	// baseline so processes that exit are dropped from the next
+	// comparison set.
+	next := make(map[string]int, len(snap))
+	for name, n := range snap {
+		next[name] = n
+	}
+	*prev = next
+	return ReasonOK, false
 }
 
 // evalInputIRQActivity reads the current IRQ counters and compares
