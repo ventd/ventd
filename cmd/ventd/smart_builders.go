@@ -243,10 +243,10 @@ func buildOpportunisticScheduler(
 	if liveCfg != nil {
 		if c := liveCfg.Load(); c != nil {
 			for _, f := range c.Fans {
-				if f.MinPWM <= 0 || f.MinPWM > 255 {
+				if f.MinPWM == 0 {
 					continue
 				}
-				minPWMs[observation.ChannelID(f.PWMPath)] = uint8(f.MinPWM)
+				minPWMs[observation.ChannelID(f.PWMPath)] = f.MinPWM
 			}
 		}
 	}
