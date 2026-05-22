@@ -565,6 +565,18 @@ func run() error {
 	for i := range sysProbeResult.ControllableChannels {
 		channels[i] = &sysProbeResult.ControllableChannels[i]
 	}
+	// Construct the watchdog before any goroutine that may write to PWM
+	// channels — the first-boot polarity probe below writes to pwm* even
+	// when cfg.Fans is empty, and without watchdog coverage those writes
+	// leak pwm_enable=1 across daemon exit (issue #1312). Owned by run()
+	// so the deferred Restore fires AFTER the polarity goroutine has
+	// fully exited (defer LIFO: probeCancel → polarityWG.Wait → Restore).
+	// runDaemonInternal receives this same instance via runDaemon's
+	// parameter list and registers cfg.Fans / IPMI / NBFC channels onto
+	// it in the usual way.
+	wd := watchdog.New(logger)
+	defer wd.Restore()
+
 	// Restore persisted polarity classifications onto live channels
 	// (RULE-POLARITY-08). Without this, every restart re-classifies
 	// polarity from "unknown" — the wizard's classification is wasted
@@ -586,29 +598,22 @@ func run() error {
 	// polarity guard until the probe persists results, then the next
 	// tick succeeds. Probe takes ~115 s for 8 channels (post-#1110).
 	// (#1250.)
+	var polarityWG sync.WaitGroup
 	if needsPolarityProbe {
 		logger.Warn("polarity: KV empty, running inline auto-probe in background",
 			"channels", len(channels))
 		probeCtx, probeCancel := context.WithCancel(context.Background())
+		// Defer order (LIFO with the wd.Restore defer above): probeCancel
+		// signals the goroutine to wind up; polarityWG.Wait blocks until
+		// the goroutine has fully exited; wd.Restore then writes orig
+		// pwm_enable back. Without polarityWG.Wait the goroutine's last
+		// PWM write could race the daemon-exit Restore.
+		defer polarityWG.Wait()
 		defer probeCancel()
+		polarityWG.Add(1)
 		go func() {
-			prober := &polarity.HwmonProber{}
-			results, probeErr := prober.ProbeAll(probeCtx, channels)
-			if probeErr != nil {
-				logger.Error("polarity: auto-probe failed; channels remain unknown",
-					"err", probeErr)
-				return
-			}
-			if persistErr := polarity.Persist(st.KV, results); persistErr != nil {
-				logger.Error("polarity: auto-probe persist failed; channels remain unknown",
-					"err", persistErr)
-				return
-			}
-			if _, _, reapplyErr := polarity.ApplyOnStart(st.KV, channels, logger, time.Now()); reapplyErr != nil {
-				logger.Warn("polarity: auto-probe re-apply failed", "err", reapplyErr)
-			}
-			logger.Info("polarity: auto-probe complete; controllers can now write",
-				"channels", len(results))
+			defer polarityWG.Done()
+			runPolarityAutoProbe(probeCtx, wd, st.KV, channels, &polarity.HwmonProber{}, logger)
 		}()
 	}
 	var dmiFingerprint string
@@ -686,7 +691,62 @@ func run() error {
 			smartMode.Coupling, smartMode.Marginal, smartMode.LayerA)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
+}
+
+// polarityProber is the seam HwmonProber satisfies. Tests substitute a
+// fake whose ProbeAll completes without writing to live sysfs paths.
+type polarityProber interface {
+	ProbeAll(ctx context.Context, channels []*probe.ControllableChannel) ([]polarity.ChannelResult, error)
+}
+
+// runPolarityAutoProbe runs the first-boot auto-probe synchronously.
+// Caller is responsible for spawning a goroutine and bounding the
+// lifetime via ctx (see run()).
+//
+// Watchdog coverage (issue #1312): every channel is Registered before
+// the prober's first write so RULE-WD-RESTORE-EXIT covers the probe on
+// daemon exit during a probe in first-boot mode (where cfg.Fans is
+// empty and controllers never register). On normal probe completion
+// each channel's pre-probe pwm_enable is restored and the entry is
+// deregistered so the controllers that register after the wizard
+// captures pwm_enable=auto as their own orig — leaving the daemon-exit
+// Restore consistent for the long-running case. Stacking polarity
+// entries under the eventual controller entries (without restoring
+// here) would leave Restore writing two different orig values per
+// path, with the last-write-wins outcome racing on the parallel
+// restore goroutines.
+func runPolarityAutoProbe(
+	ctx context.Context,
+	wd *watchdog.Watchdog,
+	kv *state.KVDB,
+	channels []*probe.ControllableChannel,
+	prober polarityProber,
+	logger *slog.Logger,
+) {
+	for _, ch := range channels {
+		wd.Register(ch.PWMPath, "hwmon")
+	}
+	results, probeErr := prober.ProbeAll(ctx, channels)
+	for _, ch := range channels {
+		wd.RestoreOne(ch.PWMPath)
+		wd.Deregister(ch.PWMPath)
+	}
+	if probeErr != nil {
+		logger.Error("polarity: auto-probe failed; channels remain unknown",
+			"err", probeErr)
+		return
+	}
+	if persistErr := polarity.Persist(kv, results); persistErr != nil {
+		logger.Error("polarity: auto-probe persist failed; channels remain unknown",
+			"err", persistErr)
+		return
+	}
+	if _, _, reapplyErr := polarity.ApplyOnStart(kv, channels, logger, time.Now()); reapplyErr != nil {
+		logger.Warn("polarity: auto-probe re-apply failed", "err", reapplyErr)
+	}
+	logger.Info("polarity: auto-probe complete; controllers can now write",
+		"channels", len(results))
 }
 
 // buildOpportunisticScheduler constructs the v0.5.5 scheduler from the
@@ -820,6 +880,7 @@ func runDaemon(
 	authPath string,
 	logger *slog.Logger,
 	sigCh <-chan os.Signal,
+	wd *watchdog.Watchdog,
 	expFlags experimental.Flags,
 	kvWiper func() error,
 	calibrationWiper func() error,
@@ -827,7 +888,7 @@ func runDaemon(
 	smartMode *SmartModeBundle,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -938,6 +999,7 @@ func runDaemonInternal(
 	logger *slog.Logger,
 	sigCh <-chan os.Signal,
 	restartCh chan struct{},
+	wd *watchdog.Watchdog,
 	expFlags experimental.Flags,
 	kvWiper func() error,
 	calibrationWiper func() error,
@@ -948,8 +1010,17 @@ func runDaemonInternal(
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(cfg)
 
+	// wd is owned by run() so the deferred Restore fires AFTER background
+	// goroutines (polarity probe, envelope probe) have finished. Tests
+	// that drive runDaemonInternal directly pass their own wd; production
+	// always passes the one constructed in run(). Lazy-construct here to
+	// keep legacy test call sites that pass nil compatible while every
+	// production path covers PWM-writing goroutines correctly (#1312).
+	if wd == nil {
+		wd = watchdog.New(logger)
+		defer wd.Restore()
+	}
 	// Register all PWM paths with the watchdog before starting any controllers.
-	wd := watchdog.New(logger)
 	for _, fan := range cfg.Fans {
 		wd.Register(fan.PWMPath, fan.Type)
 	}
@@ -963,27 +1034,21 @@ func runDaemonInternal(
 	// through the same generic watchdog primitive so RULE-WD-RESTORE-EXIT
 	// covers laptop EC fans on every documented shutdown path.
 	registerNBFCWatchdogEntries(wd, logger)
-	// Always restore pwm_enable=2 when runDaemon exits — covers graceful shutdown.
-	// Controller panic recovery also calls wd.Restore() before returning an error.
-	defer wd.Restore()
 
 	// Top-level panic recover. The controller package's own
 	// per-tick recover catches in-loop panics; this guard catches
 	// anything that escapes (e.g. panic in a goroutine outside a
-	// controller, library code, runtime). wd.Restore via the defer
-	// above is already armed — this re-raises the panic only after
-	// PWM has been restored, so the systemd OnFailure= oneshot also
-	// fires.
+	// controller, library code, runtime). wd.Restore is armed by
+	// run()'s defer (or by the nil-wd fallback above for legacy test
+	// callers); the panic propagates out through this defer + up
+	// through runDaemon, so run()'s defer chain executes its
+	// probeCancel → polarityWG.Wait → wd.Restore sequence before the
+	// process exits non-zero and systemd's OnFailure= triggers
+	// ventd-recover as the belt to our braces.
 	defer func() {
 		if r := recover(); r != nil {
 			logger.Error("ventd: top-level panic recovered, restoring PWM and re-raising",
 				"panic", fmt.Sprintf("%v", r))
-			// wd.Restore() runs via the defer below us — order
-			// matters: this defer is declared later, so it executes
-			// FIRST and sets up the panic state, then wd.Restore
-			// runs, then we re-panic so the process exits non-zero
-			// and systemd's OnFailure= triggers ventd-recover as
-			// the belt to our braces.
 			panic(r)
 		}
 	}()
@@ -2032,8 +2097,9 @@ func buildObsAppend(obsWriter *observation.Writer) func(*controller.ObsRecord) {
 //  3. systemctl disable --now ventd.service — stops the running unit
 //     and prevents auto-start on next boot. The disable inevitably
 //     terminates the daemon mid-step, so this MUST be last; the
-//     deferred wd.Restore() in runDaemonInternal runs as the process
-//     unwinds, which is a no-op when step 1 already ran successfully.
+//     deferred wd.Restore() owned by run() (#1312) runs as the
+//     process unwinds, which is a no-op when step 1 already ran
+//     successfully.
 //
 // nil-safe: a non-systemd host (PID 1 ventd, OpenRC, runit) gets a
 // best-effort fan restore + driver cleanup, with the systemctl step
