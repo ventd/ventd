@@ -7,22 +7,19 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](https://github.com/ventd/ventd/blob/main/LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20amd64%20%7C%20arm64-lightgrey)](#supported-platforms)
 
-**Quieter PC, cooler PC, both — without touching a config file. ventd is a Linux fan-control daemon: install with one command, open a browser tab, click Apply. After that it runs in the background and gets better at controlling your fans the longer it watches your machine.**
+**Quieter PC, cooler PC, both — without touching a config file. ventd is a fan-control app for Linux: install with one command, open a browser tab, click Apply. It runs in the background and gets better at controlling your fans the longer it watches your machine.**
 
-One static binary, one install command, one URL. Hardware detection, calibration, curve editing, and service recovery all happen in the web UI on the happy path — no YAML to write, no Super I/O chip names to look up, no Python sidecar to manage. If your hardware genuinely cannot be controlled from Linux (some laptops, datacenter GPUs, recent EC-locked chassis — see [What ventd cannot control](#what-ventd-cannot-control)), ventd says so on the dashboard rather than silently pretending it is in control.
+There's nothing to configure. No text files to edit, no chip names to look up, no Python or other extras to install. Run the installer, then open the address it prints; everything else happens in your web browser — hardware detection, fan testing, curves, settings. If your laptop or PC is one of the handful where Linux genuinely can't control the fans (see [What ventd cannot control](#what-ventd-cannot-control)), ventd tells you that on the dashboard instead of pretending to be in charge.
 
-**What makes ventd different.** Every other Linux fan tool sets a curve once and follows it forever. ventd keeps learning. It quietly probes idle fans, watches which sensors actually predict which fan's load, and blends a learned model with the classic reactive curve as it gets more confident. You do not have to think about any of that — but if you want to, the `/smart` page shows you what it is doing and why. The plain-English version: louder when your machine needs to be, quieter when it does not, adjusting in the background while you work. The deep version is in [Smart mode status](#smart-mode-status).
-
-> [!NOTE]
-> **ventd is pre-1.0.** Safety guarantees are production-quality and verified by tests CI enforces. The config schema and curve format may evolve before v1.0. The smart-mode learning stack is shipping incrementally (v0.5.5 → v0.6.0); see [Smart mode status](#smart-mode-status) for the per-layer state.
+**What makes ventd different.** Every other Linux fan tool sets a curve once and follows it forever. ventd keeps learning. While you work, it quietly watches which fans cool which parts of your machine, which fans actually matter for each thing you do (gaming vs browsing vs compiling vs idle), and how loud each fan is. The result: fans speed up when your machine really needs them and stay quiet when it doesn't — automatically, without you adjusting anything. If you're curious about what it's doing, the **Smart** page in the web UI shows every decision in plain English. The deep technical version is in [Smart mode](#smart-mode).
 
 ## Why ventd
 
 Three things ventd does that no other Linux fan tool does:
 
-1. **It learns your machine.** Most fan tools follow the curve you set on day one for the rest of time. They never notice that your workloads changed, that the room is warmer in summer, or that one of your fans is bearing-worn. ventd watches what your machine actually does (idle, browser, gaming, compiling, transcoding, …) and adjusts. Three presets — **Silent**, **Balanced**, **Performance** — choose how aggressively it trades noise for cooling. Everything else is inferred from observed data, not asked of you in a settings screen. (How it actually works: Layer A response curves, Layer B thermal coupling, Layer C marginal-benefit RLS, all confidence-gated and visible on the `/smart` page. See [Smart mode status](#smart-mode-status).)
-2. **It fixes itself when install goes wrong.** Secure Boot blocking the driver. Missing kernel headers. The wrong in-tree driver already loaded. A leftover DKMS state from a previous attempt. ventd's installer recognises each of these by name and shows you a one-click "fix this" button right in the wizard — generate a MOK key, install headers, blacklist a conflicting module, clear the old DKMS state, re-run. fan2go, CoolerControl, fancontrol, and thinkfan just emit an error string and leave you to Google it.
-3. **It never asks you to write YAML.** Hardware enumeration through `hwmon`, `NVML`, and a native USB stack on first boot. Calibration runs server-side and survives browser disconnect. Curve editing in a browser tab. No config file to hand-craft, no `liquidctl` Python sidecar to keep alive, no Super I/O chip names to look up. Single static binary, no runtime dependencies beyond libc.
+1. **It learns your machine.** Most fan tools make you set a fan curve once and use it forever. They never notice that your usage changed, that the room is warmer in summer, or that one of your fans is wearing out. ventd watches what your machine actually does — sitting idle, browsing, gaming, compiling, transcoding, anything — and adjusts. You pick one of three presets: **Silent**, **Balanced**, or **Performance**. Everything else is figured out from real measurements, not asked of you on a setup screen.
+2. **It fixes itself when install goes wrong.** Linux fan control is famous for failing in a dozen ways: Secure Boot blocking a driver, missing kernel headers, the wrong driver already loaded, a leftover broken state from a previous attempt. When ventd hits one of these, it recognises which one and shows you a one-click "Fix this" button in the setup wizard. Other Linux fan tools (CoolerControl, fan2go, thinkfan, fancontrol) just print an error and leave you to search the wiki.
+3. **It never asks you to write a config file.** ventd finds your fans, temperature sensors, and any liquid coolers automatically. Fan testing (called "calibration") happens in the browser; you can close the tab and come back later. Editing a curve is dragging dots around a graph. The whole app is one small file that needs nothing else installed.
 
 [![ventd dashboard — live fan speeds, temperatures, and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](https://github.com/ventd/ventd/blob/main/docs/images/dashboard.png)
 
@@ -36,12 +33,12 @@ Three things ventd does that no other Linux fan tool does:
 
 <table>
 <tr>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/hardware.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/hardware.png" width="440" alt="Hardware" /></a><br /><sub>Hardware — chip → sensor tree, daemon ← chip ← sensor topology, case-shape heatmap (v0.5.14)</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/smart.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/smart.png" width="440" alt="Smart mode" /></a><br /><sub>Smart mode — continuous learning loop, per-channel confidence, recent decisions (v0.5.14)</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/hardware.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/hardware.png" width="440" alt="Hardware" /></a><br /><sub>Hardware — chip → sensor tree, daemon ← chip ← sensor topology, case-shape heatmap</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/smart.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/smart.png" width="440" alt="Smart mode" /></a><br /><sub>Smart mode — continuous learning loop, per-channel confidence, recent decisions</sub></td>
 </tr>
 <tr>
   <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/curve-editor.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/curve-editor.png" width="440" alt="Curve editor" /></a><br /><sub>Curve editor — drag-to-edit with stall zone overlay</sub></td>
-  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress (v2 layout v0.5.13)</sub></td>
+  <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/calibration.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/calibration.png" width="440" alt="Calibration" /></a><br /><sub>Calibration — per-fan sweep with live progress</sub></td>
 </tr>
 <tr>
   <td align="center"><a href="https://github.com/ventd/ventd/blob/main/docs/images/schedule.png"><img src="https://github.com/ventd/ventd/raw/main/docs/images/schedule.png" width="440" alt="Schedule" /></a><br /><sub>Schedule — time-based profile switching with weekly visualisation</sub></td>
@@ -55,87 +52,99 @@ Three things ventd does that no other Linux fan tool does:
 
 ## Is this for me?
 
-If you have a Linux desktop, laptop, server, or NAS and either (a) the fans are too loud, (b) the fans aren't loud enough and temperatures climb under load, or (c) you set up `lm-sensors` and `fancontrol` once five years ago and never wanted to think about it again — yes, this is for you. If your hardware is in [What ventd cannot control](#what-ventd-cannot-control), partly: ventd will happily monitor temperatures, it just can't drive the fans because nothing on Linux can.
+If you have a Linux desktop, laptop, server, or NAS and any of these sound familiar, yes — this is for you:
 
-You do **not** need to know what a Super I/O chip is, what `pwm_enable` means, what "PI control" is, or anything about IPMI, NVML, hwmon, or hidraw. The wizard handles all of it. If you happen to know those words, the [Smart mode status](#smart-mode-status), [Safety](#safety), and the linked docs go deep.
+* My fans are too loud.
+* My fans are too quiet and the machine gets hot.
+* I set up Linux fan control years ago, it half works, and I never want to touch it again.
+* I want my PC to "just be quiet when it can and ramp up when it has to" without me thinking about it.
+
+You do **not** need to understand anything about how fans, sensors, or kernel drivers work. The setup wizard handles all of it. If you do happen to know what hwmon, NVML, PWM curves, IPMI, or PI controllers are, the [Safety](#safety) and [Smart mode](#smart-mode) sections and the linked docs go as deep as you want.
+
+If your hardware is in the [What ventd cannot control](#what-ventd-cannot-control) list, ventd can still show you temperatures and fan speeds — it just can't change them, because nothing on Linux can on those machines.
 
 New to this? Start with the wiki [Getting started](https://github.com/ventd/ventd/wiki/Getting-started) page.
 
 ## Features
 
-* **Smart mode — continuous learning, shipping now (v0.5.5+).** ventd doesn't stop after the first calibration. It probes opportunistically when you're idle, builds a per-channel thermal-coupling map (which sensor predicts which fan), runs a per-(channel × workload-signature) marginal-benefit RLS estimator (which fans actually move temperature for the load you're running), and blends learned-predictive PWM with reactive PI under a confidence gate that's lock-free on the hot loop. Dedicated `/smart` page surfaces every signal: per-channel `w_pred`, signature label, recent decisions and why. Three operator presets (Silent / Balanced / Performance). No other Linux fan tool ships any of this.
-* **Automatic hardware detection.** Enumerates every writable fan control the kernel exposes via `hwmon` (motherboard Super I/O chips — Nuvoton, ITE, AMD K10Temp, Intel coretemp, and the rest) plus NVIDIA GPUs through runtime-loaded NVML. Reads AMD GPU temperatures through the amdgpu hwmon layer. Intel Arc reads as monitor-only.
-* **Native USB HID for AIO pumps.** Corsair Commander Core, Core XT, and Commander ST shipped in v0.4.0 — talking directly to the device through a pure-Go hidraw stack with no `liquidctl` Python sidecar. Writes default-on as of v0.6.1; pump-minimum floor, USB-reconnect floor, restore-on-panic, and serialised writes are the safety mechanism.
-* **IPMI for server BMCs.** ASRock Rack, Supermicro, and other server boards exposing IPMI fan control. Shipped in v0.3.1.
-* **Hardware database (130+ boards, 6 vendors, growing).** Curated catalog covering MSI, ASUS, Gigabyte, ASRock, Dell (consumer + PowerEdge), HP, HPE, Lenovo (IdeaPad/ThinkPad/Legion), Supermicro, and Raspberry Pi. Three-tier matcher: exact board match, then BIOS-version glob, then chip-family fallback. With v0.5.11's probe-then-pick refactor, the catalog is a hint, not an oracle — ventd tries each candidate driver and trusts the kernel's chip-ID rejection as the authoritative signal, so a stale catalog entry costs ~30 s of compile time, not 12 hours of debugging. GPU vendor coverage: NVIDIA (NVML), AMD (amdgpu), Intel (i915/xe). Catalog grows from user diagnostic bundles.
-* **Self-healing recovery.** When something goes wrong (Secure Boot, DKMS state, in-tree driver conflict, ACPI region reservation), ventd's classifier identifies the failure class and offers one-click auto-fixes through the wizard. Reboots are surfaced explicitly when a fix only takes effect at next boot (MOK enrollment, blacklist drop-ins). No other Linux fan tool ships this.
-* **Terminal-first preflight (`ventd preflight`).** Before the systemd unit is installed, the install script runs an interactive preflight that detects Secure Boot prerequisites, missing kernel headers, in-tree driver conflicts, and 20+ other install-time blockers. It walks you through Y/N-gated auto-fixes for each — no opening a wiki, no guessing modprobe options. The web UI never shows install-time errors because they're caught and fixed in the terminal first.
-* **Coexistence with vendor tools.** ventd detects `system76-power`, `tccd` (Tuxedo Control Centre), `slimbookbattery`, and `asusctl` and steps aside — your vendor tool already controls fans correctly on Linux-first OEM laptops. ventd registers as monitor-only on those systems rather than fighting the vendor daemon for control.
-* **Calibration safety: runtime probe + apply-path enforcement.** Calibration produces a real per-PWM probe result. The apply path refuses to write to channels that haven't been runtime-probed or are flagged unsupported in the catalog. Shipped in v0.5.0.
-* **Diagnostic bundle.** `ventd diag` produces a redacted NDJSON bundle for support and bug reports. Built-in redactor with fuzz-tested anonymisation. Shipped in v0.5.0.
-* **Automatic calibration.** Measures start PWM, stop PWM, max RPM, and the full PWM→RPM curve per fan. Runs server-side; survives browser disconnect and daemon restart. Abortable from the UI. The curve editor uses calibration data to draw the stall zone in red, so you can't accidentally set a curve below the fan's stop threshold.
-* **Hardware change detection.** Plug a new fan or GPU in; ventd notices within a second via `AF_NETLINK` uevents (capped at a 10-second rescan when unavailable) and offers to add it.
-* **Browser-first after install.** Hardware scan, dependency install, calibration, curve editing, and service control all happen in the web UI on the happy path. The terminal-first preflight catches install-time blockers up-front so the wizard is browser-only on success.
-* **Hardware page that maps your machine.** New unified `/hardware` page (v0.5.14) collapses the old Devices + Sensors split into three views: chip-by-chip Inventory with sparklines and curve-coupling rail, daemon ← chip ← sensor Topology with live packet-flow, and a Heatmap with sensors at their case-relative positions. Picks up new hardware via uevent within a second.
-* **Dashboard that narrates what the daemon is doing.** Hero sparks carry past · now · forecast bands (linear extrapolation from real history). Tile intent arrows + flash-on-decision. A one-line "narrator" strip rotates the most recent real decision the controller made — "ramped pump_fan from 35% → 42% — cpu_pkg trending up" — drawn from observed PWM transitions, not fake AI thoughts. Coupling map, decision feed, and AI brief in the insight rail.
+### What you'll see
+
+* **Smart mode that keeps learning.** ventd doesn't stop after the first setup. It watches your machine while you work and gets better at controlling fans the longer it runs: which fans cool which parts, which fans actually help under your typical workload, and how loud each fan is. You pick **Silent**, **Balanced**, or **Performance** and that's all the tuning you ever have to do. The **Smart** page shows you exactly what it's currently doing and why — in plain English. No other Linux fan tool ships this.
+* **One-click install with self-healing.** Linux fan control fails in a long list of weird ways (Secure Boot, missing kernel headers, conflicting drivers, broken state from previous attempts). When ventd hits one of these, it identifies the problem by name and offers a **"Fix this"** button right in the setup wizard. Reboots are flagged clearly when they're needed.
+* **Hardware detection that just works.** ventd finds your motherboard's fans, your GPU fans, AIO liquid coolers, and any temperature sensors automatically — no chip names to look up, no Python helpers to keep alive. Plug in a new fan or GPU and ventd notices within a second.
+* **Automatic fan testing.** The wizard measures each fan's lowest spin speed, top RPM, and full speed curve. You don't have to do anything; it runs in the background and you can close the browser tab — it picks up where it left off. The curve editor then highlights the unsafe zone in red so you can't accidentally set a fan below its stop point.
+* **Real hardware support.** Motherboards from MSI, ASUS, Gigabyte, ASRock, Dell, HP, HPE, Lenovo, Supermicro, and more (540+ specific boards across 31 vendor catalogs and growing). NVIDIA, AMD, and Intel graphics cards. Corsair AIO pumps (Commander Core / Core XT / ST) speaking directly through USB without needing the `liquidctl` Python tool. IPMI for ASRock Rack, Supermicro and other server boards. Apple Silicon (read-only — Asahi project policy). Raspberry Pi PWM fans.
+* **Plays nice with vendor tools.** If your laptop ships with a Linux-first vendor fan daemon (System76, Tuxedo, Slimbook, ASUS), ventd notices and steps aside, monitoring temperatures rather than fighting it.
+* **One-button bug report.** If something goes wrong, `ventd diag` produces a privacy-redacted bundle you can send to maintainers. The redactor is fuzz-tested so serial numbers and identifying info don't escape.
+
+### Under the hood (for the curious)
+
+* **11-backend hardware abstraction layer.** hwmon, NVML (NVIDIA), amdgpu, msi-ec, thinkpad_acpi, ipmi, nbfc, crosec (Chromebook), asahi (Apple Silicon), pwmsys (ARM SBC), legion (Lenovo Legion), corsair (USB HID), plus the lenovoideapad platform-profile state-switcher. One control loop, one config schema, eleven hardware classes.
+* **Smart mode internals.** Per-fan response curves from passive observation + opportunistic active probing. Per-channel thermal coupling (which sensor predicts which fan load). Per-(channel × workload-signature) marginal-benefit RLS estimator. Confidence-gated reactive/predictive blend with a Lipschitz-clamped transition. Per-host R30 microphone calibration + R32 dBA cost gate when a mic is available. See [Smart mode](#smart-mode).
+* **Hardware database matcher.** Three-tier: exact board match → BIOS-version glob → chip-family fallback. The catalog is a hint, not an oracle — ventd tries each candidate driver and trusts the kernel's chip-ID rejection as the authoritative signal, so a stale catalog entry costs ~30 s of compile time, not 12 hours of debugging.
+* **Terminal-first preflight (`ventd preflight`).** Before the service is installed, the install script runs an interactive preflight that detects 20+ install-time blockers (Secure Boot, missing kernel headers, conflicting in-tree drivers, GRUB cmdline gaps) and walks you through Y/N-gated auto-fixes. The web UI never sees install errors because they're caught in the terminal first.
+* **Calibration safety: runtime probe + apply-path enforcement.** Calibration produces a real per-PWM probe result. The apply path refuses to write to channels that haven't been runtime-probed or are flagged unsupported. Within-chip parallel sweeps drop 8-fan NCT6687 boards from ~5 min to ~1 min.
+* **Hardware change detection.** `AF_NETLINK` uevents trigger a rescan within ~1 s; capped 10-second fallback when uevents are unavailable.
+* **Dashboard narrator strip.** A one-line strip on the dashboard rotates the most recent real decision the controller made — "ramped pump_fan from 35% → 42% — cpu_pkg trending up" — drawn from observed PWM transitions, not fake AI thoughts.
 * **Single static binary.** `CGO_ENABLED=0`. NVML loaded at runtime via `dlopen`; GPU features disable silently if the library is absent. No Python, Node, or runtime dependencies beyond libc.
 
 ## Safety
 
-ventd controls physical hardware. Two things follow from that, and both are load-bearing design decisions rather than marketing copy.
+ventd is in charge of your fans. That's important — your CPU or GPU can overheat in seconds if fans stop. Here's what ventd promises:
 
-**Daemon privilege is `User=root` today (v0.5.8.1+).** The original design ran ventd unprivileged with udev DAC grants for hwmon PWM access, but the OOT-driver install path (DKMS register, depmod, modprobe, /lib/modules write, MOK key signing) needs root and the unprivileged-with-sudo approach proved fragile across distros. The v0.6.0 split-daemon plan separates control + install responsibilities so the long-running control loop can run unprivileged again while the install path gets a one-shot privileged helper. Until then, ventd ships as `User=root` honestly. The shipped AppArmor profile remains in the package for the v0.6.0 split (RULE-INSTALL-06).
+* **If ventd crashes or gets killed, your fans go back to firmware (BIOS) control within two seconds.** Whether the daemon exits cleanly or is force-killed, a second tiny safety program runs automatically and hands fan control back to your motherboard/BIOS. You never end up with stopped fans because ventd died.
+* **During fan testing, fans can never be stopped for longer than two seconds.** If the test code hangs while a fan is at zero, a watchdog forces the fan back to a quiet-but-safe minimum.
+* **ventd reports honestly when it can't control your hardware.** No silent failures. If a fan can't be acquired, the dashboard and the `ventd doctor` command show you the reason in plain words.
 
-**Every exit path restores firmware control within two seconds.** Two layers, working together:
+If ventd ever leaves a fan in an unsafe state, please report it as a [security issue](https://github.com/ventd/ventd/blob/main/SECURITY.md), not a regular bug.
+
+### Under the hood (for the curious)
+
+**Daemon privilege is `User=root` today.** The original design ran ventd unprivileged with udev DAC grants for hwmon PWM access, but the out-of-tree driver install path (DKMS register, depmod, modprobe, `/lib/modules` write, MOK key signing) needs root and the unprivileged-with-sudo approach proved fragile across distros. A future split-daemon refactor will separate control + install responsibilities so the long-running control loop can run unprivileged again while the install path gets a one-shot privileged helper. Until then, ventd ships as `User=root` honestly. The AppArmor profile is shipped to `/etc/apparmor.d/` but is not auto-loaded; it stages in for the split (RULE-INSTALL-06).
+
+**Two layers behind the "within two seconds" promise:**
 
 * **Graceful exits** (`SIGTERM`, `SIGINT`, panic inside a recovered frame) trigger the user-space watchdog in `internal/watchdog`, which restores each fan's pre-ventd `pwm_enable` value. Per-entry panic recovery: one fan's restoration failing never aborts the loop for the rest. Fallback when the original value was unrecordable: write PWM=255 (hwmon) or release to driver auto (NVIDIA).
-* **Ungraceful exits** (`SIGKILL`, OOM kill, hardware-watchdog timeout, panic escaping the defer chain) are caught by a separate root-privileged binary, `ventd-recover`, fired via `OnFailure=ventd-recover.service` on the main unit. It walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file and writes `1`. Zero heap allocations on the hot path; always exits 0 to avoid systemd re-entering the OnFailure chain. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires; this is the mechanism behind the "within two seconds" promise.
+* **Ungraceful exits** (`SIGKILL`, OOM kill, hardware-watchdog timeout, panic escaping the defer chain) are caught by a separate root-privileged binary, `ventd-recover`, fired via `OnFailure=ventd-recover.service` on the main unit. It walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file and writes `1`. Zero heap allocations on the hot path; always exits 0 to avoid systemd re-entering the OnFailure chain. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires.
 
-**Calibration cannot strand a fan at zero.** Sweeps that drive PWM to 0 are watched by a per-fan sentinel (`internal/calibrate/safety.go`) that escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12% duty — above start-PWM of nearly every fan on the market) if the zero state persists for more than two seconds. A hung calibration goroutine cannot leave a fan stopped under load.
+**Calibration sentinel.** Sweeps that drive PWM to 0 are watched by a per-fan sentinel (`internal/calibrate/safety.go`) that escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12 % duty — above the start-PWM of nearly every fan on the market) if the zero state persists for more than two seconds.
 
-Full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) in [docs/safety.md](https://github.com/ventd/ventd/blob/main/docs/safety.md).
+The full model, failure-class breakdown, and the things we explicitly do **not** guarantee (kernel panic, power loss — userspace code never runs in those cases) are in [docs/safety.md](https://github.com/ventd/ventd/blob/main/docs/safety.md).
 
-Report any case where ventd leaves a fan in an unsafe state as a [SECURITY.md](https://github.com/ventd/ventd/blob/main/SECURITY.md) issue, not a regular bug.
+## Smart mode
 
-## Smart mode status
+### Plain English
 
-**ventd has been quietly learning your machine since v0.5.5.** Every other Linux fan tool runs the same reactive loop — temperature rises → fans spin up — meaning by the time the fans are at speed, the silicon has already spiked. ventd breaks that ceiling with continuous observation, learned per-fan response models, thermal-coupling maps between sensors and fans, and a confidence-gated controller that blends reactive (PI) and learned-predictive output as confidence accumulates. The catalog stopped being a prerequisite in v0.5.11 — it's now a fast-path overlay; ventd probes and controls hardware without a matching board profile.
+A normal Linux fan tool waits for the CPU to heat up, then spins fans up to react. By the time the fans catch up, the chip has already overheated and throttled.
 
-Three layers of continuous learning, each usable on its own and all live today:
+ventd doesn't wait. While you use your machine, it quietly learns:
 
-* **Layer A — per-fan response curve.** Passive observation plus opportunistic active probing. After a few days of normal use, ventd knows each fan's PWM→RPM relationship and stall zone. No user interaction required. (v0.5.4 + v0.5.5)
-* **Layer B — per-channel thermal coupling.** Watches which temperature sensors predict which fan loads. Enables feed-forward: ramp before the heat arrives. (v0.5.7)
-* **Layer C — marginal-benefit and saturation detection (RLS).** Learns which fan speed changes actually move temperature — distinguishing fans that matter from fans that are acoustically costly but thermally irrelevant, per active workload signature. (v0.5.8)
-* **Confidence-gated blended controller.** Aggregates Layer A/B/C confidence per channel into a single `w_pred` blend weight; fans run reactive when confidence is low, predictive when it isn't, with a Lipschitz-clamped transition. (v0.5.9)
+* **How each fan behaves.** What's the slowest it will spin? How loud is it at each speed? Some of this is measured in the setup wizard; the rest is filled in over the following days, in the background, when ventd notices the machine is idle.
+* **Which sensors predict which fans.** If your CPU gets warm, it's the CPU fan that needs to ramp — not the case fans. ventd figures out which sensor → fan relationships are real on your machine.
+* **Which fans actually matter for what you're doing.** Gaming is different from compiling, which is different from streaming video. ventd learns the difference and only spins up the fans that actually help cool you for the workload you're running. Quieter overall, same temperatures.
 
-What's left before the v0.6.0 stabilization tag:
+You pick one of three presets — **Silent**, **Balanced**, or **Performance** — and that's the entire setting surface. Everything else is figured out from real measurements. The **Smart** page in the web UI shows you what ventd is doing right now in plain sentences: *"Currently quiet — system under light load, waiting for activity."* / *"Ramped pump_fan from 35 % to 42 % — CPU package trending up."*
 
-| Tag | Scope | Status |
-| --- | --- | --- |
-| v0.5.0.1 | Persistent state foundation | ✅ shipped |
-| v0.5.1 | Catalog-less probe + three-state wizard | ✅ shipped |
-| v0.5.2 | Polarity midpoint disambiguation | ✅ shipped |
-| v0.5.3 | Envelope probe + user-idle gate + load monitor | ✅ shipped |
-| v0.5.4 | Passive observation logging (Layer A foundation) | ✅ shipped |
-| v0.5.5 | Opportunistic active probing for Layer A gaps | ✅ shipped |
-| v0.5.6 | Workload signature learning and classification | ✅ shipped |
-| v0.5.7 | Per-channel thermal-coupling map (Layer B) | ✅ shipped |
-| v0.5.8 | Marginal-benefit and saturation detection (Layer C) | ✅ shipped |
-| v0.5.9 | Confidence-gated blended controller + confidence UX | ✅ shipped |
-| v0.5.10 | Doctor recovery surface + internals consolidation | ✅ shipped |
-| v0.5.11 | Comprehensive preflight orchestrator + probe-then-pick | ✅ shipped |
-| v0.5.12 | R30 acoustic capture + R32 dBA cost gate + R31 stall detector + R36 chip-probe fallback | ✅ shipped |
-| v0.5.13 | Calibration v2 layout + SSE activity feed + BIOS Q-Fan EBUSY recovery | ✅ shipped |
-| v0.5.14 | Hardware page + Smart-mode page + Dashboard alive overlay + nct6687 in-tree probe | ✅ shipped |
-| **v0.6.0** | **Smart-mode stabilization complete + cross-platform start** | next |
+If you have a microphone on the machine, ventd can be calibrated to control fans by actual decibels at the mic position instead of just by fan duty-cycle. Without a mic, it still controls loudness intelligently — just relative to itself rather than calibrated to dBA.
 
-Three user-facing presets ship with the controller: **Silent**, **Balanced**, and **Performance**. No thermal targets to configure; ventd infers the right curve for your workload from observed data and the operator-supplied dBA budget per preset (Silent=25 dBA · Balanced=32 dBA · Performance=45 dBA, all overridable).
+### Under the hood (for the curious)
 
-**Hardware coverage continues in parallel:** NZXT and Lian Li USB AIOs, laptop embedded controllers (Framework, ThinkPad, Dell), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi. **Cross-platform** (Windows, macOS, FreeBSD) is post-v0.6.0.
+Every other Linux fan tool runs the same reactive loop — temperature rises → fans spin up — meaning by the time the fans are at speed, the silicon has already spiked. ventd breaks that ceiling with continuous observation, learned per-fan response models, thermal-coupling maps between sensors and fans, and a confidence-gated controller that blends reactive (PI) and learned-predictive output as confidence accumulates. The catalog is a fast-path overlay rather than a prerequisite; ventd probes and controls hardware without a matching board profile.
 
-Phase 1 (HAL foundation, hardware database) shipped in v0.3.0. Phase 2 (multi-backend support — IPMI in v0.3.1, Corsair AIO in v0.4.0, 52-board catalog and GPU vendor coverage in v0.5.0) shipped in v0.5.0. Phase 3 (smart mode) is **mostly shipped** — every layer plus the confidence-gated controller plus the operator-facing UI all landed across v0.5.4–v0.5.14. v0.6.0 closes out the remaining stabilization work and starts cross-platform.
+Three layers of continuous learning, each usable on its own and all live in the controller today:
 
-Detailed design in [specs/spec-smart-mode.md](https://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md).
+* **Layer A — per-fan response curve.** Passive observation plus opportunistic active probing. After a few days of normal use, ventd knows each fan's PWM→RPM relationship and stall zone. No user interaction required.
+* **Layer B — per-channel thermal coupling.** Watches which temperature sensors predict which fan loads. Enables feed-forward: ramp before the heat arrives.
+* **Layer C — marginal-benefit and saturation detection (RLS).** Learns which fan speed changes actually move temperature — distinguishing fans that matter from fans that are acoustically costly but thermally irrelevant, per active workload signature.
+* **Confidence-gated blended controller.** Aggregates Layer A/B/C confidence per channel into a single `w_pred` blend weight; fans run reactive when confidence is low, predictive when it isn't, with a Lipschitz-clamped transition.
+
+On top of those layers the controller also runs an **acoustic budget** (R30 K_cal mic capture + R32 dBA cost gate + per-fan loudness model with NVIDIA-shroud and pump-class entries) and a **chassis cooling-capacity model** that warns when a host's measured cooling can't cover its CPU TDP under sustained load. Live RPM is read from NVIDIA fans through NVML's `nvmlDeviceGetFanSpeedRPM` so multi-GPU workstations contribute to host loudness proportionally rather than under-reporting.
+
+Three user-facing presets ship with the controller: **Silent**, **Balanced**, and **Performance**. No thermal targets to configure; ventd infers the right curve for your workload from observed data and the operator-supplied dBA budget per preset (Silent=25 dBA · Balanced=32 dBA · Performance=45 dBA, all overridable). On hosts with a calibrated microphone the budget operates in true dBA at the mic position; on uncalibrated hosts it operates in within-host au with the same blend weights and Lipschitz clamps.
+
+**Hardware coverage continues in parallel:** NZXT and Lian Li USB AIOs, broader laptop embedded controllers (Framework, more ThinkPad / Dell SKUs), ARM SBC PWM (Raspberry Pi), Apple Silicon via Asahi. **Cross-platform** (Windows, macOS, FreeBSD) is the next major arc; see the [Roadmap](https://github.com/ventd/ventd/blob/main/docs/roadmap.md).
+
+Detailed wiring + rationale in [docs/rules-rationale/smart-mode-wiring.md](https://github.com/ventd/ventd/blob/main/docs/rules-rationale/smart-mode-wiring.md); the binding rule files are under [docs/rules/](https://github.com/ventd/ventd/tree/main/docs/rules) (`coupling.md`, `marginal.md`, `opportunistic.md`, `smart-preset.md`, `smart-mode-wiring-1035.md`).
 
 ## Install
 
@@ -155,7 +164,7 @@ curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh 
 
 Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), runs the [terminal-first preflight](#features) (Y/N gates for any install-time blockers), downloads the binary, **verifies its SHA-256 against the published `checksums.txt` for the release**, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
 
-Open the printed URL. ventd serves a self-signed TLS certificate on first boot — your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. There is no setup token to recover from a file; ventd v0.5.8.1+ uses a first-login-creates-account flow.
+Open the printed URL. ventd serves a self-signed TLS certificate on first boot — your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. There is no setup token to recover from a file; ventd uses a first-login-creates-account flow.
 
 ## Supported platforms
 
@@ -167,7 +176,7 @@ Open the printed URL. ventd serves a self-signed TLS certificate on first boot �
 * **Liquid coolers:** Corsair Commander Core / Core XT / ST (native USB HID, no liquidctl required).
 * **Server BMCs:** IPMI fan control on ASRock Rack, Supermicro, and other vendors exposing the standard IPMI fan interface.
 
-NixOS is not in the supported list — ventd's auto-fix endpoints write to `/etc/modprobe.d/` and `/etc/modules-load.d/` paths that NixOS silently ignores in favour of `configuration.nix`. Manual integration is possible; first-class support is on the post-v0.6.0 roadmap.
+NixOS is not in the supported list — ventd's auto-fix endpoints write to `/etc/modprobe.d/` and `/etc/modules-load.d/` paths that NixOS silently ignores in favour of `configuration.nix`. Manual integration is possible; first-class NixOS support is on the roadmap.
 
 ## What ventd cannot control
 
@@ -184,7 +193,7 @@ The hardware below **cannot** be controlled by ventd or any Linux fan tool — t
 * iDRAC firmware ≥ 3.34 — manual control vendor-revoked
 * NVIDIA datacenter GPUs (H100, H200, A100) — firmware-locked
 * AMD Instinct MI200 / MI300X — firmware-locked
-* OEM mini-PCs without in-tree EC drivers (Beelink, GMKtec, AceMagic — model-specific). v0.5.12 added a chip-probe fallback (RULE-HWDB-PR2-18) that catches IT5570 / IT8613 EC boards whose BIOS leaves DMI as `"Default string"`; many previously-unrecognised mini-PCs now bind correctly.
+* OEM mini-PCs without in-tree EC drivers (Beelink, GMKtec, AceMagic — model-specific). ventd ships a chip-probe fallback that catches IT5570 / IT8613 EC boards whose BIOS leaves DMI as `"Default string"`, so many previously-unrecognised mini-PCs now bind correctly.
 
 Per-board breakdown in [docs/hardware.md](https://github.com/ventd/ventd/blob/main/docs/hardware.md). If you have one of these and ventd surfaces an unhelpful error instead of a clean monitor-only fallback, that's a bug — please file a hardware report.
 
@@ -205,12 +214,12 @@ Per-board breakdown in [docs/hardware.md](https://github.com/ventd/ventd/blob/ma
 | IPMI for server BMCs | yes | no | no | no | no |
 | Hardware change detection | yes | no | no | no | no |
 | Monitor-only fallback for vendor-locked hardware | yes | no | no | no | no |
-| Adaptive learning (smart mode) | **yes (v0.5.5+)** | no | no | no | no |
-| Per-workload-signature marginal-benefit RLS | **yes (v0.5.8+)** | no | no | no | no |
-| Confidence-gated reactive/predictive blend | **yes (v0.5.9+)** | no | no | no | no |
-| Operator dBA budget (acoustic cost gate) | **yes (v0.5.12+)** | no | no | no | no |
-| Visible "what the AI is doing" page | **yes (v0.5.14+)** | no | no | no | no |
-| Curated per-hardware profiles | yes (130+ boards, growing) | yes | no | partial | no |
+| Adaptive learning (smart mode) | **yes** | no | no | no | no |
+| Per-workload-signature marginal-benefit RLS | **yes** | no | no | no | no |
+| Confidence-gated reactive/predictive blend | **yes** | no | no | no | no |
+| Operator dBA budget (acoustic cost gate) | **yes** | no | no | no | no |
+| Visible "what the daemon is doing" page | **yes** | no | no | no | no |
+| Curated per-hardware profiles | yes (540+ boards, growing) | yes | no | partial | no |
 | Native desktop GUI | no (web UI) | yes (Qt) | no | no | no |
 
 CoolerControl is the more mature option if you want a pre-seeded profile for your specific AIO and a native desktop app today. ventd trades those for auto-config first boot, a browser-only workflow that works over the network, structured recovery with one-click auto-fixes for the long tail of hostile-hardware quirks, no runtime dependencies, and the only Linux fan controller that actually keeps learning your machine after the first calibration finishes.
@@ -221,7 +230,7 @@ If your hardware is in [What ventd cannot control](#what-ventd-cannot-control), 
 
 * A diagnostic-bundle path that captures the missing data in one click (`ventd diag bundle`).
 * A classifier + auto-fix card for any failure mode that hits more than one user.
-* A growing catalog populated from those bundles — `git blame` on `internal/hwdb/profiles-v1.yaml` shows every entry traceable to a real machine that hit a real wall.
+* A growing catalog populated from those bundles — every entry under `internal/hwdb/catalog/` traces back to a real machine that hit a real wall.
 * No silent failures: if the daemon can't acquire a fan it logs a structured reason, surfaces it in `ventd doctor`, and the wizard never claims success it didn't earn.
 
 ## Documentation
@@ -232,7 +241,7 @@ If your hardware is in [What ventd cannot control](#what-ventd-cannot-control), 
 * [Hardware compatibility](https://github.com/ventd/ventd/blob/main/docs/hardware.md)
 * [NVIDIA GPU fan control](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)
 * [Safety model](https://github.com/ventd/ventd/blob/main/docs/safety.md)
-* [Smart mode design](https://github.com/ventd/ventd/blob/main/specs/spec-smart-mode.md)
+* [Smart mode design](https://github.com/ventd/ventd/blob/main/docs/rules-rationale/smart-mode-wiring.md)
 * [Troubleshooting](https://github.com/ventd/ventd/blob/main/docs/troubleshooting.md)
 * [Changelog](https://github.com/ventd/ventd/blob/main/CHANGELOG.md)
 
