@@ -63,16 +63,20 @@ step "go vet ./..."
 go vet ./...
 green "ok"
 
-# 4. golangci-lint (if installed)
+# 4. golangci-lint. Required, not optional. Earlier this step yellow-
+# skipped when the binary was missing, which let lint-class bugs reach
+# CI (cf. PR #1340 SA4003). The CI-pinned version is wired into
+# scripts/install-git-hooks.sh so a fresh clone gets it automatically.
 step "golangci-lint run"
 if command -v golangci-lint >/dev/null 2>&1; then
   golangci-lint run --timeout=5m
   green "ok"
-elif [ -x "$HOME/go/bin/golangci-lint" ]; then
-  "$HOME/go/bin/golangci-lint" run --timeout=5m
+elif [ -x "$(go env GOPATH)/bin/golangci-lint" ]; then
+  "$(go env GOPATH)/bin/golangci-lint" run --timeout=5m
   green "ok"
 else
-  yellow "skip: golangci-lint not installed (install with go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)"
+  red "FAIL: golangci-lint not installed. Run \`bash scripts/install-git-hooks.sh\` to install the CI-pinned version, or install manually with \`go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6\`."
+  exit 1
 fi
 
 # 5. rule-index

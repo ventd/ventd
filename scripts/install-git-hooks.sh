@@ -17,6 +17,47 @@ if [[ -z "$repo_root" ]]; then
 	exit 1
 fi
 
+# golangci-lint version. Must match .github/workflows/ci.yml so the local
+# gate catches the same things CI catches. Bumping here without bumping
+# the workflow (or vice versa) is the local-vs-remote drift class.
+GOLANGCI_LINT_VERSION="v2.1.6"
+
+# Install golangci-lint at the CI-pinned version if missing. Without this
+# step, scripts/ci-local.sh silently skipped the lint step and lint-class
+# bugs reached CI (cf. PR #1340 SA4003). Idempotent: skips when the right
+# version is already on PATH or in $GOPATH/bin.
+install_golangci_lint() {
+	local want="$GOLANGCI_LINT_VERSION"
+	local gopath_bin
+	gopath_bin=$(go env GOPATH 2>/dev/null)/bin
+
+	local current=""
+	if command -v golangci-lint >/dev/null 2>&1; then
+		current=$(golangci-lint --version 2>/dev/null | head -1 || true)
+	elif [[ -x "$gopath_bin/golangci-lint" ]]; then
+		current=$("$gopath_bin/golangci-lint" --version 2>/dev/null | head -1 || true)
+	fi
+
+	if [[ "$current" == *"$want"* ]]; then
+		echo "golangci-lint $want already installed"
+		return 0
+	fi
+
+	if ! command -v go >/dev/null 2>&1; then
+		echo "install-git-hooks: go toolchain not found; install Go before re-running" >&2
+		return 1
+	fi
+
+	echo "installing golangci-lint $want (matching .github/workflows/ci.yml)..."
+	GOFLAGS= go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$want"
+	echo "installed: $gopath_bin/golangci-lint"
+	if [[ ":$PATH:" != *":$gopath_bin:"* ]]; then
+		echo "note: $gopath_bin is not on PATH. scripts/ci-local.sh looks in \$GOPATH/bin as a fallback, so this is fine for the pre-push gate. Add it to PATH if you want to run \`golangci-lint\` directly."
+	fi
+}
+
+install_golangci_lint
+
 # Resolve the hooks dir (handles git-worktrees and core.hooksPath overrides).
 hooks_dir=$(git rev-parse --git-path hooks)
 mkdir -p "$hooks_dir"
