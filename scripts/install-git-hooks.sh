@@ -142,8 +142,25 @@ if [[ "$go_changed" == true || "$mod_changed" == true ]]; then
 fi
 
 if [[ "$go_changed" == true ]]; then
+	# Resolve gofmt explicitly via the Go toolchain so the check
+	# does not silently no-op when gofmt is missing from PATH
+	# (the v0.8.x drift class — gofmt was outside PATH on the dev
+	# box, gofmt -l 2>/dev/null swallowed the not-found error,
+	# CI then caught the drift). Per scripts/install-git-hooks.sh
+	# remediation note attached to PR #1357.
 	echo "pre-commit: gofmt -l ."
-	bad=$(gofmt -l . 2>/dev/null || true)
+	goroot=$(go env GOROOT 2>/dev/null || true)
+	gofmt_bin=""
+	if [[ -n "$goroot" && -x "$goroot/bin/gofmt" ]]; then
+		gofmt_bin="$goroot/bin/gofmt"
+	elif command -v gofmt >/dev/null 2>&1; then
+		gofmt_bin="gofmt"
+	fi
+	if [[ -z "$gofmt_bin" ]]; then
+		echo "pre-commit: gofmt not found (checked GOROOT/bin and PATH)" >&2
+		exit 1
+	fi
+	bad=$("$gofmt_bin" -l .)
 	if [[ -n "$bad" ]]; then
 		echo "pre-commit: gofmt issues:" >&2
 		echo "$bad" >&2
@@ -177,7 +194,18 @@ fi
 # Fallback: minimal sweep if ci-local.sh is unavailable (e.g. older
 # branch without the script).
 echo "pre-push: gofmt -l ."
-bad=$(gofmt -l . 2>/dev/null || true)
+goroot=$(go env GOROOT 2>/dev/null || true)
+gofmt_bin=""
+if [[ -n "$goroot" && -x "$goroot/bin/gofmt" ]]; then
+	gofmt_bin="$goroot/bin/gofmt"
+elif command -v gofmt >/dev/null 2>&1; then
+	gofmt_bin="gofmt"
+fi
+if [[ -z "$gofmt_bin" ]]; then
+	echo "pre-push: gofmt not found (checked GOROOT/bin and PATH)" >&2
+	exit 1
+fi
+bad=$("$gofmt_bin" -l .)
 if [[ -n "$bad" ]]; then
 	echo "pre-push: gofmt issues:" >&2
 	echo "$bad" >&2
