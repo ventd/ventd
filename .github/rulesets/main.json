@@ -55,10 +55,6 @@
             "integration_id": 15368
           },
           {
-            "context": "build-and-test-opensuse-tumbleweed",
-            "integration_id": 15368
-          },
-          {
             "context": "apparmor-parse-debian13",
             "integration_id": 15368
           }

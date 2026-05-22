@@ -156,34 +156,21 @@ jobs:
             prereqs: "apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git tar gcc libc6-dev"
             use-setup-go: true
             race: true
-          # opensuse-tumbleweed: re-enabled via the upstream-tarball
-          # Go path (use-setup-go: false). actions/setup-go installs
-          # its own Go and mutates PATH in a way the opensuse/
-          # tumbleweed:latest minimal image's alternatives system
-          # corrupts on the next `docker exec` — every subsequent step
-          # fails with `exec: "<shell>": executable file not found`.
-          # The Alpine lane uses the same workaround for an unrelated
-          # reason (apk's `go` package lags), and it threads cleanly on
-          # both distros — so the right shape for the opensuse lane is
-          # to skip setup-go entirely and stage Go from go.dev/dl. The
-          # tarball install at line 263 already handles this branch.
-          # zypper prereqs include `which` to satisfy `command -v` calls
-          # the test suite makes for binary discovery (e.g. apparmor_parser
-          # probe) and `bash` to satisfy the job-level `defaults.run.shell:
-          # bash`. Closes #901.
-          - name: build-and-test-opensuse-tumbleweed
-            distro: opensuse-tumbleweed
-            runs-on: ubuntu-24.04
-            container: "opensuse/tumbleweed@sha256:cd4b7c29b5d9fe77e1f44c89ec3fbf029e998da3ad8f44350fa088762c3f9489" # opensuse/tumbleweed:latest
-            # zypper prereqs include `which` to satisfy `command -v` calls
-            # the test suite makes for binary discovery, `bash` to satisfy
-            # the job-level `defaults.run.shell: bash`, and gcc/glibc-devel
-            # for the race detector (CGO). Refresh+gpg-auto-import-keys is
-            # required because the rolling tumbleweed image's preinstalled
-            # metadata can lag the live repo signing keys.
-            prereqs: "zypper --non-interactive --gpg-auto-import-keys refresh && zypper --non-interactive install ca-certificates curl git tar gcc glibc-devel which bash"
-            use-setup-go: false
-            race: true
+          # opensuse-tumbleweed lane temporarily disabled. Tracking
+          # issue: https://github.com/ventd/ventd/issues/901
+          #
+          # 2026-05-22 re-enable attempt (PR #1349) used `use-setup-go:
+          # false` on the hypothesis that actions/setup-go was mutating
+          # PATH after the prereqs step. That fixed nothing — the
+          # subsequent `go vet` step still hit
+          # `exec: "bash": executable file not found in $PATH` (run
+          # 26315916635 / job 74353627001). The actions/setup-go
+          # hypothesis is therefore falsified; the actual root cause is
+          # elsewhere in the docker exec environment that GitHub
+          # Actions runs against the opensuse/tumbleweed:latest minimal
+          # image. Disable again so the canonical CI gate stays green
+          # while we investigate. Do NOT silently work around with a
+          # shim install.
     steps:
       - name: Install prerequisites
         if: matrix.prereqs != ''
