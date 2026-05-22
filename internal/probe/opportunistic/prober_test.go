@@ -162,6 +162,99 @@ func TestProber_AbortPath_RestoresController(t *testing.T) {
 	}
 }
 
+// TestProber_NoSpuriousAbortOnIdleCoreTempNoise is a failing reproducer
+// for a thermal-slope abort that fires on routine 1 °C sensor
+// quantization noise.
+//
+// The recorded sample sequence (48, 48, 48, 52, 52, 49, 48, 48) was
+// captured at 10 Hz from an idle i7-6600U via
+// /sys/class/hwmon/.../temp1_input. The CPU is doing nothing — load
+// is flat, no turbo, ambient stable — yet the package-temp readback
+// jumps from 48 °C to 52 °C inside a single 100 ms sampling tick. This
+// is intrinsic Intel coretemp behaviour: the sensor is quantized to
+// 1 °C, and the readback latches whichever core is briefly hottest.
+// Identical shape on AMD core temps and many EC-driven laptop sensors.
+//
+// abortOnSlope (prober.go) computes raw single-sample dT/dt with no
+// smoothing, median filter, or N-of-M consecutive-sample requirement.
+// At ANY sample rate that respects the quantization, a 4 °C single-
+// sample step trivially exceeds the laptop class 2 °C/s threshold:
+//   - 10 Hz production:  4 °C / 0.1 s   = 40 °C/s   → abort
+//   - 1 kHz test:        4 °C / 0.001 s = 4000 °C/s → abort
+//
+// Real-world consequence: every opportunistic probe aborts within a
+// few samples on idle hosts. Aborted opp probes don't count toward
+// bin coverage (detector.go:107-110), so the scheduler retries the
+// same gap tick after tick, never collecting non-aborted telemetry.
+//
+// The same formula lives in internal/envelope/thermal.go and breaks
+// startup Envelope C/D probes the same way.
+//
+// Expected behaviour: no abort. The system is idle; nothing to react
+// to. A fix that adds a small rolling-window median (or an N-of-M
+// consecutive over-threshold gate) on the dT/dt computation will make
+// this test pass without weakening the genuine runaway-thermal trip.
+func TestProber_NoSpuriousAbortOnIdleCoreTempNoise(t *testing.T) {
+	t.Skip("known-failing reproducer; un-skip in the same commit that lands " +
+		"the abortOnSlope smoothing fix (rolling-window median or N-of-M " +
+		"consecutive over-threshold gate). The test exists now as a " +
+		"working bookmark for the fix author so the regression is " +
+		"caught when reintroduced.")
+
+	const baseline uint8 = 130
+	const gap uint8 = 200
+	pwmPath := makePWMFile(t, baseline)
+	ch := &probe.ControllableChannel{PWMPath: pwmPath, Polarity: "normal"}
+
+	// Recorded idle pattern. The 48 → 52 single-tick step is the trip.
+	readings := []float64{48, 48, 48, 52, 52, 49, 48, 48}
+	var idx atomic.Int32
+
+	var captured *observation.Record
+	deps := ProbeDeps{
+		Class: sysclass.ClassLaptop,
+		Tjmax: 100,
+		SensorFn: func(ctx context.Context) (map[string]float64, error) {
+			i := int(idx.Add(1)) - 1
+			if i >= len(readings) {
+				i = len(readings) - 1
+			}
+			return map[string]float64{"cpu": readings[i]}, nil
+		},
+		RPMFn:     func(ctx context.Context) (int32, error) { return 1500, nil },
+		WriteFn:   func(uint8) error { return nil },
+		ObsAppend: func(rec *observation.Record) error { captured = rec; return nil },
+		Now:       func() time.Time { return time.Now() },
+		Thresholds: &envelope.Thresholds{
+			// Production ClassLaptop values from
+			// internal/envelope/thresholds.go.
+			DTDtAbortCPerSec:     2.0,
+			TAbsOffsetBelowTjmax: 15,
+			// 1 kHz so the recorded samples are exhausted in <10 ms;
+			// the bug is sample-rate-invariant (see docstring).
+			SampleHz: 1000,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := FireOne(ctx, ch, gap, deps)
+
+	if errors.Is(err, ErrProbeAborted) {
+		t.Fatalf("FireOne aborted on idle-CPU sensor noise (readings=%v).\n"+
+			"Single-sample dT/dt has no smoothing; a routine 4 °C quantization "+
+			"step trips the 2 °C/s threshold. Expected: no abort.", readings)
+	}
+
+	if captured == nil {
+		t.Fatal("ObsAppend never called")
+	}
+	if captured.EventFlags&observation.EventFlag_ENVELOPE_C_ABORT != 0 {
+		t.Errorf("captured record carries ENVELOPE_C_ABORT (0x%x); "+
+			"implies the spurious-abort path was taken", captured.EventFlags)
+	}
+}
+
 // TestProber_CtxCancel_RestoresController verifies that a cancelled
 // context returns immediately and still restores baseline
 // (RULE-OPP-PROBE-10).
