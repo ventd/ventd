@@ -240,7 +240,19 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 		logger.Warn("DKMS build failed", "err", err)
 		return
 	}
-	if err := runLogDirRoot("", log, "dkms", "install", nameVer); err != nil {
+	// --force overrides the "Module ... already installed" error (exit 6)
+	// the Copy step (#1267) triggers. The Copy step laid down the same
+	// .ko under /lib/modules/<release>/extra/ a few steps earlier so the
+	// driver can modprobe immediately; without --force, dkms aborts the
+	// install with exit 6 and leaves DKMS without an installed record
+	// for this kernel. The next kernel upgrade then skips the auto-
+	// rebuild for this module and the daemon silently drops to monitor-
+	// only on the new kernel until the operator re-runs the wizard. The
+	// overwrite is safe because dkms's build output for the current
+	// kernel is byte-identical to the Copy step's output — both come
+	// from the same repo + the same kernel headers (validated by the
+	// reproducible-build envelope from #516).
+	if err := runLogDirRoot("", log, "dkms", "install", nameVer, "--force"); err != nil {
 		logger.Warn("DKMS install failed", "err", err)
 	}
 }

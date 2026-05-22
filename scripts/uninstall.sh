@@ -7,23 +7,27 @@
 #   sudo /usr/local/sbin/ventd-uninstall            # remove binary + service unit + state
 #   sudo /usr/local/sbin/ventd-uninstall --keep-data  # binary + service only, leave /var/lib/ventd
 #
-# What this script does (in order):
-#   1. systemctl disable --now ventd.service (if not already stopped by
-#      the in-UI Reset to factory action).
+# What this script does (in order — every step idempotent):
+#   1. systemctl disable --now for every ventd-managed unit
+#      (ventd.service, ventd-recover.service, ventd-postreboot-verify.service).
 #   2. rmmod whichever OOT driver ventd installed under
-#      /lib/modules/<release>/extra/ and remove its DKMS registration
-#      + /etc/modules-load.d entry.
-#   3. Remove the systemd unit file at /etc/systemd/system/ventd.service
-#      (and the deploy/ override drop-ins if present).
-#   4. Remove the binary at $VENTD_PREFIX/ventd (default /usr/local/bin).
-#   5. Remove /etc/ventd/ — config + auth + first-install timestamp.
-#   6. Remove /var/lib/ventd/ — calibration, smart-mode shards, logs.
+#      /lib/modules/<release>/extra/, remove its DKMS registration,
+#      and the /etc/modules-load.d entry the installer wrote.
+#   3. Remove every ventd systemd unit + its drop-ins under
+#      /etc/systemd/system AND /usr/lib/systemd/system (the installer
+#      can land helpers in either tree depending on distro).
+#   4. Remove every ventd helper binary in $VENTD_PREFIX —
+#      ventd, ventd-nvml-helper, ventd-postreboot-verify.sh,
+#      ventd-recover, ventd-wait-hwmon.
+#   5. Remove the udev rules ventd dropped + reload the rules.
+#   6. Remove the AppArmor profiles ventd dropped — unloading via
+#      apparmor_parser -R first so the kernel doesn't hold a reference
+#      to the deleted file across the next service start.
+#   7. Remove /etc/ventd/ — config + auth + first-install timestamp.
+#   8. Remove /var/lib/ventd/ — calibration, smart-mode shards.
 #      Skipped when --keep-data is passed.
-#   7. Remove this script itself.
-#
-# Designed to be safe to re-run: every step uses idempotent commands
-# (systemctl disable --now is a no-op on already-stopped units; rm -f
-# never fails on missing paths).
+#   9. Remove /var/log/ventd/ — install + SELinux-build logs.
+#  10. Remove this script itself.
 
 set -euo pipefail
 
@@ -53,12 +57,16 @@ log() { printf '  %s\n' "$*"; }
 
 echo "ventd uninstall starting"
 
-# 1. Service.
+# 1. Services. ventd-recover.service is enabled-on-install per
+# deploy/ventd-recover.service, so leaving it behind would silently
+# fire OnFailure logic at every boot against a vanished binary.
 if command -v systemctl >/dev/null 2>&1; then
-    if systemctl list-unit-files 2>/dev/null | grep -q '^ventd\.service'; then
-        log "disabling+stopping ventd.service"
-        systemctl disable --now ventd.service 2>/dev/null || true
-    fi
+    for unit in ventd.service ventd-recover.service ventd-postreboot-verify.service; do
+        if systemctl list-unit-files 2>/dev/null | grep -q "^${unit}"; then
+            log "disabling+stopping ${unit}"
+            systemctl disable --now "${unit}" 2>/dev/null || true
+        fi
+    done
 fi
 
 # 2. OOT driver under /lib/modules/<release>/extra/. The in-UI factory
@@ -82,36 +90,96 @@ if [[ -n "$release" && -d "$extra_dir" ]]; then
         rm -f "$ko"
     done
 fi
-rm -f /etc/modules-load.d/ventd-*.conf 2>/dev/null || true
+# The installer writes /etc/modules-load.d/ventd.conf (no dash); the
+# old glob `ventd-*.conf` never matched. Cover both shapes so a
+# legacy install that wrote a dashed variant is also cleaned.
+rm -f /etc/modules-load.d/ventd.conf /etc/modules-load.d/ventd-*.conf 2>/dev/null || true
 
-# 3. systemd unit file + drop-ins.
-log "removing systemd unit + drop-ins"
-rm -f /etc/systemd/system/ventd.service 2>/dev/null || true
-rm -rf /etc/systemd/system/ventd.service.d 2>/dev/null || true
-rm -f /usr/lib/systemd/system/ventd.service 2>/dev/null || true
-rm -rf /usr/lib/systemd/system/ventd.service.d 2>/dev/null || true
+# 3. systemd unit files + drop-ins for every unit the installer ships.
+log "removing systemd units + drop-ins"
+for unit_path in \
+    /etc/systemd/system/ventd.service \
+    /etc/systemd/system/ventd-recover.service \
+    /etc/systemd/system/ventd-postreboot-verify.service \
+    /usr/lib/systemd/system/ventd.service \
+    /usr/lib/systemd/system/ventd-recover.service \
+    /usr/lib/systemd/system/ventd-postreboot-verify.service; do
+    rm -f "$unit_path" 2>/dev/null || true
+done
+for dropin_dir in \
+    /etc/systemd/system/ventd.service.d \
+    /etc/systemd/system/ventd-recover.service.d \
+    /usr/lib/systemd/system/ventd.service.d \
+    /usr/lib/systemd/system/ventd-recover.service.d; do
+    rm -rf "$dropin_dir" 2>/dev/null || true
+done
+# The multi-user.target.wants/ symlink survives the unit-file removal
+# in some systemd versions; clean it explicitly so daemon-reload
+# doesn't trip on a dangling enabled symlink.
+rm -f /etc/systemd/system/multi-user.target.wants/ventd-recover.service 2>/dev/null || true
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload 2>/dev/null || true
 fi
 
-# 4. Binary.
-if [[ -x "$VENTD_PREFIX/ventd" ]]; then
-    log "removing $VENTD_PREFIX/ventd"
-    rm -f "$VENTD_PREFIX/ventd"
-fi
-# Common alternate install prefix.
-if [[ -x "/usr/bin/ventd" ]]; then
-    log "removing /usr/bin/ventd"
-    rm -f "/usr/bin/ventd"
+# 4. Binaries — the main daemon AND every helper the installer drops
+# into the same prefix.
+for helper in ventd ventd-nvml-helper ventd-postreboot-verify.sh \
+              ventd-recover ventd-wait-hwmon; do
+    if [[ -e "$VENTD_PREFIX/$helper" ]]; then
+        log "removing $VENTD_PREFIX/$helper"
+        rm -f "$VENTD_PREFIX/$helper"
+    fi
+    # Cover the alternate install prefix too.
+    if [[ -e "/usr/bin/$helper" ]]; then
+        log "removing /usr/bin/$helper"
+        rm -f "/usr/bin/$helper"
+    fi
+done
+
+# 5. udev rules. ventd's installer ships
+# 90-ventd-hwmon.rules into both /etc/udev/rules.d (preferred) and
+# /usr/lib/udev/rules.d (some distros). Reload after removal so the
+# kernel drops the rule from its in-memory table.
+udev_removed=0
+for rule in /etc/udev/rules.d/90-ventd-hwmon.rules \
+            /usr/lib/udev/rules.d/90-ventd-hwmon.rules; do
+    if [[ -f "$rule" ]]; then
+        log "removing udev rule $rule"
+        rm -f "$rule"
+        udev_removed=1
+    fi
+done
+if [[ $udev_removed -eq 1 ]] && command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules 2>/dev/null || true
 fi
 
-# 5. Config.
+# 6. AppArmor profiles. apparmor_parser -R must unload the profile
+# from the kernel BEFORE the file is removed — otherwise the kernel
+# holds a reference to the now-vanished path and the next service
+# start refuses with "no such profile" rather than re-applying
+# defaults.
+if command -v apparmor_parser >/dev/null 2>&1; then
+    for prof in /etc/apparmor.d/ventd /etc/apparmor.d/ventd-ipmi /etc/apparmor.d/ventd.compat; do
+        if [[ -f "$prof" ]]; then
+            log "unloading apparmor profile $prof"
+            apparmor_parser -R "$prof" 2>/dev/null || true
+        fi
+    done
+fi
+for prof in /etc/apparmor.d/ventd /etc/apparmor.d/ventd-ipmi /etc/apparmor.d/ventd.compat; do
+    if [[ -f "$prof" ]]; then
+        log "removing apparmor profile file $prof"
+        rm -f "$prof"
+    fi
+done
+
+# 7. Config.
 if [[ -d /etc/ventd ]]; then
     log "removing /etc/ventd"
     rm -rf /etc/ventd
 fi
 
-# 6. Persistent state — opt-out via --keep-data.
+# 8. Persistent state — opt-out via --keep-data.
 if [[ $KEEP_DATA -eq 0 && -d /var/lib/ventd ]]; then
     log "removing /var/lib/ventd"
     rm -rf /var/lib/ventd
@@ -119,7 +187,13 @@ elif [[ $KEEP_DATA -eq 1 ]]; then
     log "leaving /var/lib/ventd in place (--keep-data)"
 fi
 
-# 7. Self.
+# 9. Logs.
+if [[ -d /var/log/ventd ]]; then
+    log "removing /var/log/ventd"
+    rm -rf /var/log/ventd
+fi
+
+# 10. Self.
 self="$(readlink -f "$0" 2>/dev/null || true)"
 if [[ -n "$self" && -f "$self" ]]; then
     log "removing $self"
