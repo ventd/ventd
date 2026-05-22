@@ -79,17 +79,41 @@ func NewDetector(reader *observation.Reader, channels []*probe.ControllableChann
 	}
 }
 
+// MaxAbortsPerBin caps how many aborted opportunistic probes for the
+// same (channel, PWM) bin in the CooldownWindow are tolerated before
+// the bin is treated as visited. Past the cap, Gaps drops the bin
+// from the returned set so the scheduler advances to the next gap
+// instead of retrying the same bin forever.
+//
+// RULE-OPP-PROBE-06 retry-on-abort exists for transient workload
+// spikes (a one-off background job briefly trips the slope abort);
+// it never anticipated STRUCTURAL aborts (probing PWM=0 reliably
+// trips the slope abort on any thermally-loaded host because the
+// fan actually stops cooling). Cap = 3 matches
+// envelope.DefaultSlopeAbortConsecutive — after three honest
+// attempts the bin is empirically not safe to probe under current
+// conditions, and pinning the scheduler on it blocks all other
+// learning. The bin re-enters the candidate set on the next
+// CooldownWindow (7 d) rollover when the record set falls out of
+// the window.
+const MaxAbortsPerBin = 3
+
 // Gaps returns the set of PWM bins per channel that have not been
 // observed in the cool-down window before now. Aborted opportunistic
-// probes do NOT count as visits — bin remains eligible for retry on
-// the next gate window.
+// probes do NOT count as visits up to MaxAbortsPerBin per bin
+// (RULE-OPP-PROBE-06's retry-on-abort allowance for transient
+// workload spikes); past the cap, the bin is treated as visited so
+// the scheduler doesn't loop on a structurally-unsafe bin.
 //
 // The returned map is keyed by observation.ChannelID(pwmPath) so it
 // matches the ChannelID written into observation records.
 func (d *Detector) Gaps(now time.Time) (map[uint16][]uint8, error) {
 	visited := make(map[uint16]map[uint8]bool, len(d.channels))
+	abortCount := make(map[uint16]map[uint8]int, len(d.channels))
 	for _, ch := range d.channels {
-		visited[observation.ChannelID(ch.PWMPath)] = make(map[uint8]bool)
+		id := observation.ChannelID(ch.PWMPath)
+		visited[id] = make(map[uint8]bool)
+		abortCount[id] = make(map[uint8]int)
 	}
 
 	since := now.Add(-CooldownWindow)
@@ -102,10 +126,15 @@ func (d *Detector) Gaps(now time.Time) (map[uint16][]uint8, error) {
 		if rec.Ts < sinceMicros {
 			return true
 		}
-		// Aborted opportunistic probes don't count toward the bin
-		// coverage — RULE-OPP-PROBE-06.
+		// Aborted opportunistic probes count toward the per-bin
+		// abort cap but do NOT mark the bin visited up to the cap.
+		// Past the cap, the bin is dropped from the candidate set
+		// below — see MaxAbortsPerBin.
 		if rec.EventFlags&observation.EventFlag_OPPORTUNISTIC_PROBE != 0 &&
 			rec.EventFlags&observation.EventFlag_ENVELOPE_C_ABORT != 0 {
+			if counts, ok := abortCount[rec.ChannelID]; ok {
+				counts[rec.PWMWritten]++
+			}
 			return true
 		}
 		bins, ok := visited[rec.ChannelID]
@@ -125,9 +154,13 @@ func (d *Detector) Gaps(now time.Time) (map[uint16][]uint8, error) {
 		grid := buildProbeGrid(d.knowns[id])
 		var gaps []uint8
 		for _, pwm := range grid {
-			if !visited[id][pwm] {
-				gaps = append(gaps, pwm)
+			if visited[id][pwm] {
+				continue
 			}
+			if abortCount[id][pwm] >= MaxAbortsPerBin {
+				continue
+			}
+			gaps = append(gaps, pwm)
 		}
 		if len(gaps) > 0 {
 			out[id] = gaps

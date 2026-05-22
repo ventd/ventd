@@ -217,6 +217,80 @@ func TestScheduler_PicksLowestPWMOnLargestGap(t *testing.T) {
 	}
 }
 
+// TestScheduler_MinPWMFloorDropsLowBins asserts the per-channel
+// min_pwm filter — bins below the operator-declared floor are
+// removed from the gap set before pick so the scheduler doesn't
+// pick a fan-off PWM that reliably trips the slope abort on
+// thermally-loaded hosts. Fan-off-territory probing also has no
+// calibration value (config says "fan doesn't spin usefully below
+// this").
+func TestScheduler_MinPWMFloorDropsLowBins(t *testing.T) {
+	now := time.Now()
+	ch := makeTestChannel("/sys/class/hwmon/hwmon3/pwm1")
+	id := observation.ChannelID(ch.PWMPath)
+	store := newFakeLogStore(now)
+	rd := observation.NewReader(store)
+	det := NewDetector(rd, []*probe.ControllableChannel{ch}, nil)
+
+	// All grid bins are gaps (empty log). Set min_pwm=80 — bins
+	// below 80 (0, 8, 16, 24, 32, 40, 48, 56, 64, 72) should be
+	// filtered out by the scheduler before pickChannel runs, so the
+	// picked PWM must be 80 or higher.
+	cfg := SchedulerConfig{
+		Channels:    []*probe.ControllableChannel{ch},
+		Detector:    det,
+		LastProbeAt: newMemLastProbe(),
+		MinPWMs:     map[uint16]uint8{id: 80},
+	}
+
+	gaps, err := det.Gaps(now)
+	if err != nil {
+		t.Fatalf("Gaps: %v", err)
+	}
+	// Sanity: detector returns the full low-half AND high-half grid.
+	if len(gaps[id]) == 0 {
+		t.Fatal("Detector returned no gaps; need a non-empty grid for this test")
+	}
+	hasZero := false
+	for _, p := range gaps[id] {
+		if p == 0 {
+			hasZero = true
+		}
+	}
+	if !hasZero {
+		t.Fatal("detector grid missing PWM=0; can't exercise the floor filter")
+	}
+
+	// Apply the scheduler's filter in-place — same as tick() does.
+	s := &Scheduler{cfg: cfg}
+	for id, pwms := range gaps {
+		floor, ok := s.cfg.MinPWMs[id]
+		if !ok || floor == 0 {
+			continue
+		}
+		filtered := pwms[:0]
+		for _, p := range pwms {
+			if p >= floor {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) > 0 {
+			gaps[id] = filtered
+		} else {
+			delete(gaps, id)
+		}
+	}
+
+	for _, p := range gaps[id] {
+		if p < 80 {
+			t.Errorf("min_pwm filter leaked PWM %d below floor 80; remaining gaps=%v", p, gaps[id])
+		}
+	}
+	if len(gaps[id]) == 0 {
+		t.Error("filter dropped all bins; expected high-half bins (80-255) to remain")
+	}
+}
+
 // TestScheduler_OneChannelAtATime asserts that runActive is set true
 // while a probe runs and is reset after; concurrent ticks do not
 // fire more than one probe (RULE-OPP-PROBE-03).

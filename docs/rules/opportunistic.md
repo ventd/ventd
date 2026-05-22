@@ -71,11 +71,20 @@ Bound: internal/probe/opportunistic/prober_test.go:TestProber_AbortPath_Restores
 The `Detector.Gaps` walk excludes bins whose most recent record is
 inside `CooldownWindow` (7 d), unless that record carries both
 `EventFlag_OPPORTUNISTIC_PROBE` AND `EventFlag_ENVELOPE_C_ABORT` (an
-aborted opportunistic probe — bin remains eligible for retry). The
-test seeds a synthetic log with bins inside and outside the window,
-plus an aborted opportunistic record, and asserts the returned set.
+aborted opportunistic probe — bin remains eligible for retry), up
+to `MaxAbortsPerBin` (= 3) aborted records per bin in the window.
+Past the cap the bin is treated as visited so the scheduler doesn't
+loop forever on a structurally-unsafe bin (canonical case: probing
+PWM=0 on a thermally-loaded host reliably aborts because the fan
+actually stops cooling — the retry-on-abort allowance was written
+for transient workload spikes, not for structural cooling
+removal). The bin re-enters the candidate set on the next
+`CooldownWindow` rollover when the abort records fall out of the
+window.
 
 Bound: internal/probe/opportunistic/detector_test.go:TestDetector_ExcludesBinsWithin7Days
+Bound: internal/probe/opportunistic/detector_test.go:TestDetector_AbortedOpportunisticDoesNotCount
+Bound: internal/probe/opportunistic/detector_test.go:TestDetector_AbortCapDropsBinFromGaps
 
 ## RULE-OPP-PROBE-07: No fresh-install gate. The standard idle preconditions are the only protection against probing immediately after install.
 
