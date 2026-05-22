@@ -25,17 +25,17 @@ func TestStartHwmonSwapMonitor_SkipsWhenNoEligibleChannels(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Empty channel list.
-	startHwmonSwapMonitor(ctx, &wg, nil, logger)
+	startHwmonSwapMonitor(ctx, &wg, nil, nil, logger)
 
 	// A channel with no PWMPath.
 	startHwmonSwapMonitor(ctx, &wg, []*probe.ControllableChannel{
 		{SourceID: "fake0", PWMPath: ""},
-	}, logger)
+	}, nil, logger)
 
 	// A channel whose path has no stable device (e.g. NVML / IPMI).
 	startHwmonSwapMonitor(ctx, &wg, []*probe.ControllableChannel{
 		{SourceID: "nvml0", PWMPath: "/dev/nvml/fan0"},
-	}, logger)
+	}, nil, logger)
 
 	// All three calls should have done nothing — wg never advanced.
 	done := make(chan struct{})
@@ -84,7 +84,7 @@ func TestStartHwmonSwapMonitor_RegistersGoroutineForEligibleChannel(t *testing.T
 
 	startHwmonSwapMonitor(ctx, &wg, []*probe.ControllableChannel{
 		{SourceID: "hwmon2", PWMPath: pwmPath, Driver: "nct6687"},
-	}, logger)
+	}, nil, logger)
 
 	// Give the monitor goroutine a moment to log its startup line.
 	time.Sleep(50 * time.Millisecond)

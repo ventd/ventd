@@ -417,16 +417,34 @@ type HWDB struct {
 }
 
 // Hwmon groups runtime-tunable knobs for the hwmon watcher. All fields are
-// optional; zero values preserve pre-v0.3 behaviour so existing on-disk
-// configs load unchanged and round-trip without gaining a new hwmon: key.
+// optional; missing fields take the zero-config-smart default so existing
+// on-disk configs load unchanged and round-trip without gaining a new
+// hwmon: key (the missing-field state means "honour the default").
 type Hwmon struct {
-	// DynamicRebind opts in to the action=added rebind path (#95/#98
-	// Option A). When true, the daemon re-execs on a topology change
-	// that adds a configured hwmon chip so ResolveHwmonPaths can bind
-	// the now-present device. Default false: a gap-free rollout
-	// preserves v0.2.x semantics and gives operators an escape hatch
-	// if the rebind destabilises their host.
-	DynamicRebind bool `yaml:"dynamic_rebind,omitempty" json:"dynamic_rebind,omitempty"`
+	// DynamicRebind controls the action=added rebind path (#95/#98
+	// Option A / #1265). When the daemon observes a uevent topology
+	// change that adds a configured hwmon chip, it triggers an in-
+	// process restart so ResolveHwmonPaths can bind the now-present
+	// device at its new hwmonN path. Without this the daemon stays
+	// bound to the stale path after rmmod+modprobe / DKMS upgrade /
+	// USB GPU hotplug and silently writes to a vanished sysfs entry.
+	//
+	// Nil → default true (zero-config-smart). Explicit false opts out.
+	// Explicit true still works for configs persisted by an earlier
+	// daemon.
+	DynamicRebind *bool `yaml:"dynamic_rebind,omitempty" json:"dynamic_rebind,omitempty"`
+}
+
+// DynamicRebindEnabled returns the effective value of the
+// Hwmon.DynamicRebind toggle. The pointer-with-default shape keeps the
+// "missing field means default-on" semantics: the field is on by
+// default (#1265) and can only be flipped off by an explicit false in
+// the config.
+func (h Hwmon) DynamicRebindEnabled() bool {
+	if h.DynamicRebind == nil {
+		return true
+	}
+	return *h.DynamicRebind
 }
 
 type Web struct {

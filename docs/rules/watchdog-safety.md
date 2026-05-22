@@ -176,24 +176,50 @@ daemon last wrote (often 0, always wrong).
 
 1. **Live read = 1 (manual)**: treat as prior-crash residual. If
    the watchdog has a `LastKnownStore` (production wires this to
-   `state.KVDB`), consult the persisted pre-daemon value under
-   `PreDaemonEnableKey(pwmPath) = "watchdog.<pwmPath>.preDaemonEnable"`
-   and use it. Otherwise fall back to `SafePreDaemonEnable = 2`
-   (BIOS auto). One operator-facing WARN identifies the path
-   taken.
+   `state.KVDB`), consult the persisted pre-daemon value under the
+   channel's stable-identity key — `watchdog.<chipName>.<busAddr>.pwm<idx>.preDaemonEnable`
+   (#1331). The legacy `watchdog.<pwmPath>.preDaemonEnable` key is
+   still honoured on first read so pre-upgrade entries are picked
+   up and migrated forward by the next `SetPreDaemonEnable`. If
+   neither key resolves, install `SafePreDaemonEnableSequence` on
+   the entry as the prior-crash fallback walker — Restore will
+   walk it on EINVAL and persist the winner back (#1332). One
+   operator-facing WARN identifies the path taken.
 
 2. **Live read = legitimate (any non-1 value)**: capture verbatim
-   AND persist to the `LastKnownStore` for future prior-crash
-   recovery.
+   AND persist to the `LastKnownStore` under the stable-identity
+   key for future prior-crash recovery.
 
 3. **Read failed (-1)**: unchanged — the restore-time PWM=255
    fallback covers this case (RULE-WD-FALLBACK-MISSING-PWMENABLE).
 
-The `LastKnownStore` interface is narrow (two methods) so
-production callers wrap `state.KVDB` without exposing the wider KV
-surface to the watchdog package. A nil store is equivalent to
-"no persistence" — the `SafePreDaemonEnable` fallback path covers
-all prior-crash cases without persistence.
+The `LastKnownStore` interface is narrow (two methods, both keyed
+by `ChannelIdentity`) so production callers wrap `state.KVDB`
+without exposing the wider KV surface to the watchdog package. A
+nil store is equivalent to "no persistence" — every prior-crash
+path then routes through `SafePreDaemonEnableSequence` and Restore
+walks it inside the backend's EINVAL handler.
+
+**`SafePreDaemonEnableSequence = []int{2, 99, 0}`**: ordered list
+Restore tries when the prior-crash branch had no persisted value.
+`2` is the de-facto userspace convention (hits ~all in-tree
+drivers on the first write); `99` is the historic SuperIO
+placeholder used by NCT6687D pre-#169 and other vendor drivers
+that pick a "deliberately weird" auto value (the kernel ABI
+defines `2+` as a range, not a single value); `0` is the ABI
+"no fan speed control / full speed" last-resort safe stop. Do not
+reorder per-chip — the same sequence everywhere keeps the
+prior-crash fallback fragility-free. The first non-EINVAL write
+wins and is persisted back via `OnEINVALRecovery`, so the next
+prior-crash recovery skips the walk.
+
+**Stable-identity migration**: pre-#1331 daemons keyed the store
+by the full `/sys/class/hwmon/hwmonN/pwmM` path. `hwmonN` is
+reallocated across rmmod+modprobe and any persisted value became
+unreachable. Post-#1331 entries are keyed by `chip name` + bus
+suffix + pwm index (e.g. `nct6687.2592.pwm1`) so the value
+survives module reload. The KV store wrapper falls back to the
+legacy key on first read and deletes it on first write.
 
 Bound: internal/watchdog/safety_test.go:wd_register_live_enable_1_falls_back_to_bios_auto
 Bound: internal/watchdog/safety_test.go:wd_register_with_store_recovers_last_known_good

@@ -712,7 +712,13 @@ func TestWDSafety_Invariants(t *testing.T) {
 		})
 		pwm := filepath.Join(fake.Root, "hwmon0", "pwm1")
 
-		store := &fakeLastKnownStore{values: map[string]int{pwm: 2}}
+		// Seed the store using the stable-identity key the watchdog
+		// will compute at Register time so the lookup hits the new
+		// shape (#1331). Without device-symlink resolution under the
+		// fakehwmon dir the identity degrades to LegacyPath; place
+		// the value under the corresponding LegacyKey().
+		identity := ChannelIdentity{LegacyPath: pwm}
+		store := &fakeLastKnownStore{values: map[string]int{identity.Key(): 2}}
 		var buf bytes.Buffer
 		w := NewWithStore(slog.New(slog.NewTextHandler(&buf, nil)), store)
 		w.Register(pwm, "hwmon")
@@ -741,10 +747,19 @@ func TestWDSafety_Invariants(t *testing.T) {
 		w := NewWithStore(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)), store)
 		w.Register(pwm, "hwmon")
 
-		if got, ok := store.values[pwm]; !ok || got != 2 {
-			t.Errorf("store after legitimate Register = (%d, %v), want (2, true)", got, ok)
+		// Identity resolution under fakehwmon may not produce a chip
+		// name + bus addr (the fake doesn't ship the `device` symlink
+		// every chip would carry on a real host), so the stable key
+		// degrades to LegacyKey shape. Either is acceptable for this
+		// regression: the contract is that the legitimate read landed
+		// in the store, not the specific key shape (#1331).
+		identity := ChannelIdentity{LegacyPath: pwm}
+		got, ok := store.values[identity.Key()]
+		if !ok {
+			t.Errorf("store after legitimate Register: no entry under Key()=%q (values=%v)", identity.Key(), store.values)
+		} else if got != 2 {
+			t.Errorf("store after legitimate Register = %d, want 2", got)
 		}
-		// Sanity: the canonical key format is the documented one.
 		if PreDaemonEnableKey(pwm) == "" {
 			t.Errorf("PreDaemonEnableKey returned empty string")
 		}
@@ -829,25 +844,52 @@ func (h *countingPanicHandler) Handle(_ context.Context, _ slog.Record) error {
 // RULE-WD-PRIOR-CRASH-FALLBACK subtests. Production callers wrap
 // state.KVDB; the test fixture deliberately does not import state
 // to keep the test hermetic.
+//
+// values is keyed by the post-#1331 stable-identity key. legacyValues
+// holds pre-migration entries keyed by the LegacyPath shape; GetPreDaemonEnable
+// returns the stable hit first and falls back to the legacy lookup so
+// the migration shim is exercised by the test suite. SetPreDaemonEnable
+// always writes the stable key + deletes the legacy entry if present.
 type fakeLastKnownStore struct {
-	mu     sync.Mutex
-	values map[string]int
+	mu            sync.Mutex
+	values        map[string]int
+	legacyValues  map[string]int
+	setCalls      []fakeStoreSetCall
+	migratedPaths []string
 }
 
-func (f *fakeLastKnownStore) GetPreDaemonEnable(pwmPath string) (int, bool) {
+type fakeStoreSetCall struct {
+	Key   string
+	Value int
+}
+
+func (f *fakeLastKnownStore) GetPreDaemonEnable(id ChannelIdentity) (int, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	v, ok := f.values[pwmPath]
-	return v, ok
+	if v, ok := f.values[id.Key()]; ok {
+		return v, true
+	}
+	if v, ok := f.legacyValues[id.LegacyKey()]; ok {
+		return v, true
+	}
+	return 0, false
 }
 
-func (f *fakeLastKnownStore) SetPreDaemonEnable(pwmPath string, value int) error {
+func (f *fakeLastKnownStore) SetPreDaemonEnable(id ChannelIdentity, value int) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.values == nil {
 		f.values = map[string]int{}
 	}
-	f.values[pwmPath] = value
+	key := id.Key()
+	f.values[key] = value
+	f.setCalls = append(f.setCalls, fakeStoreSetCall{Key: key, Value: value})
+	if f.legacyValues != nil {
+		if _, ok := f.legacyValues[id.LegacyKey()]; ok {
+			delete(f.legacyValues, id.LegacyKey())
+			f.migratedPaths = append(f.migratedPaths, id.LegacyPath)
+		}
+	}
 	return nil
 }
 

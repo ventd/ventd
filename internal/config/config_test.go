@@ -238,13 +238,13 @@ func TestValidate_AllowsDistinctSensorFanNames(t *testing.T) {
 	}
 }
 
-// TestHwmonDynamicRebindDefaultsFalse pins the v0.3 escape-hatch default.
-// A config with no `hwmon:` key (i.e. every v0.2.x on-disk config) must
-// parse with Hwmon.DynamicRebind == false so the rebind path stays opt-
-// in. If this breaks, existing deployments that upgrade to v0.3 would
-// silently enable the re-exec behaviour — the whole point of the gate
-// is to prevent exactly that.
-func TestHwmonDynamicRebindDefaultsFalse(t *testing.T) {
+// TestHwmonDynamicRebindDefaultsTrue pins the zero-config-smart default
+// (#1265). A config with no `hwmon:` key (the default shape for every
+// fresh install + every pre-#1265 config still on disk) must parse with
+// DynamicRebindEnabled() == true so the rebind path actually fires on
+// rmmod+modprobe without operator opt-in. An explicit
+// `hwmon: { dynamic_rebind: false }` is the documented opt-out.
+func TestHwmonDynamicRebindDefaultsTrue(t *testing.T) {
 	v02Config := []byte(`version: 1
 poll_interval: 2s
 web:
@@ -256,10 +256,42 @@ controls: []
 `)
 	cfg, err := Parse(v02Config)
 	if err != nil {
-		t.Fatalf("parse v0.2.x config: %v", err)
+		t.Fatalf("parse default config: %v", err)
 	}
-	if cfg.Hwmon.DynamicRebind {
-		t.Fatalf("Hwmon.DynamicRebind = true on v0.2.x config; want false")
+	if cfg.Hwmon.DynamicRebind != nil {
+		t.Fatalf("Hwmon.DynamicRebind = %v on no-hwmon-key config; want nil so the default-on path fires", *cfg.Hwmon.DynamicRebind)
+	}
+	if !cfg.Hwmon.DynamicRebindEnabled() {
+		t.Fatalf("DynamicRebindEnabled() = false on default config; want true (#1265)")
+	}
+}
+
+// TestHwmonDynamicRebindExplicitOptOut verifies the opt-out path: an
+// explicit `dynamic_rebind: false` MUST disable the rebind path. The
+// pointer-with-default shape keeps "missing → default-on" intact while
+// still honouring an explicit false from operators who want the v0.2.x
+// behaviour back.
+func TestHwmonDynamicRebindExplicitOptOut(t *testing.T) {
+	cfgYAML := []byte(`version: 1
+poll_interval: 2s
+web:
+  listen: 0.0.0.0:9999
+hwmon:
+  dynamic_rebind: false
+fans: []
+sensors: []
+curves: []
+controls: []
+`)
+	cfg, err := Parse(cfgYAML)
+	if err != nil {
+		t.Fatalf("parse opt-out config: %v", err)
+	}
+	if cfg.Hwmon.DynamicRebind == nil || *cfg.Hwmon.DynamicRebind {
+		t.Fatalf("Hwmon.DynamicRebind explicit-false parse: got %v; want non-nil false", cfg.Hwmon.DynamicRebind)
+	}
+	if cfg.Hwmon.DynamicRebindEnabled() {
+		t.Fatalf("DynamicRebindEnabled() = true on explicit-false config; want false")
 	}
 }
 
@@ -360,8 +392,8 @@ controls: []
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !cfg.Hwmon.DynamicRebind {
-		t.Fatalf("Hwmon.DynamicRebind = false after parse; want true")
+	if cfg.Hwmon.DynamicRebind == nil || !*cfg.Hwmon.DynamicRebind {
+		t.Fatalf("Hwmon.DynamicRebind = %v after parse; want non-nil true", cfg.Hwmon.DynamicRebind)
 	}
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -374,7 +406,7 @@ controls: []
 	if err != nil {
 		t.Fatalf("re-parse: %v", err)
 	}
-	if !cfg2.Hwmon.DynamicRebind {
+	if cfg2.Hwmon.DynamicRebind == nil || !*cfg2.Hwmon.DynamicRebind {
 		t.Fatalf("re-parse lost Hwmon.DynamicRebind; got %+v", cfg2.Hwmon)
 	}
 }
