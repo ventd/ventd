@@ -54,6 +54,8 @@ func TestUninstallScript_CoversIssue1320Artifacts(t *testing.T) {
 		{"/var/log/ventd cleanup", "/var/log/ventd"},
 		// 7. wants symlink that survives unit-file removal.
 		{"multi-user.target.wants/ventd-recover.service", "multi-user.target.wants/ventd-recover.service"},
+		// 8. polkit rule for in-UI update (#1306).
+		{"polkit rule /usr/share/polkit-1/rules.d/50-ventd-update.rules", "/usr/share/polkit-1/rules.d/50-ventd-update.rules"},
 	}
 	for _, w := range want {
 		if !strings.Contains(body, w.fixture) {

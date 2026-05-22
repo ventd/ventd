@@ -318,6 +318,22 @@
               <div class="set-row-sub mono" id="upd-error-sub">—</div>
             </div>
           </div>
+          <!-- Last-apply failure surface (#1305 / #1306). Populated from
+               /api/v1/update/check.last_apply_error so an operator who
+               clicked Apply and saw "scheduled" but the daemon never
+               restarted gets an explanation instead of silence. Visible
+               for both spawn shapes (systemd-run transient unit and
+               nohup-detached subshell). -->
+          <div class="set-row" id="upd-last-apply-row" hidden>
+            <div>
+              <div class="set-row-title" id="upd-last-apply-title">Last update attempt failed</div>
+              <div class="set-row-sub mono" id="upd-last-apply-sub">—</div>
+              <details class="set-row-detail" id="upd-last-apply-tail-wrap" hidden>
+                <summary>Install log tail</summary>
+                <pre class="mono" id="upd-last-apply-tail"></pre>
+              </details>
+            </div>
+          </div>
         </article>
 
         <article class="set-section card set-section--danger" id="advanced">

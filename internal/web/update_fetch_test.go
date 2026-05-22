@@ -333,3 +333,27 @@ func TestBuildUpdateCmd_NohupFallback_IncludesTimeout(t *testing.T) {
 		t.Errorf("nohup fallback missing 'timeout 600 bash' wrap: %s", args)
 	}
 }
+
+// TestBuildUpdateCmd_NohupFallback_WritesExitcodeSentinel pins the
+// #1305 contract: the nohup wrapper must write install.sh's exit
+// status to updateSentinelDir/update.exitcode after the install
+// completes so the Go-side watcher
+// (watchUpdateApplyOutcomeNohup) can surface a non-zero rc through
+// LastApplyOutcome — symmetrical with the systemd-run path.
+func TestBuildUpdateCmd_NohupFallback_WritesExitcodeSentinel(t *testing.T) {
+	prev := systemdRunPath
+	systemdRunPath = func() string { return "" }
+	t.Cleanup(func() { systemdRunPath = prev })
+
+	cmd := buildUpdateCmd("v0.5.99", "/tmp/install.sh")
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "update.exitcode") {
+		t.Errorf("nohup fallback missing 'update.exitcode' sentinel write (#1305): %s", args)
+	}
+	if !strings.Contains(args, "rc=$?") {
+		t.Errorf("nohup fallback missing exit-code capture 'rc=$?' (#1305): %s", args)
+	}
+	if !strings.Contains(args, "rm -f") {
+		t.Errorf("nohup fallback missing stale-sentinel cleanup 'rm -f ... update.exitcode' (#1305): %s", args)
+	}
+}

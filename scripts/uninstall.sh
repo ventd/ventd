@@ -153,6 +153,13 @@ if [[ $udev_removed -eq 1 ]] && command -v udevadm >/dev/null 2>&1; then
     udevadm control --reload-rules 2>/dev/null || true
 fi
 
+# polkit rule for in-UI update (#1306). polkitd rescans rules.d/ on
+# the next D-Bus call so no explicit reload is required.
+if [[ -f /usr/share/polkit-1/rules.d/50-ventd-update.rules ]]; then
+    log "removing polkit rule /usr/share/polkit-1/rules.d/50-ventd-update.rules"
+    rm -f /usr/share/polkit-1/rules.d/50-ventd-update.rules
+fi
+
 # 6. AppArmor profiles. apparmor_parser -R must unload the profile
 # from the kernel BEFORE the file is removed — otherwise the kernel
 # holds a reference to the now-vanished path and the next service

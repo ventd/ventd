@@ -1076,6 +1076,37 @@ if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     fi
 fi
 
+# ── polkit rule for in-UI update (#1306) ────────────────────────────────────
+#
+# The daemon's POST /api/v1/update/apply spawns a transient
+# `ventd-update.service` via systemd-run. Without this rule the call
+# is denied with auth_admin when ventd.service runs as User=ventd
+# (the hardened shape) and /update/apply returns 500. The rule is
+# scope-limited to the `ventd` user and the single unit name —
+# installing it on root-uid hosts is harmless; the auto-approve path
+# is unchanged.
+
+POLKIT_RULE_SRC=""
+for candidate in \
+    "${ASSET_DIR}/50-ventd-update.rules" \
+    "${ASSET_DIR}/../deploy/50-ventd-update.rules" \
+    "${TARBALL_ROOT:-}/deploy/50-ventd-update.rules"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+        POLKIT_RULE_SRC="$candidate"
+        break
+    fi
+done
+
+if [[ "$VENTD_TEST_MODE" != "1" ]]; then
+    if [[ -n "$POLKIT_RULE_SRC" && -d /usr/share/polkit-1/rules.d ]]; then
+        install -m 644 "$POLKIT_RULE_SRC" /usr/share/polkit-1/rules.d/50-ventd-update.rules
+        echo "  ✓ polkit rule → /usr/share/polkit-1/rules.d/50-ventd-update.rules"
+    elif [[ -n "$POLKIT_RULE_SRC" ]]; then
+        echo "  ! polkit rules dir missing — skipping in-UI update polkit grant"
+        echo "    (only matters if you switch ventd.service to User=ventd)"
+    fi
+fi
+
 # ── Probe + persist hwmon kernel modules ────────────────────────────────────
 #
 # The daemon runs under ProtectKernelModules=yes (deny init_module /

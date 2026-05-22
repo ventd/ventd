@@ -1,0 +1,41 @@
+// ventd in-UI update polkit rule.
+//
+// The daemon's POST /api/v1/update/apply handler invokes
+// `systemd-run --unit=ventd-update.service ... bash <install.sh>` to
+// create a transient SERVICE unit that survives the daemon's restart
+// during install (systemd-run is what makes the spawn outlive the
+// HTTP handler that scheduled it). systemd-run talks to PID1 over
+// D-Bus and the org.freedesktop.systemd1.Manager.StartTransientUnit
+// method is polkit-gated.
+//
+// When ventd.service runs as User=root the D-Bus caller is uid 0 and
+// the action is auto-approved. When the unit ships with User=ventd
+// (the hardened shape implied by several update.go comments) the
+// default polkit policy on most distros denies the action with
+// auth_admin — the daemon has no TTY / agent, the call fails, and
+// /update/apply returns 500. (Issue #1306.)
+//
+// This rule narrowly grants the ventd user permission to register the
+// single transient unit name `ventd-update.service` and nothing else.
+// The ventd daemon STILL cannot start arbitrary system services —
+// only this one well-known unit, on whichever node the rule is
+// installed.
+//
+// Distros that ship polkit < 0.106 (no JS rules) need an equivalent
+// `pkla` policy; ventd's install.sh covers them via the same
+// scripts/install.sh dispatch that handles legacy AppArmor parser
+// versions. See #1306 for the matrix.
+
+polkit.addRule(function (action, subject) {
+    if (action.id !== "org.freedesktop.systemd1.manage-units") {
+        return undefined;
+    }
+    if (subject.user !== "ventd") {
+        return undefined;
+    }
+    var unit = action.lookup("unit");
+    if (unit === "ventd-update.service") {
+        return polkit.Result.YES;
+    }
+    return undefined;
+});
