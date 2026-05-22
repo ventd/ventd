@@ -81,6 +81,17 @@ type State struct {
 	// mode. -1 means "captured nothing usable" — Restore falls back
 	// to the max-speed safety net. Ignored by Write.
 	OrigEnable int
+	// FallbackEnable, when non-nil, marks OrigEnable as having come
+	// from the prior-crash branch with no LastKnownStore hit. Restore
+	// walks the sequence on EINVAL of OrigEnable; the first value the
+	// chip accepts wins, and OnEINVALRecovery (if non-nil) is invoked
+	// with the winning value so the watchdog can persist it back for
+	// the next prior-crash recovery to skip the walk. Per
+	// RULE-WD-PRIOR-CRASH-FALLBACK / #1332.
+	FallbackEnable []int
+	// OnEINVALRecovery is the watchdog-side persistence callback fired
+	// once the EINVAL walker lands on an accepted value. Nil-safe.
+	OnEINVALRecovery func(int)
 }
 
 // Backend is the hwmon implementation of hal.FanBackend. Construct
@@ -456,6 +467,26 @@ func (b *Backend) restorePWM(st State) error {
 		return nil
 	}
 	if err := hwmon.WritePWMEnable(st.PWMPath, st.OrigEnable); err != nil {
+		// Prior-crash branch with no persisted LastKnownStore hit: the
+		// watchdog installed SafePreDaemonEnableSequence on the entry.
+		// Walk the remaining values on EINVAL — the first non-EINVAL
+		// write wins and is persisted back via OnEINVALRecovery so the
+		// next prior-crash recovery skips the probe. Per #1332.
+		if errors.Is(err, syscall.EINVAL) && len(st.FallbackEnable) > 1 {
+			for _, v := range st.FallbackEnable[1:] {
+				if v == st.OrigEnable {
+					continue
+				}
+				if fbErr := hwmon.WritePWMEnable(st.PWMPath, v); fbErr == nil {
+					b.logger.Info("watchdog: prior-crash fallback walker found accepted pwm_enable",
+						"path", st.PWMPath, "tried", st.OrigEnable, "accepted", v)
+					if st.OnEINVALRecovery != nil {
+						st.OnEINVALRecovery(v)
+					}
+					return nil
+				}
+			}
+		}
 		// NCT6687D (and other OOT drivers without a thermal-cruise mode)
 		// reject pwm_enable values > 1 with EINVAL even though the chip
 		// returned that value at register time. Retry with manual mode
@@ -497,6 +528,22 @@ func (b *Backend) restoreRPMTarget(st State) error {
 		return nil
 	}
 	if err := hwmon.WritePWMEnablePath(enablePath, st.OrigEnable); err != nil {
+		// Same prior-crash fallback walker as restorePWM (#1332).
+		if errors.Is(err, syscall.EINVAL) && len(st.FallbackEnable) > 1 {
+			for _, v := range st.FallbackEnable[1:] {
+				if v == st.OrigEnable {
+					continue
+				}
+				if fbErr := hwmon.WritePWMEnablePath(enablePath, v); fbErr == nil {
+					b.logger.Info("watchdog: prior-crash fallback walker found accepted pwm_enable for rpm_target fan",
+						"enable_path", enablePath, "tried", st.OrigEnable, "accepted", v)
+					if st.OnEINVALRecovery != nil {
+						st.OnEINVALRecovery(v)
+					}
+					return nil
+				}
+			}
+		}
 		// Same EINVAL fallback as restorePWM — chip families that don't
 		// support pwm_enable>1 (NCT6687D and friends) retain their current
 		// fan_target byte under manual mode, so the operator-facing

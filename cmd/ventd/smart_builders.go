@@ -971,17 +971,18 @@ func captureLoadFraction() float64 {
 // Returns immediately when no eligible channels exist; the caller
 // (daemon-startup) treats the absence of a goroutine as benign.
 //
-// v0.5.41 ships observability-only: onSwap is nil, so detections
-// are surfaced via WARN log lines but no remap dispatch happens.
-// The remap dispatch needs a coordinated update across the
-// controller's per-channel cache, watchdog entries, and the
-// calibration manager — that's a separate refactor scoped to a
-// follow-up PR. The seam (onSwap callback) is in place so the
-// follow-up only wires the dispatch, not the detection.
+// onSwap is the production handler for periodic swap detection. When
+// dynamic-rebind is enabled (the default per #1265), the caller wires
+// a closure that signals restartCh so the controllers + web server
+// tear down and re-enter runDaemon against the new path. When
+// dynamic-rebind is opted out the caller passes nil; detections are
+// then surfaced via WARN log lines only (the historical observability-
+// only behaviour).
 func startHwmonSwapMonitor(
 	ctx context.Context,
 	wg *sync.WaitGroup,
 	channels []*probe.ControllableChannel,
+	onSwap hwmon.SwapHandler,
 	logger *slog.Logger,
 ) {
 	inputs := make([]hwmon.ChannelInput, 0, len(channels))
@@ -1007,7 +1008,7 @@ func startHwmonSwapMonitor(
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		hwmon.MonitorSwap(ctx, inputs, hwmon.DefaultSwapMonitorInterval, logger, nil)
+		hwmon.MonitorSwap(ctx, inputs, hwmon.DefaultSwapMonitorInterval, logger, onSwap)
 	}()
 }
 

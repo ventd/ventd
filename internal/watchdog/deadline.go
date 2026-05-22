@@ -93,6 +93,30 @@ func readWithDeadline(ctx context.Context, path string) ([]byte, error) {
 	}
 }
 
+// readlinkWithDeadline resolves a symlink via os.Readlink under the
+// same per-syscall deadline contract as readWithDeadline /
+// writeWithDeadline. Used by resolveChannelIdentity to read the
+// <hwmonN>/device symlink (which points at the chip's stable parent
+// dir) without risking a daemon-startup hang when the underlying
+// driver is wedged. Per RULE-WD-PER-SYSCALL-DEADLINE.
+func readlinkWithDeadline(ctx context.Context, path string) (string, error) {
+	type result struct {
+		target string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		target, err := os.Readlink(path)
+		done <- result{target, err}
+	}()
+	select {
+	case r := <-done:
+		return r.target, r.err
+	case <-ctx.Done():
+		return "", fmt.Errorf("watchdog: readlink %s abandoned: %w", path, ctx.Err())
+	}
+}
+
 // NVML-specific deadline lives in internal/hal/nvml/backend.go (see
 // nvmlResetWithDeadline there). The hal/nvml package owns the NVML
 // reset primitive; the watchdog package owns only the file-IO

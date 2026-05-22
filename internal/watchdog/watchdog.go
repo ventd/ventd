@@ -56,45 +56,113 @@ func (w *Watchdog) loadRestoreOneFn() func(e entry) {
 	return fn
 }
 
-// SafePreDaemonEnable is the fallback origEnable value Register uses
-// when the live pwm_enable read returns 1 (manual) — typically a
-// prior-daemon-crash residual that left the chip in manual mode.
-// 2 (BIOS auto) is the safest unhanded-back: hwmon convention is
-// {0=off, 1=manual, 2=auto}; writing 2 back hands fan control to
-// the firmware regardless of what state the previous daemon left
-// the chip in. RULE-WD-PRIOR-CRASH-FALLBACK pins this default.
+// SafePreDaemonEnableSequence is the ordered fallback sequence Register
+// installs on the entry when the live pwm_enable read returns 1 (manual
+// — typically a prior-daemon-crash residual) and the LastKnownStore has
+// no persisted value. Restore walks the sequence on EINVAL of each
+// candidate, picks the first that lands without EINVAL, and persists
+// the winner back to the store so the next crash recovery skips the
+// probe. RULE-WD-PRIOR-CRASH-FALLBACK.
+//
+// Sequence rationale:
+//   - 2 — de-facto userspace convention for "automatic" (hits ~all in-
+//     tree drivers on the first write; zero behaviour change for the
+//     happy path).
+//   - 99 — historic SuperIO placeholder used by NCT6687D pre-#169 and
+//     other vendor drivers that pick a "deliberately weird" auto value
+//     (Documentation/ABI/testing/sysfs-class-hwmon defines 2+ as a
+//     range, not a single value).
+//   - 0 — ABI "no fan speed control / full speed". Last-resort safe
+//     stop: noisy but mechanically safe and explicitly defined in the
+//     ABI.
+//
+// Do not reorder per-chip — same sequence everywhere keeps the prior-
+// crash fallback fragility-free.
+var SafePreDaemonEnableSequence = []int{2, 99, 0}
+
+// SafePreDaemonEnable is the primary value the sequence walker tries
+// first. Retained as a stable constant for callers + log lines that
+// want the "head" value without depending on the slice layout.
 const SafePreDaemonEnable = 2
 
-// PreDaemonEnableKey returns the canonical KV key the watchdog uses
-// to persist the last-known-good pre-daemon pwm_enable value for a
-// channel. The key is namespaced under "watchdog" so future state-
-// dir migrations can move it without colliding with calibration /
-// polarity records. Per RULE-WD-PRIOR-CRASH-FALLBACK.
-func PreDaemonEnableKey(pwmPath string) string {
-	return fmt.Sprintf("watchdog.%s.preDaemonEnable", pwmPath)
+// ChannelIdentity is the stable, rmmod-modprobe-safe shape the watchdog
+// uses to key the LastKnownStore. The previous full-pwmPath key embedded
+// the volatile /sys/class/hwmon/hwmonN/ prefix; udev reallocates that
+// number across module reloads so the persisted pre-daemon pwm_enable
+// became unreachable after every rebind. RULE-WD-PRIOR-CRASH-FALLBACK
+// (#1331).
+//
+// ChipName + BusAddr survive module reload because they come from the
+// chip's `name` file and the parent device's bus suffix (e.g.
+// `nct6687.2592` — the trailing platform address is stable). ChannelIdx
+// is the pwmN suffix parsed from the original path.
+//
+// LegacyPath is the full pre-#1331 pwmPath. Watchdog uses it to look up
+// pre-migration entries in the store on a fresh read, then migrates the
+// value forward under the new identity key.
+type ChannelIdentity struct {
+	ChipName   string
+	BusAddr    string
+	ChannelIdx int
+	LegacyPath string
 }
 
-// LastKnownStore is the optional per-channel persistence seam used
-// by Register to recover the LAST-KNOWN-GOOD pre-daemon pwm_enable
-// value across daemon crashes. When non-nil and the chip's live
-// pwm_enable reads 1 (manual — typically a prior-crash residual),
-// Register consults the store under PreDaemonEnableKey(pwmPath) and
-// uses the persisted value if present; otherwise it falls back to
-// SafePreDaemonEnable.
+// Key returns the stable-identity KV key shape. When ChipName + BusAddr
+// resolved, the key embeds them so it survives hwmonN renumbering; when
+// resolution failed (rare — chip with no `name` and no `device` symlink)
+// the key falls back to the legacy pwmPath shape so behaviour matches
+// the pre-#1331 daemon.
+func (id ChannelIdentity) Key() string {
+	if id.ChipName != "" && id.BusAddr != "" {
+		return fmt.Sprintf("watchdog.%s.%s.pwm%d.preDaemonEnable",
+			id.ChipName, id.BusAddr, id.ChannelIdx)
+	}
+	return id.LegacyKey()
+}
+
+// LegacyKey returns the pre-#1331 pwmPath-based key. Used by the
+// migration shim: on the first read after upgrade, the watchdog tries
+// Key() first and falls back to LegacyKey() so a value persisted by a
+// pre-stable-identity daemon is still recoverable. The next persist
+// writes under Key() (the consumer is expected to delete the legacy
+// entry as part of the migration).
+func (id ChannelIdentity) LegacyKey() string {
+	return fmt.Sprintf("watchdog.%s.preDaemonEnable", id.LegacyPath)
+}
+
+// PreDaemonEnableKey is retained for back-compat with tests + external
+// callers. Equivalent to ChannelIdentity{LegacyPath: pwmPath}.LegacyKey().
+func PreDaemonEnableKey(pwmPath string) string {
+	return ChannelIdentity{LegacyPath: pwmPath}.LegacyKey()
+}
+
+// LastKnownStore is the optional per-channel persistence seam used by
+// Register to recover the LAST-KNOWN-GOOD pre-daemon pwm_enable value
+// across daemon crashes. When non-nil and the chip's live pwm_enable
+// reads 1 (manual — typically a prior-crash residual), Register
+// consults the store under the channel's stable identity and uses the
+// persisted value if present; otherwise it installs the prior-crash
+// fallback sequence onto the entry so Restore walks
+// SafePreDaemonEnableSequence on EINVAL.
 //
 // The interface is deliberately narrow so callers (cmd/ventd/main.go)
 // can wrap state.KVDB without exposing the wider KV surface to the
-// watchdog package.
+// watchdog package. The migration shim (try new key → fall back to
+// legacy key) lives on the consumer side: the watchdog hands the
+// consumer a ChannelIdentity carrying both the stable identity and the
+// pre-#1331 LegacyPath; the consumer's Get returns whichever lookup
+// hits, and Set persists under the new key + deletes the legacy entry.
 type LastKnownStore interface {
 	// GetPreDaemonEnable returns the persisted pre-daemon pwm_enable
-	// value for the given pwm path, or (-1, false) if no value is
-	// persisted.
-	GetPreDaemonEnable(pwmPath string) (int, bool)
-	// SetPreDaemonEnable persists the given value as the last-known-
-	// good pre-daemon pwm_enable for the given path. Errors are
-	// swallowed by Register — the watchdog cannot fail-start the
-	// daemon because of a state-dir write failure.
-	SetPreDaemonEnable(pwmPath string, value int) error
+	// value for the given channel identity, or (-1, false) if no value
+	// is persisted under either the stable key or the legacy key.
+	GetPreDaemonEnable(id ChannelIdentity) (int, bool)
+	// SetPreDaemonEnable persists the given value under the new stable-
+	// identity key shape and migrates (deletes) any legacy pwmPath-
+	// keyed entry for this channel. Errors are swallowed by Register —
+	// the watchdog cannot fail-start the daemon because of a state-dir
+	// write failure.
+	SetPreDaemonEnable(id ChannelIdentity, value int) error
 }
 
 // IPMIRestoreFn is the narrow callback shape the watchdog uses to
@@ -160,6 +228,18 @@ type entry struct {
 	// RULE-WD-RESTORE-BUDGET) covers IPMI channels identically — only
 	// the byte-level restore primitive differs.
 	ipmiRestore IPMIRestoreFn
+	// identity is the stable-identity capture used to persist the
+	// LAST-KNOWN-GOOD pre-daemon pwm_enable across daemon crashes +
+	// rmmod-modprobe cycles. Empty for ipmi / nvidia / msi-ec entries
+	// (those use their backend-native restore primitives).
+	identity ChannelIdentity
+	// fallbackSeq, when non-nil, marks origEnable as having come from
+	// the prior-crash branch with no persisted store value. Restore
+	// walks the sequence on EINVAL of origEnable. nil means origEnable
+	// was captured from a live pre-daemon read (or from LastKnownStore)
+	// and is authoritative — Restore writes it and tolerates EINVAL via
+	// the historical manual-mode fallback.
+	fallbackSeq []int
 }
 
 type Watchdog struct {
@@ -236,6 +316,7 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 		return
 	case hwmon.IsRPMTargetPath(pwmPath):
 		e.rpmTarget = true
+		e.identity = resolveChannelIdentity(ctx, pwmPath)
 		enablePath := hwmon.RPMTargetEnablePath(pwmPath)
 		orig, err := readPWMEnableWithDeadline(ctx, enablePath)
 		if err != nil {
@@ -245,8 +326,9 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 					"target_path", pwmPath, "enable_path", enablePath, "err", err)
 			}
 		}
-		e.origEnable = w.applyPriorCrashFallback(pwmPath, orig)
+		e.origEnable, e.fallbackSeq = w.applyPriorCrashFallback(e.identity, orig)
 	default:
+		e.identity = resolveChannelIdentity(ctx, pwmPath)
 		enablePath := pwmPath + "_enable"
 		orig, err := readPWMEnableWithDeadline(ctx, enablePath)
 		if err != nil {
@@ -256,7 +338,7 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 					"path", pwmPath, "err", err)
 			}
 		}
-		e.origEnable = w.applyPriorCrashFallback(pwmPath, orig)
+		e.origEnable, e.fallbackSeq = w.applyPriorCrashFallback(e.identity, orig)
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -266,43 +348,67 @@ func (w *Watchdog) Register(pwmPath string, fanType string) {
 // applyPriorCrashFallback implements RULE-WD-PRIOR-CRASH-FALLBACK:
 // when the live pwm_enable read returns 1 (manual mode — typically a
 // prior-daemon-crash residual), consult the LastKnownStore for the
-// LAST-KNOWN-GOOD pre-daemon value; if none is persisted, fall back
-// to SafePreDaemonEnable (2, BIOS auto). Any non-1, non-error value
-// is treated as a legitimate pre-daemon capture and persisted to the
-// store so a subsequent daemon-crash can recover it.
+// LAST-KNOWN-GOOD pre-daemon value; if none is persisted, install the
+// SafePreDaemonEnableSequence as the entry's fallback so Restore walks
+// it on EINVAL. Any non-1, non-error value is treated as a legitimate
+// pre-daemon capture and persisted to the store so a subsequent
+// daemon-crash can recover it.
+//
+// Returns (value, fallbackSeq). fallbackSeq is non-nil only on the
+// prior-crash branch with no store hit — restore consults it to walk
+// alternative values on EINVAL. A nil fallbackSeq means origEnable is
+// authoritative (live capture or stored last-known-good).
 //
 // orig=-1 (read failed) falls through unchanged — the restore-time
 // failsafe is the existing PWM=255 path, not the prior-crash
 // fallback.
-func (w *Watchdog) applyPriorCrashFallback(pwmPath string, orig int) int {
+func (w *Watchdog) applyPriorCrashFallback(id ChannelIdentity, orig int) (int, []int) {
 	if orig == -1 {
-		return -1
+		return -1, nil
 	}
 	if orig == 1 {
 		// Live read says manual mode. Prefer last-known-good from the
-		// store; otherwise fall back to BIOS auto.
+		// store; otherwise install the fallback sequence so restore
+		// walks it on EINVAL.
 		if w.store != nil {
-			if stored, ok := w.store.GetPreDaemonEnable(pwmPath); ok && stored != 1 {
+			if stored, ok := w.store.GetPreDaemonEnable(id); ok && stored != 1 {
 				w.logger.Warn("watchdog: live pwm_enable=1 (prior-crash residual?); recovered last-known-good value from state",
-					"path", pwmPath, "stored", stored)
-				return stored
+					"path", id.LegacyPath, "stored", stored)
+				return stored, nil
 			}
 		}
-		w.logger.Warn("watchdog: live pwm_enable=1 (prior-crash residual?); falling back to BIOS auto",
-			"path", pwmPath, "fallback", SafePreDaemonEnable)
-		return SafePreDaemonEnable
+		w.logger.Warn("watchdog: live pwm_enable=1 (prior-crash residual?); installing fallback sequence",
+			"path", id.LegacyPath, "sequence", SafePreDaemonEnableSequence)
+		seq := append([]int(nil), SafePreDaemonEnableSequence...)
+		return seq[0], seq
 	}
 	// Live read is a legitimate pre-daemon capture. Persist it so a
 	// future daemon-crash + restart can recover it via the path
 	// above. Errors are swallowed — the watchdog cannot fail-start
 	// the daemon because of a state-dir write failure.
 	if w.store != nil {
-		if err := w.store.SetPreDaemonEnable(pwmPath, orig); err != nil {
+		if err := w.store.SetPreDaemonEnable(id, orig); err != nil {
 			w.logger.Warn("watchdog: could not persist pre-daemon pwm_enable to state",
-				"path", pwmPath, "value", orig, "err", err)
+				"path", id.LegacyPath, "value", orig, "err", err)
 		}
 	}
-	return orig
+	return orig, nil
+}
+
+// persistRecoveredEnable writes the winning post-EINVAL fallback value
+// to the LastKnownStore so the next prior-crash recovery skips the
+// sequence walk. Called by Restore's fallback walker (via the
+// hwmon backend) once it finds a value the chip accepts.
+//
+// Best-effort: errors are logged and the restore proceeds.
+func (w *Watchdog) persistRecoveredEnable(id ChannelIdentity, value int) {
+	if w.store == nil || id.LegacyPath == "" {
+		return
+	}
+	if err := w.store.SetPreDaemonEnable(id, value); err != nil {
+		w.logger.Warn("watchdog: could not persist recovered pwm_enable to state",
+			"path", id.LegacyPath, "value", value, "err", err)
+	}
 }
 
 // readPWMEnableWithDeadline reads a pwm_enable sysfs file under a
@@ -324,6 +430,94 @@ func readPWMEnableWithDeadline(ctx context.Context, enablePath string) (int, err
 		return 0, fmt.Errorf("watchdog: parse pwm_enable %s: %w", enablePath, err)
 	}
 	return v, nil
+}
+
+// resolveChannelIdentity returns the rmmod-modprobe-stable identity
+// for an hwmon pwmPath. Reads <hwmonN>/name and the <hwmonN>/device
+// symlink target under the same per-syscall deadline budget Register
+// uses for the pwm_enable read (RULE-WD-PER-SYSCALL-DEADLINE).
+//
+// Resolution falls back gracefully — on any deadline or read failure
+// the returned identity carries an empty ChipName / BusAddr and the
+// caller path through ChannelIdentity.Key() degrades to the legacy
+// pwmPath shape. LegacyPath is always populated.
+//
+// pwmPath must point at a /sys/class/hwmon/hwmonN/pwmM file (or its
+// rpm_target equivalent under the same dir); the function tolerates
+// either by basing its readdir on filepath.Dir(pwmPath).
+func resolveChannelIdentity(ctx context.Context, pwmPath string) ChannelIdentity {
+	id := ChannelIdentity{LegacyPath: pwmPath}
+	id.ChannelIdx = parseChannelIdx(filepath.Base(pwmPath))
+
+	hwmonDir := filepath.Dir(pwmPath)
+	if hwmonDir == "" || hwmonDir == "." {
+		return id
+	}
+	if data, err := readWithDeadline(ctx, filepath.Join(hwmonDir, "name")); err == nil {
+		id.ChipName = strings.TrimSpace(string(data))
+	}
+	// device is a symlink: resolve it via readlinkWithDeadline so the
+	// kernel-side syscall is also bounded. We only need the parent
+	// directory's basename — e.g. /sys/devices/platform/nct6687.2592
+	// → "nct6687.2592" — to anchor the identity across hwmonN renumber.
+	if target, err := readlinkWithDeadline(ctx, filepath.Join(hwmonDir, "device")); err == nil {
+		// Strip everything before the platform/bus dot suffix. For
+		// `nct6687.2592` we want `2592`; for PCI BDFs like `0000:01:00.0`
+		// we keep the full bus tail since there is no leading driver
+		// name component.
+		base := filepath.Base(target)
+		if dot := strings.LastIndex(base, "."); dot >= 0 && dot < len(base)-1 {
+			suffix := base[dot+1:]
+			// Heuristic: if the suffix is all digits the chip is a
+			// platform device and we strip the driver-name prefix; if
+			// it isn't (PCI BDFs end in `.0` which is digits — so this
+			// branch hits both correctly), keep the full base.
+			if isAllDigits(suffix) {
+				id.BusAddr = suffix
+			} else {
+				id.BusAddr = base
+			}
+		} else {
+			id.BusAddr = base
+		}
+	}
+	return id
+}
+
+// parseChannelIdx extracts the trailing integer from "pwm12" / "fan3_target"
+// style base names. Returns 0 on a non-matching shape — callers fall
+// through to the legacy key shape via ChannelIdentity.Key().
+func parseChannelIdx(base string) int {
+	for i := len(base) - 1; i >= 0; i-- {
+		c := base[i]
+		if c < '0' || c > '9' {
+			if i == len(base)-1 {
+				return 0
+			}
+			v, err := strconv.Atoi(base[i+1:])
+			if err != nil {
+				return 0
+			}
+			return v
+		}
+	}
+	v, err := strconv.Atoi(base)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // RegisterIPMI registers an IPMI fan channel with the watchdog. The
@@ -582,14 +776,23 @@ func (w *Watchdog) restoreOne(e entry) {
 		} else {
 			caps |= hal.CapWritePWM
 		}
+		// onRecovery is the persistence callback the hwmon backend's
+		// fallback walker fires after the first non-EINVAL write so the
+		// next prior-crash recovery can skip the probe. Bound to the
+		// captured identity so the watchdog's store key resolution
+		// stays inside the watchdog package.
+		identity := e.identity
+		onRecovery := func(v int) { w.persistRecoveredEnable(identity, v) }
 		ch = hal.Channel{
 			ID:   e.pwmPath,
 			Role: hal.RoleUnknown,
 			Caps: caps,
 			Opaque: halhwmon.State{
-				PWMPath:    e.pwmPath,
-				RPMTarget:  e.rpmTarget,
-				OrigEnable: e.origEnable,
+				PWMPath:          e.pwmPath,
+				RPMTarget:        e.rpmTarget,
+				OrigEnable:       e.origEnable,
+				FallbackEnable:   e.fallbackSeq,
+				OnEINVALRecovery: onRecovery,
 			},
 		}
 	}

@@ -93,9 +93,9 @@ func diffConfigs(live, next *config.Config) ConfigDiff {
 		out.Sections = append(out.Sections, scalarDiff("poll_interval", "", "poll_interval",
 			live.PollInterval.String(), next.PollInterval.String()))
 	}
-	if live.Hwmon.DynamicRebind != next.Hwmon.DynamicRebind {
+	if live.Hwmon.DynamicRebindEnabled() != next.Hwmon.DynamicRebindEnabled() {
 		out.Sections = append(out.Sections, scalarDiff("hwmon", "", "dynamic_rebind",
-			boolStr(live.Hwmon.DynamicRebind), boolStr(next.Hwmon.DynamicRebind)))
+			boolStr(live.Hwmon.DynamicRebindEnabled()), boolStr(next.Hwmon.DynamicRebindEnabled())))
 	}
 	if live.Web.Listen != next.Web.Listen {
 		out.Sections = append(out.Sections, scalarDiff("web", "", "listen",

@@ -574,7 +574,12 @@ func run() error {
 	// runDaemonInternal receives this same instance via runDaemon's
 	// parameter list and registers cfg.Fans / IPMI / NBFC channels onto
 	// it in the usual way.
-	wd := watchdog.New(logger)
+	//
+	// LastKnownStore (#1331) is wired through a state.KVDB wrapper so
+	// the post-stable-identity persistence shape is alive on every
+	// production daemon — without this the watchdog's prior-crash
+	// recovery walks SafePreDaemonEnableSequence on every restart.
+	wd := watchdog.NewWithStore(logger, newKVDBLastKnownStore(st.KV, logger))
 	defer wd.Restore()
 
 	// Restore persisted polarity classifications onto live channels
@@ -1222,7 +1227,7 @@ func runDaemonInternal(
 	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
 		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
 	}
-	if cfg.Hwmon.DynamicRebind {
+	if cfg.Hwmon.DynamicRebindEnabled() {
 		rebindTrigger := newRebindTrigger(&liveCfg, restartCh, logger)
 		watcherOpts = append(watcherOpts, hwmon.WithRebindTrigger(rebindTrigger))
 	} else {
@@ -1243,8 +1248,32 @@ func runDaemonInternal(
 	// catches index swaps on the next sweep; this goroutine surfaces
 	// the same condition in real time at WARN level. No-op when
 	// there are no eligible hwmon channels.
+	//
+	// onSwap (#1265): when the periodic re-resolve detects a moved
+	// hwmonN path AND dynamic rebind is enabled, signal restartCh so
+	// the controllers + web server tear down and re-enter runDaemon
+	// against the new path. This is the safety net for hosts where the
+	// uevent netlink path didn't surface the move (containers without
+	// /sys/bus permissions; netlink subscription failure; ProtectControlGroups
+	// quirk). The uevent-driven RebindTrigger handles the fast path;
+	// the swap monitor's tick handles the slow path.
 	if smartMode != nil {
-		startHwmonSwapMonitor(ctx, &wg, smartMode.Channels, logger)
+		var onSwap hwmon.SwapHandler
+		if cfg.Hwmon.DynamicRebindEnabled() {
+			onSwap = func(d hwmon.SwapDetection) {
+				logger.Info("hwmon: swap-monitor detected path change; triggering rebind restart",
+					"stored", d.StoredPath,
+					"resolved", d.ResolvedPath,
+					"stable_device", d.StableDevice)
+				select {
+				case restartCh <- struct{}{}:
+				default:
+					// A restart is already pending; the in-flight
+					// restart will pick up the new topology.
+				}
+			}
+		}
+		startHwmonSwapMonitor(ctx, &wg, smartMode.Channels, onSwap, logger)
 	}
 
 	// Platform-profile auto-control: ventd actively drives the kernel's

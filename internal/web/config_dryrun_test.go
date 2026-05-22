@@ -168,12 +168,14 @@ func TestDiffConfigs_ControlManualPWM(t *testing.T) {
 }
 
 // TestDiffConfigs_HwmonDynamicRebind asserts that the gate flag is
-// surfaced under its own section — a boolean flip from false to true
-// is a load-bearing operational change and must render in the modal.
+// surfaced under its own section — a boolean flip from the default-on
+// state (#1265) to an explicit opt-out is a load-bearing operational
+// change and must render in the modal.
 func TestDiffConfigs_HwmonDynamicRebind(t *testing.T) {
 	live := config.Empty()
 	next := *live
-	next.Hwmon.DynamicRebind = true
+	optOut := false
+	next.Hwmon.DynamicRebind = &optOut
 	d := diffConfigs(live, &next)
 	if !d.Changed || len(d.Sections) == 0 {
 		t.Fatalf("no diff on dynamic_rebind flip")
@@ -182,7 +184,7 @@ func TestDiffConfigs_HwmonDynamicRebind(t *testing.T) {
 	for _, s := range d.Sections {
 		if s.Section == "hwmon" {
 			for _, f := range s.Fields {
-				if f.Name == "dynamic_rebind" && f.From == "false" && f.To == "true" {
+				if f.Name == "dynamic_rebind" && f.From == "true" && f.To == "false" {
 					found = true
 				}
 			}
