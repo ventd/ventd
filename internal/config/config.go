@@ -683,10 +683,10 @@ type Fan struct {
 	// the field directly.
 	DisplayLabel string `yaml:"display_label,omitempty" json:"display_label,omitempty"`
 	Type         string `yaml:"type" json:"type"`
-	PWMPath     string `yaml:"pwm_path" json:"pwm_path"`
-	RPMPath     string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"`         // override auto-derived fan*_input path
-	HwmonDevice string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
-	ChipName    string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor PWMPath/RPMPath across renumbering
+	PWMPath      string `yaml:"pwm_path" json:"pwm_path"`
+	RPMPath      string `yaml:"rpm_path,omitempty" json:"rpm_path,omitempty"`         // override auto-derived fan*_input path
+	HwmonDevice  string `yaml:"hwmon_device,omitempty" json:"hwmon_device,omitempty"` // stable /sys/devices/... path for hwmon path resolution
+	ChipName     string `yaml:"chip_name,omitempty" json:"chip_name,omitempty"`       // hwmonN/name attribute; used by ResolveHwmonPaths to re-anchor PWMPath/RPMPath across renumbering
 	// ControlKind distinguishes how the PWMPath is written. Empty or "pwm"
 	// means a standard pwm* duty-cycle file (0–255). "rpm_target" means a
 	// fan*_target RPM setpoint file (pre-RDNA AMD amdgpu cards).
