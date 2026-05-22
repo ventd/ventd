@@ -72,6 +72,21 @@ const (
 	// ±UIBoundaryHysteresis suppresses flicker.
 	UIBoundaryConverged  = 0.40
 	UIBoundaryHysteresis = 0.02
+
+	// WPredUnderflowFloor is the numerical floor below which the
+	// aggregator clamps w_pred to zero. Layer-C marginal-benefit
+	// estimators that hit a near-singular Fisher matrix
+	// (kappa > 500, tr_p ~ 0 — the canonical "channel is
+	// unidentifiable" signature) emit conf_c values on the order of
+	// 1e-150 that propagate through the min collapse and the LPF
+	// into w_pred at the same magnitude. Those values are
+	// statistical noise: the channel cannot contribute predictive
+	// weight, so the blender should see w_pred=0 and run pure
+	// reactive. 1e-6 is far below any legitimate w_pred (which
+	// starts at the LPF-of-min-of-Layer-A/B/C floor and tracks
+	// real confidence) but well above IEEE-754 denormal territory
+	// so the comparison is stable. Per #1253 / RULE-AGG-WPRED-FLOOR-01.
+	WPredUnderflowFloor = 1e-6
 )
 
 // 5-state UI labels per spec-v0_5_9 §5.7 / RULE-UI-CONF-01.
@@ -240,6 +255,20 @@ func (a *Aggregator) Tick(channelID string, confA, confB, confC float64,
 	// short-circuited because either path reaches the same w_pred=0
 	// outcome.
 	if !wPredSystem {
+		wPred = 0
+	}
+
+	// #1253 numerical floor: w_pred below WPredUnderflowFloor is the
+	// denormal-class output of a Layer-C marginal-benefit estimator
+	// whose Fisher matrix has gone near-singular (kappa > 500, tr_p
+	// ~ 0). Those values (e.g. 9.65e-174, 5.92e-154) are statistical
+	// noise — the channel is unidentifiable and should contribute
+	// zero predictive weight, not a numerical curiosity that
+	// confidence_min collapses around. Clamp to 0 so the blender's
+	// `w_pred = 0 → pure reactive` branch triggers cleanly and the
+	// reported confidence_min reads as a meaningful number rather
+	// than an exponential artifact.
+	if wPred > 0 && wPred < WPredUnderflowFloor {
 		wPred = 0
 	}
 
