@@ -257,6 +257,13 @@ type smartStatusResponse struct {
 	Channels    int    `json:"channels"`
 	WarmingUp   int    `json:"warming_up"` // count of channels still warming Layer B/C
 	Converged   int    `json:"converged"`  // count fully converged
+	// NotStarted counts channels that have never seen first contact
+	// (no controller tick has reached the channel yet — GPU fan
+	// channels on a host where envelope-C never triggered are the
+	// canonical case). Filtered out of the worst-of-channels collapse
+	// so a wedged channel doesn't pin the global state to "warming"
+	// forever. (#1253.)
+	NotStarted int `json:"not_started,omitempty"`
 	// ConfidenceMin/Max are nullable: emit JSON null when no channel
 	// has positive Wpred yet (pre-warmup, monitor-only, or all
 	// channels refused). The UI's smart-mode globals card handles
@@ -427,7 +434,25 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 	worst := "converged"
 	cmin := 1.0
 	cmax := 0.0
+	startedSnaps := 0
 	for _, a := range aggSnaps {
+		// #1253: channels that have never seen first contact (the
+		// classic v0.8.x "GPU stuck at coverage=0.0625, seen_first_contact=false"
+		// case) must NOT pin the global state to "warming" forever.
+		// Filter them out of the worst-of-channels collapse and the
+		// warming_up tally so a wedged GPU channel doesn't drag the
+		// fleet to a permanent monitor-only-looking state. Layer A is
+		// the canonical source of SeenFirstContact; absence of a
+		// layer_a snapshot for a channel is treated as "not yet
+		// started" (same outcome as SeenFirstContact=false).
+		if s.layerA != nil {
+			la := s.layerA.Read(a.ChannelID)
+			if la == nil || !la.SeenFirstContact {
+				out.NotStarted++
+				continue
+			}
+		}
+		startedSnaps++
 		if a.UIState == "warming" || a.UIState == "cold-start" {
 			out.WarmingUp++
 		}
@@ -450,6 +475,14 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 		// converge on, and the dashboard's status pill should not show
 		// a green "converged" badge while no channels are tracked.
 		out.GlobalState = "idle"
+	} else if startedSnaps == 0 {
+		// Every channel is pre-first-contact. The fleet is genuinely
+		// "not started yet" — distinct from "warming" (some channels
+		// are learning) and from "converged" (the controller's running).
+		// The dashboard renders "warming" for this token so the
+		// operator sees something honest; the NotStarted count gives
+		// them the why. (#1253.)
+		out.GlobalState = "warming"
 	} else {
 		out.GlobalState = worst
 		// Only emit numeric confidence_min/max when at least one
