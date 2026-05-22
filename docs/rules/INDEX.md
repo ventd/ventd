@@ -24,6 +24,7 @@ Regenerate with: `go run ./tools/rule-index`
 |------|---------|
 | INDEX.md | Rule Index |
 | RULE-HAL-LEGION.md | HAL legion backend rules — platform_profile + powermode state-switcher |
+| RULE-HAL-LENOVO-IDEAPAD.md | HAL lenovoideapad backend rules — platform_profile state-switcher for IdeaPad-class hosts |
 | RULE-HAL-THINKPAD.md | HAL thinkpad backend rules — /proc/acpi/ibm/fan procfs surface |
 | RULE-NBFC-A.md | NBFC catalog + matcher + doctor card rules — spec-09 PR A |
 | RULE-NBFC-B1.md | NBFC EC transport rules — spec-09 PR B1 |
