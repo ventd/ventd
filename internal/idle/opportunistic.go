@@ -3,6 +3,8 @@ package idle
 import (
 	"context"
 	"time"
+
+	"github.com/ventd/ventd/internal/sysclass"
 )
 
 // opportunisticDurability is the durability window for OpportunisticGate
@@ -56,6 +58,17 @@ type OpportunisticGateConfig struct {
 	// Mode selects soft (default, v0.6.0+) vs strict (legacy v0.5.x)
 	// evaluation. Zero value = ModeSoftIdle.
 	Mode IdleGateMode
+	// Class drives the soft-mode workload thresholds via
+	// LookupSoftIdleThresholds. Zero value (ClassUnknown) falls
+	// through to ClassMidDesktop — the consumer-grade default that
+	// matches the envelope-thresholds fallback. Production wires the
+	// detected class from sysclass.Detection; tests that don't care
+	// can leave this zero and inherit MidDesktop's relaxed numbers.
+	Class sysclass.SystemClass
+	// SoftThresholds, when non-nil, replaces the per-class lookup
+	// entirely — used by tests to assert specific ceilings without
+	// pinning to a real class. Production leaves this nil.
+	SoftThresholds *SoftIdleThresholds
 	// LoginctlOutput, when non-empty, is parsed in place of running
 	// loginctl. Empty string means run the real binary.
 	LoginctlOutput string
@@ -77,6 +90,15 @@ type OpportunisticGateConfig struct {
 	// baseline" — soft mode seeds it from the current read and
 	// admits the first call without enforcing the IRQ check.
 	IRQBaseline *IRQCounters
+}
+
+// softThresholds returns the per-class soft-mode thresholds for this
+// config, honouring an explicit SoftThresholds override when set.
+func (c OpportunisticGateConfig) softThresholds() SoftIdleThresholds {
+	if c.SoftThresholds != nil {
+		return *c.SoftThresholds
+	}
+	return LookupSoftIdleThresholds(c.Class)
 }
 
 // OpportunisticGate evaluates the opportunistic-probe idle gate.
@@ -139,12 +161,13 @@ func softOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bo
 	}
 
 	// Soft PSI / loadavg (RULE-OPP-IDLE-SOFT-MODE relaxed thresholds).
+	thr := cfg.softThresholds()
 	if PSIAvailable(gateCfg.ProcRoot) {
-		if ok, r := evalSoftPSIPredicate(snap.PSI); !ok {
+		if ok, r := evalSoftPSIPredicate(snap.PSI, thr); !ok {
 			return false, r, nil
 		}
 	} else {
-		if ok, r := evalSoftLoadAvgPredicate(snap.LoadAvg); !ok {
+		if ok, r := evalSoftLoadAvgPredicate(snap.LoadAvg, thr); !ok {
 			return false, r, nil
 		}
 	}

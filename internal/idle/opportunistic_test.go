@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/sysclass"
 )
 
 // makeOnBatteryProcRoot builds a fixture where AC is offline so the
@@ -316,13 +318,14 @@ func TestSoftIdleGate_AdmitsAtRelaxedThresholds(t *testing.T) {
 	}
 }
 
-// TestSoftIdleGate_RefusesAboveSoftPSICeiling asserts that the soft
-// PSI predicate (cpu.some avg60 > 10.0 %) refuses correctly. Captured
-// snapshot's PSI is read via the relaxed thresholds documented in
-// RULE-OPP-IDLE-SOFT-MODE.
-func TestSoftIdleGate_RefusesAboveSoftPSICeiling(t *testing.T) {
+// TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling asserts that
+// the soft PSI predicate refuses for a laptop-class host when CPU
+// PSI exceeds the laptop ceiling (10 %). Other classes admit at the
+// same load — see TestSoftIdleGate_ServerClass_AdmitsAtLaptopThreshold
+// below for the contrast.
+func TestSoftIdleGate_LaptopClass_RefusesAboveSoftPSICeiling(t *testing.T) {
 	procRoot, sysRoot := makeIdleProcRoot(t)
-	// Overwrite the PSI fixture with a value above the soft ceiling.
+	// cpu.some avg60 = 15 %, above laptop's 10 % ceiling.
 	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=15.00 avg300=10.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	clk := newFakeClock(time.Unix(1_000_000, 0))
 
@@ -333,6 +336,7 @@ func TestSoftIdleGate_RefusesAboveSoftPSICeiling(t *testing.T) {
 			Clock:    clk,
 		},
 		Mode:           ModeSoftIdle,
+		Class:          sysclass.ClassLaptop,
 		LoginctlOutput: `[]`,
 		IRQReader:      func() (IRQCounters, error) { return IRQCounters{}, nil },
 	}
@@ -342,21 +346,53 @@ func TestSoftIdleGate_RefusesAboveSoftPSICeiling(t *testing.T) {
 
 	ok, reason, _ := OpportunisticGate(ctx, cfg)
 	if ok {
-		t.Fatal("soft gate: expected refusal when cpu.some avg60 above soft ceiling, got admit")
+		t.Fatal("soft gate: expected refusal when cpu.some avg60 above laptop soft ceiling, got admit")
 	}
 	if reason != ReasonPSIPressure {
 		t.Errorf("reason: got %q, want %q", reason, ReasonPSIPressure)
 	}
 }
 
-// TestSoftIdleGate_AdmitsBetweenStrictAndSoftCeiling exercises the
-// load-bearing soft-vs-strict difference: a PSI reading that strict
-// would refuse (avg60 = 3.0% > strict 1.0%) but soft admits (3.0% <
-// soft 10.0%). This is the canonical "smart-mode learns during
-// workload lulls" case from RFC #1024.
-func TestSoftIdleGate_AdmitsBetweenStrictAndSoftCeiling(t *testing.T) {
+// TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel asserts the
+// load-bearing per-class behaviour: at cpu.some avg60 = 15 % a laptop
+// refuses (above its 10 % ceiling) but a server admits (below its
+// 40 % ceiling). This is the homelab-fitness fix — without per-class
+// ceilings the global 10 % ceiling refused every probe on any 24/7
+// services box, so opportunistic learning never happened.
+func TestSoftIdleGate_ServerClass_AdmitsAtLaptopRefusalLevel(t *testing.T) {
 	procRoot, sysRoot := makeIdleProcRoot(t)
-	// cpu.some avg60 = 3.0% — strict refuses (>1.0), soft admits (<10.0).
+	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=15.00 avg300=10.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	clk := newFakeClock(time.Unix(1_000_000, 0))
+
+	cfg := OpportunisticGateConfig{
+		GateConfig: GateConfig{
+			ProcRoot: procRoot,
+			SysRoot:  sysRoot,
+			Clock:    clk,
+		},
+		Mode:           ModeSoftIdle,
+		Class:          sysclass.ClassServer,
+		LoginctlOutput: `[]`,
+		IRQReader:      func() (IRQCounters, error) { return IRQCounters{}, nil },
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	ok, reason, _ := OpportunisticGate(ctx, cfg)
+	if !ok {
+		t.Fatalf("soft gate: expected admit at cpu.some avg60=15%% for server class (ceiling 40%%); got reason=%q", reason)
+	}
+}
+
+// TestSoftIdleGate_LaptopClass_AdmitsBetweenStrictAndSoftCeiling
+// exercises the load-bearing soft-vs-strict difference for the
+// laptop class: a PSI reading that strict would refuse (avg60 =
+// 3.0 % > strict 1.0 %) but soft admits (3.0 % < laptop soft 10 %).
+// This is the canonical "smart-mode learns during workload lulls"
+// case from RFC #1024.
+func TestSoftIdleGate_LaptopClass_AdmitsBetweenStrictAndSoftCeiling(t *testing.T) {
+	procRoot, sysRoot := makeIdleProcRoot(t)
 	writeProcFile(t, procRoot, "pressure/cpu", "some avg10=0.00 avg60=3.00 avg300=2.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	clk := newFakeClock(time.Unix(1_000_000, 0))
 
@@ -367,6 +403,7 @@ func TestSoftIdleGate_AdmitsBetweenStrictAndSoftCeiling(t *testing.T) {
 			Clock:    clk,
 		},
 		Mode:           ModeSoftIdle,
+		Class:          sysclass.ClassLaptop,
 		LoginctlOutput: `[]`,
 		IRQReader:      func() (IRQCounters, error) { return IRQCounters{}, nil },
 	}
@@ -376,7 +413,7 @@ func TestSoftIdleGate_AdmitsBetweenStrictAndSoftCeiling(t *testing.T) {
 
 	ok, reason, _ := OpportunisticGate(ctx, cfg)
 	if !ok {
-		t.Fatalf("soft gate: expected admit at cpu.some avg60=3.0%% (below soft ceiling 10%%); got refusal reason=%q", reason)
+		t.Fatalf("soft gate: expected admit at cpu.some avg60=3.0%% (below laptop soft ceiling 10%%); got refusal reason=%q", reason)
 	}
 }
 

@@ -23,29 +23,14 @@ const (
 	loadAvgThresholdPerCPU = 0.10
 
 	// Soft-idle thresholds (RULE-OPP-IDLE-SOFT-MODE, v0.6.0+ default
-	// for OpportunisticGate). The motivating constraint: the strict
-	// StartupGate predicate is calibrated for "system has been idle
-	// for 5+ minutes and is ready to safely run a 30 s Envelope-C
-	// calibration sweep". The opportunistic-probe primitive only
-	// needs "system load is below a workload-noise floor at this
-	// instant". The soft thresholds admit probes during realistic
-	// workload lulls without dropping workload detection sensitivity.
-	//
-	// 10 % avg60 PSI on CPU is operationally meaningful: a system
-	// where 10 % of tasks spent some time stalled on CPU in the
-	// last 60 s is genuinely busy, but a system at 5–8 % is the
-	// "between transcoding tasks" window v0.6 RFC #1024 targets.
-	// IO at 10 % matches: brief filesystem-cache misses don't push
-	// avg60 above the soft ceiling, sustained IO (rsync, dd) does.
-	// Memory stays at the strict 0.5 % threshold; memory pressure
-	// is a physical signal that workload lulls don't change.
-	//
-	// Loadavg fallback is 0.5 × ncpus — "half a CPU doing meaningful
-	// work" — vs the strict 0.1 × ncpus calibration threshold.
-	softPSICpuCeiling = 10.0
-	softPSIIoCeiling  = 10.0
-	softPSIMemCeiling = 0.5
-	softLoadAvgPerCPU = 0.5
+	// for OpportunisticGate) are per-class — see thresholds.go for
+	// the SoftIdleThresholds struct, the class table, and the
+	// LookupSoftIdleThresholds helper. The strict StartupGate
+	// predicate is calibrated for "system has been idle for 5+
+	// minutes and is ready to safely run a 30 s Envelope-C calibration
+	// sweep"; the opportunistic-probe primitive only needs "system
+	// load is below a workload-noise floor at this instant", which
+	// the per-class ceilings express.
 )
 
 // GateConfig holds injectable parameters for StartupGate and RuntimeCheck.
@@ -226,28 +211,29 @@ func evalLoadAvgPredicate(la [3]float64) (bool, Reason) {
 // OpportunisticGate's soft mode (RULE-OPP-IDLE-SOFT-MODE). Only the
 // avg60 windows are consulted — avg300's relevance disappears once
 // the 600 s durability requirement is dropped (a 300 s pressure
-// average never matched the workload-lull window anyway).
-func evalSoftPSIPredicate(psi PSIReadings) (bool, Reason) {
-	if psi.CPUSomeAvg60 > softPSICpuCeiling {
+// average never matched the workload-lull window anyway). Caller
+// supplies the per-class thresholds via LookupSoftIdleThresholds.
+func evalSoftPSIPredicate(psi PSIReadings, thr SoftIdleThresholds) (bool, Reason) {
+	if psi.CPUSomeAvg60 > thr.PSICpuAvg60 {
 		return false, ReasonPSIPressure
 	}
-	if psi.IOSomeAvg60 > softPSIIoCeiling {
+	if psi.IOSomeAvg60 > thr.PSIIoAvg60 {
 		return false, ReasonPSIPressure
 	}
-	if psi.MemFullAvg60 > softPSIMemCeiling {
+	if psi.MemFullAvg60 > thr.PSIMemAvg60 {
 		return false, ReasonPSIPressure
 	}
 	return true, ReasonOK
 }
 
 // evalSoftLoadAvgPredicate is the loadavg fallback for soft mode on
-// kernels without PSI (< 4.20).
-func evalSoftLoadAvgPredicate(la [3]float64) (bool, Reason) {
+// kernels without PSI (< 4.20). Caller supplies per-class threshold.
+func evalSoftLoadAvgPredicate(la [3]float64, thr SoftIdleThresholds) (bool, Reason) {
 	ncpus := runtime.NumCPU()
 	if ncpus < 1 {
 		ncpus = 1
 	}
-	threshold := softLoadAvgPerCPU * float64(ncpus)
+	threshold := thr.LoadAvgPerCPU * float64(ncpus)
 	if la[0] > threshold {
 		return false, ReasonCPUIdle
 	}

@@ -209,6 +209,12 @@ func buildOpportunisticScheduler(
 			SysRoot:       "/sys",
 			AllowOverride: false,
 		},
+		// Class drives the per-class soft-mode PSI / loadavg ceilings
+		// (internal/idle/thresholds.go). Without it the gate falls
+		// through to MidDesktop defaults; with the detected class
+		// homelab boxes (server / NAS / mini-PC) get the looser
+		// ceilings their steady-state services need.
+		Class:       cls,
 		IRQBaseline: &irqBaseline,
 	}
 	if strictIdleGate {
