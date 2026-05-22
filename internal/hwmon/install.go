@@ -210,7 +210,29 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 	nameVer := pkgName + "/" + pkgVersion
 	log("Registering with DKMS (" + nameVer + ") for automatic rebuild on kernel updates...")
 
-	if err := runLogDirRoot(repoDir, log, "dkms", "add", repoDir); err != nil {
+	// Persist source under /usr/src/<pkg>-<ver>/ so DKMS auto-rebuild on
+	// the next kernel update can still find it (#1276). Earlier behaviour
+	// was `dkms add <tmpDir>`, which makes /var/lib/dkms/<pkg>/<ver>/source
+	// a symlink into the daemon's temp dir. That dir is wiped by the
+	// deferred RemoveAll in InstallDriver as soon as install completes,
+	// leaving DKMS with a dangling source pointer. On the next kernel bump
+	// dkms autoinstall silently fails and the in-tree driver takes over,
+	// which on non-whitelist Dells causes the BIOS-clobber fan loop.
+	if !validDKMSPackageVersion(pkgName) || !validDKMSPackageVersion(pkgVersion) {
+		logger.Warn("DKMS: refusing to install (pkg name or version is not filesystem-safe)",
+			"name", pkgName, "version", pkgVersion)
+		return
+	}
+	persistDir := filepath.Join("/usr/src", pkgName+"-"+pkgVersion)
+	// Remove any prior DKMS registration + stale /usr/src tree so we start
+	// from a known state. Both commands no-op if the target doesn't exist.
+	_ = runLogDirRoot("", log, "dkms", "remove", nameVer, "--all")
+	_ = runLogDirRoot("", log, "rm", "-rf", persistDir)
+	if err := runLogDirRoot("", log, "cp", "-rT", repoDir, persistDir); err != nil {
+		logger.Warn("DKMS: could not copy source to /usr/src (module will not auto-rebuild on kernel update)", "err", err, "dest", persistDir)
+		return
+	}
+	if err := runLogDirRoot("", log, "dkms", "add", "-m", pkgName, "-v", pkgVersion); err != nil {
 		logger.Warn("DKMS add failed — module will not auto-rebuild on kernel update", "err", err)
 		return
 	}
@@ -221,6 +243,27 @@ func registerDKMS(repoDir string, nd DriverNeed, log func(string), logger *slog.
 	if err := runLogDirRoot("", log, "dkms", "install", nameVer); err != nil {
 		logger.Warn("DKMS install failed", "err", err)
 	}
+}
+
+// validDKMSPackageVersion checks that s is a safe path component for
+// /usr/src/<pkg>-<ver>/. Rejects empty strings and anything containing
+// path separators or shell-meaningful characters. The values come from
+// a downloaded dkms.conf, so we treat them as untrusted input.
+func validDKMSPackageVersion(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '_' || r == '-' || r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // isUnsubstitutedVersionPlaceholder reports whether s looks like an
