@@ -193,15 +193,38 @@
   color: var(--fg3);
 }
 
-/* ─── layout primitives for sidebar pages ───────────────────── */
+/* ─── layout primitives for sidebar pages ─────────────────────
+ *
+ * Desktop layout pins the shell to the viewport (height: 100vh)
+ * and lets the main column scroll internally. The topbar is
+ * sticky so the operator never loses the "Dashboard / Calibration
+ * / Settings" crumbs to a stray scroll (issue 749). Mobile
+ * (≤900px) falls back to a single-column scroll-the-page layout
+ * because the sidebar collapses and the extra primitive
+ * vertical-scroll real estate is more useful than an internal
+ * scroll constraint.
+ *
+ * The scroll surface is .shell-main rather than .shell-content
+ * so per-page wrappers (.set-page on settings, .dash-grid on the
+ * dashboard, etc.) don't each need their own overflow:auto +
+ * min-height:0 wiring. .topbar inside .shell-main stays put via
+ * position:sticky.
+ */
 .shell-layout {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  /* Block the implicit min-content height grid items resolve to
+   * so .shell-main's overflow:auto can act on the cell's measured
+   * height rather than the content's intrinsic height. */
+  min-height: 0;
 }
 .shell-main {
   min-width: 0;
   display: flex; flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
 }
 .shell-content {
   padding: 22px 22px 32px;
@@ -210,7 +233,41 @@
   flex: 1;
 }
 
+/* Topbar pinning. The sidebar shell.css declaration sets
+ * position:relative + z-index:5 on .topbar; we layer sticky on
+ * top so the bar stays put while .shell-main scrolls. Background
+ * inherited from shell.css keeps the cards from showing through
+ * the bar during scroll. */
+.shell-main > .topbar {
+  position: sticky;
+  top: 0;
+}
+
+/* Desktop-only compression: shave a few px off vertical padding
+ * + gap on roomier screens so more of a long list fits in the
+ * viewport without scrolling. ≥1200px is the threshold the
+ * dashboard's dash-grid already uses for its 12-column expansion;
+ * keeping the breakpoint aligned avoids creating a third tier. */
+@media (min-width: 1200px) {
+  .shell-content {
+    padding: 18px 22px 22px;
+    gap: 16px;
+  }
+}
+
 @media (max-width: 900px) {
-  .shell-layout { grid-template-columns: 1fr; }
+  .shell-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+  }
   .shell-layout .sidebar { display: none; }
+  /* Mobile: drop the internal-scroll constraint and let the page
+   * body scroll naturally. The compressed primitive viewport
+   * real estate makes a content-stays-pinned layout worse. */
+  .shell-main {
+    height: auto;
+    overflow: visible;
+  }
+  .shell-main > .topbar { position: static; }
 }
