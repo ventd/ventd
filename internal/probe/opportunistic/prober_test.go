@@ -162,9 +162,9 @@ func TestProber_AbortPath_RestoresController(t *testing.T) {
 	}
 }
 
-// TestProber_NoSpuriousAbortOnIdleCoreTempNoise is a failing reproducer
-// for a thermal-slope abort that fires on routine 1 °C sensor
-// quantization noise.
+// TestProber_NoSpuriousAbortOnIdleCoreTempNoise is the regression guard
+// for the thermal-slope spurious-abort bug fixed by the
+// envelope.SlopeAbortGate N-of-M consecutive-sample requirement.
 //
 // The recorded sample sequence (48, 48, 48, 52, 52, 49, 48, 48) was
 // captured at 10 Hz from an idle i7-6600U via
@@ -175,32 +175,21 @@ func TestProber_AbortPath_RestoresController(t *testing.T) {
 // 1 °C, and the readback latches whichever core is briefly hottest.
 // Identical shape on AMD core temps and many EC-driven laptop sensors.
 //
-// abortOnSlope (prober.go) computes raw single-sample dT/dt with no
-// smoothing, median filter, or N-of-M consecutive-sample requirement.
-// At ANY sample rate that respects the quantization, a 4 °C single-
-// sample step trivially exceeds the laptop class 2 °C/s threshold:
+// Pre-fix, abortOnSlope computed raw single-sample dT/dt with no
+// smoothing, so the 48 → 52 step trivially exceeded the laptop class
+// 2 °C/s threshold at any sample rate that respected the quantization:
 //   - 10 Hz production:  4 °C / 0.1 s   = 40 °C/s   → abort
 //   - 1 kHz test:        4 °C / 0.001 s = 4000 °C/s → abort
 //
-// Real-world consequence: every opportunistic probe aborts within a
-// few samples on idle hosts. Aborted opp probes don't count toward
-// bin coverage (detector.go:107-110), so the scheduler retries the
-// same gap tick after tick, never collecting non-aborted telemetry.
+// Every opportunistic probe aborted within a few samples on idle hosts.
+// Aborted opp probes don't count toward bin coverage
+// (detector.go:107-110), so the scheduler retried the same gap tick
+// after tick, never collecting non-aborted telemetry.
 //
-// The same formula lives in internal/envelope/thermal.go and breaks
-// startup Envelope C/D probes the same way.
-//
-// Expected behaviour: no abort. The system is idle; nothing to react
-// to. A fix that adds a small rolling-window median (or an N-of-M
-// consecutive over-threshold gate) on the dT/dt computation will make
-// this test pass without weakening the genuine runaway-thermal trip.
+// With SlopeAbortGate the 1-sample spike produces consec=1, the next
+// sample returns to baseline and resets consec to 0, and the gate
+// never reaches the DefaultSlopeAbortConsecutive=3 trip threshold.
 func TestProber_NoSpuriousAbortOnIdleCoreTempNoise(t *testing.T) {
-	t.Skip("known-failing reproducer; un-skip in the same commit that lands " +
-		"the abortOnSlope smoothing fix (rolling-window median or N-of-M " +
-		"consecutive over-threshold gate). The test exists now as a " +
-		"working bookmark for the fix author so the regression is " +
-		"caught when reintroduced.")
-
 	const baseline uint8 = 130
 	const gap uint8 = 200
 	pwmPath := makePWMFile(t, baseline)
@@ -252,6 +241,66 @@ func TestProber_NoSpuriousAbortOnIdleCoreTempNoise(t *testing.T) {
 	if captured.EventFlags&observation.EventFlag_ENVELOPE_C_ABORT != 0 {
 		t.Errorf("captured record carries ENVELOPE_C_ABORT (0x%x); "+
 			"implies the spurious-abort path was taken", captured.EventFlags)
+	}
+}
+
+// TestProber_AbortsOnSustainedThermalRamp confirms the SlopeAbortGate
+// fix does NOT weaken genuine thermal-runaway detection. A monotonic
+// ramp where every sample shows an over-threshold dT/dt (sustained
+// thermal-runaway, the case the abort path exists for) must still
+// trip after DefaultSlopeAbortConsecutive samples in a row.
+//
+// Companion to TestProber_NoSpuriousAbortOnIdleCoreTempNoise: the
+// pair brackets the gate's intended behaviour. Spurious-noise cases
+// must NOT abort; sustained-ramp cases must abort.
+func TestProber_AbortsOnSustainedThermalRamp(t *testing.T) {
+	const baseline uint8 = 130
+	const gap uint8 = 0 // drop fan to zero, simulating bad probe
+	pwmPath := makePWMFile(t, baseline)
+	ch := &probe.ControllableChannel{PWMPath: pwmPath, Polarity: "normal"}
+
+	// Sustained +5 °C/sample ramp (well above 2 °C/s laptop ceiling).
+	// At SampleHz=1000 each tick is 1 ms, so dT/dt is 5000 °C/s every
+	// sample — DefaultSlopeAbortConsecutive=3 samples in a row triggers.
+	readings := []float64{50, 55, 60, 65, 70, 75, 80}
+	var idx atomic.Int32
+
+	var captured *observation.Record
+	deps := ProbeDeps{
+		Class: sysclass.ClassLaptop,
+		Tjmax: 100,
+		SensorFn: func(ctx context.Context) (map[string]float64, error) {
+			i := int(idx.Add(1)) - 1
+			if i >= len(readings) {
+				i = len(readings) - 1
+			}
+			return map[string]float64{"cpu": readings[i]}, nil
+		},
+		RPMFn:     func(ctx context.Context) (int32, error) { return 1500, nil },
+		WriteFn:   func(uint8) error { return nil },
+		ObsAppend: func(rec *observation.Record) error { captured = rec; return nil },
+		Now:       func() time.Time { return time.Now() },
+		Thresholds: &envelope.Thresholds{
+			DTDtAbortCPerSec:     2.0,
+			TAbsOffsetBelowTjmax: 15,
+			SampleHz:             1000,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := FireOne(ctx, ch, gap, deps)
+
+	if !errors.Is(err, ErrProbeAborted) {
+		t.Fatalf("FireOne: got %v, want ErrProbeAborted "+
+			"(sustained +5 °C/sample ramp must trip the SlopeAbortGate)", err)
+	}
+	if captured == nil {
+		t.Fatal("ObsAppend never called")
+	}
+	if captured.EventFlags&observation.EventFlag_ENVELOPE_C_ABORT == 0 {
+		t.Errorf("captured record missing ENVELOPE_C_ABORT (0x%x); "+
+			"abort path did not run", captured.EventFlags)
 	}
 }
 

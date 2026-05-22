@@ -195,6 +195,13 @@ func FireOne(ctx context.Context, ch *probe.ControllableChannel, gapPWM uint8, d
 
 	var prevTemps map[string]float64
 	prevTs := startTs
+	// SlopeAbortGate filters single-sample sensor-quantization noise
+	// (4 °C coretemp steps at idle producing 40 °C/s rate spikes
+	// against a 2 °C/s threshold) so probes don't abort spuriously
+	// before any useful telemetry lands. The absolute-temperature
+	// check below remains single-sample — its 15 °C-below-Tjmax
+	// margin is wide enough that noise within that band is acceptable.
+	var slopeGate envelope.SlopeAbortGate
 
 	for {
 		select {
@@ -211,7 +218,7 @@ func FireOne(ctx context.Context, ch *probe.ControllableChannel, gapPWM uint8, d
 
 			if prevTemps != nil {
 				dt := sample.Sub(prevTs)
-				if abortOnSlope(curTemps, prevTemps, dt, thr) {
+				if slopeGate.ShouldAbort(curTemps, prevTemps, dt, thr) {
 					flags |= observation.EventFlag_ENVELOPE_C_ABORT
 					return ErrProbeAborted
 				}
@@ -243,37 +250,6 @@ func readPWM(path string) (uint8, error) {
 		return 0, fmt.Errorf("parse %q: %w", s, err)
 	}
 	return uint8(v), nil
-}
-
-// abortOnSlope mirrors envelope's thermalAbort but with the local
-// signature. dT/dt above thr.DTDtAbortCPerSec (or per-min for NAS)
-// triggers abort.
-func abortOnSlope(cur, prev map[string]float64, dt time.Duration, thr envelope.Thresholds) bool {
-	if len(prev) == 0 || dt <= 0 {
-		return false
-	}
-	if thr.DTDtAbortCPerSec == 0 && thr.DTDtAbortCPerMin == 0 {
-		return false
-	}
-	for id, c := range cur {
-		p, ok := prev[id]
-		if !ok {
-			continue
-		}
-		delta := c - p
-		if thr.DTDtAbortCPerSec > 0 {
-			rate := delta / dt.Seconds()
-			if rate > thr.DTDtAbortCPerSec {
-				return true
-			}
-		} else {
-			rate := delta / dt.Minutes()
-			if rate > thr.DTDtAbortCPerMin {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // abortOnAbsolute mirrors envelope's absoluteTempAbort.
