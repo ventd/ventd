@@ -228,6 +228,62 @@ func TestRULE_SYSCLASS_02_KVWriteBeforeEnvelopeC(t *testing.T) {
 	}
 }
 
+// TestPersistDetection_UnrecognizedCPU_RoundTrips is a regression
+// guard for a NaN-via-json.Marshal failure. classifyCPU used to return
+// math.NaN() as Tjmax when the CPU model didn't match any profile
+// (Skylake i7-6600U, older Xeons, etc.); PersistDetection then called
+// json.Marshal on a struct field that was NaN; encoding/json rejects
+// NaN/Inf, so persistence failed with "json: unsupported value: NaN"
+// on every startup with an unrecognized CPU, and no detection was
+// cached for the next boot.
+//
+// classifyCPU now returns 0 for the unknown-CPU branch, matching the
+// other two unrecognized-cpuinfo branches in the same function and
+// the public contract documented on TjmaxFromCPUInfo.
+func TestPersistDetection_UnrecognizedCPU_RoundTrips(t *testing.T) {
+	_, procDir, _, _ := makeBase(t)
+	// Skylake-U mobile — present in the wild on millions of laptops
+	// (Latitude 7280 et al), not in cpuPatterns.
+	setCPU(t, procDir, "Intel(R) Core(TM) i7-6600U CPU @ 2.60GHz")
+	cls, tjmax, ev := classifyCPU(deps{procRoot: procDir})
+
+	if cls != ClassUnknown {
+		t.Errorf("class: got %v, want ClassUnknown", cls)
+	}
+	if tjmax != 0 {
+		t.Errorf("tjmax: got %v, want 0 (must be JSON-safe; not NaN)", tjmax)
+	}
+	if len(ev) == 0 || ev[0] != "cpu_model_unrecognized" {
+		t.Errorf("evidence: got %v, want first elem cpu_model_unrecognized", ev)
+	}
+
+	det := &Detection{
+		Class:    cls,
+		Evidence: ev,
+		Tjmax:    tjmax,
+		AmbientSensor: AmbientSensor{
+			Source:  AmbientFallback25C,
+			Reading: 25.0,
+		},
+	}
+
+	kv := openTestKV(t)
+	if err := PersistDetection(kv, det); err != nil {
+		t.Fatalf("PersistDetection: got %v, want nil. "+
+			"NaN regression: classifyCPU returned a non-JSON-safe Tjmax", err)
+	}
+	loaded, ok, err := LoadDetection(kv)
+	if err != nil || !ok || loaded == nil {
+		t.Fatalf("LoadDetection: ok=%v err=%v loaded=%v", ok, err, loaded)
+	}
+	if loaded.Tjmax != det.Tjmax {
+		t.Errorf("loaded.Tjmax: got %v, want %v", loaded.Tjmax, det.Tjmax)
+	}
+	if loaded.Class != det.Class {
+		t.Errorf("loaded.Class: got %v, want %v", loaded.Class, det.Class)
+	}
+}
+
 // TestRULE_SYSCLASS_03_AmbientFallbackChain verifies the §3.3 three-step
 // fallback: labeled → lowest-at-idle → 25 °C.
 func TestRULE_SYSCLASS_03_AmbientFallbackChain(t *testing.T) {

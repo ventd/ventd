@@ -1,7 +1,6 @@
 package sysclass
 
 import (
-	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -87,15 +86,17 @@ var cpuPatterns = []struct {
 // dependency on probe.ProbeResult or running full sysclass.Detect.
 func TjmaxFromCPUInfo() float64 {
 	_, tjmax, _ := classifyCPU(defaultDeps())
-	if math.IsNaN(tjmax) {
-		return 0
-	}
 	return tjmax
 }
 
 // classifyCPU reads /proc/cpuinfo (via deps) and returns the best matching
-// class, Tjmax, and evidence string. Returns (ClassUnknown, 0, nil) when no
-// pattern matches.
+// class, Tjmax, and evidence string. Returns (ClassUnknown, 0, nil) when
+// /proc/cpuinfo is unreadable or has no model name. Returns
+// (ClassUnknown, 0, ["cpu_model_unrecognized", "model_name:..."]) when
+// the model name is present but matches no profile — Tjmax stays 0 here
+// because PersistDetection json.Marshals Detection.Tjmax and Go's
+// encoding/json rejects NaN/Inf; the JSON-safety contract is the reason
+// the unknown-Tjmax sentinel is the zero value rather than math.NaN.
 func classifyCPU(d deps) (SystemClass, float64, []string) {
 	path := procPath(d, "cpuinfo")
 	data, err := os.ReadFile(path)
@@ -115,7 +116,7 @@ func classifyCPU(d deps) (SystemClass, float64, []string) {
 	}
 
 	// Unknown CPU: return ClassUnknown with model name in evidence.
-	return ClassUnknown, math.NaN(), []string{"cpu_model_unrecognized", "model_name:" + sanitizeEvidence(modelName)}
+	return ClassUnknown, 0, []string{"cpu_model_unrecognized", "model_name:" + sanitizeEvidence(modelName)}
 }
 
 // extractModelName returns the first "model name" value from /proc/cpuinfo content.
