@@ -473,12 +473,23 @@
     return bridge;
   }
 
+  // gateReason returns a user-facing string for the opportunistic
+  // gate's last result. Prefers last_reason_human (added in v1.1.0;
+  // sentence-length friendly text, e.g. "System under load — waiting
+  // for a quiet moment") and falls back to the raw last_reason for
+  // forward-compat with older daemons that don't emit the human
+  // field. Returns null when neither is present.
+  function gateReason(opp) {
+    if (!opp) return null;
+    return opp.last_reason_human || opp.last_reason || null;
+  }
+
   function bridgeSub() {
     if (state.opp && state.opp.running) {
       var ch = state.opp.channel_id != null ? state.opp.channel_id : '?';
       var gap = state.opp.gap_pwm != null ? state.opp.gap_pwm : '?';
       return 'Holding PWM=' + gap + ' on channel ' + ch +
-        '; opportunistic gate accepted (' + (state.opp.last_reason || 'ok') + ')';
+        '; opportunistic gate accepted (' + (gateReason(state.opp) || 'ok') + ')';
     }
     var ch = state.smart.channels || 0;
     var conv = state.smart.converged || 0;
@@ -588,8 +599,8 @@
       var empty = el('div', { cls: 'sm-scope-empty' });
       empty.appendChild(el('div', { cls: 'sm-scope-empty-title', text: 'no probe in flight' }));
       empty.appendChild(el('div', { cls: 'sm-scope-empty-sub',
-        text: state.opp && state.opp.last_reason
-          ? ('last gate result: ' + state.opp.last_reason)
+        text: gateReason(state.opp)
+          ? ('last gate result: ' + gateReason(state.opp))
           : 'opportunistic gate idle' }));
       canvas.appendChild(empty);
     }
@@ -599,7 +610,7 @@
     var ribbon = el('div', { cls: 'sm-scope-ribbon' });
     ribbon.appendChild(buildRibbonCell('Channel',  ribbonChannel(),  null));
     ribbon.appendChild(buildRibbonCell('Gap PWM',  ribbonGapPwm(),   'blue'));
-    ribbon.appendChild(buildRibbonCell('Reason',   state.opp && state.opp.last_reason ? state.opp.last_reason : '—', null));
+    ribbon.appendChild(buildRibbonCell('Reason',   gateReason(state.opp) || '—', null));
     ribbon.appendChild(buildRibbonCell('Started',  ribbonStarted(),  'teal'));
     ribbon.appendChild(buildRibbonCell('Tick',     state.opp && state.opp.tick_count != null ? state.opp.tick_count : '—', null));
     card.appendChild(ribbon);

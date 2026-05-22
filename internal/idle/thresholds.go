@@ -35,14 +35,24 @@ type SoftIdleThresholds struct {
 // is: tighter ceilings for user-facing classes (laptop), wider
 // ceilings for steady-load classes (server, NAS).
 var classSoftIdleThresholds = map[sysclass.SystemClass]SoftIdleThresholds{
-	// Laptop: user is present and reacts to fan changes; a session
-	// above 10 % avg60 CPU is no longer "idle" by the operator's
-	// definition. Matches the v0.6.0 RFC #1024 calibration.
+	// Laptop: user is present at a keyboard. The keypress / trackpad
+	// activity that would make a fan ramp jarring is already
+	// detected — and refused — explicitly by RULE-OPP-IDLE-02
+	// (recent_input_irq), and an active SSH session by
+	// RULE-OPP-IDLE-03 (active_ssh_session). PSI is for background
+	// workload (snapd updates, dnf metadata refresh, browser tabs),
+	// which doesn't correspond to user-perceptible moments where a
+	// fan ramp would be noticeable. The original 10 % laptop
+	// ceiling was redundant with the IRQ check on the "user is
+	// actually typing" axis and over-tight on the background-load
+	// axis — it refused every probe on any box doing routine
+	// userspace work. 20 % matches mid-desktop; the IRQ + SSH
+	// checks remain the load-bearing user-protection signals.
 	sysclass.ClassLaptop: {
-		PSICpuAvg60:   10.0,
-		PSIIoAvg60:    10.0,
+		PSICpuAvg60:   20.0,
+		PSIIoAvg60:    20.0,
 		PSIMemAvg60:   0.5,
-		LoadAvgPerCPU: 0.5,
+		LoadAvgPerCPU: 1.0,
 	},
 	// Mid-desktop: workstation with intermittent multitasking; the
 	// operator tolerates more background load before it qualifies as

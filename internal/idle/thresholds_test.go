@@ -50,13 +50,16 @@ func TestLookupSoftIdleThresholds_UnknownFallsThroughToMidDesktop(t *testing.T) 
 	}
 }
 
-// TestLookupSoftIdleThresholds_HomelabClassesAreLooserThanLaptop is a
-// guardrail for the homelab-fitness fix: classes whose normal "idle"
-// includes steady-state services (server, NAS, mini-PC) MUST tolerate
-// more CPU PSI than the laptop class. The opposite ordering would
-// reintroduce the 10 % global-ceiling bug that refused every probe on
-// any 24/7 services box.
-func TestLookupSoftIdleThresholds_HomelabClassesAreLooserThanLaptop(t *testing.T) {
+// TestLookupSoftIdleThresholds_HomelabClassesAreAtLeastAsLooseAsLaptop
+// is a guardrail for the homelab-fitness calibration: classes whose
+// normal "idle" includes steady-state services (server, NAS,
+// mini-PC, HEDT) MUST NOT be tighter than the laptop class. The
+// opposite ordering would reintroduce the global-ceiling bug that
+// refused every probe on any 24/7 services box. Mid-desktop ties
+// laptop by design (both are user-facing classes whose IRQ + SSH
+// checks already cover the "user actively interacting" axis); the
+// strictly-looser classes are asserted separately below.
+func TestLookupSoftIdleThresholds_HomelabClassesAreAtLeastAsLooseAsLaptop(t *testing.T) {
 	laptop := LookupSoftIdleThresholds(sysclass.ClassLaptop)
 	for _, cls := range []sysclass.SystemClass{
 		sysclass.ClassServer,
@@ -67,9 +70,31 @@ func TestLookupSoftIdleThresholds_HomelabClassesAreLooserThanLaptop(t *testing.T
 		sysclass.ClassMidDesktop,
 	} {
 		thr := LookupSoftIdleThresholds(cls)
+		if thr.PSICpuAvg60 < laptop.PSICpuAvg60 {
+			t.Errorf("%v: PSICpuAvg60=%v must be >= laptop %v "+
+				"(homelab classes can't be tighter than the user-laptop class)",
+				cls, thr.PSICpuAvg60, laptop.PSICpuAvg60)
+		}
+	}
+}
+
+// TestLookupSoftIdleThresholds_PureServerClassesAreStrictlyLooserThanLaptop
+// is the stronger guardrail: classes with no interactive user
+// session (server, NAS) MUST be strictly looser than laptop. If
+// laptop and server ever end up at the same number, opportunistic
+// learning under steady-state homelab load stops happening. Keep
+// this separate from the at-least-as-loose check so the failure
+// message is specific.
+func TestLookupSoftIdleThresholds_PureServerClassesAreStrictlyLooserThanLaptop(t *testing.T) {
+	laptop := LookupSoftIdleThresholds(sysclass.ClassLaptop)
+	for _, cls := range []sysclass.SystemClass{
+		sysclass.ClassServer,
+		sysclass.ClassNASHDD,
+	} {
+		thr := LookupSoftIdleThresholds(cls)
 		if thr.PSICpuAvg60 <= laptop.PSICpuAvg60 {
 			t.Errorf("%v: PSICpuAvg60=%v must be > laptop %v "+
-				"(homelab classes need looser thresholds)",
+				"(headless classes need strictly looser PSI to admit during steady-state services)",
 				cls, thr.PSICpuAvg60, laptop.PSICpuAvg60)
 		}
 	}
