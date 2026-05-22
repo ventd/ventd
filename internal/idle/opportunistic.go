@@ -161,8 +161,12 @@ func softOpportunisticGate(ctx context.Context, cfg OpportunisticGateConfig) (bo
 
 	// Hard preconditions are evaluated first because they're the
 	// cheapest-to-observe refusal reason (RULE-OPP-IDLE-04
-	// inheritance).
-	pre := CheckHardPreconditions(gateCfg.ProcRoot, gateCfg.SysRoot, gateCfg.AllowOverride)
+	// inheritance). The blocked-process check is skipped here and
+	// re-evaluated below via evalBlockedProcesses so soft mode can
+	// apply the per-tick ProcessBaseline tolerance — steady-state
+	// homelab workloads (Plex transcoding, always-on backup daemons)
+	// are tolerated, only NEW blocked-listed processes refuse.
+	pre := checkHardPreconditionsSkipBlocked(gateCfg.ProcRoot, gateCfg.SysRoot, gateCfg.AllowOverride)
 	if r := pre.Reason(); r != ReasonOK {
 		return false, r, nil
 	}
