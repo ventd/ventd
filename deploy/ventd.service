@@ -176,7 +176,14 @@ RemoveIPC=yes
 ProtectHostname=yes
 ProtectClock=yes
 ProtectProc=invisible
-ProcSubset=pid
+# ProcSubset=pid is intentionally NOT set. The opportunistic-probe idle
+# gate (RULE-OPP-IDLE-02) reads /proc/interrupts to detect input-IRQ
+# activity since the previous tick; the PSI predicate reads
+# /proc/pressure/*; the loadavg fallback reads /proc/loadavg. With
+# ProcSubset=pid set, the daemon's mount namespace hides everything in
+# /proc except per-PID directories, ReadIRQCounters fails with ENOENT,
+# and softOpportunisticGate refuses every tick with
+# proc_interrupts_unreadable — opportunistic probing never runs.
 UMask=0077
 
 [Install]
