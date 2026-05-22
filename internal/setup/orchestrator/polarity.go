@@ -160,9 +160,14 @@ func (p PolarityPhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 			break // ctx cancellation truncated the results slice
 		}
 		switch art.Results[i].Polarity {
-		case "normal":
+		case polarity.PolarityNormal, polarity.PolarityProbational:
+			// CalibratePhase will assert pwm_enable on these within
+			// seconds. Probational channels go through the calibrate
+			// sweep just like normal fans — the EC-cold reclassification
+			// only affects the apply-phase admission rules, not the
+			// downstream phase chain.
 			continue
-		case "inverted", "phantom", "unknown":
+		case polarity.PolarityInverted, polarity.PolarityPhantom, polarity.PolarityUnknown:
 			// fall through to restore.
 		default:
 			continue
@@ -212,10 +217,11 @@ func (p PolarityPhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 
 	rc.Log().Info("polarity phase complete",
 		"total", len(art.Results),
-		"normal", countPolarity(art, "normal"),
-		"inverted", countPolarity(art, "inverted"),
-		"phantom", countPolarity(art, "phantom"),
-		"unknown", countPolarity(art, "unknown"),
+		"normal", countPolarity(art, polarity.PolarityNormal),
+		"inverted", countPolarity(art, polarity.PolarityInverted),
+		"phantom", countPolarity(art, polarity.PolarityPhantom),
+		"probational", countPolarity(art, polarity.PolarityProbational),
+		"unknown", countPolarity(art, polarity.PolarityUnknown),
 		"pwm_enable_restored", enableRestored)
 
 	return Outcome{Status: StatusSuccess, Artifact: raw}

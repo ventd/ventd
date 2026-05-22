@@ -530,6 +530,191 @@ func TestPolarityRules(t *testing.T) {
 		}
 	})
 
+	// RULE-POLARITY-14: backends whose write surface is monotonic by
+	// construction (dell_smm SMM I8K_SET_FAN, thinkpad fan_target enum)
+	// MUST short-circuit the bipolar probe — no writes, no sleeps,
+	// verdict locked to "normal" with reason=monotonic_by_construction.
+	// Probing these chips at idle thermals on a cold-EC laptop is what
+	// produced the false-phantom verdicts the wizard reported as
+	// "monitor-only" with zero context on first-boot Dell SMM machines.
+	t.Run("RULE-POLARITY-14_monotonic_backend_skips_probe", func(t *testing.T) {
+		// Monotonic-by-construction backends short-circuit the bipolar
+		// probe. The resulting polarity verdict depends on whether the
+		// same backend also has EcCanThermalVeto set:
+		//
+		//   - monotonic only (thinkpad)  → PolarityNormal: the chip's
+		//     API guarantees a working write surface AND the EC will
+		//     honour writes immediately (no thermal-floor gate).
+		//   - monotonic + EC veto (dell_smm) → PolarityProbational:
+		//     the chip's API guarantees direction, but the EC may
+		//     decline manual writes at idle thermals. Apply phase
+		//     admits the channel with safe defaults; the runtime
+		//     closed-loop recovers once thermals rise. Without this,
+		//     dell_smm hosts dropped to monitor-only on cold boot
+		//     even though the channel was structurally controllable.
+		cases := []struct {
+			name       string
+			driver     string
+			wantPol    string
+			expectVeto bool
+		}{
+			{"dell_smm_monotonic_plus_veto", "dell_smm", polarity.PolarityProbational, true},
+			{"thinkpad_monotonic_only", "thinkpad", polarity.PolarityNormal, false},
+			{"thinkpad_acpi_legacy_name", "thinkpad_acpi", polarity.PolarityNormal, false},
+		}
+		for _, tc := range cases {
+			tc := tc
+			t.Run(tc.name, func(t *testing.T) {
+				// Empty RPM sequence: the probe MUST NOT read tach if it's
+				// short-circuiting correctly. Any tach read would either
+				// fail or surface as a zero-delta phantom — both visible
+				// here as a test failure.
+				fake := fixtures.NewFakeHwmon(64, []int{})
+				p := fixtures.HwmonProberFromFake(fake)
+				ch := &probe.ControllableChannel{
+					SourceID: "hwmon3",
+					PWMPath:  "/sys/pwm1",
+					TachPath: "/sys/fan1_input",
+					Driver:   tc.driver,
+					Polarity: "unknown",
+				}
+				res, err := p.ProbeChannel(context.Background(), ch)
+				if err != nil {
+					t.Fatalf("ProbeChannel: %v", err)
+				}
+				if res.Polarity != tc.wantPol {
+					t.Errorf("driver=%q Polarity = %q, want %q",
+						tc.driver, res.Polarity, tc.wantPol)
+				}
+				if res.PhantomReason != polarity.PhantomReasonMonotonicByConstruction {
+					t.Errorf("driver=%q PhantomReason = %q, want %q",
+						tc.driver, res.PhantomReason, polarity.PhantomReasonMonotonicByConstruction)
+				}
+				if got := len(fake.Writes()); got != 0 {
+					t.Errorf("driver=%q expected zero writes (probe should short-circuit), got %d writes: %v",
+						tc.driver, got, fake.Writes())
+				}
+				// Cross-check the caps table directly so the table
+				// invariant ("dell_smm has both, thinkpad only has
+				// monotonic") is wired through and locked in by the
+				// short-circuit path.
+				caps := polarity.CapsForDriver(tc.driver)
+				if caps.EcCanThermalVeto != tc.expectVeto {
+					t.Errorf("driver=%q EcCanThermalVeto = %v, want %v",
+						tc.driver, caps.EcCanThermalVeto, tc.expectVeto)
+				}
+			})
+		}
+	})
+
+	// RULE-POLARITY-15: a no-response probe outcome on a backend whose EC
+	// is known to thermally veto manual writes (BackendCaps.EcCanThermalVeto)
+	// MUST be classified as PolarityProbational + PhantomReasonColdECSuspected,
+	// NOT terminal phantom. ApplyPhase will admit the channel with safe
+	// defaults so the wizard delivers active control instead of falling
+	// back to monitor-only on cold-boot Dell SMM hosts.
+	t.Run("RULE-POLARITY-15_probational_classification", func(t *testing.T) {
+		t.Run("write_pwm_passes_through_unchanged", func(t *testing.T) {
+			ch := &probe.ControllableChannel{
+				Polarity:      polarity.PolarityProbational,
+				PhantomReason: polarity.PhantomReasonColdECSuspected,
+			}
+			if !polarity.IsControllable(ch) {
+				t.Error("IsControllable(probational) = false; want true")
+			}
+			var captured uint8
+			err := polarity.WritePWM(ch, 128, func(v uint8) error { captured = v; return nil })
+			if err != nil {
+				t.Fatalf("WritePWM(probational, 128): unexpected err: %v", err)
+			}
+			if captured != 128 {
+				t.Errorf("WritePWM(probational) sent %d to backend; want 128 (no inversion)", captured)
+			}
+		})
+
+		t.Run("no_response_on_ec_veto_backend_emits_probational", func(t *testing.T) {
+			// rpmSeq [0, 0] mimics the cold-EC Dell SMM scenario:
+			// the bipolar pulse writes LOW then HIGH, the EC ignores
+			// both (chassis below the firmware fan-on threshold), the
+			// tach reads 0 RPM on both pulses → ΔRPM = 0. Without the
+			// EcCanThermalVeto override this would lock as phantom.
+			fake := fixtures.NewFakeHwmon(64, []int{0, 0})
+			p := fixtures.HwmonProberFromFake(fake)
+			// Inject caps that flag the synthetic driver as
+			// EcCanThermalVeto but NOT MonotonicByConstruction, so the
+			// bipolar pulse path runs and the no-response branch fires.
+			p.Caps = func(string) polarity.BackendCaps {
+				return polarity.BackendCaps{EcCanThermalVeto: true}
+			}
+			ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+			ch.Driver = "synthetic_ec_veto"
+			res, err := p.ProbeChannel(context.Background(), ch)
+			if err != nil {
+				t.Fatalf("ProbeChannel: %v", err)
+			}
+			if res.Polarity != polarity.PolarityProbational {
+				t.Errorf("Polarity = %q; want %q (delta=%.0f)",
+					res.Polarity, polarity.PolarityProbational, res.Delta)
+			}
+			if res.PhantomReason != polarity.PhantomReasonColdECSuspected {
+				t.Errorf("PhantomReason = %q; want %q",
+					res.PhantomReason, polarity.PhantomReasonColdECSuspected)
+			}
+		})
+
+		t.Run("no_response_on_non_veto_backend_stays_phantom", func(t *testing.T) {
+			// Without the EcCanThermalVeto cap, the no-response branch
+			// must still emit terminal phantom — protects against
+			// regressing the NCT6687 / generic-SuperIO behaviour.
+			fake := fixtures.NewFakeHwmon(64, []int{0, 0})
+			p := fixtures.HwmonProberFromFake(fake)
+			ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+			res, err := p.ProbeChannel(context.Background(), ch)
+			if err != nil {
+				t.Fatalf("ProbeChannel: %v", err)
+			}
+			if res.Polarity != polarity.PolarityPhantom {
+				t.Errorf("Polarity = %q; want %q (no veto cap → terminal phantom)",
+					res.Polarity, polarity.PolarityPhantom)
+			}
+			if res.PhantomReason != polarity.PhantomReasonNoResponse {
+				t.Errorf("PhantomReason = %q; want %q",
+					res.PhantomReason, polarity.PhantomReasonNoResponse)
+			}
+		})
+	})
+
+	// RULE-POLARITY-16: CapsForDriver static lookup must keep the
+	// dell_smm and thinkpad entries hot — the WebUI calibration page
+	// renders the Provisional pill and "EC cold" copy on the strength
+	// of probational verdicts, and a regression that drops dell_smm
+	// from the table would silently disable that surface.
+	t.Run("RULE-POLARITY-16_caps_table_anchors", func(t *testing.T) {
+		dell := polarity.CapsForDriver("dell_smm")
+		if !dell.MonotonicByConstruction {
+			t.Error("dell_smm MonotonicByConstruction = false; want true")
+		}
+		if !dell.EcCanThermalVeto {
+			t.Error("dell_smm EcCanThermalVeto = false; want true")
+		}
+		tp := polarity.CapsForDriver("thinkpad")
+		if !tp.MonotonicByConstruction {
+			t.Error("thinkpad MonotonicByConstruction = false; want true")
+		}
+		tpAcpi := polarity.CapsForDriver("thinkpad_acpi")
+		if !tpAcpi.MonotonicByConstruction {
+			t.Error("thinkpad_acpi MonotonicByConstruction = false; want true (legacy hwmon name)")
+		}
+		generic := polarity.CapsForDriver("nct6775")
+		if generic.MonotonicByConstruction || generic.EcCanThermalVeto {
+			t.Errorf("generic chip caps non-zero: %+v; want zero value", generic)
+		}
+		empty := polarity.CapsForDriver("")
+		if empty.MonotonicByConstruction || empty.EcCanThermalVeto {
+			t.Errorf("empty driver caps non-zero: %+v", empty)
+		}
+	})
+
 	// RULE-POLARITY-10: phantom channels MUST NOT be writable via WritePWM.
 	// Control loop must treat phantom channels as monitor-only across all backends.
 	t.Run("RULE-POLARITY-10_phantom_not_writable", func(t *testing.T) {

@@ -335,9 +335,17 @@
   }
 
   function fanState(f) {
-    // Map backend cal_phase + detect/polarity into UI strip state
+    // Map backend cal_phase + detect/polarity into UI strip state.
+    // polarity_phase === 'probational' is treated as ACTIVE control:
+    // the channel is in the applied config with conservative defaults,
+    // ventd writes are accepted, and the firmware EC will start
+    // honouring them once the chassis warms past its internal fan-on
+    // threshold (the cold-EC backends — today dell_smm — surface this
+    // state when the polarity probe got ΔRPM≈0 from an EC that was
+    // refusing to spin the fan at idle temperature).
     if (f.cal_phase === 'calibrating') return 'active';
     if (f.cal_phase === 'done')        return 'done';
+    if (f.polarity_phase === 'probational') return 'provisional';
     if (f.cal_phase === 'skipped')     return 'pending';
     if (f.cal_phase === 'error')       return 'pending';
     if (f.detect_phase === 'none')     return 'dropped';
@@ -348,6 +356,14 @@
   function pillFor(f) {
     if (f.cal_phase === 'calibrating') return { cls: 'active',  label: 'Sweeping' };
     if (f.cal_phase === 'done')        return { cls: 'done',    label: 'Locked' };
+    // Probational outranks cal_phase=skipped: when polarity probe lands
+    // on a cold-EC backend and calibrate's sweep also sees zero RPM,
+    // ApplyPhase overrules the calibrate-phantom verdict and admits the
+    // fan with safe defaults. The UI must reflect that the channel IS
+    // under ventd's control — the runtime closed-loop just hasn't
+    // measured a real curve yet.
+    if (f.polarity_phase === 'probational')
+      return { cls: 'provisional', label: 'Provisional' };
     if (f.cal_phase === 'skipped')     return { cls: 'dropped', label: 'Skipped' };
     if (f.cal_phase === 'error')       return { cls: 'dropped', label: 'Error' };
     if (f.detect_phase === 'none')     return { cls: 'dropped', label: 'No tach' };
@@ -374,6 +390,8 @@
       return 'settle · solving slope';
     }
     if (f.cal_phase === 'error')    return f.error || 'error';
+    if (f.polarity_phase === 'probational')
+      return 'EC cold during probe · control enabled · verifies under load';
     if (f.cal_phase === 'skipped')  return 'no usable PWM range';
     if (f.detect_phase === 'none')  return 'no tach signal';
     if (f.polarity_phase === 'phantom') return 'no fan reacts';
@@ -541,15 +559,19 @@
       !!pr.gpu_model);
 
     var fans = p.fans || [];
-    var paired = 0, total = fans.length, dropped = 0;
+    var paired = 0, total = fans.length, dropped = 0, provisional = 0;
     for (var i = 0; i < fans.length; i++) {
       if (fans[i].detect_phase === 'found' || fans[i].detect_phase === 'n/a') paired++;
-      if (fans[i].detect_phase === 'none' || fans[i].polarity_phase === 'phantom') dropped++;
+      if (fans[i].polarity_phase === 'probational') provisional++;
+      else if (fans[i].detect_phase === 'none' || fans[i].polarity_phase === 'phantom') dropped++;
     }
     var fansHTML;
     if (total === 0) fansHTML = '<span class="dim">scanning…</span>';
-    else fansHTML = '<span class="mono">' + paired + '</span><span class="dim"> of </span><span class="mono">' + total + '</span>'
-        + (dropped > 0 ? ' <span class="v2-pill warn">' + dropped + ' dropped</span>' : '');
+    else {
+      fansHTML = '<span class="mono">' + paired + '</span><span class="dim"> of </span><span class="mono">' + total + '</span>';
+      if (provisional > 0) fansHTML += ' <span class="v2-pill warn">' + provisional + ' provisional</span>';
+      if (dropped > 0) fansHTML += ' <span class="v2-pill warn">' + dropped + ' dropped</span>';
+    }
     setSysRow(els.sysRowFans, els.sysFans, fansHTML, total > 0);
 
     setSysRow(els.sysRowTachs, els.sysTachs,
@@ -970,11 +992,40 @@
 
     if (p.done && !p.error && !p.applied) {
       els.doneBanner.hidden = false;
-      var summaryFans = (p.fans || []).filter(function (f) { return f.cal_phase === 'done'; }).length;
-      if (els.doneTitle) els.doneTitle.textContent = summaryFans + ' fans calibrated · curve ready in ' + (els.elapsed ? els.elapsed.textContent : '—');
-      if (els.doneSub) els.doneSub.textContent = 'Calibrated ' + summaryFans + ' fan'
-        + (summaryFans === 1 ? '' : 's')
-        + '. Apply to take over from firmware control and start using your custom curve.';
+      var allFans = p.fans || [];
+      var summaryFans = allFans.filter(function (f) { return f.cal_phase === 'done'; }).length;
+      var provisionalFans = allFans.filter(function (f) { return f.polarity_phase === 'probational'; }).length;
+      // Two outcomes land here:
+      //   1. Normal happy path — N fans calibrated, curve ready.
+      //   2. Cold-EC path — 0 fans calibrated by the sweep but M
+      //      admitted with polarity=probational. The user still gets
+      //      active control once thermals rise; the wizard must say
+      //      so explicitly instead of silently presenting "0 fans
+      //      calibrated" with no context (which was the symptom on
+      //      cold-boot Dell SMM laptops before this change).
+      var elapsedTxt = els.elapsed ? els.elapsed.textContent : '—';
+      if (provisionalFans > 0 && summaryFans === 0) {
+        if (els.doneTitle) els.doneTitle.textContent =
+          provisionalFans + ' fan' + (provisionalFans === 1 ? '' : 's')
+          + ' admitted as provisional · control enabled';
+        if (els.doneSub) els.doneSub.textContent =
+          'The embedded controller wouldn’t spin the fan at idle temperature, so the wizard couldn’t measure a curve — but the channel is structurally controllable. Apply to take over from firmware control; ventd will verify the polarity automatically once the chassis warms.';
+      } else if (provisionalFans > 0) {
+        if (els.doneTitle) els.doneTitle.textContent =
+          summaryFans + ' fan' + (summaryFans === 1 ? '' : 's')
+          + ' calibrated · ' + provisionalFans + ' provisional · curve ready in ' + elapsedTxt;
+        if (els.doneSub) els.doneSub.textContent =
+          'Calibrated ' + summaryFans + ' fan' + (summaryFans === 1 ? '' : 's')
+          + '. ' + provisionalFans + ' channel'
+          + (provisionalFans === 1 ? ' was' : 's were')
+          + ' admitted as provisional — the EC was cold during the probe; ventd will verify them once thermals rise. Apply to take over from firmware control.';
+      } else {
+        if (els.doneTitle) els.doneTitle.textContent =
+          summaryFans + ' fans calibrated · curve ready in ' + elapsedTxt;
+        if (els.doneSub) els.doneSub.textContent =
+          'Calibrated ' + summaryFans + ' fan' + (summaryFans === 1 ? '' : 's')
+          + '. Apply to take over from firmware control and start using your custom curve.';
+      }
     } else if (p.applied) {
       els.doneBanner.hidden = false;
       if (els.doneSub) els.doneSub.textContent = 'Restarting daemon — this page will reload.';
@@ -1316,6 +1367,11 @@
     { id: 'pwm7',  name: 'AIO pump',        path: 'hwmon/pwm7',  kind: 'pump' },
     { id: 'pwm8',  name: 'AIO fan 1',       path: 'hwmon/pwm8',  kind: 'fan' },
     { id: 'pwm9',  name: 'AIO fan 2',       path: 'hwmon/pwm9',  kind: 'fan', drops: true },
+    // Probational demo fan — exercises the cold-EC presentation
+    // (amber pill, "EC cold during probe · control enabled · verifies
+    // under load" message). Kept in the default demo so design review
+    // and screenshot runs cover the state without a special flag.
+    { id: 'pwm11', name: 'Laptop chassis',  path: 'hwmon/pwm11', kind: 'fan', provisional: true },
     { id: 'pwm10', name: 'GPU side',        path: 'hwmon/pwm10', kind: 'fan' }
   ];
   var FAN_RESULTS = {
@@ -1372,6 +1428,18 @@
         else if (t < T.scanning_fans[0] + 2400) fs.detect_phase = 'detecting';
         else                            fs.detect_phase = 'none';
         fs.cal_phase = 'pending';
+        return fs;
+      }
+      // probational fan: tach pairs cleanly, polarity probe returns
+      // probational (cold-EC backend), calibrate sweep doesn't lock a
+      // curve. The fan still rides through to the "applied" state with
+      // safe defaults; the UI surfaces the amber Provisional pill.
+      if (f.provisional) {
+        fs.detect_phase = t < T.scanning_fans[1] ? 'detecting' : 'found';
+        if (t < T.probing_polarity[0]) fs.polarity_phase = 'pending';
+        else if (t < T.probing_polarity[1]) fs.polarity_phase = 'testing';
+        else fs.polarity_phase = 'probational';
+        fs.cal_phase = t < T.calibrating[0] ? 'pending' : 'skipped';
         return fs;
       }
 

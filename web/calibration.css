@@ -495,6 +495,15 @@ body.cal-body {
   background: rgba(var(--rgb-red), 0.05);
   border-color: rgba(var(--rgb-red), 0.25);
 }
+/* Probational: polarity probe returned no_response on a backend whose
+ * EC is known to veto manual writes at idle thermals (dell_smm et al).
+ * The channel is in the applied config; the wizard surfaces it as
+ * provisional rather than dropped so operators understand control is
+ * still active. Amber = "watch this", not "broken". */
+.v2-strip[data-state="provisional"] {
+  background: rgba(var(--rgb-amber), 0.06);
+  border-color: rgba(var(--rgb-amber), 0.35);
+}
 
 .v2-strip-icon {
   width: 36px; height: 36px;
@@ -622,6 +631,17 @@ body.cal-body {
 .v2-strip-pill.done    { background: rgba(var(--rgb-teal), 0.18); color: var(--teal); }
 .v2-strip-pill.queued  { background: var(--bg3); color: var(--fg3); }
 .v2-strip-pill.dropped { background: rgba(var(--rgb-red), 0.18); color: var(--red); }
+.v2-strip-pill.provisional {
+  background: rgba(var(--rgb-amber), 0.18);
+  color: var(--amber);
+}
+.v2-strip-pill.provisional::before { animation: v2-pulse-dot 2.4s ease-in-out infinite; }
+.v2-strip[data-state="provisional"] .v2-strip-icon {
+  background: rgba(var(--rgb-amber), 0.14);
+  border-color: rgba(var(--rgb-amber), 0.45);
+  color: var(--amber);
+}
+.v2-strip[data-state="provisional"] .v2-strip-msg { color: var(--amber); }
 .v2-strip-msg {
   font-family: var(--font-mono);
   font-size: 0.66rem; color: var(--fg3);

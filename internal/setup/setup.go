@@ -40,7 +40,7 @@ type FanState struct {
 	RPMPath       string `json:"rpm_path,omitempty"`
 	ControlKind   string `json:"control_kind,omitempty"`   // "rpm_target" for fan*_target channels
 	DetectPhase   string `json:"detect_phase"`             // "pending","detecting","found","none","n/a"
-	PolarityPhase string `json:"polarity_phase,omitempty"` // "pending","testing","normal","inverted","phantom"
+	PolarityPhase string `json:"polarity_phase,omitempty"` // "pending","testing","normal","inverted","phantom","probational"
 	CalPhase      string `json:"cal_phase"`                // "pending","calibrating","done","skipped","error"
 	StartPWM      uint8  `json:"start_pwm,omitempty"`
 	StopPWM       uint8  `json:"stop_pwm,omitempty"`
