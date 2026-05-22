@@ -438,6 +438,38 @@ func buildConfig(
 			}
 		}
 
+		// #759 mode-mismatch: the calibrate sweep flagged a flat
+		// PWM→RPM curve, the most common cause of which is a 3-pin
+		// (voltage-controlled) fan plugged into a header set to PWM
+		// mode in BIOS. The chip emits a fixed-width PWM pulse that
+		// the fan converts into a constant DC drive, so RPM never
+		// moves. ApplyPhase excludes such fans from active control
+		// and surfaces a BIOS-action-required reason via the
+		// uncontrollable slice — the doctor page + dashboard banner
+		// (#757) consume that to render the per-header BIOS path.
+		//
+		// Self-heal (writing pwmN_mode=0 on drivers that expose a
+		// writable mode attribute, e.g. nct6775) is the load-bearing
+		// follow-up; this PR surfaces the verdict so a user no
+		// longer sees a fan silently fail control. The driver-side
+		// PWMModeWritable flag will route the eventual self-heal
+		// path; for now the verdict is recorded as
+		// "mode_mismatch_suspected" with the qualitative evidence
+		// the detector chose. (#759.)
+		if cal, ok := calByPath[fan.PWMPath]; ok && cal.ModeMismatchSuspected {
+			reason := "mode_mismatch_suspected"
+			if cal.ModeMismatchEvidence != "" {
+				reason = "mode_mismatch_suspected:" + cal.ModeMismatchEvidence
+			}
+			uncontrollable = append(uncontrollable, UncontrollableFan{
+				PWMPath:  fan.PWMPath,
+				Label:    fan.LabelHint,
+				ChipName: fan.ChipName,
+				Reason:   reason,
+			})
+			continue
+		}
+
 		minPWM := uint8(80)
 		if cal, ok := calByPath[fan.PWMPath]; ok && cal.StartPWM > 0 {
 			minPWM = cal.StartPWM

@@ -19,4 +19,5 @@ driver_profiles:
     exit_behaviour: "bios_dependent"
     runtime_conflict_detection_supported: false
     firmware_curve_offload_override: false
+    pwm_mode_writable: false
     citations: []
