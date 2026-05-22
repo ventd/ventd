@@ -193,6 +193,10 @@ func (p *Prober) runProbeC(ctx context.Context, ch *probe.ControllableChannel, c
 
 	prevTemps, _ := p.sensorFn(ctx)
 	stepStart := time.Now()
+	// One slope-abort gate per probe run; survives across PWM steps
+	// so a sustained ramp seen near a step boundary still counts the
+	// consecutive over-threshold samples toward the abort.
+	var slopeGate SlopeAbortGate
 
 	for i := startStep; i < len(thr.PWMSteps); i++ {
 		step := thr.PWMSteps[i]
@@ -264,7 +268,7 @@ func (p *Prober) runProbeC(ctx context.Context, ch *probe.ControllableChannel, c
 				curTemps, _ := p.sensorFn(ctx)
 				curRPM, _ := p.rpmFn(ctx)
 				dt := now.Sub(stepStart)
-				if thermalAbort(curTemps, prevTemps, dt, thr) {
+				if slopeGate.ShouldAbort(curTemps, prevTemps, dt, thr) {
 					aborted = true
 					abortReason = "dTdt_exceeded"
 					break holdLoop
