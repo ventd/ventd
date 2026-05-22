@@ -40,10 +40,16 @@ type SlopeAbortGate struct {
 	consec      int
 }
 
-// ShouldAbort returns true when Consecutive samples in a row have
-// shown an over-threshold dT/dt rate. Any under-threshold sample
-// resets the counter, so spike-then-recover noise never accumulates
-// toward an abort.
+// ShouldAbort returns true when N consecutive samples have shown an
+// over-threshold dT/dt rate. Any under-threshold sample resets the
+// counter, so spike-then-recover noise never accumulates toward an
+// abort. N selection priority:
+//  1. gate.Consecutive (explicit caller override, tests)
+//  2. thr.SlopeAbortConsecutive (per-class, populated by
+//     LookupThresholds for the detected sysclass — laptops 3,
+//     HEDT 6, server 8, etc.)
+//  3. DefaultSlopeAbortConsecutive (fallback for callers that
+//     hand-build a Thresholds without setting the field)
 func (g *SlopeAbortGate) ShouldAbort(cur, prev map[string]float64, dt time.Duration, thr Thresholds) bool {
 	if !thermalAbort(cur, prev, dt, thr) {
 		g.consec = 0
@@ -51,6 +57,9 @@ func (g *SlopeAbortGate) ShouldAbort(cur, prev map[string]float64, dt time.Durat
 	}
 	g.consec++
 	n := g.Consecutive
+	if n <= 0 {
+		n = thr.SlopeAbortConsecutive
+	}
 	if n <= 0 {
 		n = DefaultSlopeAbortConsecutive
 	}

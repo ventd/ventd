@@ -32,68 +32,87 @@ type Thresholds struct {
 	BMCGated bool
 	// ECHandshakeRequired: must confirm EC responsiveness before probing.
 	ECHandshakeRequired bool
+	// SlopeAbortConsecutive is the number of consecutive over-
+	// threshold dT/dt samples SlopeAbortGate requires before
+	// aborting. Tightens the noise filter for classes with more
+	// thermal mass (HEDT, server) where a brief workload-burst
+	// ramp during a probe can be safely ridden out without the
+	// abort firing — they have the heatsink and airflow to absorb
+	// it. Tighter values (e.g. 3 for laptop) match small thermal
+	// envelopes where any sustained rise IS dangerous. Zero falls
+	// through to DefaultSlopeAbortConsecutive in the envelope
+	// package — preserves legacy behaviour for any caller that
+	// constructs Thresholds by hand and forgets to set this.
+	SlopeAbortConsecutive int
 }
 
 // classThresholds maps each SystemClass to its probe parameters.
 // ClassUnknown falls through to ClassMidDesktop (safe consumer default).
 var classThresholds = map[sysclass.SystemClass]Thresholds{
 	sysclass.ClassHEDTAir: {
-		DTDtAbortCPerSec:     2.0,
-		TAbsOffsetBelowTjmax: 15.0,
-		AmbientHeadroomMin:   60.0,
-		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		Hold:                 30 * time.Second,
-		SampleHz:             10,
+		DTDtAbortCPerSec:      2.0,
+		TAbsOffsetBelowTjmax:  15.0,
+		AmbientHeadroomMin:    60.0,
+		PWMSteps:              []uint8{180, 140, 110, 90, 70, 55, 40},
+		Hold:                  30 * time.Second,
+		SampleHz:              10,
+		SlopeAbortConsecutive: 6, // large heatsink + airflow rides out brief workload ramps
 	},
 	sysclass.ClassHEDTAIO: {
-		DTDtAbortCPerSec:     1.5,
-		TAbsOffsetBelowTjmax: 15.0,
-		AmbientHeadroomMin:   60.0,
-		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		Hold:                 45 * time.Second,
-		SampleHz:             10,
+		DTDtAbortCPerSec:      1.5,
+		TAbsOffsetBelowTjmax:  15.0,
+		AmbientHeadroomMin:    60.0,
+		PWMSteps:              []uint8{180, 140, 110, 90, 70, 55, 40},
+		Hold:                  45 * time.Second,
+		SampleHz:              10,
+		SlopeAbortConsecutive: 6, // liquid loop, similar thermal mass to air HEDT
 	},
 	sysclass.ClassMidDesktop: {
-		DTDtAbortCPerSec:     1.5,
-		TAbsOffsetBelowTjmax: 12.0,
-		AmbientHeadroomMin:   55.0,
-		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		Hold:                 30 * time.Second,
-		SampleHz:             10,
+		DTDtAbortCPerSec:      1.5,
+		TAbsOffsetBelowTjmax:  12.0,
+		AmbientHeadroomMin:    55.0,
+		PWMSteps:              []uint8{180, 140, 110, 90, 70, 55, 40},
+		Hold:                  30 * time.Second,
+		SampleHz:              10,
+		SlopeAbortConsecutive: 4, // workstation, moderate thermal mass
 	},
 	sysclass.ClassServer: {
-		DTDtAbortCPerSec:     1.0,
-		TAbsOffsetBelowTjmax: 20.0,
-		AmbientHeadroomMin:   50.0,
-		PWMSteps:             []uint8{200, 170, 140, 120, 100},
-		Hold:                 30 * time.Second,
-		SampleHz:             10,
-		BMCGated:             true,
+		DTDtAbortCPerSec:      1.0,
+		TAbsOffsetBelowTjmax:  20.0,
+		AmbientHeadroomMin:    50.0,
+		PWMSteps:              []uint8{200, 170, 140, 120, 100},
+		Hold:                  30 * time.Second,
+		SampleHz:              10,
+		BMCGated:              true,
+		SlopeAbortConsecutive: 8, // chassis air + thermal mass + steady-state workload expected
 	},
 	sysclass.ClassLaptop: {
-		DTDtAbortCPerSec:     2.0,
-		TAbsOffsetBelowTjmax: 15.0,
-		AmbientHeadroomMin:   55.0,
-		PWMSteps:             []uint8{180, 140, 110, 90, 70, 55, 40},
-		Hold:                 30 * time.Second,
-		SampleHz:             10,
-		ECHandshakeRequired:  true,
+		DTDtAbortCPerSec:      2.0,
+		TAbsOffsetBelowTjmax:  15.0,
+		AmbientHeadroomMin:    55.0,
+		PWMSteps:              []uint8{180, 140, 110, 90, 70, 55, 40},
+		Hold:                  30 * time.Second,
+		SampleHz:              10,
+		ECHandshakeRequired:   true,
+		SlopeAbortConsecutive: 3, // small envelope; any sustained rise IS dangerous
 	},
 	sysclass.ClassMiniPC: {
-		DTDtAbortCPerSec:     1.0,
-		TAbsOffsetBelowTjmax: 20.0,
-		AmbientHeadroomMin:   55.0,
-		PWMSteps:             []uint8{180, 140, 110, 90, 70},
-		Hold:                 30 * time.Second,
-		SampleHz:             10,
+		DTDtAbortCPerSec:      1.0,
+		TAbsOffsetBelowTjmax:  20.0,
+		AmbientHeadroomMin:    55.0,
+		PWMSteps:              []uint8{180, 140, 110, 90, 70},
+		Hold:                  30 * time.Second,
+		SampleHz:              10,
+		SlopeAbortConsecutive: 4, // small box, modest heatsink
 	},
 	sysclass.ClassNASHDD: {
-		DTDtAbortCPerMin: 1.0,
-		DTDtWindow:       5 * time.Minute,
-		TAbsAbsolute:     50.0,
-		PWMSteps:         []uint8{200, 170, 140, 120, 100},
-		Hold:             5 * time.Minute,
-		SampleHz:         1,
+		DTDtAbortCPerMin:      1.0,
+		DTDtWindow:            5 * time.Minute,
+		TAbsAbsolute:          50.0,
+		PWMSteps:              []uint8{200, 170, 140, 120, 100},
+		Hold:                  5 * time.Minute,
+		SampleHz:              1,
+		SlopeAbortConsecutive: 5, // 1 Hz sample rate; 5 = 5 s of sustained rise
 	},
 }
 

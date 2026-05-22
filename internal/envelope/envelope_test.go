@@ -206,12 +206,79 @@ func TestRULE_ENVELOPE_03_ClassThresholdLookup(t *testing.T) {
 		if thr.Hold == 0 {
 			t.Errorf("class %v: Hold is 0", cls)
 		}
+		if thr.SlopeAbortConsecutive <= 0 {
+			t.Errorf("class %v: SlopeAbortConsecutive must be populated per class "+
+				"(zero would fall through to DefaultSlopeAbortConsecutive and lose "+
+				"per-class calibration)", cls)
+		}
 	}
 	// ClassUnknown must return MidDesktop thresholds.
 	unknown := LookupThresholds(sysclass.ClassUnknown)
 	mid := LookupThresholds(sysclass.ClassMidDesktop)
 	if unknown.DTDtAbortCPerSec != mid.DTDtAbortCPerSec {
 		t.Errorf("ClassUnknown DTDtAbortCPerSec %v != MidDesktop %v", unknown.DTDtAbortCPerSec, mid.DTDtAbortCPerSec)
+	}
+	if unknown.SlopeAbortConsecutive != mid.SlopeAbortConsecutive {
+		t.Errorf("ClassUnknown SlopeAbortConsecutive %v != MidDesktop %v",
+			unknown.SlopeAbortConsecutive, mid.SlopeAbortConsecutive)
+	}
+}
+
+// TestSlopeAbortConsecutive_HEDTServerLooserThanLaptop is the
+// calibration guardrail: classes with more thermal mass (HEDT,
+// server) MUST require more consecutive over-threshold samples
+// before aborting than the laptop class. The reverse ordering
+// would mean a big homelab box aborts faster than a Latitude under
+// the same workload — the opposite of what physics says.
+func TestSlopeAbortConsecutive_HEDTServerLooserThanLaptop(t *testing.T) {
+	laptop := LookupThresholds(sysclass.ClassLaptop).SlopeAbortConsecutive
+	for _, cls := range []sysclass.SystemClass{
+		sysclass.ClassHEDTAir,
+		sysclass.ClassHEDTAIO,
+		sysclass.ClassServer,
+	} {
+		n := LookupThresholds(cls).SlopeAbortConsecutive
+		if n <= laptop {
+			t.Errorf("%v: SlopeAbortConsecutive %d must be > laptop %d "+
+				"(more thermal mass → tolerate more consecutive over-threshold samples)",
+				cls, n, laptop)
+		}
+	}
+}
+
+// TestSlopeAbortGate_ReadsPerClassThreshold asserts ShouldAbort
+// honours thr.SlopeAbortConsecutive when gate.Consecutive is 0
+// (production case). A laptop with N=3 trips faster than a server
+// with N=8 given the same sustained ramp pattern.
+func TestSlopeAbortGate_ReadsPerClassThreshold(t *testing.T) {
+	prev := map[string]float64{"cpu": 50}
+	cur := map[string]float64{"cpu": 55} // 5°C delta
+	dt := 100 * time.Millisecond         // 50°C/s, well above any class threshold
+
+	laptopThr := LookupThresholds(sysclass.ClassLaptop)
+	var laptopGate SlopeAbortGate
+	for i := 0; i < laptopThr.SlopeAbortConsecutive-1; i++ {
+		if laptopGate.ShouldAbort(cur, prev, dt, laptopThr) {
+			t.Fatalf("laptop gate tripped prematurely at iteration %d (need %d consecutive)",
+				i+1, laptopThr.SlopeAbortConsecutive)
+		}
+	}
+	if !laptopGate.ShouldAbort(cur, prev, dt, laptopThr) {
+		t.Errorf("laptop gate didn't trip after %d consecutive over-threshold samples",
+			laptopThr.SlopeAbortConsecutive)
+	}
+
+	serverThr := LookupThresholds(sysclass.ClassServer)
+	var serverGate SlopeAbortGate
+	// At laptop's trip count, server gate must still tolerate (it has a
+	// higher threshold so the same number of consecutive over-threshold
+	// samples shouldn't trip it).
+	for i := 0; i < laptopThr.SlopeAbortConsecutive; i++ {
+		if serverGate.ShouldAbort(cur, prev, dt, serverThr) {
+			t.Fatalf("server gate tripped at iteration %d using laptop's "+
+				"%d-sample budget; should require %d", i+1,
+				laptopThr.SlopeAbortConsecutive, serverThr.SlopeAbortConsecutive)
+		}
 	}
 }
 
