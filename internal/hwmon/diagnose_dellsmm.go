@@ -3,6 +3,7 @@ package hwmon
 import (
 	"context"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -33,18 +34,30 @@ const MinDellSMMVentdFork = "7.0.0-ventd.3"
 //   - silent if the module isn't loaded (not a Dell, or driver absent —
 //     diagnose-hwmon will already have flagged "no PWM").
 func DiagnoseDellSMMVersion(logger *slog.Logger) {
-	diagnoseDellSMMVersion(logger, runModinfo)
+	diagnoseDellSMMVersion(logger, runModinfo, dellSMMModuleLoaded)
+}
+
+// dellSMMModuleLoaded reports whether dell_smm_hwmon is currently bound to
+// the running kernel. Used to disambiguate "module never loads on this box"
+// (silent skip) from "in-tree module is the loaded one" (actionable WARN).
+// Production callsite for the loadedFn injection in diagnoseDellSMMVersion.
+func dellSMMModuleLoaded() bool {
+	_, err := os.Stat("/sys/module/dell_smm_hwmon")
+	return err == nil
 }
 
 // diagnoseDellSMMVersion is the dependency-injected form. modinfoFn returns
-// the raw output bytes of `modinfo dell_smm_hwmon` (or an error). Tests pass
-// a fake; production uses runModinfo.
-func diagnoseDellSMMVersion(logger *slog.Logger, modinfoFn func(string) (string, error)) {
+// the raw output bytes of `modinfo dell_smm_hwmon` (or an error). loadedFn
+// reports whether the module is currently loaded. The loadedFn check gates
+// the "in-tree driver detected" WARN so non-Dell hosts that happen to ship
+// the .ko file don't generate spurious warnings. Tests pass fakes;
+// production uses runModinfo and dellSMMModuleLoaded.
+func diagnoseDellSMMVersion(logger *slog.Logger, modinfoFn func(string) (string, error), loadedFn func() bool) {
 	out, err := modinfoFn("dell_smm_hwmon")
 	if err != nil {
-		// Module not loaded or modinfo absent — not necessarily a problem.
-		// On non-Dell hosts this is the normal case. Log at DEBUG so the
-		// signal isn't lost but the noise stays low.
+		// Module file absent on disk and modinfo failed. On non-Dell hosts
+		// this is the normal case. Log at DEBUG so the signal isn't lost
+		// but the noise stays low.
 		logger.Debug("dell-smm: modinfo dell_smm_hwmon not available, skipping version check",
 			"err", err.Error())
 		return
@@ -52,7 +65,19 @@ func diagnoseDellSMMVersion(logger *slog.Logger, modinfoFn func(string) (string,
 
 	version := parseModinfoVersion(out)
 	if version == "" {
-		logger.Debug("dell-smm: modinfo emitted no `version:` line, skipping check")
+		// modinfo succeeded but emitted no `version:` line. The in-tree
+		// dell_smm_hwmon driver doesn't set MODULE_VERSION, so this is
+		// the signature of the in-tree driver. Only WARN if the module
+		// is actually loaded; non-Dell hosts can have the .ko file
+		// present without the module being bound (issue #1276).
+		if !loadedFn() {
+			logger.Debug("dell-smm: modinfo emitted no `version:` line and module not loaded, skipping check")
+			return
+		}
+		logger.Warn("dell-smm: in-tree driver loaded (no MODULE_VERSION); ventd fork v"+MinDellSMMVentdFork+" recommended",
+			"recommended", "v"+MinDellSMMVentdFork,
+			"why", "the in-tree driver isn't on i8k_whitelist_fan_control for many Dell models, so the BIOS thermal SMI clobbers manual PWM writes within ~1s. This causes a continuous ramp/stop fan loop while ventd's controller re-writes the value.",
+			"action", "install github.com/ventd/dell-smm-hwmon-dkms via `ventd --probe-modules` or the web UI driver-install flow")
 		return
 	}
 

@@ -105,3 +105,36 @@ AUTOINSTALL="yes"
 		}
 	})
 }
+
+func TestValidDKMSPackageVersion(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		// Real package names + versions ventd handles.
+		{"dell-smm-hwmon", true},
+		{"it87", true},
+		{"nct6687d", true},
+		{"7.0.0-ventd.3", true},
+		{"2026.05.17", true},
+		{"1.0.0+build.7", true},
+		// Rejected: empty + path separators + shell metachars. These
+		// would let an attacker-supplied dkms.conf escape the
+		// /usr/src/<pkg>-<ver>/ destination when registerDKMS builds
+		// the persist path.
+		{"", false},
+		{"../etc/passwd", false},
+		{"foo/bar", false},
+		{"foo bar", false},
+		{"foo;rm", false},
+		{"foo`id`", false},
+		{"foo$IFS", false},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			if got := validDKMSPackageVersion(c.in); got != c.want {
+				t.Errorf("validDKMSPackageVersion(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
