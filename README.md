@@ -15,13 +15,13 @@ Install with one command, open the address it prints, click Apply. There's no co
 
 ventd is a solo-dev project, first major release was three days ago, and the smart-mode learned controller is still maturing in production. The hwmon / NVML / IPMI / Corsair / laptop-EC plumbing is the most heavily tested surface and is what most users will rely on day to day. The learned controller (the "Smart" page) works on single-channel and small-channel hosts, has known convergence gaps on multi-channel boards like 8-channel NCT6687 (see [issue #1253](https://github.com/ventd/ventd/issues/1253)), and ships in observe-and-adjust mode by default rather than as the sole control path. If you want a fully mature Linux fan controller for mainstream desktop hardware today, [CoolerControl](https://gitlab.com/coolercontrol/coolercontrol) is the established choice and pairs well with `liquidctl`. ventd is interesting if your hardware is in the long tail that other tools have struggled with, or if you want a browser UI that works over the network, or if you want to watch a learned controller try to do better than a fixed curve.
 
+[![ventd first-boot calibration in motion: chip detection, driver install, bus telemetry, per-fan response sweeps, curve compute](https://github.com/ventd/ventd/raw/main/docs/images/calibration-hero.webp)](https://github.com/ventd/ventd/blob/main/docs/images/calibration-hero.webp)
+
+*First-boot calibration: chip detection, driver install, bus-telemetry polarity probe, per-fan response sweeps, curve compute. Captured in demo mode (`/calibration?demo=1`).*
+
 [![ventd dashboard, live fan speeds and temperatures and per-fan curves](https://github.com/ventd/ventd/raw/main/docs/images/dashboard.png)](https://github.com/ventd/ventd/blob/main/docs/images/dashboard.png)
 
-*Dashboard: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.*
-
-[![ventd first-boot setup wizard](https://github.com/ventd/ventd/raw/main/docs/images/setup.png)](https://github.com/ventd/ventd/blob/main/docs/images/setup.png)
-
-*First boot: a step-by-step wizard walks you through hardware detection, calibration, and curve review. No config file, no terminal.*
+*Dashboard, after calibration: live fan PWM and RPM streamed from the daemon, per-fan curves editable in place.*
 
 ### More pages
 
