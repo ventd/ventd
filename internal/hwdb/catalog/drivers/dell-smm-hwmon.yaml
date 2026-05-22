@@ -30,6 +30,7 @@ driver_profiles:
     exit_behaviour: "restore_auto"
     runtime_conflict_detection_supported: true
     firmware_curve_offload_override: false
+    pwm_mode_writable: false
     citations:
       - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html"
       - "https://github.com/ventd/dell-smm-hwmon-dkms/releases/tag/v7.0.0-ventd.3"

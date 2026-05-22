@@ -32,6 +32,8 @@ driver_profiles:
     exit_behaviour: "force_max"
     runtime_conflict_detection_supported: true
     firmware_curve_offload_override: null
+    pwm_mode_writable: false
     citations:
       - "https://docs.kernel.org/hwmon/it87.html"
       - "https://github.com/frankcrawford/it87"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/it87.c (no pwm_mode attribute)"

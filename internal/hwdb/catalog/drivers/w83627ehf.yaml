@@ -22,5 +22,6 @@ driver_profiles:
     exit_behaviour: "force_max"
     runtime_conflict_detection_supported: true
     firmware_curve_offload_override: null
+    pwm_mode_writable: true
     citations:
       - "https://docs.kernel.org/hwmon/w83627ehf.html"

@@ -178,6 +178,23 @@ type DriverProfile struct {
 	// equal N (one fan-state index per step). Nil/absent means "not declared
 	// state-quantized" (continuous PWM or behaviour unknown). v1.4.
 	StateQuantizedN *int `yaml:"state_quantized_n,omitempty"`
+	// PWMModeWritable, when set, declares whether the driver exposes a
+	// writable `pwmN_mode` sysfs attribute that flips an individual
+	// channel between PWM (4-pin) and DC (3-pin / voltage) drive. The
+	// nct6775 family exposes one (set to true); it87 does not (false).
+	// Nil means "not declared" — the chip-mode self-heal path probes
+	// at runtime and persists the discovered capability through the
+	// catalog-capture flow (#759).
+	//
+	// Used by the calibrate mode-mismatch detector
+	// (RULE-CALIB-MODE-MISMATCH-01) at the controller boundary:
+	//
+	//	true  → write pwmN_mode=0 (DC) on detected mismatch + retest
+	//	false → cannot self-heal; surface the BIOS path to the operator
+	//	         and exclude the channel from the controllable set
+	//	nil   → probe-write at runtime, treat EBUSY/ENOENT as false,
+	//	         success as true, and persist the result.
+	PWMModeWritable *bool `yaml:"pwm_mode_writable,omitempty"`
 }
 
 // ChannelOverride captures per-channel restrictions on a chip.
@@ -305,6 +322,31 @@ type ChannelCalibration struct {
 	// changed since this calibration was written — a different mic
 	// has a different K_cal and the persisted slope is stale.
 	KCalMicID string `json:"k_cal_mic_id,omitempty" yaml:"k_cal_mic_id,omitempty"`
+
+	// ModeMismatchSuspected is set by the calibrate mode-mismatch
+	// detector (RULE-CALIB-MODE-MISMATCH-01 / #759) when the flat-
+	// RPM-across-sweep heuristic trips: writing PWM=255, 128, 64 in
+	// turn produced essentially the same RPM at each step. The most
+	// common cause is a 3-pin (voltage-controlled) fan plugged into
+	// a header set to PWM mode in BIOS — the chip emits a fixed-
+	// width PWM signal that the fan converts to a constant DC, so
+	// RPM is unresponsive. Other plausible causes (seized fan,
+	// stiction, broken tach) are tagged via ModeMismatchEvidence.
+	ModeMismatchSuspected bool `json:"mode_mismatch_suspected,omitempty" yaml:"mode_mismatch_suspected,omitempty"`
+
+	// ModeMismatchEvidence carries the qualitative signal the
+	// detector used. Stable tokens:
+	//
+	//	"flat_rpm_across_sweep"         — primary trigger
+	//	"flat_rpm_with_zero_low_step"   — flat + R_low==0 (also possibly dead fan)
+	//	"flat_rpm_with_stuck_full_speed"— flat + R_low > 0.9 * R_max
+	//	"self_healed_dc_mode"           — chip-mode self-heal succeeded;
+	//	                                  pwmN_mode flipped to DC; channel
+	//	                                  is back under closed-loop control
+	//	"bios_mode_action_required"     — driver does NOT expose pwmN_mode
+	//	                                  (it87 family); operator must flip
+	//	                                  the header mode in BIOS, then reboot
+	ModeMismatchEvidence string `json:"mode_mismatch_evidence,omitempty" yaml:"mode_mismatch_evidence,omitempty"`
 }
 
 // DBASweepPoint is one step of the dBA-vs-PWM measurement that

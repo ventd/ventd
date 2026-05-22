@@ -152,6 +152,122 @@ type Result struct {
 	// Kept as a string at this layer to avoid importing internal/polarity
 	// (which would cycle through internal/probe).
 	PhantomReason string `json:"phantom_reason,omitempty"`
+
+	// ModeMismatchSuspected is set by detectModeMismatch (run as a
+	// post-sweep analysis pass) when the up-ramp curve is flat across
+	// the PWM range — the most common cause is a 3-pin
+	// (voltage-controlled) fan plugged into a header set to PWM mode
+	// in BIOS. Other plausible explanations are tagged via
+	// ModeMismatchEvidence. ApplyPhase converts this into a phantom
+	// outcome or a self-heal attempt depending on whether the
+	// resolved driver profile exposes a writable pwmN_mode attribute
+	// (#759).
+	ModeMismatchSuspected bool `json:"mode_mismatch_suspected,omitempty"`
+
+	// ModeMismatchEvidence carries the qualitative signal the
+	// detector used. See ChannelCalibration.ModeMismatchEvidence for
+	// the token vocabulary; the field round-trips verbatim.
+	ModeMismatchEvidence string `json:"mode_mismatch_evidence,omitempty"`
+}
+
+// detectModeMismatch inspects an up-ramp PWM→RPM curve for the flat-
+// RPM-across-sweep signature that indicates a likely 3-pin fan on a
+// PWM-mode header (or other mode-mismatch family). Returns
+// (suspected, evidence). Per RULE-CALIB-MODE-MISMATCH-01 / #759.
+//
+// Heuristic (matches the algorithm spec in the issue body):
+//
+//   - Compare RPM at PWM=64, 128, 255 — three coarse anchor points
+//     across the full sweep range.
+//   - If the relative deltas between adjacent anchors are < 10 %,
+//     AND R_max > 0 (some RPM signal exists), AND R_low ≥ 0.9 * R_max
+//     (the low-PWM anchor is essentially at full speed): flag.
+//   - "stuck_full_speed" sub-token when R_low > 0.9 * R_max (the
+//     classic 3-pin-on-PWM signature — fan never slows because the
+//     PWM signal is interpreted as a constant DC voltage).
+//   - "zero_low_step" sub-token when R_low == 0 — also plausibly a
+//     dead fan or stiction; UI must hedge.
+//   - Otherwise "flat_rpm_across_sweep" — the primary signal.
+//
+// curve is the up-ramp samples runSyncPWM produced. detectModeMismatch
+// is a pure function over the slice — no I/O, no time.Sleep, no
+// dependence on the runtime channel state. Safe to call from tests
+// against synthesised curves.
+func detectModeMismatch(curve []PWMRPMPoint) (suspected bool, evidence string) {
+	if len(curve) < 3 {
+		return false, ""
+	}
+	rLow, okLow := samplePWM(curve, 64)
+	rMid, okMid := samplePWM(curve, 128)
+	rMax, okMax := samplePWM(curve, 255)
+	if !okLow || !okMid || !okMax {
+		return false, ""
+	}
+	if rMax <= 0 {
+		// All-zero curve: covered by the existing PhantomReason
+		// no_response / no_tach paths, not a mode-mismatch signal.
+		return false, ""
+	}
+	dHi := relDelta(rMax, rMid)
+	dLo := relDelta(rMid, rLow)
+	if dHi >= 0.10 || dLo >= 0.10 {
+		// At least one segment moves >10% — the curve is responsive
+		// enough that mode-mismatch is unlikely (a 4-pin in DC mode
+		// or a 3-pin in DC mode would land here, and both are fine).
+		return false, ""
+	}
+	if rLow == 0 {
+		return true, "flat_rpm_with_zero_low_step"
+	}
+	if float64(rLow) >= 0.90*float64(rMax) {
+		return true, "flat_rpm_with_stuck_full_speed"
+	}
+	return true, "flat_rpm_across_sweep"
+}
+
+// samplePWM returns the nearest curve sample to target PWM, treating
+// the curve as a sorted-by-PWM list. ok=false when the curve is empty
+// or no sample lands within a 32-PWM window of the target — the
+// up-ramp typically samples in increments of 16-32 PWM, so a window
+// of 32 covers every step pattern the sweep produces.
+func samplePWM(curve []PWMRPMPoint, target int) (rpm int, ok bool) {
+	bestDelta := -1
+	bestRPM := 0
+	for _, p := range curve {
+		d := int(p.PWM) - target
+		if d < 0 {
+			d = -d
+		}
+		if bestDelta < 0 || d < bestDelta {
+			bestDelta = d
+			bestRPM = p.RPM
+		}
+	}
+	if bestDelta < 0 || bestDelta > 32 {
+		return 0, false
+	}
+	return bestRPM, true
+}
+
+// relDelta returns |a-b| / max(a,b), capped at 1.0. Symmetric and
+// guards against zero divisor.
+func relDelta(a, b int) float64 {
+	denom := a
+	if b > denom {
+		denom = b
+	}
+	if denom == 0 {
+		return 0
+	}
+	d := a - b
+	if d < 0 {
+		d = -d
+	}
+	r := float64(d) / float64(denom)
+	if r > 1.0 {
+		return 1.0
+	}
+	return r
 }
 
 // fanFingerprint produces the identity string compared on resume. Any field
@@ -783,16 +899,20 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		}
 	}
 
+	suspect, evidence := detectModeMismatch(points)
+
 	return Result{
-		PWMPath:        pwmPath,
-		StartPWM:       startPWM,
-		StopPWM:        stopPWM,
-		MaxRPM:         maxRPM,
-		MinRPM:         minRPM,
-		Curve:          points,
-		FanType:        fanType,
-		FanFingerprint: fingerprint,
-		SweepMode:      SweepModePWM,
+		PWMPath:               pwmPath,
+		StartPWM:              startPWM,
+		StopPWM:               stopPWM,
+		MaxRPM:                maxRPM,
+		MinRPM:                minRPM,
+		Curve:                 points,
+		FanType:               fanType,
+		FanFingerprint:        fingerprint,
+		SweepMode:             SweepModePWM,
+		ModeMismatchSuspected: suspect,
+		ModeMismatchEvidence:  evidence,
 	}, nil
 }
 

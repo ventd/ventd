@@ -70,9 +70,28 @@ type CalibrateFanResult struct {
 	// package's PhantomReason* string constants:
 	//   - "no_tach"      — RPM sensor glitched (sentinel) or curve had no usable RPM
 	//   - "no_response"  — PWM writes produced no RPM movement (sustained check)
+	//   - "mode_mismatch_bios_action_required" — #759 chip-mode mismatch on a
+	//                       driver without writable pwmN_mode; operator must
+	//                       flip the BIOS header mode and reboot
 	// Empty when Phantom is false. Surfaced verbatim by the doctor
 	// page and dashboard banner (#757).
 	PhantomReason string `json:"phantom_reason,omitempty"`
+
+	// ModeMismatchSuspected is set by the calibrate-package post-
+	// sweep detector when the up-ramp curve is flat across the PWM
+	// range (#759). ApplyPhase uses this alongside the resolved
+	// driver profile's PWMModeWritable to decide whether to surface
+	// the channel as BIOS-action-required or attempt a self-heal
+	// (the latter lands in a follow-up; v0.x just surfaces).
+	ModeMismatchSuspected bool `json:"mode_mismatch_suspected,omitempty"`
+
+	// ModeMismatchEvidence carries the detector's qualitative
+	// classification — "flat_rpm_across_sweep",
+	// "flat_rpm_with_stuck_full_speed", "flat_rpm_with_zero_low_step",
+	// "self_healed_dc_mode", "bios_mode_action_required". See
+	// internal/hwdb.ChannelCalibration.ModeMismatchEvidence for the
+	// full token vocabulary.
+	ModeMismatchEvidence string `json:"mode_mismatch_evidence,omitempty"`
 
 	// SustainedRPMs is the sample slice from the post-sweep
 	// sustained-spin check. Empty when the check was skipped (no
@@ -404,6 +423,8 @@ func sweepOne(
 	entry.IsPump = result.FanType == "pump"
 	entry.Aborted = result.Aborted
 	entry.SweepMode = result.SweepMode
+	entry.ModeMismatchSuspected = result.ModeMismatchSuspected
+	entry.ModeMismatchEvidence = result.ModeMismatchEvidence
 	if len(result.Curve) > 0 {
 		entry.Curve = make([]CalibrateCurvePoint, len(result.Curve))
 		for i, p := range result.Curve {
