@@ -310,44 +310,7 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 	for _, out := range outs {
 		if out.Phase == (orchestrator.ApplyPhase{}).Name() &&
 			out.Status == orchestrator.StatusSuccess {
-			// Load the freshly-written config into m.result so CLI
-			// callers (`runsetup.go`) and any future GeneratedConfig
-			// poller see a non-nil value matching what ApplyPhase
-			// emitted. The legacy Manager.run path set m.result
-			// directly; the orchestrator writes to disk via
-			// writeConfigAtomic so the in-memory mirror has to be
-			// loaded back. Best-effort: a read failure here doesn't
-			// undo a successful write, so we log and proceed with
-			// m.result remaining nil. (#1248.)
-			var art orchestrator.ApplyArtifact
-			if unErr := json.Unmarshal(out.Artifact, &art); unErr == nil && art.ConfigPath != "" {
-				if cfg, loadErr := config.Load(art.ConfigPath); loadErr == nil {
-					m.mu.Lock()
-					m.result = cfg
-					m.mu.Unlock()
-				} else {
-					m.logger.Warn("setup: GeneratedConfig back-read failed",
-						"path", art.ConfigPath, "err", loadErr)
-				}
-			}
-			m.persistOrchestratorPolarity(outs)
-			// Trigger an in-process daemon reload so controllers spawn
-			// against the freshly-emitted config without a manual
-			// `systemctl restart ventd`. Without this, ApplyPhase
-			// writes config.yaml but the running daemon keeps serving
-			// the pre-wizard liveCfg — every dashboard surface reads
-			// stale state and (the worst-case path on a host whose
-			// pre-wizard config had no Controls) no controller binds
-			// to the new fans, leaving the CPU climbing unmitigated.
-			// (#1229 / #1232.) Fires after persistOrchestratorPolarity
-			// so the reload loads a config whose persisted polarity
-			// is already in the KV store.
-			m.fireReloadTrigger()
-			m.mu.Lock()
-			m.phase = "applied"
-			m.phaseMsg = "Wizard complete"
-			m.applied = true
-			m.mu.Unlock()
+			m.onApplyPhaseSuccess(ctx, out, outs)
 			return
 		}
 	}
@@ -379,6 +342,54 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 	// Don't overwrite phase here — managerEventSink already set it to
 	// the phase that was running when failure landed; that's what the
 	// recovery card classifier wants to see.
+	m.mu.Unlock()
+}
+
+// onApplyPhaseSuccess wraps the post-ApplyPhase-success transition
+// (config back-read into m.result → persist polarity → reprobe wizard
+// outcome → fire reload trigger → flip to "applied"). Extracted from
+// runOrchestrator so a direct unit test can assert the ordering
+// contract without needing the full orchestrator phase set to run
+// against staged fixtures.
+//
+// Order is load-bearing:
+//
+//  1. Config back-read sets m.result so a polling client sees the
+//     final config before the reload (#1248).
+//  2. persistOrchestratorPolarity writes the polarity KV (#1222) so
+//     the reload's controllers start with the right polarity vector.
+//  3. afterFinalize re-runs the daemon-level probe so
+//     wizard.initial_outcome reflects the post-install kernel state
+//     (#1268). Must fire BEFORE fireReloadTrigger so the reload's
+//     smart-mode subsystems read the refreshed outcome from KV.
+//  4. fireReloadTrigger signals the daemon to swap in the new config
+//     (#1229 / #1232).
+//  5. m.applied flips to true so the wizard UI knows the wizard is
+//     done.
+func (m *Manager) onApplyPhaseSuccess(ctx context.Context, out orchestrator.Outcome, outs []orchestrator.Outcome) {
+	// Load the freshly-written config into m.result so CLI callers
+	// (`runsetup.go`) and any future GeneratedConfig poller see a
+	// non-nil value matching what ApplyPhase emitted. Best-effort: a
+	// read failure here doesn't undo a successful write, so we log and
+	// proceed with m.result remaining nil. (#1248.)
+	var art orchestrator.ApplyArtifact
+	if unErr := json.Unmarshal(out.Artifact, &art); unErr == nil && art.ConfigPath != "" {
+		if cfg, loadErr := config.Load(art.ConfigPath); loadErr == nil {
+			m.mu.Lock()
+			m.result = cfg
+			m.mu.Unlock()
+		} else {
+			m.logger.Warn("setup: GeneratedConfig back-read failed",
+				"path", art.ConfigPath, "err", loadErr)
+		}
+	}
+	m.persistOrchestratorPolarity(outs)
+	m.afterFinalize(ctx, "OrchestratorApply")
+	m.fireReloadTrigger()
+	m.mu.Lock()
+	m.phase = "applied"
+	m.phaseMsg = "Wizard complete"
+	m.applied = true
 	m.mu.Unlock()
 }
 
