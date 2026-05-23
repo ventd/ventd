@@ -97,6 +97,80 @@
   font-size: 0.72rem; color: var(--fg2);
   margin-top: 3px;
 }
+
+/* Three-position preset switcher under the header sub (#1254 MVP-2).
+ * Pill-shaped segmented control wired to PUT /api/v1/confidence/preset. */
+.sm-preset-switch {
+  display: inline-flex;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg3);
+}
+.sm-preset-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--fg2);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 500;
+  padding: 6px 14px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  transition: background 0.12s, color 0.12s;
+}
+.sm-preset-btn:last-child { border-right: 0; }
+.sm-preset-btn:hover:not(.is-active):not(:disabled) { background: var(--bg2); color: var(--fg1); }
+.sm-preset-btn.is-active {
+  background: var(--teal-bg);
+  color: var(--teal);
+  cursor: default;
+}
+.sm-preset-btn:disabled { opacity: 0.5; cursor: wait; }
+.sm-preset-btn:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+/* First-visit warming banner (#1254 MVP-4). Soft amber band between the
+ * header and the command bridge — explains the long warming window and
+ * points operators at the preset switcher above for immediate action. */
+.sm-warming-banner {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: var(--amber-bg);
+  border: 1px solid rgba(var(--rgb-amber), 0.30);
+  border-radius: 12px;
+  padding: 14px 18px;
+  color: var(--fg1);
+}
+.sm-warming-banner-icon {
+  font-size: 1.2rem; color: var(--amber);
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.sm-warming-banner-body { flex: 1; min-width: 0; line-height: 1.4; }
+.sm-warming-banner-title {
+  font-weight: 600; font-size: 0.86rem;
+  color: var(--fg1);
+}
+.sm-warming-banner-text {
+  font-size: 0.78rem;
+  color: var(--fg2);
+  margin-top: 3px;
+}
+.sm-warming-banner-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg3);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.sm-warming-banner-close:hover { color: var(--fg1); }
 .sm-head-right {
   display: flex; align-items: center; gap: 22px;
 }

@@ -76,13 +76,19 @@ func displayChannelID(rawID string, live *config.Config) string {
 // (channel not in config, or config not loaded). Lets the web UI
 // surface "CPU Fan" instead of "/sys/class/hwmon/hwmon10/pwm6" on
 // smart-mode strips and the confidence breakdown.
+//
+// Resolves via f.Display() so the operator-overridable DisplayLabel
+// (#631) wins when set; falls back to the wizard-derived Name
+// otherwise.
 func fanNameFor(rawID string, live *config.Config) string {
 	if live == nil || rawID == "" {
 		return ""
 	}
 	for _, f := range live.Fans {
-		if f.PWMPath == rawID && f.Name != "" {
-			return f.Name
+		if f.PWMPath == rawID {
+			if d := f.Display(); d != "" {
+				return d
+			}
 		}
 	}
 	return ""
