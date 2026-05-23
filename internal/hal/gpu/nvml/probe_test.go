@@ -9,24 +9,14 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 )
 
-// TestGPU_WriteGated verifies RULE-GPU-PR2D-01: GPU writes are refused unless
-// --enable-gpu-write is set AND capability probe succeeds.
-//
-// The test uses a synthetic write function that checks the gate, mirroring
-// what registry.go does for each GPU channel.
-func TestGPU_WriteGated(t *testing.T) {
-	t.Run("write_refused_without_flag", func(t *testing.T) {
-		err := gatedWrite(false, CapRWFull)
-		if err == nil {
-			t.Fatal("expected ErrWriteGated, got nil")
-		}
-		if !errors.Is(err, ErrWriteGated) {
-			t.Errorf("want ErrWriteGated, got: %v", err)
-		}
-	})
-
+// TestGPU_WriteGatedByCapability verifies RULE-GPU-PR2D-01: GPU writes are
+// refused only when the per-device capability probe returns CapROSensorOnly
+// (pre-Maxwell or pre-R515 NVIDIA driver). The v0.8.x sweep removed the
+// --enable-gpu-write opt-in flag; capability is now the sole gate, because
+// the underlying NVML symbols genuinely do not exist on earlier drivers.
+func TestGPU_WriteGatedByCapability(t *testing.T) {
 	t.Run("write_refused_when_ro_sensor_only", func(t *testing.T) {
-		err := gatedWrite(true, CapROSensorOnly)
+		err := gatedWrite(CapROSensorOnly)
 		if err == nil {
 			t.Fatal("expected ErrWriteGated, got nil")
 		}
@@ -35,15 +25,15 @@ func TestGPU_WriteGated(t *testing.T) {
 		}
 	})
 
-	t.Run("write_allowed_with_flag_and_rw_full", func(t *testing.T) {
-		err := gatedWrite(true, CapRWFull)
+	t.Run("write_allowed_when_rw_full", func(t *testing.T) {
+		err := gatedWrite(CapRWFull)
 		if err != nil {
 			t.Errorf("expected nil, got: %v", err)
 		}
 	})
 
-	t.Run("write_allowed_with_flag_and_rw_quirk", func(t *testing.T) {
-		err := gatedWrite(true, CapRWQuirk)
+	t.Run("write_allowed_when_rw_quirk", func(t *testing.T) {
+		err := gatedWrite(CapRWQuirk)
 		if err != nil {
 			t.Errorf("expected nil, got: %v", err)
 		}
@@ -52,8 +42,8 @@ func TestGPU_WriteGated(t *testing.T) {
 
 // gatedWrite is the gate logic extracted for unit testing. Production code in
 // registry.go calls the same logic before dispatching to nvidia.WriteFanSpeed.
-func gatedWrite(enableGPUWrite bool, cap Capability) error {
-	if !enableGPUWrite || cap == CapROSensorOnly {
+func gatedWrite(cap Capability) error {
+	if cap == CapROSensorOnly {
 		return ErrWriteGated
 	}
 	return nil

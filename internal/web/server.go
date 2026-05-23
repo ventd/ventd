@@ -229,6 +229,16 @@ type Server struct {
 	// non-systemd hosts.
 	factoryResetHook func(ctx context.Context) error
 
+	// smartGlobalHyst smooths brief warming/cold-start transients in the
+	// /api/v1/smart/status global_state field. The marginal-shard
+	// warm-start path (internal/marginal/runtime.go) re-pins channels
+	// back to warming for one or two ticks every ~5 min; without
+	// smoothing the topbar badge flicks learning ↔ warming on every
+	// shard reload, which a first-time operator reads as instability.
+	// Hysteresis holds the prior non-regressive state for up to
+	// smartGlobalHystWindow before letting a regression through.
+	smartGlobalHyst smartGlobalHystState
+
 	// polarityChannels carries the live probe.ControllableChannel slice
 	// used by handlePanic's writeMaxPWMToAllFans so the PANIC, MAX
 	// COOLING write routes through polarity.WritePWM (RULE-POLARITY-05).

@@ -14,29 +14,39 @@ update the binding subtest in the same PR; if a new rule lands,
 it must ship with a matching subtest or `tools/rulelint` blocks
 the merge.
 
-## RULE-GPU-PR2D-01: All GPU writes are gated behind --enable-gpu-write flag AND per-device capability probe success.
+## RULE-GPU-PR2D-01: GPU writes are gated only by the per-device capability probe; no opt-in flag.
 
-Default daemon mode is read-only enumeration and RPM
-reporting. A GPU fan write is only dispatched when (a) the
-`--enable-gpu-write` runtime flag is set on the ventd command
-line AND (b) the per-device capability probe returns a
-writable capability (`rw_full` or `rw_quirk`). Either condition
-false causes the backend to return `ErrWriteGated` with a
-message identifying which gate failed. The capability probe is
-the load-bearing safety constraint — it gates on real NVIDIA
-driver-version requirements (RULE-POLARITY-06: R515+ required
-for `nvmlDeviceSetFanSpeed_v2`) — not on HIL evidence
-accumulation. The v0.6.1 sweep removed the HIL-style
-`--unsafe-corsair-writes` and `--enable-nbfc-write` gates (see
-RULE-LIQUID-06 + RULE-NBFC-HAL-DEFAULT-WRITES-ON) but left this
-gate in place because the underlying driver-version constraint
-is genuine.
+Default daemon mode dispatches NVIDIA GPU fan writes whenever
+the per-device capability probe returns a writable capability
+(`rw_full` or `rw_quirk`). The probe is the load-bearing
+safety constraint — it gates on real NVIDIA driver-version
+requirements (`RULE-POLARITY-06`: R515+ required for
+`nvmlDeviceSetFanSpeed_v2`) — not on opt-in policy. A
+capability of `ro_sensor_only` (pre-Maxwell hardware or
+pre-R515 driver) returns `ErrWriteGated` because the
+underlying NVML symbols are absent.
 
-Bound: internal/hal/gpu/nvml/probe_test.go:TestGPU_WriteGated
-Bound: internal/hal/gpu/nvml/probe_test.go:write_refused_without_flag
+The v0.8.x sweep removed the `--enable-gpu-write` opt-in
+flag, matching the precedent set by the v0.6.1 removal of
+`--unsafe-corsair-writes` and `--enable-nbfc-write` (see
+`RULE-LIQUID-06` + `RULE-NBFC-HAL-DEFAULT-WRITES-ON`). The
+closed-set HAL catalogue + capability probe is the safety
+mechanism, not an opt-in toggle — consistent with the project
+invariant that "new HAL write paths ship enabled by default".
+
+Two other safety gates remain in place because they encode
+distinct constraints, not opt-in policy:
+
+- Laptop dGPU detection (`RULE-GPU-PR2D-06`) routes writes
+  through the NBFC backend rather than NVML.
+- AMD writes still require `--enable-amd-overdrive`
+  (`RULE-EXPERIMENTAL-AMD-OVERDRIVE-01`) because the AMD
+  OverDrive interface is still experimental.
+
+Bound: internal/hal/gpu/nvml/probe_test.go:TestGPU_WriteGatedByCapability
 Bound: internal/hal/gpu/nvml/probe_test.go:write_refused_when_ro_sensor_only
-Bound: internal/hal/gpu/nvml/probe_test.go:write_allowed_with_flag_and_rw_full
-Bound: internal/hal/gpu/nvml/probe_test.go:write_allowed_with_flag_and_rw_quirk
+Bound: internal/hal/gpu/nvml/probe_test.go:write_allowed_when_rw_full
+Bound: internal/hal/gpu/nvml/probe_test.go:write_allowed_when_rw_quirk
 
 ## RULE-GPU-PR2D-02: NVML wrapper in internal/hal/gpu/nvml/ uses purego only — no CGO.
 

@@ -92,6 +92,16 @@ func TestRULE_DOCTOR_DETECTOR_CalibrationCurveQuality_TwoFlagged_TwoFactsSorted(
 		if f.EntityHash == "" {
 			t.Errorf("fact[%d] EntityHash empty", i)
 		}
+		// Detail must not name specific OEM EC stacks — the previous
+		// wording hardcoded "Dell SMM / ASUS Q-Fan / HP Omen firmware"
+		// regardless of the actual chip, which mis-described every
+		// super-IO desktop board it ran on. The fix lists candidate
+		// causes neutrally without anchoring to a vendor.
+		for _, banned := range []string{"Dell SMM", "ASUS Q-Fan", "HP Omen"} {
+			if strings.Contains(f.Detail, banned) {
+				t.Errorf("fact[%d] detail must not name %q (misattributes cause); got: %s", i, banned, f.Detail)
+			}
+		}
 	}
 }
 

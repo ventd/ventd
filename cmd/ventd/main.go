@@ -175,7 +175,6 @@ func run() error {
 	doCalibrateProbe := flag.Bool("calibrate-probe", false, "run the PR 2b channel-validity probe (polarity, stall, BIOS-override) and write calibration JSON, then exit")
 	doPreflight := flag.Bool("preflight-check", false, "validation helper: run preflight against a synthetic DriverNeed and print the Reason as JSON")
 	preflightMaxKernel := flag.String("preflight-max-kernel", "", "with --preflight-check: synthetic MaxSupportedKernel ceiling (e.g. 6.6)")
-	enableGPUWrite := flag.Bool("enable-gpu-write", false, "enable fan write commands for NVIDIA/AMDGPU GPUs; requires per-device capability probe success (RULE-GPU-PR2D-01)")
 	enableAMDOverdrive := flag.Bool("enable-amd-overdrive", false, "enable AMD OverDrive fan curve interface (experimental; requires amd_overdrive precondition)")
 	enableNVIDIACoolbits := flag.Bool("enable-nvidia-coolbits", false, "enable NVIDIA Coolbits fan control (experimental; requires nvidia_coolbits precondition)")
 	enableILO4Unlocked := flag.Bool("enable-ilo4-unlocked", false, "enable HPE iLO4 unlocked fan control (experimental; requires ilo4_unlocked precondition)")
@@ -524,7 +523,7 @@ func run() error {
 	// hal.Resolve can drive Phase 2 features (IPMI / liquidctl / cros_ec
 	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
 	// a single source of truth.
-	registerHALBackends(logger, *enableGPUWrite)
+	registerHALBackends(logger)
 	if channels, err := hal.Enumerate(context.Background()); err != nil {
 		logger.Warn("hal: initial enumerate failed", "err", err)
 	} else {

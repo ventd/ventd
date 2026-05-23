@@ -11,6 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/confidence/aggregator"
+	layera "github.com/ventd/ventd/internal/confidence/layer_a"
 )
 
 // ─────────────────────────────────────────────────────────────────────
@@ -197,6 +200,179 @@ func TestSmartEndpoints_LoadTest_ConcurrentPollsStayResponsive(t *testing.T) {
 
 func sortDurations(s []time.Duration) {
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+}
+
+// TestHandleSmartChannels_StableOrder_AcrossPolls verifies the v0.8.x
+// fix for the dashboard tile-shuffle bug: aggregator.SnapshotAll iterates
+// a map and gives no order guarantee, so the per-channel grid would
+// reshuffle on every poll. The handler sorts by ChannelID so the order
+// is byte-stable across requests.
+func TestHandleSmartChannels_StableOrder_AcrossPolls(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	// Wire a real aggregator with channels admitted in non-alphabetical
+	// order. Without the sort, repeated calls return them in map-walk
+	// order (different each iteration). With the sort, every call yields
+	// the same lexicographic order.
+	agg := aggregator.New(aggregator.Config{})
+	srv.aggregator = agg
+	now := time.Now()
+	for _, id := range []string{
+		"/sys/class/hwmon/hwmon9/pwm7",
+		"gpu0:fan0",
+		"/sys/class/hwmon/hwmon9/pwm1",
+		"/sys/class/hwmon/hwmon9/pwm3",
+	} {
+		agg.Tick(id, 0.5, 0.5, 0.5, [3]bool{}, true, now)
+	}
+
+	want := []string{
+		"/sys/class/hwmon/hwmon9/pwm1",
+		"/sys/class/hwmon/hwmon9/pwm3",
+		"/sys/class/hwmon/hwmon9/pwm7",
+		"gpu0:fan0",
+	}
+
+	// 5 polls — every one must yield the same order.
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/smart/channels", nil)
+		w := httptest.NewRecorder()
+		srv.handleSmartChannels(w, req)
+		if got := w.Result().StatusCode; got != http.StatusOK {
+			t.Fatalf("poll %d: status = %d, want 200", i, got)
+		}
+		var body []smartChannelEntry
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("poll %d: unmarshal: %v", i, err)
+		}
+		if len(body) != len(want) {
+			t.Fatalf("poll %d: got %d entries, want %d", i, len(body), len(want))
+		}
+		for j, e := range body {
+			if e.ChannelID != want[j] {
+				t.Errorf("poll %d entry %d: ChannelID = %q, want %q (full order: %v)",
+					i, j, e.ChannelID, want[j], channelIDs(body))
+			}
+		}
+	}
+}
+
+// TestHandleConfidenceStatus_StableOrder_AcrossPolls — same invariant for
+// the /api/v1/confidence/status payload, which the dashboard pill grid
+// reads from. Requires both aggregator and layerA to be wired.
+func TestHandleConfidenceStatus_StableOrder_AcrossPolls(t *testing.T) {
+	srv, _, cancel := newHandlerHarness(t)
+	defer cancel()
+
+	agg := aggregator.New(aggregator.Config{})
+	la, err := layera.New(layera.Config{})
+	if err != nil {
+		t.Fatalf("layer_a New: %v", err)
+	}
+	srv.aggregator = agg
+	srv.layerA = la
+
+	now := time.Now()
+	ids := []string{
+		"/sys/class/hwmon/hwmon9/pwm7",
+		"gpu0:fan0",
+		"/sys/class/hwmon/hwmon9/pwm1",
+		"/sys/class/hwmon/hwmon9/pwm3",
+	}
+	for _, id := range ids {
+		agg.Tick(id, 0.5, 0.5, 0.5, [3]bool{}, true, now)
+		if err := la.Admit(id, 0, 0, now); err != nil {
+			t.Fatalf("layer_a Admit %s: %v", id, err)
+		}
+	}
+
+	wantOrder := []string{
+		"/sys/class/hwmon/hwmon9/pwm1",
+		"/sys/class/hwmon/hwmon9/pwm3",
+		"/sys/class/hwmon/hwmon9/pwm7",
+		"gpu0:fan0",
+	}
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/confidence/status", nil)
+		w := httptest.NewRecorder()
+		srv.handleConfidenceStatus(w, req)
+		if got := w.Result().StatusCode; got != http.StatusOK {
+			t.Fatalf("poll %d: status = %d, want 200", i, got)
+		}
+		var body confidenceStatus
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("poll %d: unmarshal: %v", i, err)
+		}
+		if len(body.Channels) != len(wantOrder) {
+			t.Fatalf("poll %d: got %d channels, want %d", i, len(body.Channels), len(wantOrder))
+		}
+		for j, e := range body.Channels {
+			if e.ChannelID != wantOrder[j] {
+				t.Errorf("poll %d entry %d: ChannelID = %q, want %q", i, j, e.ChannelID, wantOrder[j])
+			}
+		}
+	}
+}
+
+// TestSmartGlobalHyst_HoldsBriefRegressionFromConverged verifies the
+// v0.8.x topbar-flap fix: a converged → warming regression that
+// arrives within smartGlobalHystWindow returns the prior "converged"
+// to the caller. Anything older than the window commits.
+func TestSmartGlobalHyst_HoldsBriefRegressionFromConverged(t *testing.T) {
+	var h smartGlobalHystState
+	t0 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
+
+	if got := h.observe("converged", t0); got != "converged" {
+		t.Errorf("first observe: got %q, want converged", got)
+	}
+	// Brief regression within the hysteresis window — held.
+	if got := h.observe("warming", t0.Add(2*time.Second)); got != "converged" {
+		t.Errorf("brief regression: got %q, want converged (smoothed)", got)
+	}
+	// Improvement back to converged — committed.
+	if got := h.observe("converged", t0.Add(3*time.Second)); got != "converged" {
+		t.Errorf("recovery: got %q, want converged", got)
+	}
+	// Long regression — committed.
+	if got := h.observe("warming", t0.Add(3*time.Second+smartGlobalHystWindow+time.Second)); got != "warming" {
+		t.Errorf("sustained regression: got %q, want warming", got)
+	}
+}
+
+// TestSmartGlobalHyst_DoesNotSmoothDriftingOrRefused verifies that
+// the smoothing applies ONLY to the warming/cold-start transients
+// produced by the marginal-shard warm-start path — genuine
+// deteriorations to "drifting" or "refused" reach the operator
+// immediately.
+func TestSmartGlobalHyst_DoesNotSmoothDriftingOrRefused(t *testing.T) {
+	t0 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
+	for _, raw := range []string{"drifting", "refused"} {
+		var h smartGlobalHystState
+		_ = h.observe("converged", t0)
+		if got := h.observe(raw, t0.Add(2*time.Second)); got != raw {
+			t.Errorf("regression to %q: smoothed to %q, must commit immediately", raw, got)
+		}
+	}
+}
+
+// TestSmartGlobalHyst_FirstObservationCommitsImmediately — the
+// hysteresis must not artificially delay the first state report.
+func TestSmartGlobalHyst_FirstObservationCommitsImmediately(t *testing.T) {
+	var h smartGlobalHystState
+	t0 := time.Date(2026, 5, 24, 0, 0, 0, 0, time.UTC)
+	if got := h.observe("warming", t0); got != "warming" {
+		t.Errorf("first observe of warming: got %q, want warming", got)
+	}
+}
+
+func channelIDs(entries []smartChannelEntry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.ChannelID
+	}
+	return out
 }
 
 // Sanity check — handler signature didn't drift.

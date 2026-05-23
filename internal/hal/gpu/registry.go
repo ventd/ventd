@@ -6,7 +6,13 @@
 // internal/hwdb/catalog/drivers/{xe,i915}.yaml carries the
 // fan_control_capable=false declaration that the matcher consults.
 //
-// All writes are gated behind the --enable-gpu-write flag (RULE-GPU-PR2D-01).
+// GPU writes ship enabled by default. The remaining safety gates are
+// load-bearing driver/firmware constraints, not opt-in policy:
+//   - NVIDIA: per-device capability probe (RULE-GPU-PR2D-01) — refuses
+//     write on pre-Maxwell / pre-R515 where the NVML symbols are missing.
+//   - NVIDIA: laptop dGPU detection (RULE-GPU-PR2D-06) — fans routed via
+//     EC, NBFC backend required.
+//   - AMD: --enable-amd-overdrive experimental gate (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
 package gpu
 
 import (
@@ -19,17 +25,9 @@ import (
 
 // ProbeOptions carries runtime flags that affect GPU backend registration.
 type ProbeOptions struct {
-	// EnableGPUWrite enables fan write commands when true AND per-device
-	// capability probe succeeds. Without this flag all GPU channels are
-	// registered read-only. Retained for genuine NVIDIA driver-version
-	// constraints (`RULE-POLARITY-06`: R515+ required for nvmlDeviceSet*);
-	// distinct from the v0.6.1-removed `--unsafe-corsair-writes` /
-	// `--enable-nbfc-write` HIL-evidence gates.
-	EnableGPUWrite bool
-
 	// AMDOverdrive mirrors the --enable-amd-overdrive experimental flag.
-	// AMD GPU writes are blocked unless both EnableGPUWrite and AMDOverdrive
-	// are true (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
+	// AMD GPU writes are blocked unless this is true
+	// (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
 	AMDOverdrive bool
 
 	// SysRoot is the sysfs root, used for AMD/Intel discovery and laptop
@@ -58,7 +56,7 @@ func registerAMD(logger *slog.Logger, opts ProbeOptions) {
 	}
 	for i := range cards {
 		cards[i].AMDOverdrive = opts.AMDOverdrive
-		writable := opts.EnableGPUWrite && opts.AMDOverdrive
+		writable := opts.AMDOverdrive
 		logger.Info("gpu: AMD GPU registered",
 			"card", cards[i].CardPath,
 			"has_fan_curve", cards[i].HasFanCurve,
@@ -95,9 +93,10 @@ func registerNVIDIA(logger *slog.Logger, opts ProbeOptions) {
 			continue
 		}
 
-		if !opts.EnableGPUWrite || cap == gpunvml.CapROSensorOnly {
+		if cap == gpunvml.CapROSensorOnly {
 			logger.Info("gpu: NVIDIA GPU registered read-only",
-				"gpu_index", i, "cap", cap, "enable_gpu_write", opts.EnableGPUWrite)
+				"gpu_index", i, "cap", cap,
+				"reason", "capability probe refused (pre-Maxwell or pre-R515 driver)")
 		} else {
 			logger.Info("gpu: NVIDIA GPU registered writable",
 				"gpu_index", i, "cap", cap)
