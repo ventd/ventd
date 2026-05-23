@@ -12,9 +12,13 @@ const (
 	CapRWFull                         // R520+: SetFanSpeed_v2 + SetFanControlPolicy
 )
 
-// ErrWriteGated is returned when a write is attempted without --enable-gpu-write
-// or when the capability probe returned CapROSensorOnly.
-var ErrWriteGated = errors.New("gpu write gated: enable with --enable-gpu-write and a supported driver")
+// ErrWriteGated is returned when a write is attempted on a GPU whose capability
+// probe returned CapROSensorOnly (pre-Maxwell hardware or pre-R515 NVIDIA
+// driver). The v0.8.x sweep removed the --enable-gpu-write opt-in gate;
+// the per-device capability probe is the remaining load-bearing constraint
+// because the NVML symbols nvmlDeviceSetFanSpeed_v2 / nvmlDeviceSetFanControlPolicy
+// genuinely do not exist on earlier driver branches.
+var ErrWriteGated = errors.New("gpu write gated: capability probe returned read-only (pre-Maxwell or pre-R515 NVIDIA driver)")
 
 // ErrLaptopDgpuRequiresEC is returned when a write is attempted on a dGPU
 // in a laptop chassis where the EC manages fans (see RULE-GPU-PR2D-06).

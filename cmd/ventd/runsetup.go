@@ -83,12 +83,7 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// the run, and a CLI-driven first-boot is impossible. The daemon
 	// path does this in runDaemon at the controller setup site; the
 	// standalone setup wizard previously skipped it. Issue #1025.
-	//
-	// enableGPUWrite=false: the setup wizard discovers and calibrates
-	// fans by reading hwmon/NVML; it never writes GPU fan curves. The
-	// production --enable-gpu-write flag only gates daemon-time GPU
-	// writes (RULE-GPU-PR2D-01).
-	registerHALBackends(logger, false)
+	registerHALBackends(logger)
 	// v0.8.x: calibration.json moved to /var/lib/ventd/setup/. Migrate any
 	// legacy file before constructing the manager so the wizard reads from
 	// the new canonical location. See calibrate.MigrateLegacyPath.

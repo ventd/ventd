@@ -56,10 +56,10 @@ func newChannelResolver() calibrate.ChannelResolver {
 // Shared between runDaemon (which registers before the controller
 // setup phase) and runSetup (which previously skipped this step,
 // breaking the CLI wizard end-to-end — issue #1025).
-func registerHALBackends(logger *slog.Logger, enableGPUWrite bool) {
+func registerHALBackends(logger *slog.Logger) {
 	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
 	halcorsair.RegisterAll(logger, halcorsair.ProbeOptions{})
-	halgpu.RegisterAll(logger, halgpu.ProbeOptions{EnableGPUWrite: enableGPUWrite})
+	halgpu.RegisterAll(logger, halgpu.ProbeOptions{})
 	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))
 	hal.Register(halhwmon.BackendName, halhwmon.NewBackend(logger))
 	hal.Register(halipmi.BackendName, halipmi.NewBackend(logger))

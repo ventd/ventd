@@ -14,7 +14,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
+	"sync"
+	"time"
 
 	acrunner "github.com/ventd/ventd/internal/acoustic/runner"
 	"github.com/ventd/ventd/internal/config"
@@ -22,6 +25,58 @@ import (
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/marginal"
 )
+
+// smartGlobalHystWindow is the hold time for warming/cold-start
+// regressions in the smart-mode global_state surface. The
+// marginal-shard warm-start fires every ~5 min and bumps the
+// per-channel UI state to "warming" for one or two ticks; the topbar
+// badge would otherwise flick learning ↔ warming forever. 30 s is
+// long enough to absorb the transient while short enough that a
+// genuine regression (e.g. real cold-start after a fan replacement)
+// reaches the UI within one operator's attention cycle.
+const smartGlobalHystWindow = 30 * time.Second
+
+// smartGlobalHystState is the mutex-guarded hysteresis state for
+// /api/v1/smart/status global_state. The "priority" map in
+// handleSmartStatus defines which states are "worse" than others —
+// converged > warming > cold-start > drifting > refused (smallest
+// priority value is worst). A regression from converged to warming or
+// cold-start is held for smartGlobalHystWindow; once held that long
+// (or if the regression deepens below warming/cold-start), the new
+// state is committed.
+type smartGlobalHystState struct {
+	mu        sync.Mutex
+	state     string    // last committed state
+	committed time.Time // wall-clock when state was committed
+}
+
+// observe takes the raw worst-of-channels global state and the
+// current time, applies hysteresis, and returns the smoothed state
+// that should be reported to clients. Thread-safe.
+func (h *smartGlobalHystState) observe(raw string, now time.Time) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.state == "" {
+		h.state = raw
+		h.committed = now
+		return raw
+	}
+	if raw == h.state {
+		return raw
+	}
+	// Only smooth specific regressions: prior was "converged" and the
+	// new value is one of the transient-warming states the marginal
+	// shard warm-start pin produces. Other transitions commit
+	// immediately so genuine deteriorations (drifting / refused) and
+	// improvements are visible to the operator without delay.
+	isTransientRegression := h.state == "converged" && (raw == "warming" || raw == "cold-start")
+	if isTransientRegression && now.Sub(h.committed) < smartGlobalHystWindow {
+		return h.state
+	}
+	h.state = raw
+	h.committed = now
+	return raw
+}
 
 // micCalibrated reports whether a per-host R30 microphone calibration
 // record is present and parseable at s.kCalPath. When true, the
@@ -179,6 +234,13 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 	} else {
 		out.Global = "idle"
 	}
+	// Stable order so the dashboard pill grid does not shuffle on every
+	// poll. Aggregator.SnapshotAll iterates a map and gives no order
+	// guarantee. Sort by the displayed ChannelID so the UI sequence is
+	// byte-stable across polls.
+	sort.SliceStable(out.Channels, func(i, j int) bool {
+		return out.Channels[i].ChannelID < out.Channels[j].ChannelID
+	})
 	s.writeJSON(r, w, out)
 }
 
@@ -306,6 +368,14 @@ type smartAcousticBudget struct {
 	// mic position; when false, CurrentDBA is the within-host "au"
 	// scale and the UI surfaces a "calibrate mic" hint. (#1281)
 	MicCalibrated bool `json:"mic_calibrated"`
+	// Mode is the explicit label for CurrentDBA — "measured" when a
+	// per-host mic calibration record is loaded, "estimated" when
+	// CurrentDBA is the RPM-derived "au" scale (no mic). Pre-fix the
+	// payload exposed CurrentDBA as if it were dBA at the mic and
+	// only sibling MicCalibrated=false signalled the difference; new
+	// consumers and third-party clients needed to infer the mode
+	// instead of being told. This field is the explicit signal.
+	Mode string `json:"mode,omitempty"` // "measured" | "estimated" | "" (when Enabled=false)
 }
 
 // CoolingStatus is the public seam the daemon uses to publish the
@@ -490,7 +560,13 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 		// them the why. (#1253.)
 		out.GlobalState = "warming"
 	} else {
-		out.GlobalState = worst
+		// Apply hysteresis so the marginal-shard warm-start path
+		// (re-pins per-channel UI state to "warming" for ~1 tick every
+		// ~5 min) does not make the topbar badge flick learning ↔
+		// warming. The aggregator publishes the raw transient; the
+		// handler smooths it for the public surface. See the doc on
+		// smartGlobalHystState for the policy.
+		out.GlobalState = s.smartGlobalHyst.observe(worst, time.Now())
 		// Only emit numeric confidence_min/max when at least one
 		// channel has positive Wpred — i.e. someone has emerged from
 		// the cold-start / warming window. Otherwise leave them nil
@@ -509,7 +585,8 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 	// channels (with the candidate ramp folded in) is the closest
 	// proxy for current host loudness we expose. Pre-warmup or
 	// monitor-only hosts get enabled=false / zero values.
-	out.Acoustic = smartAcousticBudget{Enabled: false, MicCalibrated: s.micCalibrated()}
+	micCal := s.micCalibrated()
+	out.Acoustic = smartAcousticBudget{Enabled: false, MicCalibrated: micCal}
 	if live != nil && live.AcousticOptimisationEnabled() {
 		preset, _ := controller.PresetFromString(live.Smart.Preset)
 		target := controller.DBATargetFor(preset, live.Smart.DBATarget)
@@ -528,6 +605,11 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 						out.Acoustic.CurrentDBA = dec.Result.PredictedDBA
 					}
 				}
+			}
+			if micCal {
+				out.Acoustic.Mode = "measured"
+			} else {
+				out.Acoustic.Mode = "estimated"
 			}
 		}
 	}
@@ -649,8 +731,21 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 					entry.SignatureLabel = m.SignatureLabel
 				}
 			}
+			// marginalByChannel preserves shard insertion order, which
+			// itself depends on a map walk in Runtime.SnapshotAll — sort
+			// here so the per-channel marginal table is stable across
+			// polls. Sort by signature label (the human-readable column).
+			sort.SliceStable(entry.Marginal, func(i, j int) bool {
+				return entry.Marginal[i].SignatureLabel < entry.Marginal[j].SignatureLabel
+			})
 		}
 		entries = append(entries, entry)
 	}
+	// Stable tile order across polls. Aggregator.SnapshotAll iterates a
+	// map and gives no order guarantee, so the UI's channel grid would
+	// otherwise reshuffle on every tick. Sort by the display ChannelID.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].ChannelID < entries[j].ChannelID
+	})
 	s.writeJSON(r, w, entries)
 }

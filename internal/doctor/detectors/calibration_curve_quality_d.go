@@ -87,16 +87,18 @@ type calibrateFanResultShape struct {
 // CalibrationCurveQualityDetector surfaces the calibrate sweep's
 // per-fan NonMonotonicCurve quality signal. The flag is set by the
 // orchestrator's CalibratePhase when a fan's rising-portion PWM→RPM
-// curve drops by more than 15% of MaxRPM between consecutive samples
-// — almost always a vendor-EC firmware (Dell SMM, ASUS Q-Fan,
-// HP-Omen) reasserting control above some PWM threshold, leaving
-// ventd writing higher duty cycles that produce no extra airflow.
+// curve drops by more than 15% of MaxRPM between consecutive samples.
+// Candidate causes vary by hardware: vendor-EC firmware clamping on
+// some laptop OEMs, motherboard super-IO chip tach quantisation, fan
+// stall-and-restart bands, or a fan whose tach signal is noisy in
+// part of the duty-cycle range. The detector does not name a single
+// vendor — the wording previously hardcoded "Dell SMM / ASUS Q-Fan /
+// HP Omen" which mis-described the cause on every host using a
+// super-IO chip (NCT668x, IT87xx, F71xxx) or a desktop board.
 //
-// One Fact per affected fan, severity Warning. The operator's
-// remediation is usually one of: (a) reduce the curve's max_pwm_pct
-// for that fan in the web UI, (b) switch the chip from PWM-vs-DC mode
-// in BIOS, (c) live with the audible whine. Detector doesn't pick
-// for them — surfaces the data and the hint.
+// One Fact per affected fan, severity Warning. The remediation
+// ventd has already taken is to cap the per-fan max_pwm_pct at the
+// saturation knee; the operator can dig in further if they want.
 type CalibrationCurveQualityDetector struct {
 	Loader CalibrationArtifactLoader
 }
@@ -175,7 +177,7 @@ func (d *CalibrationCurveQualityDetector) Probe(ctx context.Context, deps doctor
 			Class:    recovery.ClassUnknown,
 			Title:    fmt.Sprintf("Fan %s shows %d%% RPM drop in rising calibration curve", r.PWMPath, dropPct),
 			Detail: fmt.Sprintf(
-				"Calibrate sweep recorded MaxRPM=%d and a single-step drop of %d RPM (%d%%) in the rising portion. This pattern is usually vendor-EC clamping — Dell SMM, ASUS Q-Fan, or HP Omen firmware reasserts its own curve above a PWM threshold, so duty cycles ventd writes past that point produce noise without airflow. The per-fan curve generator has already capped this fan's max_pwm_pct at the saturation knee, so the runtime is no longer driving above the clamp. If the operator overrides the curve in the web UI, they should keep max_pwm_pct at or below the wizard-emitted value.",
+				"Calibrate sweep recorded MaxRPM=%d and a single-step drop of %d RPM (%d%%) in the rising portion. Duty cycles ventd writes past that point no longer translate into airflow. Common causes (vary by hardware): firmware reasserting its own fan curve above a PWM threshold on some laptops, motherboard super-IO tach quantisation, a fan that stalls and restarts in part of the range, or a noisy tach signal. ventd has already capped this fan's max_pwm_pct at the saturation knee, so the runtime is no longer driving above the inflection. If you override the curve in the web UI, keep max_pwm_pct at or below the wizard-emitted value.",
 				r.MaxRPM, r.MaxDropRPM, dropPct),
 			EntityHash: doctor.HashEntity("calibration_non_monotonic", r.PWMPath),
 			Observed:   now,
