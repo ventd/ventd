@@ -101,3 +101,19 @@ flaky:
             instead of the 100ms sleep heuristic; registry entry
             is removed once either lands.
     since: 2026-05-17
+  - test: github.com/ventd/ventd/internal/watchdog:TestWDSafety_Invariants
+    issue: https://github.com/ventd/ventd/issues/1361
+    reason: per-syscall deadline + restore-budget subtests use
+            microsecond / low-millisecond timing budgets that race
+            against scheduler jitter on shared GHA runners with -race
+            enabled. Failure surfaced post-#1360 (PR-F merge run
+            26317712064) on build-and-test-debian-12 + build-and-
+            test-ubuntu-arm64 race lanes; the PR-E.2 merge run
+            immediately before (26317451560) was fully green. Same
+            failure shape as the other GHA-timing entries above —
+            passes locally with -race -count=100 and on the alpine /
+            fedora / arch container lanes where /sys is inherited
+            from the host. Roadmap fix is clock injection (Stage 1.5
+            PR-8) for the deadline subtests; registry entry is
+            removed once that lands.
+    since: 2026-05-23
