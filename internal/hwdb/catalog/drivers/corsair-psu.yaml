@@ -1,0 +1,29 @@
+schema_version: "1.2"
+
+# Corsair HXi / RMi digital PSUs — mainline corsair-psu. USB-HID.
+# hwmon name "corsairpsu": rail voltages/currents/power, temps, and the
+# PSU fan (fan1_input RPM, pwm1 read-only). Read-only fan: the PSU
+# firmware owns the fan curve. Section C2 of the 2026-05-17 sweep.
+
+driver_profiles:
+  - module: "corsair-psu"
+    family: "corsair"
+    description: "Corsair HXi (HX550i-HX1500i) and RMi (RM550i-RM1000i) digital PSUs (mainline corsair-psu). hwmon name 'corsairpsu': rail voltage/current/power, temp[1-2], fan1_input RPM, pwm1 (read-only). The PSU firmware owns the fan curve; ventd reads fan/temp telemetry only."
+    capability: "ro_sensor_only"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes: {}
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 500
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: false
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.kernel.org/hwmon/corsair-psu.html"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/corsair-psu.c (hwmon name 'corsairpsu', pwm1 read-only)"

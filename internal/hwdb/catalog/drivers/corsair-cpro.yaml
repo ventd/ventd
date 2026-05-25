@@ -1,0 +1,30 @@
+schema_version: "1.2"
+
+# Corsair Commander Pro (and 1000D variant) — mainline corsair-cpro.
+# USB-HID 6-fan + 4-temp controller. hwmon name "corsaircpro": fan[1-6]
+# RPM + target, pwm[1-6] duty 0-255, temp[1-4]. Writable PWM.
+# Section C2 of the 2026-05-17 sweep.
+
+driver_profiles:
+  - module: "corsair-cpro"
+    family: "corsair"
+    description: "Corsair Commander Pro / Commander Pro (1000D) (mainline corsair-cpro). USB-HID; hwmon name 'corsaircpro': fan[1-6]_input RPM, fan[1-6]_target, pwm[1-6] duty 0-255, temp[1-4]. pwm is read-only while a fan is in a non-PWM (DC/target-RPM) mode. liquidctl / cfancontrol cover the same device in userspace."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.kernel.org/hwmon/corsair-cpro.html"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/corsair-cpro.c (hwmon name 'corsaircpro', pwm[1-6] writable, fan[1-6]_target)"
