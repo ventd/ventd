@@ -68,6 +68,71 @@ chip_profiles:
     citations:
       - "https://github.com/aleksamagicka/gigabyte_waterforce-hwmon"
 
+  # ── wave 12: mainline NZXT + Corsair USB-HID cooler/PSU hwmon ─────────
+  - name: "nzxtsmart2"
+    inherits_driver: "nzxt-smart2"
+    description: "NZXT RGB & Fan Controller / Smart Device v2 / H1 V2 — hwmon name for nzxt-smart2 driver. Writable pwm[1-3]."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-smart2.html"
+
+  - name: "kraken2"
+    inherits_driver: "nzxt-kraken2"
+    description: "NZXT Kraken X42/X52/X62/X72 AIO — hwmon name for nzxt-kraken2 driver. Monitoring only (liquid temp + pump/fan RPM)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken2.html"
+
+  - name: "x53"
+    inherits_driver: "nzxt-kraken3"
+    description: "NZXT Kraken X53/X63/X73 AIO — hwmon name for nzxt-kraken3 driver. Pump PWM control (manual + liquid-temp curve)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken3.html"
+
+  - name: "z53"
+    inherits_driver: "nzxt-kraken3"
+    description: "NZXT Kraken Z53/Z63/Z73 AIO — hwmon name for nzxt-kraken3 driver. Pump + optional case fan PWM control."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken3.html"
+
+  - name: "kraken2023"
+    inherits_driver: "nzxt-kraken3"
+    description: "NZXT Kraken 2023 AIO — hwmon name for nzxt-kraken3 driver. Pump + optional case fan PWM control."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken3.html"
+
+  - name: "kraken2023elite"
+    inherits_driver: "nzxt-kraken3"
+    description: "NZXT Kraken 2023 Elite AIO — hwmon name for nzxt-kraken3 driver. Pump + optional case fan PWM control."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken3.html"
+
+  - name: "corsaircpro"
+    inherits_driver: "corsair-cpro"
+    description: "Corsair Commander Pro — hwmon name for corsair-cpro driver. Writable pwm[1-6], fan[1-6]_target, temp[1-4]."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/corsair-cpro.html"
+
+  - name: "corsairpsu"
+    inherits_driver: "corsair-psu"
+    description: "Corsair HXi/RMi digital PSU — hwmon name for corsair-psu driver. Read-only fan (pwm1 RO) + rail/temp telemetry."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://docs.kernel.org/hwmon/corsair-psu.html"
+
   - name: "asus_ec"
     inherits_driver: "asus-ec-sensors"
     description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."

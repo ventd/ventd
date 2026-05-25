@@ -1,0 +1,33 @@
+schema_version: "1.2"
+
+# NZXT Kraken X53/X63/X73, Z53/Z63/Z73, Kraken 2023 (+Elite) — mainline
+# nzxt-kraken3. USB-HID AIO. Per-model hwmon names: "x53" (X-series),
+# "z53" (Z-series), "kraken2023", "kraken2023elite". Liquid temp + pump
+# RPM + PWM control (manual or liquid-temp-to-PWM curve). Z-series and
+# 2023 also expose an optional case fan with the same PWM control.
+# Section C3 of the 2026-05-17 sweep.
+
+driver_profiles:
+  - module: "nzxt-kraken3"
+    family: "nzxt"
+    description: "NZXT Kraken X53/X63/X73, Z53/Z63/Z73, Kraken 2023/Elite AIO (mainline nzxt-kraken3). hwmon names x53/z53/kraken2023/kraken2023elite: liquid temp, pump RPM, pwm[1-2] duty 0-255 via pwm[1-2]_enable (1=manual, 2=liquid-temp-to-PWM firmware curve). Z-series + 2023 expose an optional case fan with the same control. liquidctl covers the same device in userspace."
+    capability: "rw_quirk"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "firmware_curve"
+    off_behaviour: "falls_to_min"
+    polling_latency_ms_hint: 500
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: true
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-kraken3.html"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/nzxt-kraken3.c (device_name x53/z53/kraken2023/kraken2023elite; pwm manual + curve modes)"

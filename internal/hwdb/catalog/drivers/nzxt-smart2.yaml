@@ -1,0 +1,30 @@
+schema_version: "1.2"
+
+# NZXT RGB & Fan Controller / Smart Device v2 / H1 V2 — mainline nzxt-smart2.
+# USB-HID fan controller; hwmon name "nzxtsmart2". Writable PWM (pwm[1-3],
+# 0-255) + fan[1-3] RPM. liquidctl is the alternative userspace path
+# (coordinate, not conflict-fatal). Section C3 of the 2026-05-17 sweep.
+
+driver_profiles:
+  - module: "nzxt-smart2"
+    family: "nzxt"
+    description: "NZXT RGB & Fan Controller / Smart Device v2 / H1 V2 (mainline nzxt-smart2). USB-HID; hwmon name 'nzxtsmart2': fan[1-3]_input RPM and pwm[1-3] duty 0-255 with pwm[1-3]_enable. Channels in DC mode ignore pwm writes (pwm_enable reflects controllability). liquidctl covers the same device in userspace."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://docs.kernel.org/hwmon/nzxt-smart2.html"
+      - "https://github.com/torvalds/linux/blob/master/drivers/hwmon/nzxt-smart2.c (hwmon name 'nzxtsmart2', pwm[1-3] writable)"
