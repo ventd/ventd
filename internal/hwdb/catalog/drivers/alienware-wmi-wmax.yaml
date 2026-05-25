@@ -1,0 +1,42 @@
+schema_version: "1.2"
+
+# Alienware / Dell G-series WMAX WMI driver (mainline, Kurt Borja).
+# Source: drivers/platform/x86/dell/alienware-wmi-wmax.c
+#
+# Registers a hwmon device named "alienware_wmi" exposing temp_input,
+# fan_input (RPM), fan_min/fan_max, and pwm with manual fan control plus
+# pwm_auto_channels_temp. Also exposes per-fan fanN_boost (0-255) sysfs
+# attributes and a platform_profile; G-series additionally expose a
+# G-Mode special profile (0xAB). Thermal tables: LEGACY (0x9), USTT (0xA).
+#
+# Consumed by boards in catalog/boards/alienware.yaml via chip
+# "alienware_wmi" (chips/laptop_chips.yaml). This is the first writable
+# (non-monitor-only) entry for the Alienware / Dell-G gaming fleet.
+
+driver_profiles:
+  - module: "alienware-wmi-wmax"
+    family: "alienware-wmi"
+    description: "Alienware / Dell-G WMAX WMI driver (mainline 6.14+). Registers hwmon name 'alienware_wmi' with temp_input, fan_input RPM, fan_min/fan_max, manual pwm + pwm_auto_channels_temp, per-fan fanN_boost (0-255), platform_profile, and G-Mode on G-series. WMI-method-gated (AWCC); thermal tables LEGACY/USTT. Replaces the read-only alienware-wmi-legacy path on supported models."
+    capability: "rw_quirk"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    kernel_version:
+      min: "6.14"
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI quirk table, awcc hwmon ops registering name 'alienware_wmi', fanN_boost 0-255, thermal tables LEGACY 0x9 / USTT 0xA; (C) 2025 Kurt Borja)"
+      - "https://github.com/vaishnav67/alienfan-tools (Alienware m15/m17 R1 ACPI fan-method prior art)"
+      - "https://github.com/T-Troll/alienfx-tools (Alienware fleet model coverage cross-check)"
