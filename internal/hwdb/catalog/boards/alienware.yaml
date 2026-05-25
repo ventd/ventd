@@ -1,0 +1,574 @@
+schema_version: "1.3"
+# Alienware + Dell G-series gaming catalog — wave 10 (2026-05-17 sweep, A3).
+#
+# FIRST WRITABLE LAPTOP-FLEET ENTRY (not monitor-only). All boards below
+# are driven by the mainline `alienware-wmi-wmax` driver (Kurt Borja),
+# which registers a hwmon device named "alienware_wmi" exposing:
+#   - temp_input, fan_input (RPM), fan_min/fan_max
+#   - pwm with manual fan control + pwm_auto_channels_temp
+#   - per-fan fanN_boost sysfs (0-255 clamp)
+#   - platform_profile, and on G-series a G-Mode special profile (0xAB)
+# Thermal tables: LEGACY (0x9) and USTT (0xA). See
+# catalog/drivers/alienware-wmi-wmax.yaml + chip "alienware_wmi" in
+# catalog/chips/laptop_chips.yaml.
+#
+# AUTHORITATIVE SOURCE: the DMI quirk table in mainline
+# drivers/platform/x86/dell/alienware-wmi-wmax.c. Two quirk classes:
+#   g_series_quirks  = hwmon + platform_profile + G-Mode
+#   generic_quirks   = hwmon + platform_profile (no G-Mode)
+#
+# GLOB / SUBSTRING NOTE: the kernel DMI_MATCH does a substring match, so a
+# table entry "Alienware m15" also covers "Alienware m15 R7" etc. ventd
+# uses prefix globs ("Alienware m15*") to replicate that. The Intel
+# "Alienware m16 R1" entry is listed AFTER "Alienware m16 R1 AMD" so the
+# AMD (generic) glob wins for AMD units before the broader R1 glob.
+#
+# verified:false — sourced from the mainline kernel DMI table, not from
+# ventd hardware. Requires kernel 6.14+ for the alienware-wmi-wmax split;
+# manual hwmon fan control is part of Kurt Borja's hwmon series.
+
+board_profiles:
+
+  # ── g_series_quirks (hwmon + platform_profile + G-Mode) ──────────────
+
+  - id: "alienware-16-area-51"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware 16 Area-51*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via mainline alienware-wmi-wmax — manual pwm + fanN_boost (0-255) + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra (Arrow Lake-HX) CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware 16 Area-51 (2025 flagship). g_series quirk: hwmon manual
+      fan control + platform_profile + G-Mode (special profile 0xAB,
+      optionally forced via the driver's force_gmode modparam).
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI: sys_vendor Alienware / product 'Alienware 16 Area-51', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-16x-aurora"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware 16X Aurora*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware 16X Aurora (2025). g_series quirk.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware 16X Aurora', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-16-aurora"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware 16 Aurora*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware 16 Aurora (2025, mainstream 16). g_series quirk.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware 16 Aurora', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-18-area-51"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware 18 Area-51*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra (Arrow Lake-HX) CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware 18 Area-51 (2025 18-inch flagship). g_series quirk.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware 18 Area-51', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-m16-r1-intel"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m16 R1*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 13th-gen Raptor Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware m16 R1 Intel (2023). g_series quirk. The product string
+      is "Alienware m16 R1"; the AMD sibling reports "Alienware m16 R1
+      AMD" and is generic_quirks (no G-Mode) — that entry precedes this
+      glob so the AMD unit matches it first.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m16 R1', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-m18"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m18*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel CPU temp (AMD m18 variants report k10temp)"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware m18 R1/R2 (2023-2024 18-inch). g_series quirk. Intel and
+      AMD CPU variants exist; CPU temp chip differs (coretemp vs k10temp)
+      but the alienware_wmi fan path is identical.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m18', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-x16"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware x16*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware x16 R1/R2 (2023-2024 thin-flagship). g_series quirk.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware x16', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g15"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Dell G15*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode (AWCC G-series)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel CPU temp (AMD G15 5505/5525 report k10temp)"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Dell G15 (5510/5511/5520/5525/5530 etc.). g_series quirk — gets the
+      same alienware_wmi hwmon + G-Mode as Alienware. Intel and AMD
+      (Ryzen) chassis variants share the fan path. Previously needed
+      tcc-g15 / AWCC-clone userspace; now mainline.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI sys_vendor 'Dell Inc.' / product 'Dell G15', g_series_quirks)"
+      - "https://github.com/AlexIII/tcc-g15 (G15 thermal-control prior art)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g16"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "Dell G16*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 13th-gen Raptor Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Dell G16 (7620/7630). g_series quirk.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Dell G16', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g3"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "G3 *"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 8th/9th/10th-gen CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace: []
+    notes: |
+      Dell G3 (3500/3579/3590/3779). g_series quirk. DMI product is "G3
+      3500" etc.; the kernel substring-matches "G3" with sys_vendor
+      "Dell Inc.". ventd uses the conservative "G3 *" prefix glob to
+      avoid matching unrelated short product strings.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI sys_vendor 'Dell Inc.' / product 'G3', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "dell-g5"
+    dmi_fingerprint:
+      sys_vendor: "Dell Inc."
+      product_name: "G5 *"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile + G-Mode"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel CPU temp (G5 5505 SE is AMD → k10temp)"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "DavidLapous/DellG5SE-Fan-Linux (direct-EC writer — conflicts with WMI path)"
+    notes: |
+      Dell G5 (5500/5505 SE/5590). g_series quirk. The 5505 SE is the AMD
+      variant (k10temp). ventd uses the "G5 *" prefix glob.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI sys_vendor 'Dell Inc.' / product 'G5', g_series_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  # ── generic_quirks (hwmon + platform_profile, no G-Mode) ─────────────
+
+  - id: "alienware-m16-r1-amd"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m16 R1 AMD*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7040-series CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware m16 R1 AMD (2023). generic_quirks: hwmon + platform_profile
+      but NO G-Mode. Listed before the Intel "Alienware m16 R1*" glob so
+      AMD units match this (correct, no-G-Mode) entry first.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m16 R1 AMD', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-m16-r2"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m16 R2*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel Core Ultra (Meteor Lake-H) CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware m16 R2 (2024, Meteor Lake redesign). generic_quirks.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m16 R2', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-m15"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m15*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 9th-11th-gen CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "vaishnav67/alienfan-tools (ACPI fan path — conflicts with WMI control)"
+    notes: |
+      Alienware m15 (R1-R7, 2018-2022). generic_quirks. The "Alienware
+      m15*" glob covers all R-revisions, matching the kernel's substring
+      DMI match. vaishnav67/alienfan-tools was the prior ACPI fan path.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m15', generic_quirks)"
+      - "https://github.com/vaishnav67/alienfan-tools (m15/m17 R1 ACPI fan-method map)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-m17"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware m17*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 9th-12th-gen CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "vaishnav67/alienfan-tools (ACPI fan path)"
+    notes: |
+      Alienware m17 (R1-R5, 2019-2022). generic_quirks.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware m17', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-x15"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware x15*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 11th/12th-gen CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware x15 R1/R2 (2021-2022 thin chassis). generic_quirks.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware x15', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-x17"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware x17*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 11th/12th-gen CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "AWCC (Windows)"
+    notes: |
+      Alienware x17 R1/R2 (2021-2022). generic_quirks.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware x17', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "alienware-area-51m"
+    dmi_fingerprint:
+      sys_vendor: "Alienware"
+      product_name: "Alienware Area-51m*"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "alienware_wmi"
+      sysfs_hint: "name=alienware_wmi via alienware-wmi-wmax — manual pwm + platform_profile (no G-Mode)"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel desktop-class CPU temp (socketed)"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides: {}
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "vaishnav67/alienfan-tools (ACPI fan path)"
+    notes: |
+      Alienware Area-51m R1/R2 (2019-2020 desktop-replacement, socketed
+      CPU + MXM GPU). generic_quirks.
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (DMI product 'Alienware Area-51m', generic_quirks)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

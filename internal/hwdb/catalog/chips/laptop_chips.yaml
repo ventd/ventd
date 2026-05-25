@@ -12,6 +12,14 @@ chip_profiles:
     citations:
       - "https://docs.kernel.org/hwmon/dell-smm-hwmon.html"
 
+  - name: "alienware_wmi"
+    inherits_driver: "alienware-wmi-wmax"
+    description: "Alienware / Dell-G WMAX WMI hwmon — /sys/class/hwmon/*/name registered by the mainline alienware-wmi-wmax driver (manual pwm + per-fan boost + platform_profile/G-Mode)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/dell/alienware-wmi-wmax.c (devm_hwmon_device_register_with_info name='alienware_wmi')"
+
   - name: "steamdeck_hwmon"
     inherits_driver: "steamdeck-hwmon"
     description: "Steam Deck hwmon — /sys/class/hwmon/*/name value for steamdeck-hwmon driver."
