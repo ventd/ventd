@@ -83,6 +83,7 @@ staged=$(git diff --cached --name-only --diff-filter=ACMR)
 go_changed=false
 rule_changed=false
 mod_changed=false
+map_relevant=false
 if echo "$staged" | grep -E "\.go$" >/dev/null; then
 	go_changed=true
 fi
@@ -91,6 +92,10 @@ if echo "$staged" | grep -E "^go\.(mod|sum)$" >/dev/null; then
 fi
 if echo "$staged" | grep -E "^\.claude/rules/" >/dev/null; then
 	rule_changed=true
+fi
+# mapcheck is relevant when a structural surface or the map itself is touched.
+if echo "$staged" | grep -E "^(cmd|internal)/|^\.github/workflows/|^docs/codebase-map\.md$" >/dev/null; then
+	map_relevant=true
 fi
 
 # Auto-mirror sync for files that Go embed cannot reach outside its own
@@ -121,6 +126,15 @@ if [[ "$rule_changed" == true ]]; then
 	echo "pre-commit: rule-index --check"
 	if ! go run ./tools/rule-index --check; then
 		echo "pre-commit: rule-index is stale; run: go run ./tools/rule-index" >&2
+		exit 1
+	fi
+fi
+
+# codebase-map surface coverage check
+if [[ "$map_relevant" == true ]]; then
+	echo "pre-commit: mapcheck"
+	if ! go run ./tools/mapcheck; then
+		echo "pre-commit: docs/codebase-map.md is missing a surface (see above)" >&2
 		exit 1
 	fi
 fi
