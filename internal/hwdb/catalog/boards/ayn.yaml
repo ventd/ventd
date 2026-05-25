@@ -1,0 +1,111 @@
+schema_version: "1.3"
+# Ayn Loki handheld catalog — wave 13 (2026-05-17 sweep, A13).
+#
+# Ayn Loki Max / MiniPro / Zero. Fan control via the OOT ayn-platform
+# driver (ShadowBlip), hwmon name "aynec", writable pwm1. DMI
+# board_vendor "ayn" + board_name "Loki *". Unlike the mainline oxpec
+# fleet, ayn-platform is NOT mainline, so these board entries carry the
+# requires_dkms hint so ventd's installer deploys the DKMS module.
+#
+# See catalog/drivers/ayn-platform.yaml + chip "aynec" in laptop_chips.yaml.
+# verified:false — sourced from the ayn-platform DMI table, not ventd HW.
+
+board_profiles:
+
+  - id: "ayn-loki-max"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "ayn"
+      board_name: "Loki Max"
+      board_version: "*"
+    primary_controller:
+      chip: "aynec"
+      sysfs_hint: "name=aynec via OOT ayn-platform DKMS — writable pwm1 (manual/auto)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 6800U/7320U CPU temp"
+      - chip: "amdgpu"
+        sysfs_hint: "AMD Radeon iGPU temp via amdgpu hwmon"
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "HandyGCCS"
+      - "hhd"
+    notes: |
+      Ayn Loki Max (AMD Ryzen 6800U / 7320U handheld). Fan control via
+      OOT ayn-platform (ShadowBlip) DKMS module, hwmon "aynec", pwm1
+      writable with pwm1_enable manual/auto. hhd / HandyGCCS are the
+      companion userspace daemons.
+    citations:
+      - "https://github.com/ShadowBlip/ayn-platform (DMI board_vendor 'ayn' / board_name 'Loki Max')"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "ayn-loki-minipro"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "ayn"
+      board_name: "Loki MiniPro"
+      board_version: "*"
+    primary_controller:
+      chip: "aynec"
+      sysfs_hint: "name=aynec via OOT ayn-platform DKMS — writable pwm1 (manual/auto)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7320U CPU temp"
+      - chip: "amdgpu"
+        sysfs_hint: "AMD Radeon 610M iGPU temp via amdgpu hwmon"
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "HandyGCCS"
+      - "hhd"
+    notes: |
+      Ayn Loki MiniPro (AMD Ryzen 7320U handheld). Same ayn-platform DKMS
+      path as Loki Max.
+    citations:
+      - "https://github.com/ShadowBlip/ayn-platform (DMI board_name 'Loki MiniPro')"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "ayn-loki-zero"
+    dmi_fingerprint:
+      sys_vendor: "*"
+      product_name: "*"
+      board_vendor: "ayn"
+      board_name: "Loki Zero"
+      board_version: "*"
+    primary_controller:
+      chip: "aynec"
+      sysfs_hint: "name=aynec via OOT ayn-platform DKMS — writable pwm1 (manual/auto)"
+    additional_controllers:
+      - chip: "k10temp"
+        sysfs_hint: "name=k10temp mainline — AMD Ryzen 7320U CPU temp"
+      - chip: "amdgpu"
+        sysfs_hint: "AMD Radeon 610M iGPU temp via amdgpu hwmon"
+    overrides:
+      requires_dkms: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "HandyGCCS"
+      - "hhd"
+    notes: |
+      Ayn Loki Zero (AMD Ryzen 7320U entry handheld). Same ayn-platform
+      DKMS path as the rest of the Loki line.
+    citations:
+      - "https://github.com/ShadowBlip/ayn-platform (DMI board_name 'Loki Zero')"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []

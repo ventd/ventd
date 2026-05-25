@@ -133,6 +133,23 @@ chip_profiles:
     citations:
       - "https://docs.kernel.org/hwmon/corsair-psu.html"
 
+  # ── wave 13: x86 handheld EC hwmon ───────────────────────────────────
+  - name: "oxp_ec"
+    inherits_driver: "oxpec"
+    description: "OneXPlayer/AOKZOE/AYANEO/OrangePi-NEO handheld EC — hwmon name for mainline oxpec driver. Writable pwm1 (manual/auto)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/oxpec.c"
+
+  - name: "aynec"
+    inherits_driver: "ayn-platform"
+    description: "Ayn Loki handheld EC — hwmon name for OOT ayn-platform driver (DKMS). Writable pwm1 (manual/auto)."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/ShadowBlip/ayn-platform"
+
   - name: "asus_ec"
     inherits_driver: "asus-ec-sensors"
     description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."
