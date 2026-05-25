@@ -150,6 +150,15 @@ chip_profiles:
     citations:
       - "https://github.com/ShadowBlip/ayn-platform"
 
+  # ── wave 17: QNAP x86 NAS EC ─────────────────────────────────────────
+  - name: "qnap_ec"
+    inherits_driver: "qnap-ec"
+    description: "QNAP x86 NAS IT8528 EC — hwmon name for OOT Stonyx/QNAP-EC driver (DKMS). Writable pwm + fan RPM."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/Stonyx/QNAP-EC"
+
   - name: "asus_ec"
     inherits_driver: "asus-ec-sensors"
     description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."
