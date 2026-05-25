@@ -1,0 +1,31 @@
+schema_version: "1.2"
+
+# Ayn Loki handhelds — OOT ayn-platform (ShadowBlip), DKMS. Registers
+# hwmon name "aynec" with fan1_input RPM + writable pwm1 (pwm1_enable
+# manual/auto). DMI board_vendor "ayn", board_name "Loki Max" /
+# "Loki MiniPro" / "Loki Zero". Boards in catalog/boards/ayn.yaml carry
+# the requires_dkms install hint. Section A13 of the 2026-05-17 sweep.
+
+driver_profiles:
+  - module: "ayn-platform"
+    family: "handheld-ec"
+    description: "Ayn Loki Max / MiniPro / Zero handheld EC (OOT ShadowBlip/ayn-platform, DKMS). hwmon name 'aynec': fan1_input RPM + writable pwm1 with pwm1_enable (manual/auto). DMI board_vendor 'ayn'. Not mainline; ventd installs via DKMS. Companion userspace: hhd / HandyGCCS."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://github.com/ShadowBlip/ayn-platform (ayn-platform.c — hwmon name 'aynec', fan+pwm HWMON_PWM_INPUT|HWMON_PWM_ENABLE, DMI board_vendor 'ayn' / board_name Loki Max/MiniPro/Zero)"

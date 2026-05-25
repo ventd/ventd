@@ -1,0 +1,34 @@
+schema_version: "1.2"
+
+# OneXPlayer / AOKZOE / AYANEO / OrangePi-NEO handhelds — mainline oxpec
+# (drivers/platform/x86/oxpec.c, formerly oxp-sensors). Self-detecting via
+# an internal DMI board_name table (26 models); registers hwmon name
+# "oxp_ec" with fan1_input RPM + writable pwm1 (pwm1_enable: 1=manual,
+# 2=auto). No board catalog entries needed — the driver matches the
+# handheld itself and ventd binds on the "oxp_ec" chip. Section A13 of the
+# 2026-05-17 sweep; handheld Linux is the catalog's #1 marketing-ROI area.
+
+driver_profiles:
+  - module: "oxpec"
+    family: "handheld-ec"
+    description: "OneXPlayer / AOKZOE / AYANEO / OrangePi-NEO x86 handheld EC (mainline oxpec, formerly oxp-sensors). hwmon name 'oxp_ec': fan1_input RPM + writable pwm1 with pwm1_enable (1=manual EC reg 0x01, 2=auto 0x00; OrangePi NEO uses reg 0x40, others 0x4A). Self-detects ~26 board_name models incl. OneXPlayer 2/X1/F1/G1/Mini, AOKZOE A1/A2, AYANEO, OrangePi NEO-01. hhd is the companion userspace daemon (coordinate)."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "auto"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/oxpec.c (hwmon name 'oxp_ec', HWMON_PWM_INPUT|HWMON_PWM_ENABLE, PWM_MODE_MANUAL 0x01 / PWM_MODE_AUTO 0x00, 26-model DMI table)"
+      - "https://github.com/hhd-dev/hhd (companion handheld daemon)"
