@@ -1,0 +1,33 @@
+schema_version: "1.2"
+
+# QNAP x86 NAS embedded controller (ITE IT8528) — OOT Stonyx/QNAP-EC,
+# GPL-3, DKMS. Registers hwmon name "qnap_ec" with fan RPM + writable
+# pwm (HWMON_PWM_ENABLE). Forced-load platform driver: it does NOT
+# auto-detect via DMI; the user loads it on a QNAP NAS, and it talks to
+# the IT8528 through QNAP's libuLinux_hal helper. ventd binds on the
+# "qnap_ec" chip. Section B1 of the 2026-05-17 sweep; homelab/NAS
+# audience. No board entries (QNAP x86 units use varied ODM board DMI;
+# the driver is device-agnostic and chip-matched).
+
+driver_profiles:
+  - module: "qnap-ec"
+    family: "nas-ec"
+    description: "QNAP x86 NAS embedded controller (ITE IT8528) — OOT Stonyx/QNAP-EC (GPL-3, DKMS). hwmon name 'qnap_ec': fan_input RPM + writable pwm (some channels HWMON_PWM_ENABLE). Forced-load platform driver (platform_device 'qnap-ec', no DMI auto-detect); uses QNAP's libuLinux_hal helper to reach the IT8528. Covers IT8528-based QNAP NAS (TS-x53/x73/x77-class and similar). ventd installs via DKMS and binds the 'qnap_ec' hwmon."
+    capability: "rw_quirk"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+    off_behaviour: "stops"
+    polling_latency_ms_hint: 300
+    recommended_alternative_driver: null
+    conflicts_with_userspace: []
+    fan_control_capable: true
+    fan_control_via: null
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "preserve"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://github.com/Stonyx/QNAP-EC (qnap-ec.c — hwmon name 'qnap_ec', HWMON_PWM_INPUT|HWMON_PWM_ENABLE, IT8528 via libuLinux_hal helper; GPL-3)"
