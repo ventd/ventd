@@ -124,6 +124,123 @@ board_profiles:
     defaults:
       curves: []
 
+  - id: "acer-predator-helios-300-ph315-52"
+    dmi_fingerprint:
+      sys_vendor: "Acer"
+      product_name: "Predator PH315-52"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no mainline driver — raw EC I/O via ec_sys (write_support=1), debugfs /sys/kernel/debug/ec/ec0/io"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 9th-gen Coffee Lake-H CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "PredatorSense"
+      - "linuwu-sense"
+    notes: |
+      Acer Predator Helios 300 PH315-52 (2019 — 9th-gen Coffee Lake-H
+      i7-9750H + GTX 1660Ti / RTX 2060). Richest Acer EC map ingested
+      so far: it is the first Acer entry with documented RPM tach
+      registers.
+
+      EC register map from mmsaeed509/Linux-PredatorSense (raw ec_sys
+      access via /sys/kernel/debug/ec/ec0/io, confirmed identical in the
+      snowyoneill/Linux-PredatorSense fork):
+        0x21   GPU fan mode: 0x50=auto, 0x60=turbo, 0x70=manual
+        0x22   CPU fan mode: 0x54=auto, 0x58=turbo, 0x5C=manual
+        0x37   CPU fan speed (manual mode) — slider_level
+        0x3a   GPU fan speed (manual mode) — slider_level
+        0x13   CPU fan RPM high byte    } big-endian 16-bit tach,
+        0x14   CPU fan RPM low byte     }   RPM = (high<<8)|low
+        0x15   GPU fan RPM high byte
+        0x16   GPU fan RPM low byte
+        0xb0   CPU temperature (°C)
+        0xb7   GPU temperature (°C)
+        0xb3   system temperature (°C)
+        0x10   Cool Boost: 0x01=on, 0x00=off
+        0x5b   Turbo LED: 0x01=on, 0x00=off
+        0x03   battery charge limit: 0x51=on (80%), 0x11=off
+        0x08   power-off USB charging: 0x0f=on, 0x1f=off
+
+      Mode registers (0x21/0x22) + manual-speed registers (0x37/0x3a)
+      match the PH315-51 family; PH315-52 additionally exposes the
+      0x13-0x16 tach pairs and the 0xb0/0xb7/0xb3 thermal block that the
+      earlier maps lacked.
+
+      Monitor-only via ventd (coretemp + nvme) until mainline acer-wmi
+      gains PH315-52 fan PWM or ventd grows a Linuwu-Sense / raw-EC HAL.
+    citations:
+      - "https://github.com/mmsaeed509/Linux-PredatorSense (main.py EC register constants)"
+      - "https://github.com/snowyoneill/Linux-PredatorSense (fork — identical EC map)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
+  - id: "acer-predator-helios-500-ph517-51"
+    dmi_fingerprint:
+      sys_vendor: "Acer"
+      product_name: "Predator PH517-51"
+      board_vendor: "*"
+      board_name: "*"
+      board_version: "*"
+    primary_controller:
+      chip: "unknown"
+      sysfs_hint: "no mainline driver — acerhdf-derived OOT module (arsi-apli/PredatorFanSpeedModule), bang-bang EC fan state via ec_read/ec_write"
+    additional_controllers:
+      - chip: "coretemp"
+        sysfs_hint: "name=coretemp mainline — Intel 8th-gen Coffee Lake-H i7-8750H/i9-8950HK CPU temp"
+      - chip: "nvme"
+        sysfs_hint: "name=nvme — NVMe SSD telemetry"
+    overrides:
+      unsupported: true
+    required_modprobe_args: []
+    conflicts_with_userspace:
+      - "PredatorSense"
+      - "acerhdf"
+      - "linuwu-sense"
+    notes: |
+      Acer Predator Helios 500 PH517-51 (2018 — 8th-gen Coffee Lake-H +
+      GTX 1060/1070). Distinct control mechanism from the PH315/Nitro
+      ec_sys-PWM family: arsi-apli/PredatorFanSpeedModule is a fork of
+      the in-tree acerhdf thermal driver (bang-bang on/off fan, NOT a
+      PWM duty model).
+
+      acerhdf-style EC map from PredatorFanSpeedModule/acerhdf.c
+      (bios_tbl entry, BIOS V1.06 05/03/2018):
+        0x4f   fan-state register (fanreg) — ec_read/ec_write
+        0x58   CPU temperature register (tempreg) — ec_read
+        0x14   cmd_off   (fan forced off / handed back to BIOS check)
+        0x04   cmd_auto  (return fan control to BIOS)
+        0x94   manual-mode disable register (mreg), value 0xff (moff)
+      MIN_FAN_SPEED = 4. The module exposes a thermal_zone using the
+      bang_bang governor — it toggles the fan between off and on around
+      a trip point rather than scaling PWM.
+
+      BIOS-version specific: the acerhdf bios_tbl only matches BIOS
+      V1.06. Other PH517-51 BIOS revisions need their own probed
+      fanreg/tempreg pair (see the nbfc EC-probe wiki referenced in
+      the module header).
+
+      Monitor-only via ventd (coretemp + nvme) — ventd does not drive
+      acerhdf bang-bang state today.
+    citations:
+      - "https://github.com/arsi-apli/PredatorFanSpeedModule (acerhdf.c bios_tbl — PH517-51 V1.06 fanreg 0x4f / tempreg 0x58)"
+    contributed_by: "anonymous"
+    captured_at: "2026-05-17"
+    verified: false
+    defaults:
+      curves: []
+
   # ── PXDiv WMI-based driver coverage (Nitro + Predator generic) ───────────
   # PXDiv/Div-Acer-Manager-Fan-Controls uses WMI GUID
   # 7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56 and works on most Acer Nitro/Predator
@@ -166,9 +283,21 @@ board_profiles:
       product_name strings match. This entry exists so the wizard
       reports "Acer (Nitro/Predator family — PXDiv WMI driver available)"
       for unknown Acer SKUs.
+
+      ALTERNATIVE WMI PATH: MasonT8198/acer-wmi-ext is a small OOT driver
+      that uses two DIFFERENT WMI GUIDs from the PXDiv driver, chosen so
+      the two can coexist:
+        WMI_GUID1  79772EC5-04B1-4bfd-843C-61E7F77B6CC9  (gaming methods)
+        WMI_GUID2  61EF69EA-865C-4BC3-A502-A0DEBA0CB531  (USB charging)
+      It exposes a system fan-control mode (0=balanced, 1=silent,
+      2=performance) via wmi_evaluate_method on GUID1, plus battery
+      health-mode control (methods 20/21). ventd's wizard can probe for
+      either GUID when classifying an unknown Acer; presence of
+      79772EC5-... indicates the acer-wmi-ext fan-mode path is available.
     citations:
       - "https://github.com/PXDiv/Div-Acer-Manager-Fan-Controls (WMI GUID + method IDs)"
       - "https://github.com/PXDiv/AcerLinuxManager"
+      - "https://github.com/MasonT8198/acer-wmi-ext (acer-wmi-ext.c — GUIDs 79772EC5-... / 61EF69EA-..., fan-mode method)"
     contributed_by: "anonymous"
     captured_at: "2026-05-17"
     verified: false
