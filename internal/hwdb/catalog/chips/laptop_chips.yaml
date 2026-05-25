@@ -159,6 +159,15 @@ chip_profiles:
     citations:
       - "https://github.com/Stonyx/QNAP-EC"
 
+  # ── wave 19: Razer USB PWM PC fan controller ─────────────────────────
+  - name: "razer_pwm_pc_fan"
+    inherits_driver: "razer_pwm_pc_fan_controller"
+    description: "Razer PWM PC Fan Controller (USB 1532:0F3C) — hwmon name for OOT SlimRG driver (DKMS). 8x writable pwm + 8x fan RPM."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://github.com/SlimRG/razer-pwm-pc-fan-hwmon"
+
   - name: "asus_ec"
     inherits_driver: "asus-ec-sensors"
     description: "ASUS EC sensors — /sys/class/hwmon/*/name value. Read-only EC sensors; fan control via Super I/O."
