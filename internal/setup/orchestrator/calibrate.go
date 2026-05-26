@@ -247,6 +247,21 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 		}
 	}
 
+	// RPMDetect (the prior phase) resolves the tach for fans ProbePhase
+	// couldn't pair by same-index convention — including every non-hwmon
+	// HAL fan, whose tach lives on a different chip and is therefore
+	// always empty in the probe artifact (#1376). Overlay the resolved
+	// path so the sweep has a closed-loop RPM signal; without it an msiec
+	// fan would calibrate blind (no RPM response curve) and be dropped.
+	rpmByPath := map[string]string{}
+	if rd, rdErr := loadRPMDetectArtifact(rc); rdErr == nil {
+		for _, r := range rd.Results {
+			if r.ResolvedRPM != "" {
+				rpmByPath[r.PWMPath] = r.ResolvedRPM
+			}
+		}
+	}
+
 	if len(probeArt.Fans) == 0 {
 		rc.Sink().Emit("info", "calibrate", "no fans to calibrate; skipping")
 		raw, _ := EncodeArtifact(CalibrateArtifact{})
@@ -284,6 +299,14 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 	results := make([]CalibrateFanResult, len(probeArt.Fans))
 	chipGroups := map[string][]job{}
 	for i, fan := range probeArt.Fans {
+		// Overlay the RPMDetect-resolved tach when the probe left it
+		// empty (split-chip hwmon boards, and every HAL fan). fan is a
+		// loop-local copy, so this doesn't mutate the artifact.
+		if fan.RPMPath == "" {
+			if rp, ok := rpmByPath[fan.PWMPath]; ok {
+				fan.RPMPath = rp
+			}
+		}
 		chipGroups[fan.ChipName] = append(chipGroups[fan.ChipName], job{idx: i, fan: fan})
 	}
 
@@ -397,7 +420,7 @@ func sweepOne(
 
 	cfgFan := &config.Fan{
 		Name:     fan.LabelHint,
-		Type:     "hwmon",
+		Type:     fanType(fan), // hwmon, or the HAL backend tag (msiec, …) — #1376
 		PWMPath:  fan.PWMPath,
 		RPMPath:  fan.RPMPath,
 		ChipName: fan.ChipName,

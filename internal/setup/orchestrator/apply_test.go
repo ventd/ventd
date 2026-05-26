@@ -83,6 +83,68 @@ func TestApplyPhase_WritesConfigForProbedFans(t *testing.T) {
 	}
 }
 
+// TestApplyPhase_EmitsHALBackendFanType is the apply-side half of the
+// #1376 fix: a probed fan tagged Backend="msiec" must land in the config
+// as Type:"msiec" with the channel ID as PWMPath and an empty
+// hwmon_device (the channel ID is not a hwmon node). The emitted config
+// must round-trip through config.Parse (which runs Validate) — otherwise
+// the daemon would refuse to load what the wizard just wrote.
+func TestApplyPhase_EmitsHALBackendFanType(t *testing.T) {
+	stateDir := t.TempDir()
+	rc := &RunContext{StateDir: stateDir}
+	cfgPath := filepath.Join(t.TempDir(), "ventd", "config.yaml")
+
+	const chanID = "/sys/devices/platform/msi-ec"
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{PWMPath: chanID, Backend: "msiec", ChipName: "msiec", LabelHint: "MSI EC Fan"},
+		},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: chanID, Polarity: "normal"}},
+	})
+	// RPMDetect resolved a cross-device tach (the msi_wmi_platform hwmon).
+	seedRPMDetectCheckpoint(t, rc, RPMDetectArtifact{
+		Results: []RPMDetectFanResult{
+			{PWMPath: chanID, ResolvedRPM: "/sys/class/hwmon/hwmon4/fan1_input", Improved: true},
+		},
+	})
+
+	out := (ApplyPhase{ConfigPath: cfgPath}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+
+	body, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	// Round-trip through Parse (runs config.Validate) — the daemon's load path.
+	if _, err := config.Parse(body); err != nil {
+		t.Fatalf("generated config does not validate (daemon would refuse it): %v", err)
+	}
+	var cfg config.Config
+	if err := yaml.Unmarshal(body, &cfg); err != nil {
+		t.Fatalf("parse generated config: %v", err)
+	}
+	if len(cfg.Fans) != 1 {
+		t.Fatalf("expected 1 fan, got %d: %+v", len(cfg.Fans), cfg.Fans)
+	}
+	f := cfg.Fans[0]
+	if f.Type != "msiec" {
+		t.Errorf("Fan.Type = %q, want %q", f.Type, "msiec")
+	}
+	if f.PWMPath != chanID {
+		t.Errorf("Fan.PWMPath = %q, want %q", f.PWMPath, chanID)
+	}
+	if f.HwmonDevice != "" {
+		t.Errorf("Fan.HwmonDevice = %q, want empty for a non-hwmon backend", f.HwmonDevice)
+	}
+	if f.RPMPath != "/sys/class/hwmon/hwmon4/fan1_input" {
+		t.Errorf("Fan.RPMPath = %q, want the RPMDetect-resolved cross-device tach", f.RPMPath)
+	}
+}
+
 func TestApplyPhase_ExcludesPhantomFans(t *testing.T) {
 	stateDir := t.TempDir()
 	rc := &RunContext{StateDir: stateDir}

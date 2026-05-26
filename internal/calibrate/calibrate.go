@@ -336,6 +336,16 @@ type Manager struct {
 	// Empty (the legacy New() path or tests) disables identity gating —
 	// the load behaves exactly as v2.
 	expectedIdentity string
+
+	// hwmonRoot is the sysfs hwmon directory scanned for candidate tach
+	// files when DetectRPMSensor pairs a NON-hwmon HAL fan (msiec,
+	// thinkpad, …) whose own channel ID is not a hwmon directory and
+	// whose tach lives on a different chip (e.g. an MSI msiec fan whose
+	// RPM is reported by the in-kernel msi_wmi_platform hwmon). Defaults
+	// to DefaultHwmonRoot; tests inject a fixture root via
+	// setHwmonRootForTest. Unused for hwmon fans, which pair within
+	// filepath.Dir(pwmPath) exactly as before.
+	hwmonRoot string
 }
 
 // SetDiagnosticStore attaches the process-wide hwdiag store. Diagnostics
@@ -393,6 +403,7 @@ func NewWithIdentity(path string, logger *slog.Logger, wd *watchdog.Watchdog, id
 		logger:           logger,
 		wd:               wd,
 		expectedIdentity: identity,
+		hwmonRoot:        DefaultHwmonRoot,
 	}
 	m.load()
 	return m
@@ -1188,10 +1199,28 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 		defer m.wd.Deregister(pwmPath)
 	}
 
-	// Read current PWM so we can restore it.
-	origPWM, err := readSysfsUint8(pwmPath)
-	if err != nil {
-		return DetectResult{}, fmt.Errorf("detect: read current pwm: %w", err)
+	// Read current PWM so we can restore it. hwmon fans read the bare
+	// sysfs pwmN byte directly; non-hwmon HAL fans (msiec, thinkpad, …)
+	// have no readable pwmN file at pwmPath (it's a HAL channel ID, often
+	// a device-root directory), so go through the backend's Read instead.
+	var origPWM uint8
+	if isHALFanType(fan.Type) {
+		r, rerr := b.Read(ch)
+		if rerr != nil || !r.OK {
+			// A backend that can't report its current state can still be
+			// driven + restored to a safe value; fall back to 0 so the
+			// deferred restore writes a benign low duty rather than aborting
+			// the whole detection.
+			origPWM = 0
+		} else {
+			origPWM = r.PWM
+		}
+	} else {
+		var err error
+		origPWM, err = readSysfsUint8(pwmPath)
+		if err != nil {
+			return DetectResult{}, fmt.Errorf("detect: read current pwm: %w", err)
+		}
 	}
 
 	maxPWM := fan.MaxPWM
@@ -1252,12 +1281,28 @@ func (m *Manager) DetectRPMSensor(fan *config.Fan) (DetectResult, error) {
 	}
 	time.Sleep(2 * time.Second)
 
-	// Find all fan*_input files in the same hwmon directory.
+	// Find candidate fan*_input files. hwmon fans pair within their own
+	// chip directory (the kernel's same-index convention, and the
+	// intended behaviour the pwmconfig-parity tests pin). Non-hwmon HAL
+	// fans (msiec, thinkpad, …) have no tach under their channel ID —
+	// their RPM is reported by a SEPARATE hwmon chip (an MSI msiec fan's
+	// tach is exposed by the in-kernel msi_wmi_platform hwmon), so scan
+	// every hwmon device's fan*_input and let the largest-delta picker
+	// below find the one that tracks this fan (#1376).
 	dir := filepath.Dir(pwmPath)
-	matches, _ := filepath.Glob(filepath.Join(dir, "fan*_input"))
+	var matches []string
+	if isHALFanType(fan.Type) {
+		matches, _ = filepath.Glob(filepath.Join(m.hwmonRootOrDefault(), "hwmon*", "fan*_input"))
+	} else {
+		matches, _ = filepath.Glob(filepath.Join(dir, "fan*_input"))
+	}
 	sort.Strings(matches)
 	if len(matches) == 0 {
-		return DetectResult{}, fmt.Errorf("detect: no fan*_input files in %s", dir)
+		scanned := dir
+		if isHALFanType(fan.Type) {
+			scanned = m.hwmonRootOrDefault()
+		}
+		return DetectResult{}, fmt.Errorf("detect: no fan*_input files in %s", scanned)
 	}
 
 	// Pre-ramp stability gate (RULE-CAL-DETECT-STABILITY): take three baseline
@@ -1560,6 +1605,31 @@ func (m *Manager) checkpoint(pwmPath string, partial Result) {
 	m.mu.Unlock()
 	m.save()
 }
+
+// isHALFanType reports whether a config.Fan.Type denotes a non-hwmon,
+// non-nvidia HAL backend (msiec, thinkpad, nbfc, ipmi, legion,
+// lenovoideapad, corsair, asahi, crosec, pwmsys). These fans have no
+// writable/readable sysfs pwmN file and pair their tach across hwmon
+// devices rather than within a chip directory. "" and "hwmon" are the
+// classic sysfs path; "nvidia" is rejected by DetectRPMSensor before
+// this is reached.
+func isHALFanType(t string) bool {
+	return t != "" && t != "hwmon" && t != "nvidia"
+}
+
+// hwmonRootOrDefault returns the configured hwmon scan root, falling
+// back to DefaultHwmonRoot for Managers constructed without one (e.g. a
+// zero-value Manager in a focused test).
+func (m *Manager) hwmonRootOrDefault() string {
+	if m.hwmonRoot == "" {
+		return DefaultHwmonRoot
+	}
+	return m.hwmonRoot
+}
+
+// setHwmonRootForTest overrides the hwmon scan root used for cross-chip
+// tach detection on non-hwmon HAL fans. Test-only.
+func (m *Manager) setHwmonRootForTest(root string) { m.hwmonRoot = root }
 
 // ---- Private sysfs helpers ----
 // These helpers perform read-only access to sysfs files. They are intentionally

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/ventd/ventd/internal/hal"
 )
 
 // stageProbeFixture builds a /sys-like hwmon tree with the given chips.
@@ -229,5 +231,77 @@ func TestProbePhase_PopulatesMonitorChannels(t *testing.T) {
 	if phantom != 1 {
 		t.Errorf("expected fan2_input classified phantom (all-zero, no paired PWM); got phantom=%d (%+v)",
 			phantom, art.MonitorChannels)
+	}
+}
+
+// TestProbePhase_HALPassDiscoversNonHwmonFan is the #1376 regression:
+// a host with no controllable hwmon PWM (an MSI laptop: tach-only
+// msi_wmi_platform + coretemp) but a live msiec HAL channel must yield a
+// ProbedFan tagged Backend="msiec" with the channel's inner ID as
+// PWMPath, so apply can emit a Type:"msiec" fan the resolver drives.
+func TestProbePhase_HALPassDiscoversNonHwmonFan(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	enumerate := func(context.Context) ([]hal.Channel, error) {
+		return []hal.Channel{
+			// The target: a writable msiec channel (tagged as Enumerate emits).
+			{ID: "msiec:/sys/devices/platform/msi-ec", Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore},
+			// hwmon is owned by the sysfs glob — must be skipped to avoid double-listing.
+			{ID: "hwmon:/sys/class/hwmon/hwmon0/pwm1", Caps: hal.CapRead | hal.CapWritePWM},
+			// nvml/gpu are owned by NVMLPhase — must be skipped.
+			{ID: "nvml:0", Caps: hal.CapRead | hal.CapWritePWM},
+			// A read-only channel (no CapWritePWM) — nothing to control, skip.
+			{ID: "ipmi:/dev/ipmi0#3", Caps: hal.CapRead},
+		}, nil
+	}
+
+	rc := &RunContext{HwmonRoot: root}
+	out := (ProbePhase{HALEnumerate: enumerate}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	var art ProbeArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(art.Fans) != 1 {
+		t.Fatalf("expected exactly 1 fan (only the writable msiec channel); got %d: %+v", len(art.Fans), art.Fans)
+	}
+	f := art.Fans[0]
+	if f.Backend != "msiec" {
+		t.Errorf("Backend = %q, want %q", f.Backend, "msiec")
+	}
+	if f.PWMPath != "/sys/devices/platform/msi-ec" {
+		t.Errorf("PWMPath = %q, want the channel inner ID %q", f.PWMPath, "/sys/devices/platform/msi-ec")
+	}
+	if fanType(f) != "msiec" {
+		t.Errorf("fanType = %q, want %q", fanType(f), "msiec")
+	}
+	if f.RPMPath != "" {
+		t.Errorf("RPMPath = %q, want empty (paired later by RPMDetect)", f.RPMPath)
+	}
+}
+
+// TestProbePhase_NilHALEnumerateIsHwmonOnly pins the back-compat path:
+// when no HAL enumerator is wired (older tests, checkpoints), the phase
+// behaves exactly like the pre-#1376 hwmon-only probe.
+func TestProbePhase_NilHALEnumerateIsHwmonOnly(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := (ProbePhase{}).Execute(context.Background(), &RunContext{HwmonRoot: root})
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	var art ProbeArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(art.Fans) != 0 {
+		t.Fatalf("expected 0 fans (empty hwmon tree, no HAL pass); got %d: %+v", len(art.Fans), art.Fans)
 	}
 }
