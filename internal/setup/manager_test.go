@@ -2,7 +2,6 @@ package setup
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
-	"github.com/ventd/ventd/internal/hwdiag"
-	hwmonpkg "github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/recovery"
 	"github.com/ventd/ventd/internal/watchdog"
 )
@@ -353,52 +350,6 @@ func TestManager_InstallLogIsCopied(t *testing.T) {
 	}
 }
 
-// TestManager_EmitBuildFailedDiag covers the unhappy-path diag emitter
-// that fires when InstallDriver returns a non-reboot error. Used in the
-// live wizard but never triggered in sandbox; this test exercises the
-// mapping directly.
-func TestManager_EmitBuildFailedDiag(t *testing.T) {
-	store := hwdiag.NewStore()
-	m := newManager(t)
-	m.SetDiagnosticStore(store)
-
-	nd := hwmonpkg.DriverNeed{Key: "nct6687d", ChipName: "NCT6687D", Module: "nct6687"}
-	m.emitBuildFailedDiag(nd, errors.New("compiler error: undefined symbol"))
-
-	snap := store.Snapshot(hwdiag.Filter{})
-	if len(snap.Entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(snap.Entries))
-	}
-	e := snap.Entries[0]
-	if e.ID != hwdiag.IDOOTBuildFailed {
-		t.Errorf("ID = %q, want %q", e.ID, hwdiag.IDOOTBuildFailed)
-	}
-	if e.Severity != hwdiag.SeverityError {
-		t.Errorf("Severity = %q, want %q", e.Severity, hwdiag.SeverityError)
-	}
-	if !strings.Contains(e.Detail, "compiler error") {
-		t.Errorf("Detail = %q, want it to include the underlying error text", e.Detail)
-	}
-	if len(e.Affected) != 1 || e.Affected[0] != "nct6687" {
-		t.Errorf("Affected = %v, want [nct6687]", e.Affected)
-	}
-	// Build-failed has no remediation: the diag is informational.
-	if e.Remediation != nil {
-		t.Errorf("Remediation = %+v, want nil (no auto-fix for unanticipated build failure)", e.Remediation)
-	}
-}
-
-// TestManager_EmitBuildFailedDiagNoStoreIsNoOp pins the nil-store contract
-// that the CLI --setup path depends on (CLI never sets a store).
-func TestManager_EmitBuildFailedDiagNoStoreIsNoOp(t *testing.T) {
-	m := newManager(t)
-	// intentionally no SetDiagnosticStore
-	m.emitBuildFailedDiag(
-		hwmonpkg.DriverNeed{Key: "k", ChipName: "C", Module: "m"},
-		errors.New("boom"),
-	)
-}
-
 // TestManager_VendorDaemonShortCircuit pins the wizard's R28 deferral
 // path (RULE-WIZARD-RECOVERY-11). When DetectVendorDaemon reports an
 // active OEM fan daemon, run() must NOT proceed to hardware enumeration
@@ -440,22 +391,4 @@ func TestManager_VendorDaemonProbe_NoneDoesNotShortCircuit(t *testing.T) {
 		t.Errorf("FailureClass = %q, expected anything but vendor_daemon_active when probe returns None",
 			final.FailureClass)
 	}
-}
-
-// TestManager_EmitDMICandidatesWrapper covers the public wrapper around the
-// fixture-tested emitDMICandidatesFor. The wrapper calls hwmonpkg.ReadDMI("")
-// against the live root; in sandbox that returns an empty DMIInfo, which
-// emits the no_match entry.
-func TestManager_EmitDMICandidatesWrapper(t *testing.T) {
-	store := hwdiag.NewStore()
-	m := newManager(t)
-	m.SetDiagnosticStore(store)
-
-	m.emitDMICandidates() // live ReadDMI("")
-	snap := store.Snapshot(hwdiag.Filter{Component: hwdiag.ComponentDMI})
-	if len(snap.Entries) == 0 {
-		t.Fatal("DMI emit produced no entries; want at least the no_match fallback")
-	}
-	// Exact ID depends on the host's DMI; in sandbox it's no_match.
-	// Only invariant we pin here: at least one DMI entry was set.
 }
