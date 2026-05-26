@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ventd/ventd/internal/setup/orchestrator"
 )
@@ -103,5 +104,41 @@ func TestOnApplyPhaseSuccess_NilReProberStillReloads(t *testing.T) {
 
 	if reloadFired.Load() != 1 {
 		t.Errorf("Reload trigger fired %d times; want 1 (nil ReProber must not block reload)", reloadFired.Load())
+	}
+}
+
+// TestRegression_Issue1377_CalibrationCompleteFiresOnApply pins the fix for
+// the inert cold-start pin (RULE-AGG-COLDSTART-01). onApplyPhaseSuccess MUST
+// fire the calibration-complete hook so the aggregator's SetEnvelopeCDoneAt
+// receives a non-zero t0. Before this, the hook was wired via
+// SetCalibrationCompleteFn (cmd/ventd/main.go) but never invoked on the
+// orchestrator apply path — its only caller, fireCalibrationComplete, was
+// unreachable from main — so envelopeCDoneAt stayed zero and the 5-minute
+// predictive hold never engaged in production (#1377).
+func TestRegression_Issue1377_CalibrationCompleteFiresOnApply(t *testing.T) {
+	m := newBridgeTestManager(t)
+
+	var fired atomic.Int32
+	var gotAt time.Time
+	m.SetCalibrationCompleteFn(func(at time.Time) {
+		fired.Add(1)
+		gotAt = at
+	})
+	// Wire the reload trigger so the apply path completes as in production.
+	m.SetReloadTrigger(func() {})
+
+	out := orchestrator.Outcome{
+		Phase:    (orchestrator.ApplyPhase{}).Name(),
+		Status:   orchestrator.StatusSuccess,
+		Artifact: nil,
+	}
+	before := time.Now()
+	m.onApplyPhaseSuccess(context.Background(), out, []orchestrator.Outcome{out})
+
+	if got := fired.Load(); got != 1 {
+		t.Fatalf("calibration-complete hook fired %d times; want 1 — without it the cold-start pin's t0 is never set (#1377)", got)
+	}
+	if gotAt.Before(before) {
+		t.Errorf("calibration-complete timestamp %v predates the apply call at %v", gotAt, before)
 	}
 }

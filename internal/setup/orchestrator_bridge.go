@@ -385,6 +385,15 @@ func (m *Manager) onApplyPhaseSuccess(ctx context.Context, out orchestrator.Outc
 	}
 	m.persistOrchestratorPolarity(outs)
 	m.afterFinalize(ctx, "OrchestratorApply")
+	// Fire the calibration-complete hook so the confidence aggregator's
+	// cold-start hard pin (RULE-AGG-COLDSTART-01) gets its t0. The legacy
+	// inline wizard fired this on calibration completion; when the v0.8.x
+	// orchestrator superseded it the trigger was dropped, leaving
+	// SetCalibrationCompleteFn wired but never invoked — so envelopeCDoneAt
+	// stayed zero and the pin was structurally inert (regressing #1035; see
+	// #1377). Set t0 before the reload spawns controllers so the 5-minute
+	// predictive hold actually covers the post-calibration window.
+	m.fireCalibrationComplete(time.Now())
 	m.fireReloadTrigger()
 	m.mu.Lock()
 	m.phase = "applied"
