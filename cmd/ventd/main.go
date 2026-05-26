@@ -1427,6 +1427,24 @@ func runDaemonInternal(
 		}()
 	}
 
+	// sp owns the controller wiring shared by the startup loop below and the
+	// SIGHUP/restart reload loop. Constructing it once means both paths build
+	// identical controller.Options by construction (see controllerSpawner) —
+	// the bug class behind #1240 and #1037 can no longer recur.
+	sp := &controllerSpawner{
+		ctx:        ctx,
+		wg:         &wg,
+		errCh:      errCh,
+		liveCfg:    &liveCfg,
+		wd:         wd,
+		cal:        cal,
+		readyState: readyState,
+		panicCheck: webSrv,
+		smartMode:  smartMode,
+		sigLib:     sigLib,
+		logger:     logger,
+	}
+
 	// Only start controllers if there are controls defined (not first-boot).
 	if len(cfg.Controls) > 0 {
 		calMap := loadCalibrationByChannel(logger)
@@ -1442,76 +1460,7 @@ func runDaemonInternal(
 				return fmt.Errorf("resolve control: %w", err)
 			}
 
-			opts := []controller.Option{
-				controller.WithSensorReadHook(func() {
-					readyState.MarkSensorRead(time.Now())
-				}),
-				controller.WithPanicChecker(webSrv),
-			}
-			// Wire the polarity channel reference so the controller's
-			// hot PWM-write path routes through polarity.WritePWM
-			// (RULE-POLARITY-05 / RULE-POLARITY-11). Issue #1037.
-			if smartMode != nil {
-				if pch := findPolarityChannel(smartMode.Channels, fanCfg.PWMPath); pch != nil {
-					opts = append(opts, controller.WithPolarityChannel(pch))
-				}
-			}
-			if fanCfg.Type == "hwmon" {
-				if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
-					if calCh, found := calMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
-						// Issue #1044: pwmUnitMax comes from the catalog
-						// match's EffectiveControllerProfile.PWMUnitMax. Hard-
-						// coding 255 produced garbage on step_0_N /
-						// cooling_level inverted channels (e.g. thinkpad_acpi
-						// 0..7) via hwdb.InvertPWM(cal, pwm, 255).
-						pwmUnitMax := resolvePWMUnitMax(hwmonName)
-						opts = append(opts, controller.WithCalibration(calCh, pwmUnitMax))
-					}
-				}
-			}
-			// v0.5.6: stamp every successful PWM write into the
-			// observation log with the current signature label.
-			// Closes the v0.5.4 controller→obsWriter gap.
-			if smartMode != nil && smartMode.ObsAppend != nil {
-				labelFn := func() string { return signature.FallbackLabelDisabled }
-				if sigLib != nil {
-					labelFn = sigLib.Label
-				}
-				opts = append(opts, controller.WithObservation(
-					smartMode.ObsAppend, labelFn,
-				))
-			}
-			// v0.5.9: install the confidence-gated blend hook when
-			// the smart-mode bundle has a BlendedController. The
-			// closure pulls the per-channel Snapshots from the
-			// upstream runtimes, computes w_pred via the aggregator,
-			// and routes through BlendedController.Compute.
-			if smartMode != nil && smartMode.Blended != nil {
-				labelFn := func() string { return signature.FallbackLabelDisabled }
-				if sigLib != nil {
-					labelFn = sigLib.Label
-				}
-				blendFn := buildBlendFn(
-					fanCfg.PWMPath, fanCfg, &liveCfg,
-					smartMode, labelFn, logger,
-				)
-				if blendFn != nil {
-					opts = append(opts, controller.WithBlend(blendFn))
-				}
-			}
-			c := controller.New(
-				ctrl.Fan, ctrl.Curve,
-				fanCfg.PWMPath, fanCfg.Type,
-				&liveCfg, wd, cal, logger,
-				opts...,
-			)
-			wg.Add(1)
-			go func(c *controller.Controller) {
-				defer wg.Done()
-				if runErr := c.Run(ctx, cfg.PollInterval.Duration); runErr != nil {
-					errCh <- runErr
-				}
-			}(c)
+			sp.spawn(ctrl, fanCfg, sp.options(fanCfg, calMap, resolvePWMUnitMax), cfg.PollInterval.Duration)
 		}
 	}
 
@@ -1615,77 +1564,7 @@ func runDaemonInternal(
 							"fan", ctrl.Fan, "err", err)
 						continue
 					}
-					reloadOpts := []controller.Option{
-						controller.WithSensorReadHook(func() {
-							readyState.MarkSensorRead(time.Now())
-						}),
-						controller.WithPanicChecker(webSrv),
-					}
-					// Wire polarity channel on the reload-path too so the
-					// route-via-polarity contract holds across SIGHUP +
-					// fresh-config controller spawns (issue #1037).
-					if smartMode != nil {
-						if pch := findPolarityChannel(smartMode.Channels, fanCfg.PWMPath); pch != nil {
-							reloadOpts = append(reloadOpts, controller.WithPolarityChannel(pch))
-						}
-					}
-					if fanCfg.Type == "hwmon" {
-						if hwmonName, idx, ok := parseHwmonChannel(fanCfg.PWMPath); ok {
-							if calCh, found := reloadCalMap[hwdb.ChannelKey{Hwmon: hwmonName, Index: idx}]; found {
-								// Issue #1044: thread catalog PWMUnitMax.
-								pwmUnitMax := reloadPWMUnitMax(hwmonName)
-								reloadOpts = append(reloadOpts, controller.WithCalibration(calCh, pwmUnitMax))
-							}
-						}
-					}
-					// v0.5.6: same observation wiring as the
-					// initial-startup path.
-					if smartMode != nil && smartMode.ObsAppend != nil {
-						labelFn := func() string { return signature.FallbackLabelDisabled }
-						if sigLib != nil {
-							labelFn = sigLib.Label
-						}
-						reloadOpts = append(reloadOpts, controller.WithObservation(
-							smartMode.ObsAppend, labelFn,
-						))
-					}
-					// v0.5.9: install the confidence-gated blend hook so
-					// reload-path controllers populate the same
-					// per-channel Snapshot stream the startup path does.
-					// Without this, /api/v1/smart/status reported
-					// channels=0 indefinitely after a wizard-triggered
-					// reload — controllers were running and driving fans
-					// correctly, but the aggregator's Tick was never
-					// called for them so smart-mode telemetry stayed
-					// empty. Same wiring shape as the startup path at
-					// ~line 1298. (#1240, exposed by #1229's reload
-					// trigger.)
-					if smartMode != nil && smartMode.Blended != nil {
-						labelFn := func() string { return signature.FallbackLabelDisabled }
-						if sigLib != nil {
-							labelFn = sigLib.Label
-						}
-						blendFn := buildBlendFn(
-							fanCfg.PWMPath, fanCfg, &liveCfg,
-							smartMode, labelFn, logger,
-						)
-						if blendFn != nil {
-							reloadOpts = append(reloadOpts, controller.WithBlend(blendFn))
-						}
-					}
-					c := controller.New(
-						ctrl.Fan, ctrl.Curve,
-						fanCfg.PWMPath, fanCfg.Type,
-						&liveCfg, wd, cal, logger,
-						reloadOpts...,
-					)
-					wg.Add(1)
-					go func(c *controller.Controller) {
-						defer wg.Done()
-						if runErr := c.Run(ctx, newCfg.PollInterval.Duration); runErr != nil {
-							errCh <- runErr
-						}
-					}(c)
+					sp.spawn(ctrl, fanCfg, sp.options(fanCfg, reloadCalMap, reloadPWMUnitMax), newCfg.PollInterval.Duration)
 				}
 				logger.Info("controllers started after first-boot config reload",
 					"count", len(newCfg.Controls))
