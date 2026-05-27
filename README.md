@@ -13,7 +13,7 @@ Install with one command, open the address it prints, click Apply. There's no co
 
 ## Status
 
-ventd is a solo-dev project, first major release was three days ago, and the smart-mode learned controller is still maturing in production. The hwmon / NVML / IPMI / Corsair / laptop-EC plumbing is the most heavily tested surface and is what most users will rely on day to day. The learned controller (the "Smart" page) works on single-channel and small-channel hosts, has known convergence gaps on multi-channel boards like 8-channel NCT6687 (see [issue #1253](https://github.com/ventd/ventd/issues/1253)), and ships in observe-and-adjust mode by default rather than as the sole control path. If you want a fully mature Linux fan controller for mainstream desktop hardware today, [CoolerControl](https://gitlab.com/coolercontrol/coolercontrol) is the established choice and pairs well with `liquidctl`. ventd is interesting if your hardware is in the long tail that other tools have struggled with, or if you want a browser UI that works over the network, or if you want to watch a learned controller try to do better than a fixed curve.
+ventd is a solo-dev project, the first major release (v1.0.0) shipped in May 2026, and the smart-mode learned controller is still maturing in production. The hwmon / NVML / IPMI / Corsair / laptop-EC plumbing is the most heavily tested surface and is what most users will rely on day to day. The learned controller (the "Smart" page) works on single-channel and small-channel hosts, has known convergence gaps on multi-channel boards like 8-channel NCT6687 (see [issue #1253](https://github.com/ventd/ventd/issues/1253)), and ships in observe-and-adjust mode by default rather than as the sole control path. If you want a fully mature Linux fan controller for mainstream desktop hardware today, [CoolerControl](https://gitlab.com/coolercontrol/coolercontrol) is the established choice and pairs well with `liquidctl`. ventd is interesting if your hardware is in the long tail that other tools have struggled with, or if you want a browser UI that works over the network, or if you want to watch a learned controller try to do better than a fixed curve.
 
 [![ventd first-boot calibration in motion: chip detection, driver install, bus telemetry, per-fan response sweeps, curve compute](https://github.com/ventd/ventd/raw/main/docs/images/calibration-hero.webp)](https://github.com/ventd/ventd/blob/main/docs/images/calibration-hero.webp)
 
@@ -132,13 +132,31 @@ Either way, the script detects your architecture and init system (systemd, OpenR
 
 ventd serves a self-signed TLS certificate on first boot, so your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. There is no setup token to recover from a file; ventd uses a first-login-creates-account flow.
 
+## Uninstall
+
+The install script drops a companion uninstaller at `/usr/local/sbin/ventd-uninstall`. To remove ventd completely:
+
+```
+sudo /usr/local/sbin/ventd-uninstall
+```
+
+It runs every removal step idempotently: disables and stops the units (`ventd`, `ventd-recover`, `ventd-postreboot-verify`), unloads and deregisters any out-of-tree driver ventd installed (`rmmod` + DKMS + the `/etc/modules-load.d` entry), removes the udev, polkit, and AppArmor rules it dropped, deletes the binary and its helpers, and clears `/etc/ventd` (config + auth), `/var/lib/ventd` (calibration + smart-mode state), and `/var/log/ventd`. It finishes by confirming your fans are back under BIOS control. Removing `ventd-recover.service` matters: left behind, it would fire its `OnFailure` logic against a binary that no longer exists.
+
+To keep your calibration and learned smart-mode state for a later reinstall, pass `--keep-data` — everything else is removed but `/var/lib/ventd` is left in place:
+
+```
+sudo /usr/local/sbin/ventd-uninstall --keep-data
+```
+
+If you installed from a `.deb` or `.rpm`, remove it with your package manager instead. `sudo apt remove ventd` (or `sudo dnf remove ventd`) keeps `/var/lib/ventd` so a reinstall resumes your learned state; `sudo apt purge ventd` (or a full `rpm -e`) wipes all ventd-managed state for a clean slate.
+
 ## Supported platforms
 
 * **Distributions tested in CI:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Alpine, Void.
 * **Init systems:** systemd, OpenRC, runit.
 * **Architectures:** amd64, arm64.
 * **C library:** glibc and musl.
-* **GPU:** NVIDIA via NVML (temperature reading works out of the box; GPU fan *writes* require the `--enable-gpu-write` daemon flag, see [docs/nvidia-fan-control.md](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD via amdgpu hwmon. Intel Arc is read-only at the kernel level.
+* **GPU:** NVIDIA via NVML (temperature reading works out of the box; GPU fan *writes* are enabled by default and need a driver new enough to expose `nvmlDeviceSetFanSpeed_v2` — R515+, Maxwell or newer. The driver additionally gates the write behind a privilege check, so a headless or service-user daemon may see `Insufficient Permissions` until the recommended udev-group rule is applied, see [docs/nvidia-fan-control.md](https://github.com/ventd/ventd/blob/main/docs/nvidia-fan-control.md)); AMD via amdgpu hwmon. Intel Arc is read-only at the kernel level.
 * **Liquid coolers:** Corsair Commander Core / Core XT / ST via native USB HID. NZXT, Lian Li, EK Loop Connect, Aqua Computer Quadro / Octo, and Gigabyte AORUS RGB Fusion are on the roadmap, not shipped.
 * **Server BMCs:** IPMI fan control on ASRock Rack, Supermicro, and other vendors exposing the standard IPMI fan interface.
 
