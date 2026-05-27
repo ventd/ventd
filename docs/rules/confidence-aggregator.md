@@ -97,3 +97,4 @@ is that "no warmed shard for the active signature" is operator-
 visible via the doctor surface — not silent.
 
 Bound: internal/confidence/aggregator/aggregator_test.go:TestAggregator_ActiveSignatureCollapse
+Bound: internal/confidence/aggregator/confc_test.go:TestConfCFromMarginal
