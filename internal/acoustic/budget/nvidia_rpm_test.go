@@ -1,4 +1,4 @@
-package main
+package budget
 
 import (
 	"errors"
@@ -60,7 +60,7 @@ func TestBuildAcousticBudget_NvidiaFanIncludedWhenRPMSupported(t *testing.T) {
 			{Name: "case_fan", Type: "hwmon", RPMPath: rpmPath, MinPWM: 80, MaxPWM: 255},
 		},
 	}
-	uncalibBudget := buildAcousticBudget(live, "case_fan", controller.PresetBalanced)
+	uncalibBudget := Build(live, "case_fan", controller.PresetBalanced)
 	if uncalibBudget.CurrentDBA <= 0 {
 		t.Fatalf("hwmon-only budget should be positive; got %v", uncalibBudget.CurrentDBA)
 	}
@@ -81,7 +81,7 @@ func TestBuildAcousticBudget_NvidiaFanIncludedWhenRPMSupported(t *testing.T) {
 		}
 		return 3000, nil
 	}
-	withGPU := buildAcousticBudget(live, "case_fan", controller.PresetBalanced)
+	withGPU := Build(live, "case_fan", controller.PresetBalanced)
 	if withGPU.CurrentDBA <= uncalibBudget.CurrentDBA {
 		t.Errorf("adding an NVIDIA fan must raise CurrentDBA; got %v then %v",
 			uncalibBudget.CurrentDBA, withGPU.CurrentDBA)
@@ -112,7 +112,7 @@ func TestBuildAcousticBudget_NvidiaFanSkippedWhenUnsupported(t *testing.T) {
 	readNvidiaFanRPMFn = func(idx uint) (uint32, error) {
 		return 0, nvidia.ErrFanRPMUnsupported
 	}
-	out := buildAcousticBudget(live, "case_fan", controller.PresetBalanced)
+	out := Build(live, "case_fan", controller.PresetBalanced)
 	if out.CurrentDBA <= 0 {
 		t.Fatalf("hwmon fan must still produce positive CurrentDBA after NVIDIA skip; got %v",
 			out.CurrentDBA)

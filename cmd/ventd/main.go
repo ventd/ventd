@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
@@ -421,7 +422,7 @@ func run() error {
 			BoardVersion: captureDMI.BoardVersion,
 		}
 		if entry := findMatchingBoardEntry(captureCat, dmiFP); entry != nil {
-			SetFanProfileCatalog(entry)
+			budget.SetFanProfileCatalog(entry)
 			logger.Info("acoustic: fan-profile catalog wired",
 				"board_id", entry.ID, "fan_profiles", len(entry.FanProfiles))
 		}

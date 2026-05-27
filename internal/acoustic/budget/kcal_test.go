@@ -1,4 +1,4 @@
-package main
+package budget
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 
 // TestLoadKCalOffset_MissingFileReturnsZero exercises the no-mic
 // fallback: when k_cal.json is absent, the offset is zero and
-// buildAcousticBudget's CurrentDBA stays in within-host au — strict
+// Build's CurrentDBA stays in within-host au — strict
 // no-regression contract for hosts that haven't run mic-calibrate.
 // (#1281)
 func TestLoadKCalOffset_MissingFileReturnsZero(t *testing.T) {
@@ -62,7 +62,7 @@ func TestLoadKCalOffset_ParsesPersistedKCal(t *testing.T) {
 }
 
 // TestBuildAcousticBudget_AppliesKCalToCurrentDBA wires the offset
-// through buildAcousticBudget. The compose result + K_cal lands in
+// through Build. The compose result + K_cal lands in
 // AcousticBudget.CurrentDBA, which the controller feeds into
 // EvalDBABudget — so the dBA-gate operates in true dBA on calibrated
 // hosts and within-host au on uncalibrated hosts. (#1281)
@@ -88,7 +88,7 @@ func TestBuildAcousticBudget_AppliesKCalToCurrentDBA(t *testing.T) {
 	}
 
 	// Uncalibrated baseline.
-	uncalib := buildAcousticBudget(live, "case_fan", controller.PresetBalanced)
+	uncalib := Build(live, "case_fan", controller.PresetBalanced)
 	if uncalib.Target <= 0 {
 		t.Fatalf("balanced target should be > 0, got %v", uncalib.Target)
 	}
@@ -103,7 +103,7 @@ func TestBuildAcousticBudget_AppliesKCalToCurrentDBA(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	calib := buildAcousticBudget(live, "case_fan", controller.PresetBalanced)
+	calib := Build(live, "case_fan", controller.PresetBalanced)
 	delta := calib.CurrentDBA - uncalib.CurrentDBA
 	if delta < 49.9 || delta > 50.1 {
 		t.Errorf("calibrated CurrentDBA - uncalibrated = %v, want ~50.0", delta)
