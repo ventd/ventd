@@ -610,3 +610,66 @@ func TestWriteWithRetry_InvertedStepN_HonoursCatalogPWMUnitMax(t *testing.T) {
 		t.Errorf("inverted step_0_7 PWM: got %d, want 4 (7-3)", fb.lastWritten)
 	}
 }
+
+// countingEnumBackend counts Enumerate calls so a test can assert the
+// per-tick channel is built exactly once. Enumerate returns a single
+// channel whose ID matches the configured pwm path so channelFor
+// resolves it; Read reports a spinning fan so the observation path has
+// a value to record.
+type countingEnumBackend struct {
+	pwmPath   string
+	enumCalls int
+}
+
+func (b *countingEnumBackend) Enumerate(_ context.Context) ([]hal.Channel, error) {
+	b.enumCalls++
+	return []hal.Channel{{
+		ID:   b.pwmPath,
+		Role: hal.RoleUnknown,
+		Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+	}}, nil
+}
+func (b *countingEnumBackend) Read(_ hal.Channel) (hal.Reading, error) {
+	return hal.Reading{RPM: 1200, OK: true}, nil
+}
+func (b *countingEnumBackend) Write(_ hal.Channel, _ uint8) error { return nil }
+func (b *countingEnumBackend) Restore(_ hal.Channel) error        { return nil }
+func (b *countingEnumBackend) Close() error                       { return nil }
+func (b *countingEnumBackend) Name() string                       { return "counting-ec" }
+
+// TestController_BuildsChannelOncePerTick pins R5a: channelFor (which
+// re-Enumerates for non-hwmon backends) runs at most once per tick even
+// though the write path and the observation RPM read both need the
+// channel. Before R5a a non-hwmon tick with observation wired
+// Enumerated twice; the lazy per-tick memo collapses that to one.
+func TestController_BuildsChannelOncePerTick(t *testing.T) {
+	ff := newFakeFan(t)
+	if err := os.WriteFile(ff.tempPath, []byte("80000\n"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+
+	cfg := makePICurveCfg(ff, "ec_fan", "pi_curve", 30, 255)
+	// Route the fan through a non-hwmon backend so channelFor takes the
+	// Enumerate path rather than building the hwmon channel inline.
+	cfg.Fans[0].Type = "counting-ec"
+
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(cfg)
+
+	obsCount := 0
+	c := New("ec_fan", "pi_curve", ff.pwmPath, "counting-ec", cfgPtr, wd, &stubCal{}, logger,
+		WithObservation(func(*ObsRecord) { obsCount++ }, func() string { return "" }))
+	be := &countingEnumBackend{pwmPath: ff.pwmPath}
+	c.backend = be
+
+	c.tick()
+
+	if be.enumCalls != 1 {
+		t.Fatalf("Enumerate calls in one tick = %d, want 1 (channel must be built once)", be.enumCalls)
+	}
+	if obsCount != 1 {
+		t.Fatalf("observation records = %d, want 1 (write + observation path must have run)", obsCount)
+	}
+}

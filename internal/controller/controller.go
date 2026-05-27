@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -542,6 +543,13 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 	}
 }
 
+// chanResolver lazily builds (and memoises) this tick's hal.Channel.
+// The write path, observation RPM read, and stuck-fan RPM check all
+// resolve through one of these so channelFor runs at most once per
+// tick (it re-Enumerates for non-hwmon backends); a tick that yields
+// early never calls it, so no channel is built.
+type chanResolver = func() (hal.Channel, error)
+
 // tick is one control iteration. Errors are logged and the tick is skipped;
 // the loop continues on the next interval.
 func (c *Controller) tick() {
@@ -595,6 +603,13 @@ func (c *Controller) tick() {
 		return
 	}
 
+	// Build the backend channel at most once for this tick. channelFor
+	// is a pure function of (fanType, pwmPath, fan) but re-Enumerates for
+	// non-hwmon backends, so the write path plus the observation and
+	// stuck-fan RPM reads previously rebuilt it 2–3× per tick. The memo
+	// is lazy: only the branches that actually need a channel pay for it.
+	chOnce := sync.OnceValues(func() (hal.Channel, error) { return c.channelFor(fan) })
+
 	// Find the control binding for this fan to check ManualPWM.
 	var manualPWM *uint8
 	curveName := c.curveName
@@ -618,7 +633,7 @@ func (c *Controller) tick() {
 			c.hasLastTickAt = false
 			return
 		}
-		ch, err := c.channelFor(fan)
+		ch, err := chOnce()
 		if err != nil {
 			c.logger.Error("controller: cannot build backend channel", "err", err)
 			c.hasLastTickAt = false
@@ -628,8 +643,8 @@ func (c *Controller) tick() {
 			c.hasLastTickAt = false
 			return
 		}
-		c.emitObservationFor(fan, pwm)
-		c.markTickCompleted(now, fan, pwm)
+		c.emitObservationFor(chOnce, pwm)
+		c.markTickCompleted(now, chOnce, pwm)
 		c.logger.Debug("controller: manual tick", "pwm", pwm)
 		return
 	}
@@ -692,7 +707,7 @@ func (c *Controller) tick() {
 			return
 		}
 		if c.hasLastPWM {
-			ch, buildErr := c.channelFor(fan)
+			ch, buildErr := chOnce()
 			if buildErr == nil {
 				// Route through polarity.WritePWM so the inversion
 				// contract holds on this branch too (RULE-POLARITY-05 /
@@ -711,7 +726,7 @@ func (c *Controller) tick() {
 					// sentinel-glitch tick was invisible to the
 					// fallback-tier classifier even though a real PWM
 					// byte was committed to the channel.
-					c.emitObservationFor(fan, c.lastPWM)
+					c.emitObservationFor(chOnce, c.lastPWM)
 				}
 			}
 		}
@@ -803,12 +818,12 @@ func (c *Controller) tick() {
 			// Hysteresis-suppressed ticks are still legitimate control
 			// ticks: the curve evaluated, the gate fired, the next tick
 			// should compute dt against this tick. Advance lastTickAt.
-			c.markTickCompleted(now, fan, c.lastPWM)
+			c.markTickCompleted(now, chOnce, c.lastPWM)
 			return
 		}
 	}
 
-	ch, err := c.channelFor(fan)
+	ch, err := chOnce()
 	if err != nil {
 		c.logger.Error("controller: cannot build backend channel", "err", err)
 		c.hasLastTickAt = false
@@ -819,7 +834,7 @@ func (c *Controller) tick() {
 		return
 	}
 
-	c.emitObservationFor(fan, pwm)
+	c.emitObservationFor(chOnce, pwm)
 
 	// Update hysteresis baseline — the temp + PWM we just committed are
 	// what future ramp-down comparisons land against.
@@ -833,7 +848,7 @@ func (c *Controller) tick() {
 
 	// Legitimate control-loop tick committed. Advance lastTickAt so the
 	// next tick computes dt against this one (RULE-CTRL-DT-YIELD-01).
-	c.markTickCompleted(now, fan, pwm)
+	c.markTickCompleted(now, chOnce, pwm)
 
 	c.logger.Debug("controller: tick",
 		"sensors", sensors,
@@ -1158,7 +1173,7 @@ func clamp(v, lo, hi uint8) uint8 {
 //
 // Nil-safe: when neither obsAppend nor obsLabel is wired, the
 // controller behaves exactly as it did pre-v0.5.6.
-func (c *Controller) emitObservationFor(fan config.Fan, pwm uint8) {
+func (c *Controller) emitObservationFor(chFn chanResolver, pwm uint8) {
 	if c.obsAppend == nil {
 		return
 	}
@@ -1177,7 +1192,7 @@ func (c *Controller) emitObservationFor(fan config.Fan, pwm uint8) {
 		Ts:             time.Now().UnixMicro(),
 		PWMPath:        c.pwmPath,
 		PWMWritten:     pwm,
-		RPM:            c.readRPMForObs(fan),
+		RPM:            c.readRPMForObs(chFn),
 		SignatureLabel: label,
 		SensorReadings: sensors,
 	})
@@ -1188,10 +1203,10 @@ func (c *Controller) emitObservationFor(fan config.Fan, pwm uint8) {
 // successful tick sites in tick() (manual write, hysteresis hold,
 // curve-driven write) flow through this helper so the warn gate
 // is uniform.
-func (c *Controller) markTickCompleted(now time.Time, fan config.Fan, pwm uint8) {
+func (c *Controller) markTickCompleted(now time.Time, chFn chanResolver, pwm uint8) {
 	c.lastTickAt = now
 	c.hasLastTickAt = true
-	c.maybeWarnStuckFan(fan, pwm)
+	c.maybeWarnStuckFan(chFn, pwm)
 }
 
 // stuckFanWarnPWMFloor mirrors the doctor detector's
@@ -1209,7 +1224,7 @@ const stuckFanWarnPWMFloor uint8 = 77 // 30% of 255
 // Only hwmon channels are evaluated; non-hwmon HAL backends report
 // RPM via their own paths and the polarity / phantom classifiers on
 // the read side already cover their stuck-fan analogs.
-func (c *Controller) maybeWarnStuckFan(fan config.Fan, pwm uint8) {
+func (c *Controller) maybeWarnStuckFan(chFn chanResolver, pwm uint8) {
 	if c.stuckFanWarnFired {
 		return
 	}
@@ -1219,7 +1234,7 @@ func (c *Controller) maybeWarnStuckFan(fan config.Fan, pwm uint8) {
 	if pwm < stuckFanWarnPWMFloor {
 		return
 	}
-	rpm := c.readRPMForObs(fan)
+	rpm := c.readRPMForObs(chFn)
 	if rpm <= 0 {
 		// rpm == -1 means "tach read failed / not configured"; we
 		// cannot distinguish that from "fan dead", so emit anyway —
@@ -1239,8 +1254,8 @@ func (c *Controller) maybeWarnStuckFan(fan config.Fan, pwm uint8) {
 // when no tach is configured / the read fails. Best-effort; never
 // returns an error because observation must not abort the control
 // loop. RULE-CTRL-OBS-RPM-01.
-func (c *Controller) readRPMForObs(fan config.Fan) int32 {
-	ch, err := c.channelFor(fan)
+func (c *Controller) readRPMForObs(chFn chanResolver) int32 {
+	ch, err := chFn()
 	if err != nil {
 		return -1
 	}
