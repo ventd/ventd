@@ -252,12 +252,14 @@ type BlendedConfig struct {
 }
 
 // BlendedController owns per-channel PI integrator state and gain
-// caches. Hot-path safe — `Compute` takes `mu` for the duration of
-// per-channel state updates only; reads of upstream Snapshots happen
-// outside the lock.
+// caches. Hot-path safe — `mu` guards only the state-map lookup (held
+// briefly per Compute); each channel's integrator/gain math runs under
+// that channel's own piState.mu, so distinct fans Compute concurrently
+// instead of serialising on one global lock.
 type BlendedController struct {
 	cfg BlendedConfig
 
+	// mu guards the state map only: channel lookup + lazy insert.
 	mu    sync.Mutex
 	state map[string]*piState
 }
@@ -267,6 +269,12 @@ type BlendedController struct {
 // snapshot point by `gainRefreshSamples`; that dampens noise from
 // re-deriving gains every tick on a still-warming shard.
 type piState struct {
+	// mu guards every field below for one Compute call on this
+	// channel. In production each channel has exactly one controller
+	// goroutine, so it is uncontended; it makes the per-channel
+	// locking contract correct without serialising unrelated channels.
+	mu sync.Mutex
+
 	integrator     float64
 	bumplessArmed  bool // false ⇒ next w_pred>0 tick will set bumpless I[0]
 	cachedKp       float64
@@ -358,18 +366,29 @@ func NewBlended(cfg BlendedConfig) *BlendedController {
 // resolve PresetDBATargets without re-reading config every tick.
 func (b *BlendedController) Preset() Preset { return b.cfg.Preset }
 
+// channelState returns the per-channel piState, creating it on first
+// use. b.mu is held only for the map lookup + lazy insert; the returned
+// piState carries its own mutex, so the per-tick math in Compute runs
+// without the global lock and distinct channels don't serialise.
+func (b *BlendedController) channelState(id string) *piState {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st, ok := b.state[id]
+	if !ok {
+		st = &piState{}
+		b.state[id] = st
+	}
+	return st
+}
+
 // Compute is the per-tick hot path. Pure-math: every dependency
 // is supplied via `BlendedInputs`. Returns a populated
 // `BlendedResult`; never panics; never blocks.
 func (b *BlendedController) Compute(in BlendedInputs) BlendedResult {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	st := b.channelState(in.ChannelID)
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
-	st, ok := b.state[in.ChannelID]
-	if !ok {
-		st = &piState{}
-		b.state[in.ChannelID] = st
-	}
 	st.lastTick = in.Now
 
 	// Default result: pass-through to reactive. Mutated below
