@@ -87,8 +87,14 @@
   // other section. Deep-linkable via ?section= or # hash.
   var navItems = document.querySelectorAll('.set-nav-item');
   var setContent = document.querySelector('.set-content');
-  var sectionIDs = ['display', 'daemon', 'smart-mode', 'security',
-                    'system', 'about', 'update', 'advanced'];
+  // Derive the navigable-section allow-list from the nav links so it can
+  // never drift from the HTML. A hardcoded list previously omitted
+  // "calibration", so clicking that nav item hit the unknown-section
+  // fallback and bounced the operator back to Display.
+  var sectionIDs = Array.prototype.map.call(navItems, function (a) {
+    var href = a.getAttribute('href') || '';
+    return href.charAt(0) === '#' ? href.slice(1) : href;
+  }).filter(function (id) { return id !== ''; });
   function isKnownSection(id) {
     for (var i = 0; i < sectionIDs.length; i++) {
       if (sectionIDs[i] === id) return true;
