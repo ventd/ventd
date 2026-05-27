@@ -88,18 +88,18 @@ func (s *Server) requireCSRF(h http.HandlerFunc) http.HandlerFunc {
 		sessTok := sessionToken(r)
 		want, ok := s.sessions.csrfFor(sessTok)
 		if !ok {
-			http.Error(w, "session not found or expired", http.StatusUnauthorized)
+			s.writeJSONError(w, http.StatusUnauthorized, "session not found or expired")
 			return
 		}
 
 		got := r.Header.Get("X-CSRF-Token")
 		if got == "" {
-			http.Error(w, "X-CSRF-Token header required", http.StatusForbidden)
+			s.writeJSONError(w, http.StatusForbidden, "X-CSRF-Token header required")
 			return
 		}
 
 		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-			http.Error(w, "CSRF token mismatch", http.StatusForbidden)
+			s.writeJSONError(w, http.StatusForbidden, "CSRF token mismatch")
 			return
 		}
 
