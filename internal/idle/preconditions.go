@@ -26,6 +26,11 @@ func (h HardPreconditions) Any() bool {
 		h.BlockedProcess != "" || h.BootWarmup || h.PostResumeWarmup
 }
 
+// Ok reports that no hard precondition is active — the spec-v0_5_9 §2.5
+// form consumed by the w_pred_system global gate (predictive control is
+// allowed only when Ok). Exact inverse of Any.
+func (h HardPreconditions) Ok() bool { return !h.Any() }
+
 // Reason returns the first active precondition Reason.
 func (h HardPreconditions) Reason() Reason {
 	switch {

@@ -22,6 +22,33 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// TestKV_SchemaVersionLoaded binds RULE-STATE-11: SchemaVersionLoaded()
+// reports true only after a clean openKV load; nil receivers report false.
+func TestKV_SchemaVersionLoaded(t *testing.T) {
+	dir := t.TempDir()
+	db, err := openKV(filepath.Join(dir, "state.yaml"), discardLogger())
+	if err != nil {
+		t.Fatalf("openKV: %v", err)
+	}
+	if !db.SchemaVersionLoaded() {
+		t.Fatalf("clean open must report schema loaded")
+	}
+
+	// nil-safety at both levels (monitor-only / pre-open daemon).
+	var nilKV *KVDB
+	if nilKV.SchemaVersionLoaded() {
+		t.Fatalf("nil KVDB must report schema not loaded")
+	}
+	var nilState *State
+	if nilState.SchemaVersionLoaded() {
+		t.Fatalf("nil State must report schema not loaded")
+	}
+
+	if st := (&State{KV: db}); !st.SchemaVersionLoaded() {
+		t.Fatalf("State passthrough must report schema loaded")
+	}
+}
+
 // TestRULE_STATE_01_AtomicWrite verifies that KV writes use tempfile+rename
 // semantics: the final state.yaml is correct and no leftover .tmp files exist.
 // A pre-existing partial .tmp file (simulating a prior crash mid-write) must

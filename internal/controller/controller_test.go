@@ -673,3 +673,58 @@ func TestController_BuildsChannelOncePerTick(t *testing.T) {
 		t.Fatalf("observation records = %d, want 1 (write + observation path must have run)", obsCount)
 	}
 }
+
+// TestController_StallReporterFires binds RULE-CTRL-STALL-REPORT-01:
+// WithStallReporter is invoked once per committed tick with the channel
+// ID, the committed PWM byte, and the observed tach RPM; a controller
+// without a reporter completes a tick cleanly (pre-R11 behaviour).
+func TestController_StallReporterFires(t *testing.T) {
+	ff := newFakeFan(t)
+	// 85 °C drives the linear curve (MinTemp 40, MaxTemp 80) to 255,
+	// clamped to fan MaxPWM=200 — above the stiction floor, so the tach
+	// is read and reported.
+	if err := os.WriteFile(ff.tempPath, []byte("85000\n"), 0o600); err != nil {
+		t.Fatalf("write temp: %v", err)
+	}
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 40, 200)
+
+	type report struct {
+		ch  string
+		pwm uint8
+		rpm int32
+	}
+	var got []report
+	reporter := func(ch string, pwm uint8, rpm int32, _ time.Time) {
+		got = append(got, report{ch, pwm, rpm})
+	}
+
+	logger := silentLogger()
+	wd := watchdog.New(logger)
+	c := New(
+		"cpu fan", "cpu_curve",
+		ff.pwmPath, "hwmon",
+		cfgAtomicPtr(cfg), wd, &stubCal{}, logger,
+		WithStallReporter(ff.pwmPath, reporter),
+	)
+	c.backend = &fakeRPMBackend{rpm: 1234, ok: true}
+
+	c.tick()
+
+	if len(got) != 1 {
+		t.Fatalf("stall reporter fired %d times, want 1", len(got))
+	}
+	if got[0].ch != ff.pwmPath {
+		t.Errorf("reported channelID = %q, want %q", got[0].ch, ff.pwmPath)
+	}
+	if got[0].pwm != 200 {
+		t.Errorf("reported PWM = %d, want 200 (committed, clamped to MaxPWM)", got[0].pwm)
+	}
+	if got[0].rpm != 1234 {
+		t.Errorf("reported RPM = %d, want 1234 (from backend Read)", got[0].rpm)
+	}
+
+	// nil-safe: a controller without a reporter completes a tick cleanly.
+	c2 := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	c2.backend = &fakeRPMBackend{rpm: 1234, ok: true}
+	c2.tick() // must not panic
+}

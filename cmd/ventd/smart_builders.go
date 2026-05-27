@@ -20,12 +20,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
@@ -36,6 +38,7 @@ import (
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/marginal"
+	"github.com/ventd/ventd/internal/massstall"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/platformprofile"
 	"github.com/ventd/ventd/internal/probe"
@@ -434,6 +437,69 @@ func buildAggregator(
 	a := aggregator.New(aggregator.Config{})
 	logger.Info("aggregator: initialised", "channels", len(channels))
 	return a
+}
+
+// buildMassStallTracker constructs the R11 system-wide concurrent-stall
+// tracker that backs the w_pred_system gate's no-mass-stall term. nil in
+// monitor-only mode (no controllable channels), matching the other smart
+// builders — the gate's MassStalled term is then simply never tripped.
+func buildMassStallTracker(
+	channels []*probe.ControllableChannel,
+	logger *slog.Logger,
+) *massstall.Tracker {
+	if len(channels) == 0 {
+		logger.Info("massstall: no controllable channels; not constructed")
+		return nil
+	}
+	t := massstall.New(massstall.DefaultWindow, massstall.DefaultMinChannels)
+	logger.Info("massstall: tracker initialised",
+		"window", massstall.DefaultWindow, "min_channels", massstall.DefaultMinChannels)
+	return t
+}
+
+// buildGateEvaluator composes the v0.5.9 w_pred_system global gate
+// (spec §2.5/§3.6) from the daemon's real signals: KV schema-load status,
+// idle hard preconditions (battery / container / scrub / boot+resume
+// warmup), the persisted wizard outcome, the mass-stall tracker, and the
+// live config's smart.disabled toggle. The wizard outcome is read once at
+// build time — it only changes via a wizard re-run, which restarts the
+// daemon and rebuilds this evaluator. Production roots /proc + /sys with
+// allowOverride=false so the gate respects every hard precondition.
+func buildGateEvaluator(
+	st *state.State,
+	tracker *massstall.Tracker,
+	liveCfg *atomic.Pointer[config.Config],
+	logger *slog.Logger,
+) *gate.Evaluator {
+	wizardControl := false
+	if st != nil {
+		if oc, ok, err := probe.LoadWizardOutcome(st.KV); err != nil {
+			logger.Warn("gate: wizard outcome load failed; treating as not-control", "err", err)
+		} else if ok && oc == probe.OutcomeControl {
+			wizardControl = true
+		}
+	}
+	logger.Info("gate: w_pred_system evaluator initialised", "wizard_control", wizardControl)
+	return gate.New(gate.Deps{
+		SchemaLoaded: st.SchemaVersionLoaded,
+		PreconditionsOk: func() (bool, string) {
+			pre := idle.CheckHardPreconditions("/proc", "/sys", false)
+			return pre.Ok(), pre.Reason().Human()
+		},
+		WizardControl: func() bool { return wizardControl },
+		MassStalled: func(now time.Time) (bool, string) {
+			if !tracker.MassStalled(now) {
+				return false, ""
+			}
+			n, _ := tracker.Snapshot(now)
+			return true, fmt.Sprintf("%d fans stalled", n)
+		},
+		SmartDisabled: func() bool {
+			c := liveCfg.Load()
+			return c != nil && c.SmartDisabled()
+		},
+		Now: time.Now,
+	})
 }
 
 // buildBlendedController constructs the v0.5.9 IMC-PI blended

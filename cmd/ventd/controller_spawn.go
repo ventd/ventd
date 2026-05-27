@@ -89,6 +89,18 @@ func (s *controllerSpawner) options(
 	if s.smartMode != nil && s.smartMode.ObsAppend != nil {
 		opts = append(opts, controller.WithObservation(s.smartMode.ObsAppend, s.labelFn()))
 	}
+	// R11: feed the system-wide mass-stall tracker that backs the
+	// w_pred_system gate. Reports (channel, committed PWM, observed RPM)
+	// every committed tick, reusing the tach read the stuck-fan check
+	// already performs. Wired here so the startup and reload paths report
+	// identically.
+	if s.smartMode != nil && s.smartMode.MassStall != nil {
+		tracker := s.smartMode.MassStall
+		opts = append(opts, controller.WithStallReporter(fanCfg.PWMPath,
+			func(chID string, pwm uint8, rpm int32, now time.Time) {
+				tracker.Report(chID, pwm, rpm, now)
+			}))
+	}
 	// v0.5.9: install the confidence-gated blend hook when the smart-mode
 	// bundle has a BlendedController. The closure pulls the per-channel
 	// Snapshots from the upstream runtimes, computes w_pred via the
@@ -101,6 +113,7 @@ func (s *controllerSpawner) options(
 			Aggregator: s.smartMode.Aggregator,
 			Blended:    s.smartMode.Blended,
 			Decisions:  s.smartMode.Decisions,
+			Gate:       s.smartMode.Gate,
 		}
 		if blendFn := smartblend.BuildFn(fanCfg.PWMPath, fanCfg, s.liveCfg, deps, s.labelFn()); blendFn != nil {
 			opts = append(opts, controller.WithBlend(blendFn))

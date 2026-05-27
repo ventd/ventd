@@ -209,6 +209,15 @@ type SmartConfig struct {
 	// can plausibly produce, so a value above 80 indicates a typo
 	// or a wrong unit.
 	DBATarget *float64 `yaml:"dba_target,omitempty" json:"dba_target,omitempty"`
+
+	// Disabled, when true, forces the v0.5.9 confidence controller's
+	// global gate (w_pred_system) to false: every channel falls through
+	// to pure reactive output (spec-v0_5_9 §3.6 disable inheritance).
+	// The per-layer learning toggles (SignatureLearningDisabled,
+	// SmartMarginalBenefitDisabled) are unaffected. Pointer-bool so an
+	// explicit false is distinguishable from "unset"; nil/unset means
+	// smart mode enabled (the default).
+	Disabled *bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 }
 
 // Closed set of preset names. Empty string is allowed (treated as
@@ -247,6 +256,18 @@ func (c *Config) AcousticOptimisationEnabled() bool {
 		return true
 	}
 	return *c.AcousticOptimisation
+}
+
+// SmartDisabled reports whether the operator turned smart mode off via
+// Config.Smart.Disabled (spec-v0_5_9 §3.6 disable inheritance). Defaults
+// to false (enabled) when unset. When true the w_pred_system global gate
+// is forced closed and the predictive arm never blends — every channel
+// runs its reactive curve only.
+func (c *Config) SmartDisabled() bool {
+	if c == nil || c.Smart.Disabled == nil {
+		return false
+	}
+	return *c.Smart.Disabled
 }
 
 // Clone returns a deep copy of c. Callers that need to mutate a
@@ -327,6 +348,7 @@ func (c *Config) Clone() *Config {
 		}
 	}
 	out.AcousticOptimisation = clonePtrBool(c.AcousticOptimisation)
+	out.Smart.Disabled = clonePtrBool(c.Smart.Disabled)
 	return &out
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
@@ -26,6 +27,10 @@ type Deps struct {
 	Aggregator *aggregator.Aggregator
 	Blended    *controller.BlendedController
 	Decisions  *controller.DecisionCache
+	// Gate is the v0.5.9 w_pred_system global gate. nil reads as open
+	// (monitor-only, or tests without the smart bundle), preserving the
+	// pre-gate behaviour where every tick blends.
+	Gate *gate.Evaluator
 }
 
 // BuildFn returns a controller.BlendFn closure that bridges the smart-
@@ -92,14 +97,17 @@ func BuildFn(
 		// LPF rides w_pred down at L_max). RULE-AGG-SIG-COLLAPSE-01.
 		confC := aggregator.ConfCFromMarginal(marginalSnap)
 
-		// v0.5.9 ships drift detection as RFCV (R16) future work;
-		// stub at false. Global gate is also a stub — true when the
-		// daemon is up + has a config + has the wizard outcome
-		// "control_mode". This is a coarse approximation of the
-		// spec §2.5 4-term AND-gate; doctor-surface refinements
-		// land in v0.5.10.
+		// driftFlags: v0.5.9 ships drift detection as RFCV (R16) future
+		// work; stubbed false here — PR-2 (internal/confidence/drift)
+		// wires the real per-layer EWMA-control-chart flags.
+		//
+		// wPredSystem: the global gate is composed from real signals
+		// (spec §2.5/§3.6) by internal/confidence/gate — KV-schema-loaded
+		// AND idle-preconditions-ok AND wizard==control AND no-mass-stall
+		// AND !smart-disabled. A nil Gate (monitor-only, or tests without
+		// the smart bundle) reads as open, preserving pre-gate behaviour.
 		driftFlags := [3]bool{}
-		wPredSystem := true
+		wPredSystem := d.Gate == nil || d.Gate.Open()
 
 		aggSnap := d.Aggregator.Tick(chID, confA, confB, confC,
 			driftFlags, wPredSystem, now)

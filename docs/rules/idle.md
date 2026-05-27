@@ -190,3 +190,16 @@ immediately on a process that was already running when the
 system became idle.
 
 Bound: internal/idle/idle_test.go:TestRULE_IDLE_10_StartupGateReturnsSnapshot
+
+## RULE-IDLE-11: HardPreconditions.Ok() is the exact inverse of Any().
+
+`Ok()` returns `!Any()` — true only when none of the six hard
+preconditions (battery, container, storage-maintenance,
+blocked-process, boot-warmup, post-resume-warmup) is active. It is
+the spec-v0_5_9 §2.5 form consumed by the `w_pred_system` global
+gate: predictive control is permitted only while `Ok()` holds, so
+the gate closes (every channel falls back to reactive) on battery,
+in containers, during scrubs, and for the boot/resume warmup
+windows.
+
+Bound: internal/idle/idle_test.go:TestHardPreconditions_Ok

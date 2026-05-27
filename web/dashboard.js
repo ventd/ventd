@@ -771,6 +771,19 @@
     if (ch.conf_c < 0.4) return { reason: 'marginal-benefit shard learning current workload signature', mood: 'warm' };
     return { reason: 'marginal-benefit shard converged for current workload', mood: 'good' };
   }
+  // gateReasonText turns the w_pred_system gate snapshot's reason code
+  // (+ detail) into an operator-facing phrase explaining why predictive
+  // control is paused. Mirrors the daemon's confidence/status gate block.
+  function gateReasonText(g) {
+    switch (g.reason) {
+      case 'smart_disabled':     return 'smart mode is turned off in Settings';
+      case 'schema_not_loaded':  return 'persisted state has not loaded yet';
+      case 'hard_precondition':  return g.detail || 'a hard precondition is active (battery / container / scrub / boot warm-up)';
+      case 'wizard_not_control': return 'the setup wizard is not in control mode';
+      case 'mass_stall':         return 'several fans are stalled' + (g.detail ? ' (' + g.detail + ')' : '');
+      default:                   return g.reason || 'gated off';
+    }
+  }
 
   // updateConfidencePopover refreshes the popover's body with the
   // latest snapshot. The popover open/close is toggled by the click
@@ -794,7 +807,17 @@
     var rB = reasonLayerB(worst);
     var rC = reasonLayerC(worst);
 
+    // When the w_pred_system gate is closed, lead with WHY predictive
+    // control is refused (spec §2.9 long-form reason) — the per-layer
+    // rows below are moot while the gate holds everything at reactive.
+    var gateNote = '';
+    if (s.gate && !s.gate.open) {
+      gateNote = '<p class="conf-gate-refused">Predictive control paused: ' +
+        escapeHtml(gateReasonText(s.gate)) + '.</p>';
+    }
+
     var html = '<h4>Smart-mode confidence — ' + prettyState(s.global_state) + '</h4>' +
+      gateNote +
       '<ul>' +
       '<li><span class="layer-name">Layer A</span><span class="layer-reason is-' + rA.mood + '">' + escapeHtml(rA.reason) + '</span></li>' +
       '<li><span class="layer-name">Layer B</span><span class="layer-reason is-' + rB.mood + '">' + escapeHtml(rB.reason) + '</span></li>' +

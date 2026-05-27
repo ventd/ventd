@@ -43,6 +43,28 @@ func TestSmartPreset_NormalisationAndOK(t *testing.T) {
 	}
 }
 
+// TestConfig_SmartDisabled binds RULE-GATE-DISABLE-01 (config half):
+// SmartDisabled() defaults false when unset and reports the explicit
+// operator value; nil-safe.
+func TestConfig_SmartDisabled(t *testing.T) {
+	t.Parallel()
+	var nilCfg *Config
+	if nilCfg.SmartDisabled() {
+		t.Fatalf("nil config must report smart not disabled")
+	}
+	if (&Config{}).SmartDisabled() {
+		t.Fatalf("unset Smart.Disabled must default to false (enabled)")
+	}
+	tr := true
+	if !(&Config{Smart: SmartConfig{Disabled: &tr}}).SmartDisabled() {
+		t.Fatalf("Smart.Disabled=true must report disabled")
+	}
+	fa := false
+	if (&Config{Smart: SmartConfig{Disabled: &fa}}).SmartDisabled() {
+		t.Fatalf("explicit Smart.Disabled=false must report enabled")
+	}
+}
+
 // RULE-CTRL-PRESET-03: SmartConfig.DBATarget validates inside [10, 80]
 // dBA. Nil leaves the budget to be resolved from preset defaults at
 // runtime; an explicit value overrides the preset.
