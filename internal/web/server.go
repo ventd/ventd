@@ -253,9 +253,41 @@ type Server struct {
 	// don't supply channels read empty and skip the polarity-aware
 	// branch in handlePanic.
 	polarityChannels atomic.Pointer[[]*probe.ControllableChannel]
+
+	// requireWiring is set from Deps.RequireWiring by the daemon main. When
+	// true, ListenAndServe calls assertWired before binding so a forgotten
+	// production-required Set* surfaces as an immediate boot failure rather
+	// than a silently-degraded endpoint. Tests and the uipreview harness
+	// leave it false.
+	requireWiring bool
 }
 
-// New constructs the web server. authPath is the path to auth.json; pass ""
+// Deps are the required collaborators for a Server. They were previously
+// nine positional arguments to New, two of which (ConfigPath, AuthPath) were
+// adjacent same-typed strings — a silent transposition hazard where swapping
+// them makes auth read the config path. A keyed struct removes that hazard and
+// is self-documenting at the call site. Optional, telemetry-only wiring (smart
+// runtimes, cooling fn, version, etc.) stays on the Set* methods.
+type Deps struct {
+	Ctx        context.Context
+	Cfg        *atomic.Pointer[config.Config]
+	ConfigPath string
+	AuthPath   string
+	Logger     *slog.Logger
+	Calibrate  *calibrate.Manager
+	Setup      *setupmgr.Manager
+	RestartCh  chan<- struct{}
+	Diag       *hwdiag.Store
+
+	// RequireWiring makes ListenAndServe fail fast (via assertWired) when a
+	// production-required Set* mutator was never called. The daemon main sets
+	// it true; tests and the uipreview harness leave it false because they
+	// deliberately skip the optional wiring. See assertWired for the checked
+	// set.
+	RequireWiring bool
+}
+
+// New constructs the web server. d.AuthPath is the path to auth.json; pass ""
 // to skip dedicated auth-file persistence (used in tests that set the hash
 // directly on the config pointer).
 //
@@ -264,7 +296,9 @@ type Server struct {
 // during this window. After the wizard completes, normal auth applies.
 // Issue #765 documents the trade-off and the one-line recovery path
 // (`rm /etc/ventd/auth.json && systemctl restart ventd`).
-func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, authPath string, logger *slog.Logger, cal *calibrate.Manager, sm *setupmgr.Manager, restartCh chan<- struct{}, diag *hwdiag.Store) *Server {
+func New(d Deps) *Server {
+	ctx, cfg, configPath, authPath := d.Ctx, d.Cfg, d.ConfigPath, d.AuthPath
+	logger, cal, sm, restartCh, diag := d.Logger, d.Calibrate, d.Setup, d.RestartCh, d.Diag
 	live := cfg.Load()
 	if diag == nil {
 		diag = hwdiag.NewStore()
@@ -287,6 +321,7 @@ func New(ctx context.Context, cfg *atomic.Pointer[config.Config], configPath, au
 		history:        NewHistoryStore(defaultSSEInterval, historyDefaultWindow),
 		schedWake:      make(chan struct{}, 1),
 		startedAt:      time.Now().UTC(),
+		requireWiring:  d.RequireWiring,
 	}
 	// Initialise liveHash: auth.json takes precedence over the config hash.
 	// The config hash fallback keeps tests working (they set live.Web.PasswordHash
@@ -1057,6 +1092,9 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // and not ErrServerClosed; stdlib always returns non-nil from
 // ListenAndServe, so we never wrap nil here.
 func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
+	if err := s.assertWired(); err != nil {
+		return err
+	}
 	s.tlsActive = tlsCert != "" && tlsKey != ""
 	s.httpSrv.Addr = addr
 	if s.tlsActive {
@@ -1080,6 +1118,47 @@ func (s *Server) ListenAndServe(addr, tlsCert, tlsKey string) error {
 	s.logger.Info("web: server listening", "addr", "http://"+addr)
 	if err := s.httpSrv.ListenAndServe(); err != http.ErrServerClosed {
 		return fmt.Errorf("web: serve: %w", err)
+	}
+	return nil
+}
+
+// assertWired verifies that every production-required Set* mutator ran before
+// the server starts serving. Many of the Set* hooks are deliberately nil-safe
+// so tests can skip them, which means a forgotten wire in the daemon main used
+// to degrade an endpoint silently rather than failing loudly. With
+// Deps.RequireWiring set (production only), a missed wire becomes an immediate
+// boot error naming the offender.
+//
+// Only the unconditionally-wired collaborators are checked. The smart-mode and
+// opportunistic-probe setters are intentionally excluded: main.go calls them
+// only when those subsystems are constructed (monitor-only / container /
+// hardware-refused hosts legitimately skip them), so their absence is not a
+// wiring bug.
+func (s *Server) assertWired() error {
+	if !s.requireWiring {
+		return nil
+	}
+	var missing []string
+	if s.ready == nil {
+		missing = append(missing, "ReadyState (SetReadyState)")
+	}
+	if s.kvWiper == nil {
+		missing = append(missing, "KVWiper (SetKVWiper)")
+	}
+	if s.calibrationWiper == nil {
+		missing = append(missing, "CalibrationWiper (SetCalibrationWiper)")
+	}
+	if s.factoryResetHook == nil {
+		missing = append(missing, "FactoryResetHook (SetFactoryResetHook)")
+	}
+	if s.coolingFn == nil {
+		missing = append(missing, "CoolingCapacityFn (SetCoolingCapacityFn)")
+	}
+	if s.version.Version == "" {
+		missing = append(missing, "VersionInfo (SetVersionInfo)")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("web: server started with unwired production dependencies: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }

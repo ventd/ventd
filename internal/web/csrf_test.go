@@ -32,7 +32,7 @@ func newCSRFServer(t *testing.T) *Server {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	return New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, diag)
+	return New(Deps{Ctx: ctx, Cfg: &liveCfg, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restartCh, Diag: diag})
 }
 
 // TestRULE_WEB_CSRF_TOKEN_REQUIRED_ON_STATE_CHANGE pins the CSRF

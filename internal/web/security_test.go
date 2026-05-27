@@ -31,7 +31,7 @@ func newSecuritySrv(t *testing.T) (*Server, string) {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	srv := New(ctx, &liveCfg, t.TempDir()+"/config.yaml", "", logger, cal, sm, restartCh, hwdiag.NewStore())
+	srv := New(Deps{Ctx: ctx, Cfg: &liveCfg, ConfigPath: t.TempDir() + "/config.yaml", Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restartCh, Diag: hwdiag.NewStore()})
 	tok, err := srv.sessions.create()
 	if err != nil {
 		t.Fatalf("create session: %v", err)

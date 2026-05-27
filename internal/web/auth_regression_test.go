@@ -43,7 +43,7 @@ func newAuthHarness(t *testing.T) (srv *Server, dir string, cancel context.Cance
 	restart := make(chan struct{}, 1)
 	ctx, cancelFn := context.WithCancel(context.Background())
 
-	srv = New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
+	srv = New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: configPath, AuthPath: authPath, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 	return srv, dir, cancelFn
 }
 
@@ -106,8 +106,7 @@ func TestRegression_Issue463_PasswordSurvivesRestart(t *testing.T) {
 	restart2 := make(chan struct{}, 1)
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
-	srv2 := New(ctx2, &cfgPtr2, filepath.Join(dir, "config.yaml"), authPath,
-		logger, cal2, sm2, restart2, hwdiag.NewStore())
+	srv2 := New(Deps{Ctx: ctx2, Cfg: &cfgPtr2, ConfigPath: filepath.Join(dir, "config.yaml"), AuthPath: authPath, Logger: logger, Calibrate: cal2, Setup: sm2, RestartCh: restart2, Diag: hwdiag.NewStore()})
 
 	// Login with the original password must succeed on the new server.
 	if got := loginWith(t, srv2, password); got != http.StatusOK {
@@ -181,7 +180,7 @@ func TestRegression_Issue463_StartupDetectsMissingAuth(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	srv := New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
+	srv := New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: configPath, AuthPath: authPath, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 
 	// With no auth.json and no hash in config, authHashValue must be empty.
 	if srv.authHashValue() != "" {

@@ -68,7 +68,7 @@ func newHandlerHarness(t *testing.T) (srv *Server, configPath string, cancel con
 	cal := calibrate.New(calPath, logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv = New(ctx, &cfgPtr, configPath, "", logger, cal, sm, restart, hwdiag.NewStore())
+	srv = New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: configPath, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 
 	return srv, configPath, cancel
 }
@@ -253,7 +253,7 @@ func TestHandleFactoryReset_RemovesConfigAndAuth(t *testing.T) {
 	cal := calibrate.New(calPath, logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv := New(ctx, &cfgPtr, configPath, authPath, logger, cal, sm, restart, hwdiag.NewStore())
+	srv := New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: configPath, AuthPath: authPath, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/factory-reset", nil)
 	w := httptest.NewRecorder()

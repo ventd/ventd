@@ -32,7 +32,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 	var liveCfg atomic.Pointer[config.Config]
 	liveCfg.Store(config.Empty())
 	restartCh := make(chan struct{}, 1)
-	srv := New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, diag)
+	srv := New(Deps{Ctx: ctx, Cfg: &liveCfg, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restartCh, Diag: diag})
 	tok, err := srv.sessions.create()
 	if err != nil {
 		t.Fatalf("create session: %v", err)
