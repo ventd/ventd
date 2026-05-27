@@ -114,6 +114,7 @@ func (s *controllerSpawner) options(
 			Blended:    s.smartMode.Blended,
 			Decisions:  s.smartMode.Decisions,
 			Gate:       s.smartMode.Gate,
+			Drift:      s.smartMode.Drift,
 		}
 		if blendFn := smartblend.BuildFn(fanCfg.PWMPath, fanCfg, s.liveCfg, deps, s.labelFn()); blendFn != nil {
 			opts = append(opts, controller.WithBlend(blendFn))

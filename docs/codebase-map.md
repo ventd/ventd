@@ -122,9 +122,9 @@ and a global gate that bypasses the clamp to drop straight to safe.
 firmware-auto on exit/panic; `ventd-recover.service` is the `OnFailure=` backstop.
 
 > Open issue worth knowing: convergence on 8+ channel boards (NCT6687D worked example, #1253) is
-> the active smart-mode problem. The `wPredSystem` global gate is wired to real signals (R11 PR-1,
-> `internal/confidence/gate` + `internal/massstall`); `driftFlags` remains stubbed at `[3]bool{}`
-> (R11 PR-2 wires it via a per-layer EWMA-control-chart detector).
+> the active smart-mode problem. Both confidence-controller inputs are now wired to real signals:
+> the `wPredSystem` global gate (R11 PR-1, `internal/confidence/gate` + `internal/massstall`) and
+> the per-layer `driftFlags` (R11 PR-2, `internal/confidence/drift` — a residual EWMA control chart).
 
 ---
 
@@ -153,6 +153,7 @@ For each package: responsibility · key types/entry points · binding rule file 
 | `internal/confidence/layer_a` | `conf_A = tier_ceiling × √coverage × (1-residual) × recency` | `Estimator`/`Observe`/`Read`/`MarkFirstContact` | `confidence-layer-a.md` |
 | `internal/fallback` | R8 fallback-tier classifier [0–7]; tier ceiling clamps predictive trust | `SelectTier(ch)` | (spec; via `confidence-layer-a.md`) |
 | `internal/confidence/aggregator` | Collapse (conf_A/B/C) → `w_pred` per tick + 5-state UI label | `Aggregator`/`New`/`Tick`; `Snapshot` | `confidence-aggregator.md` |
+| `internal/confidence/drift` | Per-(channel,layer) residual EWMA control chart feeding the aggregator's `driftFlags`; pure `step` math + per-channel `Detector` | `Detector`/`New`/`Observe`/`Snapshot`; `Inputs`; `Evidence` | `confidence-drift.md` |
 | `internal/confidence/gate` | Compose the `w_pred_system` AND-gate (schema/preconditions/wizard/mass-stall/disabled) → atomic `Snapshot`; daemon-lifetime evaluator goroutine, lock-free `Open()` read | `Evaluator`/`New`/`Run`/`Open`/`Read`; `Deps`; `Snapshot` | `confidence-gate.md` |
 | `internal/massstall` | System-wide concurrent-stall tracker backing the gate's no-mass-stall term; controllers `Report` per tick, gate reads `MassStalled` | `Tracker`/`New`/`Report`/`MassStalled`/`Snapshot` | `massstall.md` |
 | `internal/smartmode` | **Test-only** cross-spec integration tests (`doc.go` only — no runtime code) | — | — |
@@ -408,4 +409,4 @@ RTX 4090, NCT6687D).
 - `internal/hwdb/schema.go` defines the **legacy** PR1 `Profile`; the live board data uses `BoardCatalogEntry` (`profile_v1_1.go`) + `matcher_v1.go`.
 - `cmd/ventd/main.go` line ~633 marks `obsWriter` "consumed in a follow-up spec" but it is already wired via `buildSmartObsBridge` — stale comment.
 - After `rmmod`+`modprobe` of a module ventd uses, the `hwmonN` index may change; `internal/hwmon/swap_monitor.go` re-resolves on a 10-min interval, but a restart is the reliable recovery.
-- `driftFlags` in the blend hook is stubbed at `[3]bool{}` (R11 PR-2 wires the per-layer EWMA-control-chart detector); the `wPredSystem` global gate is composed from real signals by `internal/confidence/gate` (R11 PR-1).
+- Both confidence-controller inputs in the blend hook are wired to real signals: `driftFlags` via the per-layer EWMA-control-chart detector (`internal/confidence/drift`, R11 PR-2) and the `wPredSystem` global gate via `internal/confidence/gate` (R11 PR-1).

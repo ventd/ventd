@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -455,6 +456,20 @@ func buildMassStallTracker(
 	logger.Info("massstall: tracker initialised",
 		"window", massstall.DefaultWindow, "min_channels", massstall.DefaultMinChannels)
 	return t
+}
+
+// buildDriftDetector constructs the R16 per-(channel, layer) EWMA-control-
+// chart drift detector that feeds the aggregator's drift_flags. nil in
+// monitor-only mode (no controllable channels). State is in-memory; a
+// re-cal / process restart rebuilds it fresh (RULE-DRIFT-RESTART-01).
+func buildDriftDetector(channels []*probe.ControllableChannel, logger *slog.Logger) *drift.Detector {
+	if len(channels) == 0 {
+		logger.Info("drift: no controllable channels; detector not constructed")
+		return nil
+	}
+	d := drift.New(drift.DefaultConfig())
+	logger.Info("drift: per-layer EWMA-control-chart detector initialised", "channels", len(channels))
+	return d
 }
 
 // buildGateEvaluator composes the v0.5.9 w_pred_system global gate

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -31,6 +32,9 @@ type Deps struct {
 	// (monitor-only, or tests without the smart bundle), preserving the
 	// pre-gate behaviour where every tick blends.
 	Gate *gate.Evaluator
+	// Drift is the R16 per-layer drift detector. nil → no drift flags
+	// (the v0.5.9 [3]bool{} behaviour).
+	Drift *drift.Detector
 }
 
 // BuildFn returns a controller.BlendFn closure that bridges the smart-
@@ -97,16 +101,23 @@ func BuildFn(
 		// LPF rides w_pred down at L_max). RULE-AGG-SIG-COLLAPSE-01.
 		confC := aggregator.ConfCFromMarginal(marginalSnap)
 
-		// driftFlags: v0.5.9 ships drift detection as RFCV (R16) future
-		// work; stubbed false here — PR-2 (internal/confidence/drift)
-		// wires the real per-layer EWMA-control-chart flags.
+		// driftFlags: the R16 per-layer EWMA-control-chart detector
+		// (internal/confidence/drift) maps each layer's residual +
+		// convergence into a drift verdict; a flagged layer's confidence
+		// decays in aggregator.Tick (RULE-AGG-DRIFT-01). Passed straight
+		// into Tick — never via SetDrift — so the decay clock is driven
+		// from a single call site (RULE-DRIFT-AGG-WIRING-01). nil detector
+		// (monitor-only) → no drift, the v0.5.9 [3]bool{} behaviour.
 		//
 		// wPredSystem: the global gate is composed from real signals
 		// (spec §2.5/§3.6) by internal/confidence/gate — KV-schema-loaded
 		// AND idle-preconditions-ok AND wizard==control AND no-mass-stall
 		// AND !smart-disabled. A nil Gate (monitor-only, or tests without
 		// the smart bundle) reads as open, preserving pre-gate behaviour.
-		driftFlags := [3]bool{}
+		var driftFlags [3]bool
+		if d.Drift != nil {
+			driftFlags = d.Drift.Observe(chID, buildDriftInputs(layerASnap, couplingSnap, marginalSnap))
+		}
 		wPredSystem := d.Gate == nil || d.Gate.Open()
 
 		aggSnap := d.Aggregator.Tick(chID, confA, confB, confC,
@@ -165,6 +176,45 @@ func BuildFn(
 		})
 		return res.OutputPWM
 	}
+}
+
+// driftMinCoverageA is the Layer-A coverage floor below which the layer
+// isn't considered converged enough to judge for drift (Layer A has no
+// WarmingUp flag; SeenFirstContact + coverage is its convergence proxy).
+const driftMinCoverageA = 0.5
+
+// buildDriftInputs maps the three layer snapshots into the drift
+// detector's per-layer Inputs. The residual is passed as a MAGNITUDE
+// (the detector monitors its square root): Layer A's RMSResidual is
+// already an RMS so it's squared back to a magnitude; Layer B and C
+// expose an EWMA of e² directly. Convergence leans on each layer's own
+// signal — Layer A's first-contact + coverage, Layer B/C's WarmingUp.
+// A nil snapshot marks that layer's input Invalid (the detector holds
+// prior state and never flags it that tick).
+func buildDriftInputs(a *layer_a.Snapshot, b *coupling.Snapshot, c *marginal.Snapshot) [3]drift.Inputs {
+	var in [3]drift.Inputs
+	if a != nil {
+		in[drift.LayerA] = drift.Inputs{
+			Residual:  a.RMSResidual * a.RMSResidual,
+			Converged: a.SeenFirstContact && a.Coverage >= driftMinCoverageA,
+			Valid:     true,
+		}
+	}
+	if b != nil {
+		in[drift.LayerB] = drift.Inputs{
+			Residual:  b.EWMAResidual,
+			Converged: !b.WarmingUp,
+			Valid:     true,
+		}
+	}
+	if c != nil {
+		in[drift.LayerC] = drift.Inputs{
+			Residual:  c.EWMAResidual,
+			Converged: !c.WarmingUp,
+			Valid:     true,
+		}
+	}
+	return in
 }
 
 // captureLoadFraction returns the system's normalised load over the

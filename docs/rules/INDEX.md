@@ -39,6 +39,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration.md | Calibration validity-probe rules (PR-2b) |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
+| confidence-drift.md | Per-layer drift detection rules — R16 / R11 PR-2 |
 | confidence-gate.md | w_pred_system global gate rules — v0.5.9 / R11 |
 | confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
 | coupling.md | Layer-B thermal coupling rules (v0.5.7) |

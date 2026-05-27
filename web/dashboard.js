@@ -751,7 +751,15 @@
   // a Snapshot-shaped object into { reason, mood } where mood is
   // one of "good" / "warm" / "cold" / "bad" (drives the colour
   // tint of the row).
+  // driftReason renders one layer's drift evidence (real numbers from the
+  // EWMA control chart) for the popover. Shown only when that layer is
+  // actually drifting; otherwise the layer's normal reason stands.
+  function driftReason(v) {
+    return 'DRIFT — residual ' + v.residual.toFixed(2) + ' vs limit ' +
+      v.control_limit.toFixed(2) + ' (model diverging; confidence decaying, reactive taking over)';
+  }
   function reasonLayerA(ch) {
+    if (ch && ch.drift_a && ch.drift_a.drifting) return { reason: driftReason(ch.drift_a), mood: 'bad' };
     if (!ch) return { reason: 'no Layer-A snapshot', mood: 'cold' };
     var tierName = ['rpm-tach', 'coupled-ref', 'bmc-ipmi', 'ec-stepped',
                     'thermal-invert', 'rapl-echo', 'pwm-echo', 'open-loop'][ch.tier] || 'unknown';
@@ -761,12 +769,14 @@
     return { reason: tierName + ' — coverage ' + Math.round(ch.coverage * 100) + '% (good)', mood: 'good' };
   }
   function reasonLayerB(ch) {
+    if (ch && ch.drift_b && ch.drift_b.drifting) return { reason: driftReason(ch.drift_b), mood: 'bad' };
     if (!ch) return { reason: 'no Layer-B snapshot', mood: 'cold' };
     if (ch.conf_b < 0.05) return { reason: 'thermal-coupling estimator warming up or unidentifiable', mood: 'warm' };
     if (ch.conf_b < 0.4) return { reason: 'thermal-coupling estimator partial — early-life noise still high', mood: 'warm' };
     return { reason: 'thermal-coupling estimator healthy (κ in range, low residual)', mood: 'good' };
   }
   function reasonLayerC(ch) {
+    if (ch && ch.drift_c && ch.drift_c.drifting) return { reason: driftReason(ch.drift_c), mood: 'bad' };
     if (!ch || ch.conf_c <= 0) return { reason: 'marginal-benefit shard not warm yet for this workload', mood: 'cold' };
     if (ch.conf_c < 0.4) return { reason: 'marginal-benefit shard learning current workload signature', mood: 'warm' };
     return { reason: 'marginal-benefit shard converged for current workload', mood: 'good' };
