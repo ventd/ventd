@@ -429,7 +429,7 @@ func New(d Deps) *Server {
 		// which form to render (first-boot setup vs. normal password)
 		// without POSTing an empty password and tripping the per-IP login
 		// rate limiter. See audit finding S2.
-		{name: "auth/state", handler: s.handleAuthState, auth: false},
+		{name: "auth/state", methods: []string{http.MethodGet}, handler: s.handleAuthState, auth: false},
 		// Build metadata — same shape as `ventd --version --json`, exposed
 		// so operators can identify a running daemon without shell access.
 		{name: "version", methods: []string{http.MethodGet}, handler: s.handleVersion, auth: false},
@@ -447,7 +447,7 @@ func New(d Deps) *Server {
 		// Authenticated routes.
 		{name: "status", handler: s.handleStatus, auth: true},
 		{name: "events", handler: s.handleEvents, auth: true},
-		{name: "config", handler: s.handleConfig, auth: true},
+		{name: "config", methods: []string{http.MethodGet, http.MethodPut, http.MethodPatch}, handler: s.handleConfig, auth: true},
 		{name: "config/dryrun", methods: []string{http.MethodPost}, handler: s.handleConfigDryrun, auth: true},
 		{name: "hardware", handler: s.handleHardware, auth: true},
 		{name: "hardware/inventory", handler: s.handleHardwareInventory, auth: true},
@@ -461,33 +461,33 @@ func New(d Deps) *Server {
 		{name: "history", methods: []string{http.MethodGet}, handler: s.handleHistory, auth: true},
 		{name: "profile/schedule", methods: []string{http.MethodPut}, handler: s.handleProfileSchedule, auth: true},
 		{name: "schedule/status", methods: []string{http.MethodGet}, handler: s.handleScheduleStatus, auth: true},
-		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
+		{name: "calibrate/start", methods: []string{http.MethodPost}, handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		// v0.5.5: opportunistic-probe live status — read by the dashboard
 		// to render the probe-in-flight pill.
 		{name: "probe/opportunistic/status", handler: s.handleOpportunisticStatus, auth: true},
 		{name: "calibrate/results", handler: s.handleCalibrateResults, auth: true},
-		{name: "calibrate/abort", handler: s.handleCalibrateAbort, auth: true},
-		{name: "calibrate/reset", handler: s.handleCalibrationReset, auth: true},
-		{name: "detect-rpm", handler: s.handleDetectRPM, auth: true},
+		{name: "calibrate/abort", methods: []string{http.MethodPost}, handler: s.handleCalibrateAbort, auth: true},
+		{name: "calibrate/reset", methods: []string{http.MethodPost}, handler: s.handleCalibrationReset, auth: true},
+		{name: "detect-rpm", methods: []string{http.MethodPost}, handler: s.handleDetectRPM, auth: true},
 		{name: "setup/status", handler: s.handleSetupStatus, auth: true},
 		{name: "setup/events", handler: s.handleSetupEvents, auth: true},
-		{name: "setup/start", handler: s.handleSetupStart, auth: true},
-		{name: "setup/apply", handler: s.handleSetupApply, auth: true},
-		{name: "setup/apply-monitor-only", handler: s.handleSetupApplyMonitorOnly, auth: true},
-		{name: "setup/reset", handler: s.handleSetupReset, auth: true},
-		{name: "admin/factory-reset", handler: s.handleFactoryReset, auth: true},
-		{name: "setup/calibrate/abort", handler: s.handleSetupCalibrateAbort, auth: true},
-		{name: "setup/load-module", handler: s.handleSetupLoadModule, auth: true},
-		{name: "system/reboot", handler: s.handleSystemReboot, auth: true},
-		{name: "set-password", handler: s.handleSetPassword, auth: true},
-		{name: "hwdiag", handler: s.handleHwdiag, auth: true},
+		{name: "setup/start", methods: []string{http.MethodPost}, handler: s.handleSetupStart, auth: true},
+		{name: "setup/apply", methods: []string{http.MethodPost}, handler: s.handleSetupApply, auth: true},
+		{name: "setup/apply-monitor-only", methods: []string{http.MethodPost}, handler: s.handleSetupApplyMonitorOnly, auth: true},
+		{name: "setup/reset", methods: []string{http.MethodPost}, handler: s.handleSetupReset, auth: true},
+		{name: "admin/factory-reset", methods: []string{http.MethodPost}, handler: s.handleFactoryReset, auth: true},
+		{name: "setup/calibrate/abort", methods: []string{http.MethodPost}, handler: s.handleSetupCalibrateAbort, auth: true},
+		{name: "setup/load-module", methods: []string{http.MethodPost}, handler: s.handleSetupLoadModule, auth: true},
+		{name: "system/reboot", methods: []string{http.MethodPost}, handler: s.handleSystemReboot, auth: true},
+		{name: "set-password", methods: []string{http.MethodPost}, handler: s.handleSetPassword, auth: true},
+		{name: "hwdiag", methods: []string{http.MethodGet}, handler: s.handleHwdiag, auth: true},
 		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
 		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
 		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
-		{name: "hwdiag/mok-enroll", handler: s.handleMOKEnroll, auth: true},
+		{name: "hwdiag/mok-enroll", methods: []string{http.MethodPost}, handler: s.handleMOKEnroll, auth: true},
 		{name: "hwdiag/grub-cmdline-add", handler: s.handleGrubCmdlineAdd, auth: true},
-		{name: "hwdiag/modprobe-options-write", handler: s.handleModprobeOptionsWrite, auth: true},
+		{name: "hwdiag/modprobe-options-write", methods: []string{http.MethodPost}, handler: s.handleModprobeOptionsWrite, auth: true},
 		{name: "hwdiag/reset-and-reinstall", handler: s.handleResetAndReinstall, auth: true},
 		{name: "system/watchdog", methods: []string{http.MethodGet}, handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", methods: []string{http.MethodGet}, handler: s.handleSystemRecovery, auth: true},
@@ -847,10 +847,6 @@ func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
 // with a wrong password would already reveal — no new information
 // surface vs. the pre-fix behaviour.
 func (s *Server) handleAuthState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(r, w, map[string]bool{"first_boot": s.authHashValue() == ""})
 }
@@ -1396,6 +1392,8 @@ func (s *Server) buildStatus() statusResponse {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	// Allowed methods (GET/PUT/PATCH) are enforced by the apiRoute method
+	// gate, so this switch needs no default 405 arm.
 	switch r.Method {
 	case http.MethodGet:
 		w.Header().Set("Cache-Control", "no-store")
@@ -1404,8 +1402,6 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.handleConfigPut(w, r)
 	case http.MethodPatch:
 		s.handleConfigPatch(w, r)
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -1416,10 +1412,10 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	var incoming config.Config
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "config too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "config too large")
 			return
 		}
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	// Auth credentials live in auth.json; never persist them via the config
@@ -1428,7 +1424,7 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 
 	validated, err := config.Save(&incoming, s.configPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1525,13 +1521,9 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>
 func (s *Server) handleCalibrateStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	pwmPath := r.URL.Query().Get("fan")
 	if pwmPath == "" {
-		http.Error(w, "fan query param required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "fan query param required")
 		return
 	}
 	live := s.cfg.Load()
@@ -1543,11 +1535,11 @@ func (s *Server) handleCalibrateStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if fan == nil {
-		http.Error(w, "fan not found", http.StatusNotFound)
+		s.writeJSONError(w, http.StatusNotFound, "fan not found")
 		return
 	}
 	if err := s.cal.Start(fan); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		s.writeJSONError(w, http.StatusConflict, err.Error())
 		return
 	}
 	s.writeJSON(r, w, map[string]string{"status": "started"})
@@ -1636,13 +1628,9 @@ func (s *Server) handleCalibrateResults(w http.ResponseWriter, r *http.Request) 
 // Idempotent: returns 204 whether or not a calibration is currently in flight
 // for the given fan. The runSync defer is responsible for restoring PWM.
 func (s *Server) handleCalibrateAbort(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	pwmPath := r.URL.Query().Get("fan")
 	if pwmPath == "" {
-		http.Error(w, "fan query param required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "fan query param required")
 		return
 	}
 	s.cal.Abort(pwmPath)
@@ -1665,14 +1653,10 @@ func (s *Server) handleCalibrateAbort(w http.ResponseWriter, r *http.Request) {
 //
 // Returns 200 + {"status":"ok"} on success, 500 on KV wipe failure.
 func (s *Server) handleCalibrationReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	if s.calibrationWiper != nil {
 		if err := s.calibrationWiper(); err != nil {
 			s.logger.Error("calibration reset: KV wipe failed", "err", err)
-			http.Error(w, "calibration wipe failed: "+err.Error(), http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "calibration wipe failed: "+err.Error())
 			return
 		}
 	}
@@ -1681,7 +1665,7 @@ func (s *Server) handleCalibrationReset(w http.ResponseWriter, r *http.Request) 
 	if err := os.Remove(calibrate.DefaultCalibrationPath); err != nil && !os.IsNotExist(err) {
 		s.logger.Error("calibration reset: remove calibration.json failed",
 			"err", err, "path", calibrate.DefaultCalibrationPath)
-		http.Error(w, "remove calibration.json: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "remove calibration.json: "+err.Error())
 		return
 	}
 	s.logger.Info("calibration reset: stored calibration data wiped; operator can re-run /calibration")
@@ -1692,10 +1676,6 @@ func (s *Server) handleCalibrationReset(w http.ResponseWriter, r *http.Request) 
 // Idempotent: cancels the setup wizard's current run (including its parallel
 // per-fan calibration sweeps). Returns 204 whether or not setup is active.
 func (s *Server) handleSetupCalibrateAbort(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	s.setup.Abort()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1711,12 +1691,8 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 // handleSetupStart POST /api/setup/start
 // Kicks off the setup goroutine. 409 if already running.
 func (s *Server) handleSetupStart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	if err := s.setup.Start(); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		s.writeJSONError(w, http.StatusConflict, err.Error())
 		return
 	}
 	s.writeJSON(r, w, map[string]string{"status": "started"})
@@ -1734,10 +1710,6 @@ func (s *Server) handleSetupStart(w http.ResponseWriter, r *http.Request) {
 // is marked applied (with a persistent marker file) so the next daemon
 // restart goes straight to the dashboard.
 func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	cfg := s.setup.GeneratedConfig()
 	monitorOnly := false
 	if cfg == nil {
@@ -1755,7 +1727,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 			}
 			monitorOnly = true
 		} else {
-			http.Error(w, "setup not complete", http.StatusConflict)
+			s.writeJSONError(w, http.StatusConflict, "setup not complete")
 			return
 		}
 	}
@@ -1767,12 +1739,12 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	// Ensure the config directory exists. 0700 so only the daemon's user
 	// can read credentials stored inside.
 	if err := os.MkdirAll(filepath.Dir(s.configPath), 0700); err != nil {
-		http.Error(w, "create config dir: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "create config dir: "+err.Error())
 		return
 	}
 
 	if _, err := config.Save(cfg, s.configPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.setup.MarkApplied()
@@ -1806,20 +1778,16 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 // (sensors / fans / curves / controls) is empty by design — the
 // vendor daemon owns those.
 func (s *Server) handleSetupApplyMonitorOnly(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	cfg := config.Empty()
 	if live := s.cfg.Load(); live != nil {
 		cfg.Web = live.Web
 	}
 	if err := os.MkdirAll(filepath.Dir(s.configPath), 0700); err != nil {
-		http.Error(w, "create config dir: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "create config dir: "+err.Error())
 		return
 	}
 	if _, err := config.Save(cfg, s.configPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.setup.MarkApplied()
@@ -1841,17 +1809,13 @@ func (s *Server) handleSetupApplyMonitorOnly(w http.ResponseWriter, r *http.Requ
 // If kvWiper fails we now return 500 with the error so the operator
 // knows the reset is half-done rather than seeing a misleading "ok".
 func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	// 1. Wipe the wizard and probe KV namespaces FIRST so RULE-PROBE-09
 	// is honoured even if the subsequent config delete fails.
 	if s.kvWiper != nil {
 		if err := s.kvWiper(); err != nil {
 			s.logger.Error("setup reset: kv wipe failed; config NOT removed",
 				"err", err)
-			http.Error(w, "kv wipe failed: "+err.Error(), http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "kv wipe failed: "+err.Error())
 			return
 		}
 	}
@@ -1860,7 +1824,7 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 	// wizard cleanly (config-empty path), so this is the recoverable
 	// failure ordering.
 	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
-		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "remove config: "+err.Error())
 		return
 	}
 	// Clear the persistent applied-marker so a host that opted into
@@ -1919,10 +1883,6 @@ func (s *Server) handleSetupReset(w http.ResponseWriter, r *http.Request) {
 //     choice (e.g. `dnf remove ventd` for distro-packaged installs).
 //   - /var/lib/ventd/blob/, /var/lib/ventd/log/ — durable telemetry.
 func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	// Issue #1063 (web H2): KV wipe FIRST, then config delete. A kvWiper
 	// failure now returns 500 so the operator knows the reset is
 	// half-done; the previous order left the config wiped while stale
@@ -1931,13 +1891,13 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 		if err := s.kvWiper(); err != nil {
 			s.logger.Error("factory reset: kv wipe failed; config + auth NOT removed",
 				"err", err)
-			http.Error(w, "kv wipe failed: "+err.Error(), http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "kv wipe failed: "+err.Error())
 			return
 		}
 	}
 	// Config file.
 	if err := os.Remove(s.configPath); err != nil && !os.IsNotExist(err) {
-		http.Error(w, "remove config: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "remove config: "+err.Error())
 		return
 	}
 	// 3. Applied marker.
@@ -2011,31 +1971,27 @@ func (s *Server) handleFactoryReset(w http.ResponseWriter, r *http.Request) {
 // success clears the matching hwdiag entries so the UI's polling loop
 // reflects the remediated state on its next tick.
 func (s *Server) handleSetupLoadModule(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	limitBody(w, r, 256)
 	var req struct {
 		Module string `json:"module"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 			return
 		}
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Module == "" {
-		http.Error(w, "module is required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "module is required")
 		return
 	}
 	if !setupmgr.AllowedModule(req.Module) {
 		// Don't leak the allowlist contents — just say no. The wizard's UI
 		// only ever sends modules from hwdiag entries we emitted ourselves,
 		// so hitting this path implies a hand-crafted request.
-		http.Error(w, "module not in remediation allowlist", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "module not in remediation allowlist")
 		return
 	}
 
@@ -2095,17 +2051,13 @@ func rebootEnvironmentBlocker() string {
 // RULE-WD-RESTORE-BUDGET (1.8s) before invoking systemctl so fans are
 // handed back to BIOS auto before the kernel-init sequence kicks in.
 func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	blocker := s.rebootBlocker
 	if blocker == nil {
 		blocker = rebootEnvironmentBlocker
 	}
 	if reason := blocker(); reason != "" {
 		s.logger.Warn("web: system reboot refused", "reason", reason)
-		http.Error(w, "reboot not supported in this environment: "+reason, http.StatusConflict)
+		s.writeJSONError(w, http.StatusConflict, "reboot not supported in this environment: "+reason)
 		return
 	}
 	// Refuse the reboot if the operator has any active manual-mode override
@@ -2115,7 +2067,7 @@ func (s *Server) handleSystemReboot(w http.ResponseWriter, r *http.Request) {
 	if names := activeManualOverrides(s.cfg.Load()); len(names) > 0 {
 		reason := "active manual-mode override on fan(s): " + strings.Join(names, ", ")
 		s.logger.Warn("web: system reboot refused", "reason", reason)
-		http.Error(w, "reboot refused while manual override is active: "+reason, http.StatusConflict)
+		s.writeJSONError(w, http.StatusConflict, "reboot refused while manual override is active: "+reason)
 		return
 	}
 	s.logger.Info("web: system reboot requested via setup wizard")
@@ -2200,13 +2152,9 @@ func activeManualOverrides(cfg *config.Config) []string {
 // handleDetectRPM POST /api/detect-rpm?fan=<pwmPath>
 // Blocks ~5s while it ramps PWM and identifies the correlated fan*_input sensor.
 func (s *Server) handleDetectRPM(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	pwmPath := r.URL.Query().Get("fan")
 	if pwmPath == "" {
-		http.Error(w, "fan query param required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "fan query param required")
 		return
 	}
 	live := s.cfg.Load()
@@ -2218,12 +2166,12 @@ func (s *Server) handleDetectRPM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if fan == nil {
-		http.Error(w, "fan not found", http.StatusNotFound)
+		s.writeJSONError(w, http.StatusNotFound, "fan not found")
 		return
 	}
 	result, err := s.cal.DetectRPMSensor(fan)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.writeJSON(r, w, result)
@@ -2235,10 +2183,6 @@ func (s *Server) handleDetectRPM(w http.ResponseWriter, r *http.Request) {
 // filter the entries. The revision is a monotonic counter the UI can poll
 // cheaply to decide whether to re-render.
 func (s *Server) handleHwdiag(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	f := hwdiag.Filter{
 		Component: hwdiag.Component(r.URL.Query().Get("component")),
 		Severity:  hwdiag.Severity(r.URL.Query().Get("severity")),
@@ -2557,24 +2501,20 @@ func (s *Server) handleGrubCmdlineAdd(w http.ResponseWriter, r *http.Request) {
 // re-arbitrates only on a full power cycle even when the kernel
 // module reloads cleanly.
 func (s *Server) handleModprobeOptionsWrite(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	var body struct {
 		Module  string `json:"module"`
 		Options string `json:"options"`
 	}
 	if r.Body == nil || r.ContentLength <= 0 {
-		http.Error(w, "request body required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "request body required")
 		return
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 	if !hwmon.IsAllowedModprobeOption(body.Module, body.Options) {
-		http.Error(w, "module/options pair not in ventd's allowlist", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "module/options pair not in ventd's allowlist")
 		return
 	}
 	s.runInstallHandler(w, r, "", func(logFn func(string)) error {
@@ -2673,10 +2613,6 @@ type mokInstructionsResponse struct {
 // NOT execute anything server-side — MOK enrollment requires a reboot and
 // interactive firmware step that cannot be automated.
 func (s *Server) handleMOKEnroll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	distro := hwmon.DetectDistro()
 	cmds := []string{
 		distro.MOKInstallCommand(),
@@ -2703,10 +2639,6 @@ func (s *Server) handleMOKEnroll(w http.ResponseWriter, r *http.Request) {
 // handleSetPassword POST /api/set-password
 // Allows an authenticated user to change the dashboard password.
 func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	limitBody(w, r, 64<<10)
 	var req struct {
 		Current string `json:"current"`
@@ -2714,10 +2646,10 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 			return
 		}
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -2737,14 +2669,14 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := HashPassword(req.New)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	if s.authPath != "" {
 		if err := s.storeAuthHash(hash); err != nil {
 			s.logger.Error("web: failed to save new password hash to auth.json", "err", err)
-			http.Error(w, "could not save password", http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 			return
 		}
 	} else {
@@ -2754,13 +2686,13 @@ func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 		if len(live.Controls) > 0 {
 			if _, err := config.Save(live, s.configPath); err != nil {
 				s.logger.Error("web: failed to save new password hash", "err", err)
-				http.Error(w, "could not save password", http.StatusInternalServerError)
+				s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 				return
 			}
 		} else {
 			if err := s.writePasswordHash(hash); err != nil {
 				s.logger.Error("web: failed to save new password hash", "err", err)
-				http.Error(w, "could not save password", http.StatusInternalServerError)
+				s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 				return
 			}
 		}
