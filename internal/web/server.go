@@ -482,13 +482,13 @@ func New(d Deps) *Server {
 		{name: "system/reboot", methods: []string{http.MethodPost}, handler: s.handleSystemReboot, auth: true},
 		{name: "set-password", methods: []string{http.MethodPost}, handler: s.handleSetPassword, auth: true},
 		{name: "hwdiag", methods: []string{http.MethodGet}, handler: s.handleHwdiag, auth: true},
-		{name: "hwdiag/install-kernel-headers", handler: s.handleInstallKernelHeaders, auth: true},
-		{name: "hwdiag/install-dkms", handler: s.handleInstallDKMS, auth: true},
-		{name: "hwdiag/load-apparmor", handler: s.handleLoadAppArmor, auth: true},
+		{name: "hwdiag/install-kernel-headers", methods: []string{http.MethodPost}, handler: s.handleInstallKernelHeaders, auth: true},
+		{name: "hwdiag/install-dkms", methods: []string{http.MethodPost}, handler: s.handleInstallDKMS, auth: true},
+		{name: "hwdiag/load-apparmor", methods: []string{http.MethodPost}, handler: s.handleLoadAppArmor, auth: true},
 		{name: "hwdiag/mok-enroll", methods: []string{http.MethodPost}, handler: s.handleMOKEnroll, auth: true},
-		{name: "hwdiag/grub-cmdline-add", handler: s.handleGrubCmdlineAdd, auth: true},
+		{name: "hwdiag/grub-cmdline-add", methods: []string{http.MethodPost}, handler: s.handleGrubCmdlineAdd, auth: true},
 		{name: "hwdiag/modprobe-options-write", methods: []string{http.MethodPost}, handler: s.handleModprobeOptionsWrite, auth: true},
-		{name: "hwdiag/reset-and-reinstall", handler: s.handleResetAndReinstall, auth: true},
+		{name: "hwdiag/reset-and-reinstall", methods: []string{http.MethodPost}, handler: s.handleResetAndReinstall, auth: true},
 		{name: "system/watchdog", methods: []string{http.MethodGet}, handler: s.handleSystemWatchdog, auth: true},
 		{name: "system/recovery", methods: []string{http.MethodGet}, handler: s.handleSystemRecovery, auth: true},
 		{name: "system/security", methods: []string{http.MethodGet}, handler: s.handleSystemSecurity, auth: true},
@@ -927,10 +927,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		limitBody(w, r, 64<<10)
 		if err := r.ParseForm(); err != nil {
 			if isMaxBytesErr(err) {
-				http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+				s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 				return
 			}
-			http.Error(w, "bad request", http.StatusBadRequest)
+			s.writeJSONError(w, http.StatusBadRequest, "bad request")
 			return
 		}
 
@@ -988,7 +988,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.loginLim.recordSuccess(ipKey)
 		tok, err := s.sessions.create()
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		csrf, _ := s.sessions.csrfFor(tok)
@@ -1003,7 +1003,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(r, w, map[string]string{"status": "ok", "csrf_token": csrf})
 
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -1025,7 +1025,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 
 	hash, err := HashPassword(newPassword)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -1037,7 +1037,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 	if s.authPath != "" {
 		if err := s.storeAuthHash(hash); err != nil {
 			s.logger.Error("web: failed to persist password hash to auth.json", "err", err)
-			http.Error(w, "could not save password", http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 			return
 		}
 	} else {
@@ -1046,13 +1046,13 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 		if len(live.Controls) > 0 {
 			if _, err := config.Save(live, s.configPath); err != nil {
 				s.logger.Error("web: failed to persist password hash", "err", err)
-				http.Error(w, "could not save password", http.StatusInternalServerError)
+				s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 				return
 			}
 		} else {
 			if err := s.writePasswordHash(hash); err != nil {
 				s.logger.Error("web: failed to persist password hash", "err", err)
-				http.Error(w, "could not save password", http.StatusInternalServerError)
+				s.writeJSONError(w, http.StatusInternalServerError, "could not save password")
 				return
 			}
 		}
@@ -1064,7 +1064,7 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 
 	tok, err := s.sessions.create()
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	csrf, _ := s.sessions.csrfFor(tok)
@@ -2220,11 +2220,9 @@ type installLogResponse struct {
 // dst is optional: handlers that don't accept a body pass nil and an
 // empty / missing body is accepted. The body cap is enforced upstream by
 // requireMaxBody (RULE-WEB-BODY-SIZE-CAP-1MIB).
-func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return false
-	}
+func (s *Server) validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
+	// Method (POST) is enforced by the apiRoute method gate before the handler
+	// runs, so there is no method check here.
 	if r.Body == nil || r.ContentLength == 0 {
 		// No body — handlers that accept an optional payload fall
 		// through to their default values.
@@ -2232,11 +2230,11 @@ func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) boo
 	}
 	ct := strings.TrimSpace(r.Header.Get("Content-Type"))
 	if ct == "" {
-		http.Error(w, "Content-Type required when body is present", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "Content-Type required when body is present")
 		return false
 	}
 	if mediaType := strings.SplitN(ct, ";", 2)[0]; strings.TrimSpace(mediaType) != "application/json" {
-		http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "Content-Type must be application/json")
 		return false
 	}
 	if dst == nil {
@@ -2248,14 +2246,14 @@ func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) boo
 		var probe map[string]any
 		if err := dec.Decode(&probe); err != nil {
 			if isMaxBytesErr(err) {
-				http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+				s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 				return false
 			}
-			http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+			s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 			return false
 		}
 		if len(probe) != 0 {
-			http.Error(w, "this endpoint does not accept any body fields", http.StatusBadRequest)
+			s.writeJSONError(w, http.StatusBadRequest, "this endpoint does not accept any body fields")
 			return false
 		}
 		return true
@@ -2264,10 +2262,10 @@ func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) boo
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 			return false
 		}
-		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return false
 	}
 	return true
@@ -2277,10 +2275,8 @@ func validateInstallRequest(w http.ResponseWriter, r *http.Request, dst any) boo
 // It invokes fn with a logFn that appends to the returned log, formats the
 // response consistently, and clears the corresponding hwdiag entry on success.
 func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clearID string, fn func(log func(string)) error) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	// Method (POST) is enforced by the apiRoute method gate before the handler
+	// runs, so there is no method check here.
 	var log []string
 	logFn := func(line string) { log = append(log, line) }
 	err := fn(logFn)
@@ -2300,7 +2296,7 @@ func (s *Server) runInstallHandler(w http.ResponseWriter, r *http.Request, clear
 // a body of any shape MUST present Content-Type: application/json AND
 // MUST contain an empty JSON object — anything else returns 400.
 func (s *Server) handleInstallKernelHeaders(w http.ResponseWriter, r *http.Request) {
-	if !validateInstallRequest(w, r, nil) {
+	if !s.validateInstallRequest(w, r, nil) {
 		return
 	}
 	s.runInstallHandler(w, r, hwdiag.IDOOTKernelHeadersMissing, hwmon.EnsureKernelHeaders)
@@ -2328,7 +2324,7 @@ func (s *Server) handleResetAndReinstall(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Module string `json:"module"`
 	}
-	if !validateInstallRequest(w, r, &body) {
+	if !s.validateInstallRequest(w, r, &body) {
 		return
 	}
 	module := strings.TrimSpace(body.Module)
@@ -2452,7 +2448,7 @@ func (s *Server) handleGrubCmdlineAdd(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Param string `json:"param"`
 	}
-	if !validateInstallRequest(w, r, &body) {
+	if !s.validateInstallRequest(w, r, &body) {
 		return
 	}
 	param := strings.TrimSpace(body.Param)
@@ -2546,7 +2542,7 @@ func (s *Server) handleModprobeOptionsWrite(w http.ResponseWriter, r *http.Reque
 // installLogResponse shape as the install endpoints so the UI can
 // render the parser output uniformly.
 func (s *Server) handleLoadAppArmor(w http.ResponseWriter, r *http.Request) {
-	if !validateInstallRequest(w, r, nil) {
+	if !s.validateInstallRequest(w, r, nil) {
 		return
 	}
 	s.runInstallHandler(w, r, "", loadAppArmorProfile)
@@ -2593,7 +2589,7 @@ func loadAppArmorProfile(log func(string)) error {
 // Installs the distro's dkms package so OOT modules survive kernel upgrades.
 // Body is rejected (issue #1062): this endpoint takes no fields.
 func (s *Server) handleInstallDKMS(w http.ResponseWriter, r *http.Request) {
-	if !validateInstallRequest(w, r, nil) {
+	if !s.validateInstallRequest(w, r, nil) {
 		return
 	}
 	s.runInstallHandler(w, r, hwdiag.IDOOTDKMSMissing, hwmon.EnsureDKMS)
