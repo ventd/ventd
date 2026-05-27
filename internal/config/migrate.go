@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 )
@@ -121,4 +122,98 @@ func migrateTLSPaths(cfg *Config, configPath string, logger *slog.Logger) bool {
 		"source", fmt.Sprintf("first-boot artefact next to %s", configPath),
 	)
 	return true
+}
+
+// MigrateCurvePWMFields reconciles the raw (0-255) and percent (0-100)
+// duty-cycle fields on every curve and curve-point. The `_pct` form is
+// the authoritative persistence shape; raw fields stay populated for
+// runtime consumers (buildCurve, validate) that have always read them.
+//
+// Precedence: if both sides are set and disagree, `_pct` wins and a
+// warning fires; otherwise the missing side is computed from the one
+// that was set. A fresh config (both zero / nil on every field)
+// round-trips through here without emitting any warning — the `_pct`
+// sides end up as non-nil pointers to zero, which is distinguishable
+// from nil via the YAML `omitempty` rule but prints the same to an
+// operator.
+//
+// The conversion rounds: rawToPct(rawToPct⁻¹(x)) can differ from x
+// by 1. That's fine for fan behaviour (±1 PWM is indistinguishable
+// from motor noise) but tests that migrate a legacy value must
+// compare against the round-tripped number, not the original.
+func MigrateCurvePWMFields(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	for i := range cfg.Curves {
+		c := &cfg.Curves[i]
+		reconcile("curve "+c.Name+" min_pwm", &c.MinPWM, &c.MinPWMPct)
+		reconcile("curve "+c.Name+" max_pwm", &c.MaxPWM, &c.MaxPWMPct)
+		// Value is fixed-curve specific; still reconcile so other
+		// curve types (which leave both at zero) emit a benign
+		// `value_pct: 0` that round-trips.
+		reconcile("curve "+c.Name+" value", &c.Value, &c.ValuePct)
+		for j := range c.Points {
+			p := &c.Points[j]
+			reconcile(fmt.Sprintf("curve %s points[%d]", c.Name, j), &p.PWM, &p.PWMPct)
+		}
+	}
+}
+
+// reconcile is the per-field body of MigrateCurvePWMFields. label is
+// an operator-facing identifier used in the "both set and disagree"
+// warning.
+//
+// When both fields are populated, reconcile tolerates a ±1 round-trip
+// drift (pctToRaw(rawToPct(x)) can differ from x by 1 due to the
+// 255/100 scaling). A drift inside that tolerance is treated as "in
+// sync": the raw side wins so successive calls to MigrateCurvePWMFields
+// are idempotent. Only larger disagreements fire a warning.
+func reconcile(label string, raw *uint8, pct **uint8) {
+	if raw == nil || pct == nil {
+		return
+	}
+	if *pct != nil {
+		expected := pctToRaw(**pct)
+		drift := int(*raw) - int(expected)
+		if drift < 0 {
+			drift = -drift
+		}
+		if *raw != 0 && drift > 1 {
+			slog.Default().Warn("config: legacy and _pct fields disagree, preferring _pct",
+				"field", label,
+				"raw", *raw,
+				"pct", **pct,
+				"raw_from_pct", expected,
+			)
+			*raw = expected
+			return
+		}
+		// Inside the ±1 rounding tolerance (or raw is the fresh zero we
+		// haven't migrated yet): keep raw as it is if non-zero, else
+		// populate it from pct.
+		if *raw == 0 {
+			*raw = expected
+		}
+		return
+	}
+	// _pct is nil; derive it from raw. rawToPct on zero is zero — the
+	// fresh-config case produces ptr(0), which marshals as
+	// `field_pct: 0` and reloads as the same.
+	v := rawToPct(*raw)
+	*pct = &v
+}
+
+// pctToRaw converts a 0-100 percent duty cycle to a 0-255 PWM byte.
+// Clamps above 100; preserves the canonical zero.
+func pctToRaw(pct uint8) uint8 {
+	if pct > 100 {
+		pct = 100
+	}
+	return uint8(math.Round(float64(pct) * 255 / 100))
+}
+
+// rawToPct converts a 0-255 PWM byte to a 0-100 percent duty cycle.
+func rawToPct(raw uint8) uint8 {
+	return uint8(math.Round(float64(raw) * 100 / 255))
 }
