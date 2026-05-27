@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -702,5 +704,77 @@ func TestPresetFromString_RoundTripAndFallback(t *testing.T) {
 	}
 	if PresetPerformance.String() != "performance" {
 		t.Errorf("PresetPerformance.String() = %q", PresetPerformance.String())
+	}
+}
+
+// TestBlendedController_ConcurrentChannels exercises the per-channel
+// locking introduced in R7a: distinct channels Compute concurrently
+// under their own piState.mu rather than serialising on one global
+// lock. It asserts (a) no data race when run under -race, and (b) each
+// channel's tick sequence is byte-identical whether computed
+// concurrently or serially — i.e. sharding the lock did not perturb
+// the per-channel integrator evolution.
+func TestBlendedController_ConcurrentChannels(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numChannels = 16
+		numTicks    = 50
+	)
+	start := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	// ticksFor returns the deterministic input sequence for one channel.
+	// Each channel gets a distinct setpoint so a state mix-up between
+	// channels would surface as a diverging output sequence. SensorTemp
+	// varies per tick so the integrator actually moves.
+	ticksFor := func(ch int) []BlendedInputs {
+		ins := make([]BlendedInputs, numTicks)
+		id := fmt.Sprintf("ch%d", ch)
+		for k := 0; k < numTicks; k++ {
+			in := defaultInputs(healthyCoupling(id, 0.98, -0.5))
+			in.ChannelID = id
+			in.Setpoint = 50.0 + float64(ch)
+			in.SensorTemp = 60.0 + 5*math.Sin(float64(k)/3.0)
+			in.Now = start.Add(time.Duration(k) * 2 * time.Second)
+			ins[k] = in
+		}
+		return ins
+	}
+
+	// Serial baseline: one controller, channels ticked one at a time.
+	baseline := make([][]uint8, numChannels)
+	bcSerial := NewBlended(BlendedConfig{Preset: PresetBalanced, PWMUnitMax: 255})
+	for ch := 0; ch < numChannels; ch++ {
+		outs := make([]uint8, numTicks)
+		for k, in := range ticksFor(ch) {
+			outs[k] = bcSerial.Compute(in).OutputPWM
+		}
+		baseline[ch] = outs
+	}
+
+	// Concurrent run: fresh controller, one goroutine per channel.
+	got := make([][]uint8, numChannels)
+	bc := NewBlended(BlendedConfig{Preset: PresetBalanced, PWMUnitMax: 255})
+	var wg sync.WaitGroup
+	for ch := 0; ch < numChannels; ch++ {
+		wg.Add(1)
+		go func(ch int) {
+			defer wg.Done()
+			outs := make([]uint8, numTicks)
+			for k, in := range ticksFor(ch) {
+				outs[k] = bc.Compute(in).OutputPWM
+			}
+			got[ch] = outs
+		}(ch)
+	}
+	wg.Wait()
+
+	for ch := 0; ch < numChannels; ch++ {
+		for k := 0; k < numTicks; k++ {
+			if got[ch][k] != baseline[ch][k] {
+				t.Fatalf("ch%d tick %d: concurrent output %d != serial baseline %d",
+					ch, k, got[ch][k], baseline[ch][k])
+			}
+		}
 	}
 }
