@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -115,5 +116,62 @@ func TestBlend_GateClosedForcesReactive(t *testing.T) {
 	fnNil("ch", 70, reactive, 2*time.Second, time.Now())
 	if snap := aggNil.Read("ch"); snap == nil || snap.UIState == aggregator.UIStateRefused {
 		t.Fatalf("nil gate must be open (not refused); got %+v", snap)
+	}
+}
+
+// TestBlend_DriftFlagsFromDetectorIntoTick binds RULE-DRIFT-AGG-WIRING-01:
+// the blend closure passes the drift detector's per-layer flags into
+// aggregator.Tick (never SetDrift), so a flagged layer surfaces as
+// DriftFlags + UIState "drifting".
+func TestBlend_DriftFlagsFromDetectorIntoTick(t *testing.T) {
+	det := drift.New(drift.DefaultConfig())
+	c := drift.DefaultConfig()
+
+	// Pre-flag Layer B for "ch": warm a steady baseline, then a step-up.
+	preObs := func(residual float64) [3]bool {
+		var in [3]drift.Inputs
+		in[drift.LayerB] = drift.Inputs{Residual: residual, Converged: true, Valid: true}
+		return det.Observe("ch", in)
+	}
+	for i := 0; i < c.WarmupTicks+10; i++ {
+		preObs(1.0)
+	}
+	var flags [3]bool
+	for i := 0; i < 60; i++ {
+		if flags = preObs(100.0); flags[drift.LayerB] {
+			break
+		}
+	}
+	if !flags[drift.LayerB] {
+		t.Fatal("precondition: detector should flag Layer B drift")
+	}
+
+	// Build the closure with NO coupling/marginal runtimes, so the
+	// closure's Layer-B/C inputs are Invalid and the detector HOLDS the
+	// pre-set Layer-B flag rather than resetting it. The held flag must
+	// flow through Observe into aggregator.Tick.
+	la, err := layer_a.New(layer_a.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agg := aggregator.New(aggregator.Config{})
+	d := Deps{
+		LayerA:     la,
+		Aggregator: agg,
+		Blended:    controller.NewBlended(controller.BlendedConfig{}),
+		Decisions:  controller.NewDecisionCache(),
+		Drift:      det,
+	}
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(&config.Config{Smart: config.SmartConfig{Setpoints: map[string]float64{"ch": 60}}})
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" })
+	fn("ch", 70, 150, 2*time.Second, time.Now())
+
+	snap := agg.Read("ch")
+	if snap == nil || !snap.DriftFlags[drift.LayerB] {
+		t.Fatalf("detector's Layer-B drift flag must reach aggregator.Tick; got %+v", snap)
+	}
+	if snap.UIState != aggregator.UIStateDrifting {
+		t.Fatalf("a set drift flag must collapse to UIState drifting; got %q", snap.UIState)
 	}
 }

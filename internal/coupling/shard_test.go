@@ -68,6 +68,39 @@ func TestRLS_RankOneUpdate_MatchesAnalytical(t *testing.T) {
 	}
 }
 
+// TestShard_EWMAResidualAccumulatesAndExposed binds RULE-DRIFT-LAYERB-RESIDUAL-01:
+// Update folds the prediction residual into an EWMA of e² (alpha=0.95)
+// exposed on Snapshot.EWMAResidual, and Confidence() stays well-formed
+// (the new field never feeds it).
+func TestShard_EWMAResidualAccumulatesAndExposed(t *testing.T) {
+	s := makeShard(t, 1) // NCoupled=1 → d=3
+	t0 := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	// Fresh shard: theta=0, so the first residual is exactly y, and
+	// ewmaResidual = (1-alpha)·y² deterministically.
+	if err := s.Update(t0, []float64{10, 200, 0.5}, 10.0); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got := s.Read().EWMAResidual
+	want := (1 - EWMAResidualAlpha) * 10.0 * 10.0 // 0.05 * 100 = 5.0
+	if math.Abs(got-want) > 1e-9 {
+		t.Fatalf("EWMAResidual after first update = %v, want %v", got, want)
+	}
+
+	// It stays a positive, exposed signal across further ticks, and
+	// Confidence() remains a well-formed [0,1] value alongside it.
+	for i := 1; i < 30; i++ {
+		_ = s.Update(t0.Add(time.Duration(i)*time.Second), []float64{50, 150, 0.5}, 50.0)
+	}
+	snap := s.Read()
+	if snap.EWMAResidual <= 0 {
+		t.Fatalf("EWMAResidual must stay positive while residuals are non-zero; got %v", snap.EWMAResidual)
+	}
+	if c := snap.Confidence(); c < 0 || c > 1 {
+		t.Fatalf("Confidence() = %v, want a well-formed value in [0,1]", c)
+	}
+}
+
 // TestRLS_BoundedCovariance_TrPClamped — RULE-CPL-SHARD-03.
 //
 // Feed near-constant input to force tr(P) to grow under non-PE

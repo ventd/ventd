@@ -50,6 +50,12 @@ const (
 // consumed by downstream controllers.
 const WarmupCovarianceRatio = 0.5
 
+// EWMAResidualAlpha mirrors Layer-C's marginal.EWMAResidualAlpha (R12 §Q1
+// α=0.95): the per-tick prediction residual is folded into an EWMA of e²
+// exposed on Snapshot for the R16 drift detector. Not consumed by
+// Confidence() — purely a drift-monitoring signal. RULE-DRIFT-LAYERB-RESIDUAL-01.
+const EWMAResidualAlpha = 0.95
+
 // SnapshotKind classifies the runtime state of a shard for
 // downstream consumers (v0.5.9 controller, v0.5.10 doctor).
 type SnapshotKind uint8
@@ -98,10 +104,11 @@ type Snapshot struct {
 	TrP          float64
 	Kappa        float64
 	Lambda       float64
-	WarmingUp    bool   // true when Kind == KindWarmup
-	LastTickUnix int64  // wall clock of the last Tick
-	GroupedFans  []int  // indices merged into composite via U1 detection
-	Reason       string // free-form diagnostic for doctor
+	EWMAResidual float64 // EWMA of e² for R16 drift detection; not used by Confidence()
+	WarmingUp    bool    // true when Kind == KindWarmup
+	LastTickUnix int64   // wall clock of the last Tick
+	GroupedFans  []int   // indices merged into composite via U1 detection
+	Reason       string  // free-form diagnostic for doctor
 }
 
 // Shard implements one Layer-B RLS estimator for a single channel.
@@ -110,13 +117,14 @@ type Shard struct {
 	d         int
 	nCoupled  int
 
-	mu       sync.Mutex
-	theta    *mat.VecDense // d-vector
-	p        *mat.SymDense // d×d covariance
-	pInitTr  float64       // tr(P_0) for the warmup ratio
-	lambda   float64
-	nSamples uint64
-	lastTick time.Time
+	mu           sync.Mutex
+	theta        *mat.VecDense // d-vector
+	p            *mat.SymDense // d×d covariance
+	pInitTr      float64       // tr(P_0) for the warmup ratio
+	lambda       float64
+	nSamples     uint64
+	ewmaResidual float64 // EWMA of e² for R16 drift detection (RULE-DRIFT-LAYERB-RESIDUAL-01); not consumed by Confidence()
+	lastTick     time.Time
 
 	// Identifiability detector state.
 	kappa  float64
@@ -248,6 +256,11 @@ func (s *Shard) Update(now time.Time, phi []float64, y float64) error {
 	// residual = y − φᵀ · θ
 	residual := y - mat.Dot(phiVec, s.theta)
 
+	// R16 drift signal: EWMA of e² (RULE-DRIFT-LAYERB-RESIDUAL-01). Folded
+	// here — after the numeric-degenerate denom guard above so a skipped
+	// tick never feeds the monitor — and never touches θ/P or Confidence().
+	s.ewmaResidual = EWMAResidualAlpha*s.ewmaResidual + (1-EWMAResidualAlpha)*residual*residual
+
 	// θ += K · residual
 	var deltaTheta mat.VecDense
 	deltaTheta.ScaleVec(residual, gain)
@@ -367,6 +380,7 @@ func (s *Shard) buildSnapshot() *Snapshot {
 		TrP:          tr,
 		Kappa:        s.kappa,
 		Lambda:       s.lambda,
+		EWMAResidual: s.ewmaResidual,
 		WarmingUp:    warming,
 		LastTickUnix: lastUnix,
 		GroupedFans:  groupsCopy,

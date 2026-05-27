@@ -22,6 +22,7 @@ import (
 	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -685,6 +686,7 @@ func run() error {
 		Decisions:  controller.NewDecisionCache(),
 		Channels:   channels,
 		MassStall:  buildMassStallTracker(channels, logger),
+		Drift:      buildDriftDetector(channels, logger),
 	}
 	if obsWriter != nil {
 		// Wire the per-tick controller observation feed into Layer-A
@@ -983,6 +985,12 @@ type SmartModeBundle struct {
 	// goroutine refreshes the gate snapshot every gate.RefreshInterval.
 	// nil in monitor-only mode.
 	Gate *gate.Evaluator
+
+	// Drift is the R16 per-(channel, layer) EWMA-control-chart drift
+	// detector that feeds the aggregator's drift_flags. The blend hook
+	// calls Observe inline each tick; the web surface reads Snapshot.
+	// nil in monitor-only mode.
+	Drift *drift.Detector
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -1377,6 +1385,9 @@ func runDaemonInternal(
 		// /api/v1/confidence/status reports its open/closed verdict +
 		// refusal reason. nil-safe (monitor-only skips it).
 		webSrv.SetGate(smartMode.Gate)
+		// R11 PR-2: expose the per-layer drift detector so
+		// /api/v1/confidence/status reports per-layer drift evidence.
+		webSrv.SetDriftDetector(smartMode.Drift)
 	}
 
 	// v0.5.5: build and launch the opportunistic-probe scheduler when

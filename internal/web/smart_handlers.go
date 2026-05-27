@@ -20,6 +20,7 @@ import (
 	"time"
 
 	acrunner "github.com/ventd/ventd/internal/acoustic/runner"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
@@ -164,6 +165,38 @@ type confidenceChannel struct {
 	Coverage         float64 `json:"coverage"`
 	SeenFirstContact bool    `json:"seen_first_contact"`
 	AgeSeconds       float64 `json:"age_seconds"`
+
+	// R16 drift surface. DriftActive == any layer drifting (same source
+	// as the aggregator's "drifting" UIState). DriftA/B/C carry the
+	// per-layer EWMA-control-chart evidence, nil when that layer hasn't
+	// converged (the UI renders "—" — no theatre).
+	DriftActive bool            `json:"drift_active"`
+	DriftA      *driftLayerView `json:"drift_a,omitempty"`
+	DriftB      *driftLayerView `json:"drift_b,omitempty"`
+	DriftC      *driftLayerView `json:"drift_c,omitempty"`
+}
+
+// driftLayerView is one layer's drift evidence for the API/doctor surface.
+type driftLayerView struct {
+	Drifting     bool    `json:"drifting"`
+	Residual     float64 `json:"residual"`      // current sqrt-residual monitor (z)
+	Baseline     float64 `json:"baseline"`      // μ
+	ControlLimit float64 `json:"control_limit"` // μ + L·σ (trip threshold)
+}
+
+// driftViewIfConverged returns a layer's drift evidence, or nil when the
+// layer hasn't converged (the surface renders "—" rather than fabricate
+// numbers from an unconverged model).
+func driftViewIfConverged(e drift.Evidence) *driftLayerView {
+	if !e.Converged {
+		return nil
+	}
+	return &driftLayerView{
+		Drifting:     e.Drifting,
+		Residual:     e.Residual,
+		Baseline:     e.Baseline,
+		ControlLimit: e.ControlLimit,
+	}
 }
 
 // confidenceGate mirrors gate.Snapshot for the API surface: the
@@ -252,6 +285,16 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 			entry.Coverage = la.Coverage
 			entry.SeenFirstContact = la.SeenFirstContact
 			entry.AgeSeconds = la.Age.Seconds()
+		}
+		// R16 drift: DriftActive mirrors the aggregator's own DriftFlags
+		// (the same source that drives the "drifting" pill), and the
+		// per-layer evidence comes from the detector's snapshot.
+		entry.DriftActive = a.DriftFlags[0] || a.DriftFlags[1] || a.DriftFlags[2]
+		if s.drift != nil {
+			ev := s.drift.Snapshot(a.ChannelID)
+			entry.DriftA = driftViewIfConverged(ev[0])
+			entry.DriftB = driftViewIfConverged(ev[1])
+			entry.DriftC = driftViewIfConverged(ev[2])
 		}
 		out.Channels = append(out.Channels, entry)
 		if priority[a.UIState] < priority[worst] {

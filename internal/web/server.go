@@ -22,6 +22,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/drift"
 	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
@@ -99,6 +100,10 @@ type Server struct {
 	// gate's open/closed verdict + failing reason. nil in monitor-only
 	// mode; nil-safe.
 	gate *gate.Evaluator
+	// drift is the R16 per-layer drift detector (R11). The
+	// /api/v1/confidence/status handler reads its per-channel snapshot
+	// for the per-layer drift evidence. nil in monitor-only mode; nil-safe.
+	drift *drift.Detector
 	// kCalPath is the persisted R30 microphone calibration JSON
 	// (default /var/lib/ventd/acoustic/k_cal.json). The smart-mode
 	// status handler reads it to populate the mic_calibrated bool.
@@ -1627,6 +1632,13 @@ func (s *Server) SetDecisions(d *controller.DecisionCache) {
 // refusal reason. nil-safe (monitor-only mode skips wiring).
 func (s *Server) SetGate(g *gate.Evaluator) {
 	s.gate = g
+}
+
+// SetDriftDetector wires the R16 per-layer drift detector so
+// /api/v1/confidence/status can report per-layer drift evidence.
+// nil-safe (monitor-only mode skips wiring).
+func (s *Server) SetDriftDetector(d *drift.Detector) {
+	s.drift = d
 }
 
 // confidenceChannel is the JSON wire shape for one channel's
