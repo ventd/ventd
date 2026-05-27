@@ -93,39 +93,48 @@ _ventd_add_nvidia_group 2>/dev/null
 absent_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
 check "absent device: usermod not called" "$([ "$absent_calls" -eq 0 ] && echo 1 || echo 0)"
 
-# ── Test 2: device present, ventd not in group — usermod called with group ──
-: > "$USERMOD_LOG"
-export _VENTD_NVIDIACTL_PATH="$MOCK_CTL"
-# Stub id to NOT include the mock group.
-cat > "$STUB_BIN/id" <<EOF
+# Tests 2 + 3 need a mock device whose owning group is NOT "root" (so the
+# helper proceeds past its root-owned-device early-return). A root-created
+# file is root:root, so these only run meaningfully as a non-root user —
+# skip them otherwise (probe-and-skip; the suite header notes "does NOT
+# require root", i.e. is designed for the non-root case).
+if [[ "$MOCK_GROUP" != "root" ]]; then
+    # ── Test 2: device present, ventd not in group — usermod called with group ──
+    : > "$USERMOD_LOG"
+    export _VENTD_NVIDIACTL_PATH="$MOCK_CTL"
+    # Stub id to NOT include the mock group.
+    cat > "$STUB_BIN/id" <<EOF
 #!/usr/bin/env bash
 echo "uid=999(ventd) gid=999(ventd) groups=999(ventd)"
 EOF
-chmod +x "$STUB_BIN/id"
-_ventd_add_nvidia_group 2>/dev/null
-present_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
-check "device present, not in group: usermod called" "$([ "$present_calls" -eq 1 ] && echo 1 || echo 0)"
-# The usermod invocation must include -aG and the group discovered from stat.
-if [[ "$present_calls" -ge 1 ]]; then
-    usermod_args="$(cat "$USERMOD_LOG")"
-    check "usermod args contain -aG" "$(echo "$usermod_args" | grep -q '\-aG' && echo 1 || echo 0)"
-    check "usermod args contain device group" "$(echo "$usermod_args" | grep -q "$MOCK_GROUP" && echo 1 || echo 0)"
-fi
+    chmod +x "$STUB_BIN/id"
+    _ventd_add_nvidia_group 2>/dev/null
+    present_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
+    check "device present, not in group: usermod called" "$([ "$present_calls" -eq 1 ] && echo 1 || echo 0)"
+    # The usermod invocation must include -aG and the group discovered from stat.
+    if [[ "$present_calls" -ge 1 ]]; then
+        usermod_args="$(cat "$USERMOD_LOG")"
+        check "usermod args contain -aG" "$(echo "$usermod_args" | grep -q '\-aG' && echo 1 || echo 0)"
+        check "usermod args contain device group" "$(echo "$usermod_args" | grep -q "$MOCK_GROUP" && echo 1 || echo 0)"
+    fi
 
-# ── Test 3: device present, ventd already in group — usermod NOT called ─────
-: > "$USERMOD_LOG"
-export _VENTD_NVIDIACTL_PATH="$MOCK_CTL"
-# Stub id to INCLUDE the mock group. Write to a tmp then rename atomically so
-# "Text file busy" doesn't occur if a prior execution still holds the inode.
-cat > "$STUB_BIN/id.tmp" <<EOF
+    # ── Test 3: device present, ventd already in group — usermod NOT called ─────
+    : > "$USERMOD_LOG"
+    export _VENTD_NVIDIACTL_PATH="$MOCK_CTL"
+    # Stub id to INCLUDE the mock group. Write to a tmp then rename atomically so
+    # "Text file busy" doesn't occur if a prior execution still holds the inode.
+    cat > "$STUB_BIN/id.tmp" <<EOF
 #!/usr/bin/env bash
 echo "uid=999(ventd) gid=999(ventd) groups=999(ventd),$(id -g)(${MOCK_GROUP})"
 EOF
-chmod +x "$STUB_BIN/id.tmp"
-mv -f "$STUB_BIN/id.tmp" "$STUB_BIN/id"
-_ventd_add_nvidia_group 2>/dev/null
-already_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
-check "already in group: usermod not called" "$([ "$already_calls" -eq 0 ] && echo 1 || echo 0)"
+    chmod +x "$STUB_BIN/id.tmp"
+    mv -f "$STUB_BIN/id.tmp" "$STUB_BIN/id"
+    _ventd_add_nvidia_group 2>/dev/null
+    already_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
+    check "already in group: usermod not called" "$([ "$already_calls" -eq 0 ] && echo 1 || echo 0)"
+else
+    printf '  [SKIP] device-present group tests (running as root: mock device is root-owned)\n'
+fi
 
 # ── Test 4: device owned by root — skip (no group fix needed) ───────────────
 : > "$USERMOD_LOG"
@@ -145,6 +154,58 @@ root_calls="$(wc -l < "$USERMOD_LOG" | tr -d ' ')"
 check "root-owned device: usermod not called" "$([ "$root_calls" -eq 0 ] && echo 1 || echo 0)"
 # Remove stat stub so subsequent tests use the real stat.
 rm "$STUB_BIN/stat"
+
+# ── _ventd_verify_nvml: probe as the ACTUAL service user, no false warning ──
+# Follow-up to #461: the post-install NVML check must reflect how the daemon
+# reaches NVML (User= from the unit — root on the shipped unit), not a
+# hard-coded `sudo -u ventd`, so a root daemon (or world-readable /dev/nvidia*)
+# never triggers a spurious "GPU features may be disabled" + usermod hint.
+echo ""
+echo "== _ventd_verify_nvml"
+
+# Extract both verify helpers (declaration → column-0 "}").
+VERIFY_SRC="$SCRATCH/_ventd_verify_nvml.sh"
+sed -n '/^_ventd_service_user()/,/^}/p;/^_ventd_verify_nvml()/,/^}/p' "$INSTALL_SH" > "$VERIFY_SRC"
+if [[ ! -s "$VERIFY_SRC" ]]; then
+    echo "FAIL: could not extract verify helpers from $INSTALL_SH" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$VERIFY_SRC"
+
+ROOT_UNIT="$SCRATCH/ventd-root.service";     printf '[Service]\nUser=root\n'      > "$ROOT_UNIT"
+VENTD_UNIT="$SCRATCH/ventd-ventd.service";   printf '[Service]\nUser=ventd\n'     > "$VENTD_UNIT"
+NOUSER_UNIT="$SCRATCH/ventd-nouser.service"; printf '[Service]\nExecStart=/x\n'   > "$NOUSER_UNIT"
+
+# Service-user resolution from the unit.
+check "service_user reads User=root"  "$([ "$(_VENTD_UNIT_PATH=$ROOT_UNIT _ventd_service_user)"  = "root"  ] && echo 1 || echo 0)"
+check "service_user reads User=ventd" "$([ "$(_VENTD_UNIT_PATH=$VENTD_UNIT _ventd_service_user)" = "ventd" ] && echo 1 || echo 0)"
+check "service_user defaults to root when User= absent" "$([ "$(_VENTD_UNIT_PATH=$NOUSER_UNIT _ventd_service_user)" = "root" ] && echo 1 || echo 0)"
+
+# Passing nvidia-smi → "accessible" line naming the service user.
+cat > "$STUB_BIN/nvidia-smi" <<'EOF'
+#!/usr/bin/env bash
+echo "NVIDIA-SMI 595.71.05"
+EOF
+chmod +x "$STUB_BIN/nvidia-smi"
+out_ok="$(_VENTD_UNIT_PATH=$ROOT_UNIT _ventd_verify_nvml 2>&1)"
+check "root + NVML ok → accessible (no warning)" "$(echo "$out_ok" | grep -q 'NVML accessible from the ventd service (user: root)' && echo 1 || echo 0)"
+
+# Failing nvidia-smi: root → warn but NO usermod hint; ventd → warn WITH hint.
+cat > "$STUB_BIN/nvidia-smi" <<'EOF'
+#!/usr/bin/env bash
+echo "Failed to initialize NVML: Insufficient Permissions" >&2; exit 1
+EOF
+chmod +x "$STUB_BIN/nvidia-smi"
+out_root_fail="$(_VENTD_UNIT_PATH=$ROOT_UNIT _ventd_verify_nvml 2>&1)"
+check "root + NVML fail → warns, NO usermod hint" "$(echo "$out_root_fail" | grep -q 'verification failed' && ! echo "$out_root_fail" | grep -q 'usermod' && echo 1 || echo 0)"
+out_ventd_fail="$(_VENTD_UNIT_PATH=$VENTD_UNIT _ventd_verify_nvml 2>&1)"
+check "ventd + NVML fail → warns WITH usermod hint" "$(echo "$out_ventd_fail" | grep -q 'usermod -aG video ventd' && echo 1 || echo 0)"
+
+# No nvidia-smi on PATH → silent no-op.
+rm -f "$STUB_BIN/nvidia-smi"
+out_none="$(PATH="$STUB_BIN" _VENTD_UNIT_PATH=$ROOT_UNIT _ventd_verify_nvml 2>&1)"
+check "no nvidia-smi → silent" "$([ -z "$out_none" ] && echo 1 || echo 0)"
 
 echo ""
 echo "Results: $pass passed, $fail failed"

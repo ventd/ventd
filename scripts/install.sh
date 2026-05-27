@@ -655,6 +655,53 @@ if [[ "$VENTD_TEST_MODE" != "1" ]]; then
     _ventd_add_nvidia_group
 fi
 
+# _ventd_service_user prints the User= the installed ventd.service runs as
+# (the shipped unit runs as root). The NVML verification below probes the
+# SAME context the daemon actually uses, so it cannot false-warn that GPU
+# features are disabled on a host where the root daemon — or a world-readable
+# /dev/nvidia* node — already has access. _VENTD_UNIT_PATH overrides the unit
+# path for tests; absent/blank User= defaults to root.
+_ventd_service_user() {
+    local unit="${_VENTD_UNIT_PATH:-${VENTD_SYSTEMD_DIR:-/etc/systemd/system}/ventd.service}"
+    local u=""
+    if [ -r "$unit" ]; then
+        u="$(awk -F= '/^[[:space:]]*User[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); print $2}' "$unit" | tail -n1)"
+    fi
+    if [ -n "$u" ]; then printf '%s\n' "$u"; else printf 'root\n'; fi
+}
+
+# _ventd_verify_nvml checks that the ventd service can reach NVML, probing as
+# the service's actual User= (root on the shipped unit). A root daemon always
+# has /dev/nvidia* access, so this no longer prints a misleading "GPU features
+# may be disabled" + usermod hint on a perfectly-working host — the previous
+# check hard-coded `sudo -u ventd`, a context the root daemon never uses
+# (follow-up to #461). Only a genuine failure in the service's own context
+# warns, and the group hint is shown only when the daemon runs as a non-root
+# user. Echoes one status line.
+_ventd_verify_nvml() {
+    command -v nvidia-smi >/dev/null 2>&1 || return 0
+    local svc_user out
+    svc_user="$(_ventd_service_user)"
+    # Probe as the service user. When the daemon runs as root, or when we are
+    # not root (and so cannot sudo -u), probe directly.
+    if [ "$svc_user" = "root" ] || [ "$(id -u)" != "0" ]; then
+        out="$(nvidia-smi -q -d PIDS 2>&1)"
+    else
+        out="$(sudo -u "$svc_user" nvidia-smi -q -d PIDS 2>&1)"
+    fi
+    if printf '%s' "$out" | grep -q "NVIDIA-SMI"; then
+        echo "  ✓ NVML accessible from the ventd service (user: ${svc_user})"
+        return 0
+    fi
+    echo "  ⚠ NVML verification failed for service user '${svc_user}'. GPU features may be disabled."
+    if [ "$svc_user" = "root" ]; then
+        echo "    Check: nvidia-smi   (the service runs as root — this is its own context)"
+    else
+        echo "    Check: sudo -u ${svc_user} nvidia-smi"
+        echo "    Typical fix: sudo usermod -aG video ${svc_user} && sudo systemctl restart ventd"
+    fi
+}
+
 # ── Install ──────────────────────────────────────────────────────────────────
 #
 # Two-phase commit (issue #953):
@@ -1397,22 +1444,15 @@ fi
 
 # ── NVML post-install verification ──────────────────────────────────────────
 #
-# If an NVIDIA GPU is detected, verify that the ventd user can reach NVML via
-# nvidia-smi. Catches group-membership gaps on systems where usermod took
-# effect in the process table but the service user's credential still caches
-# the old groups (a daemon restart flushes this — the check also nudges the
-# operator if they need to re-login for interactive nvidia-smi calls).
+# If an NVIDIA GPU is detected, verify that the ventd SERVICE can reach NVML,
+# probing as the unit's actual User= (root on the shipped unit). This replaces
+# the old hard-coded `sudo -u ventd nvidia-smi`, which false-warned "GPU
+# features may be disabled" + suggested an unnecessary `usermod -aG video`
+# on every host where the daemon runs as root (so it already has access) —
+# follow-up to #461. See _ventd_verify_nvml above.
 
 if [[ "$INIT_SYSTEM" != "unknown" && "$VENTD_TEST_MODE" != "1" && -e /dev/nvidiactl ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1; then
-        if sudo -u ventd nvidia-smi -q -d PIDS 2>&1 | grep -q "NVIDIA-SMI"; then
-            echo "  ✓ NVML accessible from ventd user"
-        else
-            echo "  ⚠ NVML verification failed. GPU features may be disabled."
-            echo "    Check: sudo -u ventd nvidia-smi"
-            echo "    Typical fix: sudo usermod -aG video ventd && sudo systemctl restart ventd"
-        fi
-    fi
+    _ventd_verify_nvml
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
