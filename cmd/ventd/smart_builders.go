@@ -543,14 +543,8 @@ func buildBlendFn(
 		// conf_C from Layer-C's per-(channel, signature) product.
 		// Returns 0 when the active signature has no warmed shard
 		// (R12 §Q6 active-signature collapse — accept the drop, the
-		// LPF rides w_pred down at L_max).
-		var confC float64
-		if marginalSnap != nil && !marginalSnap.WarmingUp {
-			cc := marginalSnap.Confidence
-			if cc.SaturationAdmit {
-				confC = cc.ResidualTerm * cc.CovarianceTerm * cc.SampleCountTerm
-			}
-		}
+		// LPF rides w_pred down at L_max). RULE-AGG-SIG-COLLAPSE-01.
+		confC := aggregator.ConfCFromMarginal(marginalSnap)
 
 		// v0.5.9 ships drift detection as RFCV (R16) future work;
 		// stub at false. Global gate is also a stub — true when the
