@@ -9,6 +9,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/recovery"
@@ -199,9 +200,13 @@ func synthesiseOrchestratorFans() []FanState {
 
 	out := make([]FanState, 0, len(probeArt.Fans))
 	for _, f := range probeArt.Fans {
+		fanType := "hwmon"
+		if f.Backend != "" {
+			fanType = f.Backend // msiec/thinkpad/… so the wizard roster labels it accurately (#1376)
+		}
 		fs := FanState{
 			Name:        f.LabelHint,
-			Type:        "hwmon",
+			Type:        fanType,
 			PWMPath:     f.PWMPath,
 			RPMPath:     f.RPMPath,
 			DetectPhase: "found",
@@ -274,7 +279,7 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 		orchestrator.DriverPlanPhase{},
 		orchestrator.DriverInstallPhase{},
 		orchestrator.NVMLPhase{},
-		orchestrator.ProbePhase{},
+		orchestrator.ProbePhase{HALEnumerate: hal.Enumerate},
 		orchestrator.RPMDetectPhase{Detector: managerRPMDetector{m: m}},
 		orchestrator.PolarityPhase{},
 		orchestrator.CalibratePhase{
@@ -398,8 +403,18 @@ func (m *Manager) onApplyPhaseSuccess(ctx context.Context, out orchestrator.Outc
 	m.mu.Lock()
 	m.phase = "applied"
 	m.phaseMsg = "Wizard complete"
-	m.applied = true
 	m.mu.Unlock()
+	// Persist the applied-marker (not just the in-memory flag). The
+	// orchestrator auto-applies its own config without going through the
+	// web /api/setup/apply button, so the only other MarkApplied call
+	// sites (runsetup.go for the CLI, handleSetupApply/handleSetupSkip for
+	// the web buttons) never fire on the auto-run path. Without this, an
+	// auto-started wizard that completes leaves IsApplied()=false on the
+	// next daemon start → Needed stays true → the /calibration page
+	// re-POSTs /api/setup/start every boot and never settles (the
+	// re-trigger loop seen in #1376). MarkApplied is the persistent
+	// sentinel that survives the reload fireReloadTrigger just kicked off.
+	m.MarkApplied()
 }
 
 // persistOrchestratorPolarity bridges the wizard's PolarityArtifact

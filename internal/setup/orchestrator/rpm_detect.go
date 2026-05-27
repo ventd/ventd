@@ -141,7 +141,7 @@ func (p RPMDetectPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 
 		cfgFan := &config.Fan{
 			Name:     fan.LabelHint,
-			Type:     "hwmon",
+			Type:     fanType(fan),
 			PWMPath:  fan.PWMPath,
 			ChipName: fan.ChipName,
 		}

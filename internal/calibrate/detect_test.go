@@ -30,6 +30,7 @@ package calibrate
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -40,8 +41,90 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/testfixture/fakehwmon"
 )
+
+// fakeModeBackend is a minimal hal.FanBackend standing in for a
+// non-hwmon mode/level backend (msiec/thinkpad/…). Its channel ID is a
+// device-root path, NOT a writable sysfs pwmN file — exactly the shape
+// that makes DetectRPMSensor's hwmon assumptions (readSysfsUint8 on the
+// PWM path, same-dir tach glob) fail before #1376. Read reports the
+// last-written PWM so DetectRPMSensor can capture/restore current state
+// via the backend instead of the (non-existent) sysfs file.
+type fakeModeBackend struct{ last uint8 }
+
+func (f *fakeModeBackend) Enumerate(context.Context) ([]hal.Channel, error) { return nil, nil }
+func (f *fakeModeBackend) Read(hal.Channel) (hal.Reading, error) {
+	return hal.Reading{PWM: f.last, OK: true}, nil
+}
+func (f *fakeModeBackend) Write(_ hal.Channel, pwm uint8) error { f.last = pwm; return nil }
+func (f *fakeModeBackend) Restore(hal.Channel) error            { return nil }
+func (f *fakeModeBackend) Close() error                         { return nil }
+func (f *fakeModeBackend) Name() string                         { return "msiec" }
+
+// TestDetectRPMSensor_HALFanPairsCrossDeviceTach is the calibrate-side
+// half of #1376: an msiec-style fan whose channel ID is a device-root
+// path (no sibling fan*_input) must still pair the tach that the
+// in-kernel msi_wmi_platform hwmon exposes on a SEPARATE chip. The fan
+// is driven through the HAL backend; the cross-device scan over
+// m.hwmonRoot finds the responding fan1_input.
+func TestDetectRPMSensor_HALFanPairsCrossDeviceTach(t *testing.T) {
+	hwmonRoot := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	chip := filepath.Join(hwmonRoot, "hwmon0")
+	if err := os.MkdirAll(chip, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path, data string) {
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatalf("seed %s: %v", path, err)
+		}
+	}
+	write(filepath.Join(chip, "name"), "msi_wmi_platform\n")
+	fan1In := filepath.Join(chip, "fan1_input")
+	fan2In := filepath.Join(chip, "fan2_input")
+	write(fan1In, "800\n") // ramps with the fan
+	write(fan2In, "800\n") // stays flat
+
+	// Same baseline-vs-post-ramp timing cheat as newRampingHwmon: flip
+	// fan1_input to the ramped value after the baseline read window.
+	var stopped atomic.Bool
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 800 && !stopped.Load(); i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if stopped.Load() {
+			return
+		}
+		write(fan1In, "3000\n")
+	}()
+	defer func() { stopped.Store(true); wg.Wait() }()
+
+	m := newQuietManager(t)
+	m.setHwmonRootForTest(hwmonRoot)
+	be := &fakeModeBackend{}
+	m.SetChannelResolver(func(_ context.Context, fan *config.Fan) (hal.FanBackend, hal.Channel, error) {
+		return be, hal.Channel{
+			ID:   fan.PWMPath,
+			Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore,
+		}, nil
+	})
+
+	fan := &config.Fan{Type: "msiec", PWMPath: "/sys/devices/platform/msi-ec", MaxPWM: 255}
+	res, err := m.DetectRPMSensor(fan)
+	if err != nil {
+		t.Fatalf("DetectRPMSensor: %v", err)
+	}
+	if res.RPMPath != fan1In {
+		t.Fatalf("RPMPath = %q, want cross-device tach %q", res.RPMPath, fan1In)
+	}
+	if res.Delta < 50 {
+		t.Fatalf("Delta = %d, want >=50", res.Delta)
+	}
+}
 
 // newRampingHwmon builds a minimal hwmon tree with one pwm channel and
 // two fan*_input files. fan1_input tracks the PWM via a rising writer

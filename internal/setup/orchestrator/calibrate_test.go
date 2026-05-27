@@ -109,6 +109,51 @@ func TestCalibratePhase_Name(t *testing.T) {
 	}
 }
 
+// recordingCalibrator captures the config.Fan each sweep received so a
+// test can assert the Type + RPMPath the phase handed down.
+type recordingCalibrator struct{ got []*config.Fan }
+
+func (r *recordingCalibrator) Calibrate(_ context.Context, fan *config.Fan) (calibrate.Result, error) {
+	r.got = append(r.got, fan)
+	return calibrate.Result{StartPWM: 80, MaxRPM: 1500}, nil
+}
+
+// TestCalibratePhase_HALFanGetsBackendTypeAndOverlaidTach pins the
+// calibrate-side #1376 wiring: a HAL fan must reach the Calibrator with
+// Type set to its backend (so hal.Resolve picks the right backend, not
+// hwmon) and RPMPath overlaid from RPMDetect (the probe leaves it empty
+// for HAL fans whose tach is on another chip). Without either, the msiec
+// sweep would resolve to the wrong backend or calibrate blind.
+func TestCalibratePhase_HALFanGetsBackendTypeAndOverlaidTach(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	const chanID = "/sys/devices/platform/msi-ec"
+	const tach = "/sys/class/hwmon/hwmon4/fan1_input"
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{{PWMPath: chanID, Backend: "msiec", ChipName: "msiec", LabelHint: "MSI EC Fan"}},
+	})
+	seedPolarityCheckpoint(t, rc, PolarityArtifact{
+		Results: []PolarityFanResult{{PWMPath: chanID, Polarity: "normal"}},
+	})
+	seedRPMDetectCheckpoint(t, rc, RPMDetectArtifact{
+		Results: []RPMDetectFanResult{{PWMPath: chanID, ResolvedRPM: tach, Improved: true}},
+	})
+
+	rec := &recordingCalibrator{}
+	out := (CalibratePhase{Calibrator: rec}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	if len(rec.got) != 1 {
+		t.Fatalf("expected 1 sweep, got %d", len(rec.got))
+	}
+	if rec.got[0].Type != "msiec" {
+		t.Errorf("Calibrate received Type=%q, want msiec (else hal.Resolve picks the wrong backend)", rec.got[0].Type)
+	}
+	if rec.got[0].RPMPath != tach {
+		t.Errorf("Calibrate received RPMPath=%q, want the RPMDetect-overlaid tach %q", rec.got[0].RPMPath, tach)
+	}
+}
+
 func TestCalibratePhase_NoCalibratorWiredFails(t *testing.T) {
 	rc := &RunContext{StateDir: t.TempDir()}
 	out := (CalibratePhase{}).Execute(context.Background(), rc)

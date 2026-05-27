@@ -531,13 +531,27 @@ func buildConfig(
 			continue
 		}
 
+		// Type + HwmonDevice dispatch on the probe's backend tag (#1376).
+		// hwmon fans (Backend=="") keep the sysfs path + stable
+		// hwmon_device alias that survives hwmonN renumbering across
+		// reboots. Non-hwmon HAL fans (msiec, thinkpad, …) carry their
+		// backend as Type and an empty HwmonDevice: their PWMPath is the
+		// HAL channel ID (resolved via hal.Resolve(Type+":"+PWMPath)), not
+		// a hwmon node, so the stable-device alias is meaningless for them.
+		fanType := "hwmon"
+		hwmonDevice := resolveStableHwmonDevice(fan.PWMPath)
+		if fan.Backend != "" {
+			fanType = fan.Backend
+			hwmonDevice = ""
+		}
+
 		cfg.Fans = append(cfg.Fans, config.Fan{
 			Name:        fan.LabelHint,
-			Type:        "hwmon",
+			Type:        fanType,
 			PWMPath:     fan.PWMPath,
 			RPMPath:     rpmPath,
 			ChipName:    fan.ChipName,
-			HwmonDevice: resolveStableHwmonDevice(fan.PWMPath),
+			HwmonDevice: hwmonDevice,
 			MinPWM:      minPWM,
 			MaxPWM:      255,
 			IsPump:      isPump,

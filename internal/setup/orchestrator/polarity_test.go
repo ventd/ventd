@@ -80,6 +80,42 @@ func TestPolarityPhase_ProbesEveryFanFromProbeArtifact(t *testing.T) {
 	}
 }
 
+// TestPolarityPhase_NonHwmonBackendIsNormalWithoutProbe pins the #1376
+// short-circuit: a HAL-backed fan (Backend!="") is classified "normal"
+// directly and the destructive raw-sysfs prober is NOT invoked (it would
+// error on a channel ID that isn't a writable pwmN file, leaving the fan
+// "unknown" and excluded). The hwmon fan in the same artifact is still
+// probed normally.
+func TestPolarityPhase_NonHwmonBackendIsNormalWithoutProbe(t *testing.T) {
+	rc := &RunContext{StateDir: t.TempDir()}
+	seedProbeCheckpoint(t, rc, ProbeArtifact{
+		Fans: []ProbedFan{
+			{PWMPath: "/sys/devices/platform/msi-ec", Backend: "msiec", ChipName: "msiec", LabelHint: "MSI EC Fan"},
+			{Index: 1, PWMPath: "/sys/hwmon0/pwm1", ChipName: "nct6687"},
+		},
+	})
+	prober := &fakePolarityProber{}
+	out := (PolarityPhase{Prober: prober}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	// Only the hwmon fan should have been driven by the prober.
+	if len(prober.channelsTested) != 1 || prober.channelsTested[0] != "/sys/hwmon0/pwm1" {
+		t.Errorf("prober should have run only on the hwmon fan; channelsTested=%v", prober.channelsTested)
+	}
+	var art PolarityArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := map[string]string{}
+	for _, r := range art.Results {
+		got[r.PWMPath] = r.Polarity
+	}
+	if got["/sys/devices/platform/msi-ec"] != "normal" {
+		t.Errorf("msiec fan polarity = %q, want normal", got["/sys/devices/platform/msi-ec"])
+	}
+}
+
 func TestPolarityPhase_CapturesPhantomReason(t *testing.T) {
 	rc := &RunContext{StateDir: t.TempDir()}
 	seedProbeCheckpoint(t, rc, ProbeArtifact{

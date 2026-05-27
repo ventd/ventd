@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hwmon"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/recovery"
@@ -56,6 +57,22 @@ type ProbedFan struct {
 	// driver-supplied pwm<N>_label content, or a synthesised name
 	// like "Chip Fan 1". Operators can override in the wizard UI.
 	LabelHint string `json:"label_hint,omitempty"`
+
+	// Backend is the HAL backend tag that owns this channel
+	// ("msiec", "thinkpad", "nbfc", "ipmi", "legion", …). Empty for
+	// hwmon fans discovered by the sysfs pwmN glob — apply treats the
+	// empty value as Type:"hwmon" for back-compat with checkpoints
+	// written before HAL-aware probing. For non-hwmon backends the
+	// downstream phases dispatch on this:
+	//   - PWMPath holds the HAL channel's inner ID (e.g.
+	//     "/sys/devices/platform/msi-ec"), NOT a writable sysfs file —
+	//     the calibrate/controller path resolves it via
+	//     hal.Resolve(Backend+":"+PWMPath).
+	//   - EnablePath / InitialEnable are empty: non-hwmon backends own
+	//     their own enable/restore contract (no pwmN_enable sibling).
+	//   - RPMPath is empty at probe time (no same-chip tach); the
+	//     RPMDetect phase pairs a cross-device tach by driving the fan.
+	Backend string `json:"backend,omitempty"`
 }
 
 // ProbeArtifact is the structured result of the ProbePhase. Consumed
@@ -103,6 +120,28 @@ type ProbePhase struct {
 	// to read RAPL TDP. Empty falls through to /sys/class/powercap.
 	// Tests inject a temp dir.
 	PowercapRoot string
+
+	// HALEnumerate is the seam for discovering controllable fans on
+	// non-hwmon HAL backends (msiec, thinkpad, nbfc, ipmi, legion,
+	// lenovoideapad, corsair, pwmsys, asahi, crosec). Production wires
+	// hal.Enumerate (the package-level registry, populated by
+	// registerHALBackends at daemon start); tests inject a stub. nil
+	// skips the HAL pass entirely — the phase then behaves exactly like
+	// the pre-#1376 hwmon-only probe, so checkpoints and tests that
+	// don't wire it are unaffected.
+	HALEnumerate func(ctx context.Context) ([]hal.Channel, error)
+}
+
+// halPassSkipBackends are HAL backend tags the HAL-enumerate pass must
+// NOT turn into ProbedFans. "hwmon" is already covered by the sysfs
+// pwmN glob above (and double-listing it would calibrate every channel
+// twice); "nvml"/"gpu" GPU fans are owned by NVMLPhase + the separate
+// nvidia config path in ApplyPhase. Everything else (the laptop/EC/
+// liquid backends) flows through.
+var halPassSkipBackends = map[string]bool{
+	"hwmon": true,
+	"nvml":  true,
+	"gpu":   true,
 }
 
 // Name identifies this phase in the checkpoint store and the wizard UI.
@@ -146,6 +185,18 @@ func (p ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		art.Fans = append(art.Fans, fan)
 	}
 
+	// HAL-enumerate pass (#1376): discover controllable fans that have
+	// no hwmon pwmN surface — MSI laptops (msiec), ThinkPads (thinkpad),
+	// NBFC EC boards, IPMI servers, Legion/Corsair, etc. The hwmon glob
+	// above misses these entirely because their write surface is an EC
+	// mode/level register, not a sysfs duty file. The running daemon
+	// already drives them via the HAL registry; this makes the wizard
+	// see them too so it can pair a tach, calibrate, and emit a usable
+	// config instead of falling through to monitor-only.
+	if p.HALEnumerate != nil {
+		art.Fans = append(art.Fans, probeHALFans(rc, p.HALEnumerate)...)
+	}
+
 	sort.Slice(art.Fans, func(i, j int) bool {
 		if art.Fans[i].PWMPath != art.Fans[j].PWMPath {
 			return art.Fans[i].PWMPath < art.Fans[j].PWMPath
@@ -183,6 +234,89 @@ func (p ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 		}
 	}
 	return Outcome{Status: StatusSuccess, Artifact: raw}
+}
+
+// probeHALFans enumerates the HAL registry and returns a ProbedFan for
+// each non-hwmon, PWM-writable channel. IDs come back from
+// hal.Enumerate globally tagged as "<backend>:<inner-id>"; we split the
+// tag into ProbedFan.Backend and store the inner ID as PWMPath so the
+// downstream resolver (hal.Resolve(Backend+":"+PWMPath)) finds the
+// channel. hwmon/nvml/gpu backends are skipped (handled by the sysfs
+// glob and NVMLPhase respectively). Enumeration errors are logged and
+// swallowed — a flaky HAL backend must not fail the whole probe, which
+// would strand the (working) hwmon fans too.
+func probeHALFans(rc *RunContext, enumerate func(ctx context.Context) ([]hal.Channel, error)) []ProbedFan {
+	chs, err := enumerate(context.Background())
+	if err != nil {
+		rc.Log().Warn("probe: HAL enumerate failed; non-hwmon fans not discovered", "err", err)
+		return nil
+	}
+	var out []ProbedFan
+	for _, ch := range chs {
+		backend, inner, ok := strings.Cut(ch.ID, ":")
+		if !ok || backend == "" || inner == "" {
+			continue
+		}
+		if halPassSkipBackends[backend] {
+			continue
+		}
+		if ch.Caps&hal.CapWritePWM == 0 {
+			// Read-only / power-profile-only channels can't be driven by
+			// the controller's PWM path; nothing for the wizard to do.
+			continue
+		}
+		out = append(out, ProbedFan{
+			PWMPath:   inner,
+			Backend:   backend,
+			ChipName:  backend,
+			LabelHint: synthesiseHALLabel(backend),
+		})
+		rc.Log().Info("probe: HAL fan discovered",
+			"backend", backend, "channel", inner, "caps", ch.Caps)
+	}
+	return out
+}
+
+// fanType returns the config.Fan.Type a ProbedFan maps to: its HAL
+// Backend tag when set, else "hwmon". Centralised so RPMDetectPhase
+// (channel resolution for tach pairing) and ApplyPhase (emitted config)
+// agree — a mismatch would make hal.Resolve fail at calibrate time.
+func fanType(f ProbedFan) string {
+	if f.Backend != "" {
+		return f.Backend
+	}
+	return "hwmon"
+}
+
+// synthesiseHALLabel produces a default human label for a HAL-backed
+// fan. Operators relabel in the wizard UI; this is just the fallback.
+func synthesiseHALLabel(backend string) string {
+	switch backend {
+	case "msiec":
+		return "MSI EC Fan"
+	case "thinkpad":
+		return "ThinkPad Fan"
+	case "nbfc":
+		return "EC Fan"
+	case "ipmi":
+		return "IPMI Fan"
+	case "legion":
+		return "Legion Fan"
+	case "lenovoideapad":
+		return "IdeaPad Fan"
+	case "corsair":
+		return "Corsair Fan"
+	case "asahi":
+		return "Apple SMC Fan"
+	case "crosec":
+		return "ChromeOS EC Fan"
+	case "pwmsys":
+		return "PWM Fan"
+	}
+	if backend == "" {
+		return "Fan"
+	}
+	return strings.ToUpper(backend[:1]) + backend[1:] + " Fan"
 }
 
 // pwmIndex extracts the N from a pwm<N> path.

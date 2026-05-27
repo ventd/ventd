@@ -88,6 +88,26 @@ func (p PolarityPhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 
 	art := PolarityArtifact{Results: make([]PolarityFanResult, 0, len(probeArt.Fans))}
 	for _, fan := range probeArt.Fans {
+		// Non-hwmon HAL fans (msiec, thinkpad, nbfc, …) are mode/level
+		// backends whose pwm→airflow mapping is monotonic by construction
+		// (e.g. msiec.pwmToMode places mode boundaries so a higher PWM
+		// byte never selects a lower-airflow mode; thinkpad maps 0-255 to
+		// an ascending level grid). They have no writable sysfs pwmN file
+		// for the HwmonProber to drive, so probing them raw would error to
+		// "unknown" and ApplyPhase would wrongly exclude a perfectly
+		// controllable fan. Classify them "normal" directly and skip the
+		// destructive probe (#1376). The bipolar pwm_enable restore loop
+		// below is also a no-op for them (EnablePath is empty).
+		if fan.Backend != "" {
+			rc.Sink().Emit("info", "polarity",
+				fmt.Sprintf("%s (%s): %s backend is monotonic, polarity=normal",
+					fan.LabelHint, fan.PWMPath, fan.Backend))
+			art.Results = append(art.Results, PolarityFanResult{
+				PWMPath:  fan.PWMPath,
+				Polarity: polarity.PolarityNormal,
+			})
+			continue
+		}
 		ch := &probe.ControllableChannel{
 			SourceID: fan.ChipName,
 			PWMPath:  fan.PWMPath,

@@ -227,7 +227,13 @@ func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 	caps := hal.CapRead | hal.CapWritePWM | hal.CapRestore
 	if len(shiftModes) > 0 {
 		caps |= hal.CapWritePowerProfile
-		b.logger.Info("msiec: shift_mode (power-profile) surface available",
+		// Debug, not Info: Enumerate is called on every controller tick
+		// (controller.channelFor re-resolves non-hwmon channels each
+		// tick), so an Info line here floods the journal — 2234 identical
+		// lines in the #1376 diag bundle. The capability is already
+		// visible via the channel's CapWritePowerProfile bit and the
+		// daemon's "hal: enumerated fan backends" startup line.
+		b.logger.Debug("msiec: shift_mode (power-profile) surface available",
 			"root", root, "shift_modes", shiftModes)
 	}
 	return []hal.Channel{{
