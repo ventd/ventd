@@ -16,7 +16,6 @@ package crosec
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -233,17 +232,7 @@ func (b *Backend) ioctlCall(cmd, ver uint32, out, in []byte) error {
 
 // stateFrom coerces a Channel's Opaque into State.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("hal/crosec: nil opaque state")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("hal/crosec: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+	return hal.StateFrom[State](ch, "hal/crosec", nil)
 }
 
 // uint32LE encodes v as a 4-byte little-endian slice.

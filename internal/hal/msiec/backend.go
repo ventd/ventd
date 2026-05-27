@@ -549,21 +549,10 @@ func filterWritableModes(modes []string) []string {
 // construct either — matches the equivalent helper in
 // internal/hal/thinkpad/.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		if v.SysfsRoot == "" {
-			return State{}, errors.New("msiec: channel state has empty SysfsRoot")
+	return hal.StateFrom(ch, "msiec", func(s State) error {
+		if s.SysfsRoot == "" {
+			return errors.New("msiec: channel state has empty SysfsRoot")
 		}
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("msiec: nil opaque state")
-		}
-		if v.SysfsRoot == "" {
-			return State{}, errors.New("msiec: channel state has empty SysfsRoot")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("msiec: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+		return nil
+	})
 }

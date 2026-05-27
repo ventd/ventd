@@ -237,17 +237,7 @@ func (b *Backend) Restore(ch hal.Channel) error {
 }
 
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("pwmsys: nil opaque state")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("pwmsys: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+	return hal.StateFrom[State](ch, "pwmsys", nil)
 }
 
 func readUint(path string) (uint64, error) {

@@ -188,17 +188,7 @@ func nvmlResetWithDeadline(idx uint, deadline time.Duration) error {
 }
 
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, fmt.Errorf("hal/nvml: nil opaque state")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("hal/nvml: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+	return hal.StateFrom[State](ch, "hal/nvml", nil)
 }
 
 func parseIndex(s string) (uint, error) {

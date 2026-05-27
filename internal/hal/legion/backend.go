@@ -453,21 +453,10 @@ func (b *Backend) parseChoices(path string) (map[string]bool, error) {
 // shape. Accepts both value and pointer forms — matches the helper in
 // internal/hal/thinkpad.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		if v.PlatformProfilePath == "" {
-			return State{}, errors.New("legion: channel state has empty PlatformProfilePath")
+	return hal.StateFrom(ch, "legion", func(s State) error {
+		if s.PlatformProfilePath == "" {
+			return errors.New("legion: channel state has empty PlatformProfilePath")
 		}
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("legion: nil opaque state")
-		}
-		if v.PlatformProfilePath == "" {
-			return State{}, errors.New("legion: channel state has empty PlatformProfilePath")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("legion: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+		return nil
+	})
 }
