@@ -81,7 +81,7 @@ func TestHandleSetupStart_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/setup/start", nil)
 	w := httptest.NewRecorder()
-	srv.handleSetupStart(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSetupStart)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/setup/start: status = %d, want %d", got, http.StatusMethodNotAllowed)
@@ -115,7 +115,7 @@ func TestHandleSetupApply_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/setup/apply", nil)
 	w := httptest.NewRecorder()
-	srv.handleSetupApply(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSetupApply)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/setup/apply: status = %d, want %d", got, http.StatusMethodNotAllowed)
@@ -160,7 +160,7 @@ func TestHandleSetupReset_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/setup/reset", nil)
 	w := httptest.NewRecorder()
-	srv.handleSetupReset(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSetupReset)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/setup/reset: status = %d, want %d", got, http.StatusMethodNotAllowed)
@@ -217,7 +217,7 @@ func TestHandleFactoryReset_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/factory-reset", nil)
 	w := httptest.NewRecorder()
-	srv.handleFactoryReset(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleFactoryReset)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/admin/factory-reset: status = %d, want %d", got, http.StatusMethodNotAllowed)
@@ -321,7 +321,7 @@ func TestHandleCalibrationReset_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/calibrate/reset", nil)
 	w := httptest.NewRecorder()
-	srv.handleCalibrationReset(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleCalibrationReset)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/calibrate/reset: status = %d, want %d",
@@ -431,7 +431,7 @@ func TestHandleSystemReboot_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/system/reboot", nil)
 	w := httptest.NewRecorder()
-	srv.handleSystemReboot(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSystemReboot)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/system/reboot: status = %d, want %d", got, http.StatusMethodNotAllowed)
@@ -446,7 +446,7 @@ func TestHandleSetupApplyMonitorOnly_NonPOST_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/setup/apply-monitor-only", nil)
 	w := httptest.NewRecorder()
-	srv.handleSetupApplyMonitorOnly(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSetupApplyMonitorOnly)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/setup/apply-monitor-only: status = %d, want %d", got, http.StatusMethodNotAllowed)

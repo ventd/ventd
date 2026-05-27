@@ -54,7 +54,7 @@ func TestHandleDetectRPM_NonPOST_Returns405(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			req := httptest.NewRequest(method, "/api/detect-rpm?fan=/sys/x/pwm1", nil)
 			w := httptest.NewRecorder()
-			srv.handleDetectRPM(w, req)
+			srv.gateMethods([]string{http.MethodPost}, srv.handleDetectRPM)(w, req)
 			if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 				t.Fatalf("%s /api/detect-rpm: status = %d, want 405", method, got)
 			}
@@ -101,7 +101,7 @@ func TestHandleCalibrateAbort_NonPOST_Returns405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/calibrate/abort?fan=/x", nil)
 	w := httptest.NewRecorder()
-	srv.handleCalibrateAbort(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleCalibrateAbort)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/calibrate/abort: status = %d, want 405", got)
@@ -145,7 +145,7 @@ func TestHandleSetupCalibrateAbort_NonPOST_Returns405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/setup/calibrate/abort", nil)
 	w := httptest.NewRecorder()
-	srv.handleSetupCalibrateAbort(w, req)
+	srv.gateMethods([]string{http.MethodPost}, srv.handleSetupCalibrateAbort)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Fatalf("GET /api/setup/calibrate/abort: status = %d, want 405", got)
