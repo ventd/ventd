@@ -1288,7 +1288,20 @@ func runDaemonInternal(
 	// Tracked by wg so shutdown waits for Shutdown() to drain in-flight
 	// requests before run() returns — otherwise the HTTP handler goroutines
 	// outlive wd.Restore() and can observe a half-torn-down daemon.
-	webSrv := web.New(ctx, &liveCfg, configPath, authPath, logger, cal, setupMgr, restartCh, diagStore)
+	webSrv := web.New(web.Deps{
+		Ctx:        ctx,
+		Cfg:        &liveCfg,
+		ConfigPath: configPath,
+		AuthPath:   authPath,
+		Logger:     logger,
+		Calibrate:  cal,
+		Setup:      setupMgr,
+		RestartCh:  restartCh,
+		Diag:       diagStore,
+		// Fail fast at boot if any production-required Set* below is ever
+		// dropped, instead of silently degrading the endpoint (assertWired).
+		RequireWiring: true,
+	})
 	webSrv.SetVersionInfo(web.NewVersionInfo(version, commit, buildDate))
 	webSrv.SetReadyState(readyState)
 	webSrv.SetKVWiper(kvWiper)

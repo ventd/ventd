@@ -69,7 +69,7 @@ func TestPreviewServer(t *testing.T) {
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
 
-	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, "", hwdiag.NewStore())
+	srv := New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: t.TempDir() + "/config.yaml", Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 
 	fmt.Println("==========================================")
 	fmt.Println("ventd UI preview running at:")

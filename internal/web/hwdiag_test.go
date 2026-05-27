@@ -47,7 +47,7 @@ func TestHwdiagEndpointSurfacesFutureSchema(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	srv := New(ctx, &liveCfg, "", "", logger, cal, sm, restartCh, diag)
+	srv := New(Deps{Ctx: ctx, Cfg: &liveCfg, Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restartCh, Diag: diag})
 
 	// Create a session so requireAuth passes.
 	tok, err := srv.sessions.create()

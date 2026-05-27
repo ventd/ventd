@@ -88,7 +88,7 @@ func newHarness(t *testing.T) *e2eHarness {
 	cal := calibrate.New(t.TempDir()+"/cal.json", logger, nil)
 	sm := setupmgr.New(cal, logger)
 	restart := make(chan struct{}, 1)
-	srv := New(ctx, &cfgPtr, t.TempDir()+"/config.yaml", "", logger, cal, sm, restart, hwdiag.NewStore())
+	srv := New(Deps{Ctx: ctx, Cfg: &cfgPtr, ConfigPath: t.TempDir() + "/config.yaml", Logger: logger, Calibrate: cal, Setup: sm, RestartCh: restart, Diag: hwdiag.NewStore()})
 
 	ts := httptest.NewServer(srv.handler)
 	browser := newBrowser(t)
