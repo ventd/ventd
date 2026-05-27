@@ -246,10 +246,14 @@ func (p ProbePhase) Execute(_ context.Context, rc *RunContext) Outcome {
 // swallowed — a flaky HAL backend must not fail the whole probe, which
 // would strand the (working) hwmon fans too.
 func probeHALFans(rc *RunContext, enumerate func(ctx context.Context) ([]hal.Channel, error)) []ProbedFan {
+	// hal.Enumerate isolates per-backend failures: it returns the channels
+	// every healthy backend produced alongside a joined error. Log the error
+	// but keep processing the channels we did get — a flaky backend must not
+	// strand the fans the others discovered (the original intent of this
+	// swallow, now actually honoured because partial results survive).
 	chs, err := enumerate(context.Background())
 	if err != nil {
-		rc.Log().Warn("probe: HAL enumerate failed; non-hwmon fans not discovered", "err", err)
-		return nil
+		rc.Log().Warn("probe: HAL enumerate partially failed; using channels that did enumerate", "err", err)
 	}
 	var out []ProbedFan
 	for _, ch := range chs {
