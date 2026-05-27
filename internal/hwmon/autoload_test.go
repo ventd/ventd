@@ -698,6 +698,72 @@ func TestCountControllablePWM(t *testing.T) {
 	})
 }
 
+// --- H2. controllablePWMPaths -----------------------------------------------
+
+func TestControllablePWMPaths(t *testing.T) {
+	makePWMs := func(root, hwmon string, pwms []string, withEnable map[string]bool) []string {
+		dir := filepath.Join(root, hwmon)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var paths []string
+		for _, p := range pwms {
+			full := filepath.Join(dir, p)
+			if err := os.WriteFile(full, []byte("128\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if withEnable[p] {
+				if err := os.WriteFile(full+"_enable", []byte("1\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			paths = append(paths, full)
+		}
+		return paths
+	}
+
+	t.Run("read-only PWM yields no controllable paths", func(t *testing.T) {
+		// Regression for the AutoloadModules fast-path guard: an
+		// NCT6687D under the in-tree nct6683 exposes pwmN with no
+		// pwm_enable. The fast path must see zero controllable paths
+		// here so it does NOT persist the monitor-only driver.
+		root := t.TempDir()
+		paths := makePWMs(root, "hwmon0",
+			[]string{"pwm1", "pwm2", "pwm3"},
+			map[string]bool{}, // none controllable
+		)
+		if got := controllablePWMPaths(paths); len(got) != 0 {
+			t.Errorf("want 0 controllable paths, got %d: %v", len(got), got)
+		}
+	})
+
+	t.Run("filters out read-only and preserves order", func(t *testing.T) {
+		root := t.TempDir()
+		paths := makePWMs(root, "hwmon0",
+			[]string{"pwm1", "pwm2", "pwm3"},
+			map[string]bool{"pwm2": true, "pwm3": true}, // pwm1 read-only
+		)
+		got := controllablePWMPaths(paths)
+		if len(got) != 2 {
+			t.Fatalf("want 2 controllable paths, got %d: %v", len(got), got)
+		}
+		// Order-preserving: the first controllable path is pwm2, which
+		// the fast path hands to moduleFromPath as the representative.
+		if filepath.Base(got[0]) != "pwm2" || filepath.Base(got[1]) != "pwm3" {
+			t.Errorf("order not preserved: got %v", got)
+		}
+	})
+
+	t.Run("empty and nonexistent inputs yield empty", func(t *testing.T) {
+		if got := controllablePWMPaths(nil); len(got) != 0 {
+			t.Errorf("nil: want 0, got %v", got)
+		}
+		if got := controllablePWMPaths([]string{"/nonexistent/pwm1"}); len(got) != 0 {
+			t.Errorf("nonexistent: want 0, got %v", got)
+		}
+	})
+}
+
 // --- I. mergeModuleLoadFile / readModuleNames --------------------------------
 
 func TestMergeModuleLoadFile(t *testing.T) {

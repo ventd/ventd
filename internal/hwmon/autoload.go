@@ -343,11 +343,21 @@ type sensorsDetectResult struct {
 // If no module produces PWM channels, Diagnose() will identify which
 // out-of-tree driver is needed so the web UI can offer a one-click fix.
 func AutoloadModules(logger *slog.Logger) {
-	// 1. Fast path.
-	if existing := findPWMPaths(); len(existing) > 0 {
+	// 1. Fast path: at least one *controllable* PWM channel is already
+	//    visible. The controllability gate matters — a chip whose
+	//    in-tree driver exposes read-only pwmN files with no companion
+	//    pwm_enable (e.g. NCT6687D under nct6683, IT8688E under a
+	//    partial it87 bind) must NOT short-circuit here. Persisting that
+	//    driver pins a monitor-only chip into /etc/modules-load.d for
+	//    every boot and hides the out-of-tree driver the wizard's
+	//    DriverPlan would otherwise propose. So when only read-only PWM
+	//    is present we fall through to the full probe sequence — the
+	//    same controllability test tryModuleCandidates already applies
+	//    before it persists a winner.
+	if controllable := controllablePWMPaths(findPWMPaths()); len(controllable) > 0 {
 		logger.Info("hwmon PWM channels already visible, skipping module probe",
-			"count", len(existing), "example", existing[0])
-		if module := moduleFromPath(existing[0]); module != "" {
+			"count", len(controllable), "example", controllable[0])
+		if module := moduleFromPath(controllable[0]); module != "" {
 			if err := persistModule(module, ""); err != nil {
 				// Install-time invocation runs as root with /etc
 				// writable; a failure here means the install host
@@ -807,18 +817,27 @@ func Diagnose() HwmonDiagnostics {
 	return d
 }
 
+// controllablePWMPaths filters pwmPaths down to those that are actually
+// controllable — i.e. backed by a companion pwm_enable file. Some drivers
+// (e.g. nct6683 loaded for an NCT6687D chip) expose pwmN files as read-only
+// monitoring values without any pwm_enable; those are dropped. Preserves the
+// input order so callers can use the first element as a representative path.
+func controllablePWMPaths(pwmPaths []string) []string {
+	out := make([]string, 0, len(pwmPaths))
+	for _, p := range pwmPaths {
+		if _, err := os.Stat(p + "_enable"); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // countControllablePWM returns how many of the given PWM sysfs paths are
 // actually controllable — i.e. they have a companion pwm_enable file.
 // Some drivers (e.g. nct6683 loaded for an NCT6687D chip) expose pwmN files
 // as read-only monitoring values without any pwm_enable; those are skipped.
 func countControllablePWM(pwmPaths []string) int {
-	n := 0
-	for _, p := range pwmPaths {
-		if _, err := os.Stat(p + "_enable"); err == nil {
-			n++
-		}
-	}
-	return n
+	return len(controllablePWMPaths(pwmPaths))
 }
 
 // identifyDriverNeeds inspects the currently loaded hwmon chip names (and,
