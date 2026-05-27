@@ -754,40 +754,21 @@ func (c *Controller) tick() {
 		c.compiledCurveSig = sig
 	}
 
-	var raw uint8
-	if sc, ok := c.compiledCurve.(curve.StatefulCurve); ok {
+	// Compute the target PWM: evaluate the curve, apply the hard safety
+	// clamp, then blend the predictive arm and re-clamp. computePWM owns
+	// that clamp→blend→re-clamp safety ordering; tick() owns the piState
+	// lifecycle around it. The blend runs BEFORE hysteresis so the
+	// predictive contribution feeds back into ramp-down suppression.
+	prevPI := c.piState[c.pwmPath]
+	pwm, newPI, stateful, raw := computePWM(c.compiledCurve, sensors, prevPI,
+		dtSeconds, fan, c.blendFn, curveCfg.Sensor, c.pwmPath, now)
+	if stateful {
 		// PI (stateful) path: carry integral state across ticks.
-		prev := c.piState[c.pwmPath]
-		newPWM, newState := sc.EvaluateStateful(sensors, prev, dtSeconds)
-		c.piState[c.pwmPath] = newState.(curve.PIState)
-		raw = newPWM
+		c.piState[c.pwmPath] = newPI
 	} else {
 		// Stateless path: clean up any stale PI state from a prior config
 		// reload that changed this channel's curve from pi to non-pi.
 		delete(c.piState, c.pwmPath)
-		raw = c.compiledCurve.Evaluate(sensors)
-	}
-
-	// Clamp to the fan's configured PWM range. This is the hard safety layer:
-	// the fan config is authoritative — the curve cannot drive PWM outside it.
-	pwm := clamp(raw, fan.MinPWM, fan.MaxPWM)
-
-	// v0.5.9 confidence-gated blend hook. The wiring layer in main.go
-	// constructs `blendFn` from the BlendedController + upstream Layer
-	// Snapshots; nil here means pre-v0.5.9 (reactive-only) behaviour.
-	// The blend runs AFTER the safety clamp so the fan config's
-	// [MinPWM, MaxPWM] is still authoritative — the predictive arm
-	// can't drive the fan outside the operator's bounds. The blend
-	// runs BEFORE hysteresis so the predictive contribution feeds
-	// back into the ramp-down suppression logic naturally.
-	if c.blendFn != nil && curveCfg.Sensor != "" {
-		if t, ok := sensors[curveCfg.Sensor]; ok {
-			blended := c.blendFn(c.pwmPath, t, pwm, time.Duration(dtSeconds*float64(time.Second)), now)
-			// Re-clamp post-blend: the wiring layer's BlendedController
-			// already clamps internally, but the controller package
-			// owns the final safety boundary so we double-clamp here.
-			pwm = clamp(blended, fan.MinPWM, fan.MaxPWM)
-		}
 	}
 
 	// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
@@ -855,6 +836,57 @@ func (c *Controller) tick() {
 		"curve_pwm", raw,
 		"clamped_pwm", pwm,
 	)
+}
+
+// computePWM is the pure speed-calculation core of a tick: evaluate the
+// compiled curve, apply the hard [MinPWM, MaxPWM] safety clamp, then
+// blend the smart-mode predictive arm and re-clamp. It mutates no
+// controller state — the caller owns the piState lifecycle via the
+// returned (newPI, stateful) pair — so the clamp→blend→re-clamp safety
+// ordering lives in exactly one place.
+//
+// The clamp BEFORE the blend and the re-clamp AFTER are the safety
+// contract: the fan config is authoritative, so neither the curve nor
+// the predictive arm can drive PWM outside the operator's bounds. The
+// reactive PWM handed to blendFn is therefore always already in-bounds.
+// blendFn is nil on the pre-v0.5.9 reactive-only path, in which case the
+// clamped curve output is returned unchanged.
+//
+// stateful reports whether the curve carried integral state this tick;
+// raw is the pre-clamp curve output (for the tick's debug log).
+func computePWM(
+	compiled curve.Curve,
+	sensors map[string]float64,
+	prevPI curve.PIState,
+	dtSeconds float64,
+	fan config.Fan,
+	blendFn BlendFn,
+	sensorName, pwmPath string,
+	now time.Time,
+) (pwm uint8, newPI curve.PIState, stateful bool, raw uint8) {
+	if sc, ok := compiled.(curve.StatefulCurve); ok {
+		newPWM, newState := sc.EvaluateStateful(sensors, prevPI, dtSeconds)
+		raw = newPWM
+		newPI = newState.(curve.PIState)
+		stateful = true
+	} else {
+		raw = compiled.Evaluate(sensors)
+	}
+
+	// Hard safety clamp: the curve cannot drive PWM outside [MinPWM, MaxPWM].
+	pwm = clamp(raw, fan.MinPWM, fan.MaxPWM)
+
+	// Confidence-gated blend hook. Runs AFTER the safety clamp so the
+	// reactive PWM handed to the predictive arm is already in-bounds, and
+	// the result is re-clamped so the predictive arm can't push the fan
+	// outside the operator's bounds either.
+	if blendFn != nil && sensorName != "" {
+		if t, ok := sensors[sensorName]; ok {
+			blended := blendFn(pwmPath, t, pwm, time.Duration(dtSeconds*float64(time.Second)), now)
+			pwm = clamp(blended, fan.MinPWM, fan.MaxPWM)
+		}
+	}
+	return pwm, newPI, stateful, raw
 }
 
 // initCurveStateIfNeeded resets smoothing / hysteresis / PI state when the
