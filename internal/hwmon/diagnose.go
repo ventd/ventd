@@ -178,10 +178,12 @@ func isGroupWritable(path string) bool {
 func halBackendsExposingPWM() []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	chs, err := hal.Enumerate(ctx)
-	if err != nil {
-		return nil
-	}
+	// Partial results are exactly what we want here: if one backend (e.g. a
+	// flaky IPMI BMC) errors but another non-hwmon backend reports a writable
+	// PWM channel, we must still see it — otherwise the caller wrongly treats
+	// "no PWM via sysfs" as a real problem. hal.Enumerate isolates per-backend
+	// failures, so the joined error is intentionally ignored.
+	chs, _ := hal.Enumerate(ctx)
 	seen := map[string]struct{}{}
 	for _, ch := range chs {
 		if ch.Caps&hal.CapWritePWM == 0 {

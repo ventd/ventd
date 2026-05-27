@@ -2,6 +2,7 @@ package hal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -55,9 +56,17 @@ func Reset() {
 // Enumerate fans out to every registered backend, collects their
 // channels, and tags each ID with the backend name so IDs are
 // globally unique (e.g. "hwmon:/sys/class/hwmon/hwmon3/pwm1",
-// "nvml:0"). Backend enumeration errors are wrapped with the
-// backend's name and returned immediately; partial results are
-// discarded.
+// "nvml:0").
+//
+// Per-backend failures are isolated: a backend that errors is skipped
+// and its (name-wrapped) error joined into the returned error, but the
+// channels every other backend produced are still returned. This stops
+// one flaky backend — e.g. an IPMI BMC timeout — from blanking the
+// whole inventory. Callers that want every backend to have succeeded
+// can check the error; callers that just want whatever is reachable
+// (the fan inventory, the diagnostics probe) can use the channels and
+// ignore it. The error is nil exactly when every backend succeeded, so
+// the all-succeed path is unchanged.
 func Enumerate(ctx context.Context) ([]Channel, error) {
 	regMu.RLock()
 	names := make([]string, 0, len(backends))
@@ -68,6 +77,7 @@ func Enumerate(ctx context.Context) ([]Channel, error) {
 	sort.Strings(names)
 
 	var all []Channel
+	var errs []error
 	for _, name := range names {
 		b, ok := Backend(name)
 		if !ok {
@@ -75,14 +85,15 @@ func Enumerate(ctx context.Context) ([]Channel, error) {
 		}
 		chs, err := b.Enumerate(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("hal: enumerate %s: %w", name, err)
+			errs = append(errs, fmt.Errorf("hal: enumerate %s: %w", name, err))
+			continue
 		}
 		for _, ch := range chs {
 			ch.ID = name + ":" + ch.ID
 			all = append(all, ch)
 		}
 	}
-	return all, nil
+	return all, errors.Join(errs...)
 }
 
 // Resolve finds the backend and Channel for a globally-tagged ID as

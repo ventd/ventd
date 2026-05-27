@@ -2,6 +2,7 @@ package hal
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -10,10 +11,11 @@ import (
 type fakeBackend struct {
 	name     string
 	channels []Channel
+	err      error // when set, Enumerate fails (zero value preserves the success path)
 }
 
 func (b *fakeBackend) Name() string                                   { return b.name }
-func (b *fakeBackend) Enumerate(_ context.Context) ([]Channel, error) { return b.channels, nil }
+func (b *fakeBackend) Enumerate(_ context.Context) ([]Channel, error) { return b.channels, b.err }
 func (b *fakeBackend) Read(_ Channel) (Reading, error)                { return Reading{}, nil }
 func (b *fakeBackend) Write(_ Channel, _ uint8) error                 { return nil }
 func (b *fakeBackend) Restore(_ Channel) error                        { return nil }
@@ -83,6 +85,35 @@ func TestRegistry_Enumerate_AggregatesAllBackends(t *testing.T) {
 	}
 	if len(got) != 3 {
 		t.Errorf("Enumerate len = %d, want 3", len(got))
+	}
+}
+
+func TestRegistry_Enumerate_PartialResultsOnBackendError(t *testing.T) {
+	Reset()
+	// "bad" fails; "good" and "more" succeed. The failure must be isolated:
+	// the healthy backends' channels survive and the error names only "bad".
+	Register("good", &fakeBackend{name: "good", channels: []Channel{{ID: "g1"}}})
+	Register("bad", &fakeBackend{name: "bad", err: errors.New("bmc timeout")})
+	Register("more", &fakeBackend{name: "more", channels: []Channel{{ID: "m1"}, {ID: "m2"}}})
+
+	got, err := Enumerate(context.Background())
+	if err == nil {
+		t.Fatal("Enumerate err = nil; want a joined error reporting the failed backend")
+	}
+	if !strings.Contains(err.Error(), "hal: enumerate bad") || !strings.Contains(err.Error(), "bmc timeout") {
+		t.Errorf("error should name the failed backend + cause; got %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("Enumerate len = %d, want 3 (healthy backends' channels survive the failure)", len(got))
+	}
+	ids := map[string]bool{}
+	for _, ch := range got {
+		ids[ch.ID] = true
+	}
+	for _, want := range []string{"good:g1", "more:m1", "more:m2"} {
+		if !ids[want] {
+			t.Errorf("missing channel %q from a healthy backend; got %v", want, got)
+		}
 	}
 }
 

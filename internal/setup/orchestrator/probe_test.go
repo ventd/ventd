@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -282,6 +283,41 @@ func TestProbePhase_HALPassDiscoversNonHwmonFan(t *testing.T) {
 	}
 	if f.RPMPath != "" {
 		t.Errorf("RPMPath = %q, want empty (paired later by RPMDetect)", f.RPMPath)
+	}
+}
+
+// TestProbePhase_HALPassDiscoversFanDespiteBackendError pins R10's payoff at
+// the probe layer: hal.Enumerate now returns partial results plus a joined
+// error when one backend fails, and the probe must still discover the fans the
+// healthy backends reported rather than stranding them.
+func TestProbePhase_HALPassDiscoversFanDespiteBackendError(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sys", "class", "hwmon")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	enumerate := func(context.Context) ([]hal.Channel, error) {
+		// A healthy msiec channel alongside a non-nil error standing in for a
+		// flaky backend (e.g. an IPMI BMC timeout) that hal.Enumerate isolated.
+		return []hal.Channel{
+			{ID: "msiec:/sys/devices/platform/msi-ec", Caps: hal.CapRead | hal.CapWritePWM | hal.CapRestore},
+		}, errors.New("hal: enumerate ipmi: bmc timeout")
+	}
+
+	rc := &RunContext{HwmonRoot: root}
+	out := (ProbePhase{HALEnumerate: enumerate}).Execute(context.Background(), rc)
+	if out.Status != StatusSuccess {
+		t.Fatalf("status=%q detail=%q", out.Status, out.Detail)
+	}
+	var art ProbeArtifact
+	if err := json.Unmarshal(out.Artifact, &art); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(art.Fans) != 1 {
+		t.Fatalf("expected the healthy msiec fan to be discovered despite the backend error; got %d: %+v", len(art.Fans), art.Fans)
+	}
+	if art.Fans[0].Backend != "msiec" {
+		t.Errorf("Backend = %q, want %q", art.Fans[0].Backend, "msiec")
 	}
 }
 
