@@ -51,39 +51,46 @@ For OpenRC or runit, use the equivalent init file under `scripts/`.
 
 ## Debian / Ubuntu (.deb)
 
+Release assets are versioned (`ventd_<version>_linux_<arch>.deb`), so
+substitute the current tag — there is no version-less `latest/download`
+alias for the package files:
+
 ```
-wget https://github.com/ventd/ventd/releases/latest/download/ventd_amd64.deb
-sudo dpkg -i ventd_amd64.deb
+VER=1.2.0   # current release tag, without the leading v
+wget https://github.com/ventd/ventd/releases/download/v${VER}/ventd_${VER}_linux_amd64.deb
+sudo dpkg -i ventd_${VER}_linux_amd64.deb
 ```
 
 ## Fedora / RHEL / openSUSE (.rpm)
 
 ```
-sudo rpm -i https://github.com/ventd/ventd/releases/latest/download/ventd_amd64.rpm
+VER=1.2.0   # current release tag, without the leading v
+sudo rpm -i https://github.com/ventd/ventd/releases/download/v${VER}/ventd_${VER}_linux_amd64.rpm
 ```
 
 ## Arch Linux (AUR)
 
-Two AUR packages are published under the `phoenixdnb` account:
+AUR packages are **not published yet** — distro-native packaging
+(Copr / PPA / AUR / OBS) is tracked as [issue #1307](https://github.com/ventd/ventd/issues/1307).
+Two PKGBUILDs are staged in the repo under
+[`packaging/aur/`](https://github.com/ventd/ventd/tree/main/packaging/aur)
+and will be pushed to the AUR once that lands:
 
-- [`ventd-bin`](https://aur.archlinux.org/packages/ventd-bin) — installs the official pre-built release binary for amd64 / arm64. Recommended for most users.
-- [`ventd`](https://aur.archlinux.org/packages/ventd) — builds from the release source tarball with the Go toolchain. Use this if you prefer an audited source build.
+- `ventd-bin` — installs the official pre-built release binary for amd64 / arm64. Intended as the package most Arch users should install.
+- `ventd` — builds from the release source tarball with the Go toolchain, for users who prefer an audited source build.
 
-With an AUR helper:
-
-```
-yay -S ventd-bin      # or: ventd
-```
-
-Or manually:
+Until they are published, build from the staged PKGBUILD directly:
 
 ```
-git clone https://aur.archlinux.org/ventd-bin.git
-cd ventd-bin
+git clone https://github.com/ventd/ventd
+cd ventd/packaging/aur/ventd-bin
 makepkg -si
 ```
 
-The package does not enable or start the service automatically (Arch convention). Enable it yourself once install finishes:
+The PKGBUILD ships `sha256sums=('SKIP')` in-repo on purpose; if you want
+the source verified, edit the checksum in with `updpkgsums` before
+building. The package does not enable or start the service automatically
+(Arch convention). Enable it yourself once install finishes:
 
 ```
 sudo systemctl enable --now ventd.service
@@ -94,11 +101,15 @@ sudo systemctl enable --now ventd.service
 Alpine users need the `gcompat` package to provide glibc loader shims for runtime NVML loading:
 
 ```
-apk add gcompat libc6-compat
-wget https://github.com/ventd/ventd/releases/latest/download/ventd_linux_amd64.tar.gz
-tar -xzf ventd_linux_amd64.tar.gz
+apk add gcompat libc6-compat   # only needed if you use NVIDIA NVML
+VER=1.2.0   # current release tag, without the leading v
+wget https://github.com/ventd/ventd/releases/download/v${VER}/ventd_${VER}_linux_amd64_musl.tar.gz
+tar -xzf ventd_${VER}_linux_amd64_musl.tar.gz
 doas install -m 0755 ventd /usr/local/bin/ventd
 ```
+
+Use the `_musl` tarball on Alpine; `gcompat` is only required for
+runtime NVML loading (NVIDIA GPU fan control), not for the daemon itself.
 
 Then write an OpenRC init script from `scripts/ventd.openrc` into `/etc/init.d/`.
 
@@ -160,34 +171,65 @@ fast no-op.
 
 ## Uninstall
 
-```
-sudo systemctl stop ventd
-sudo systemctl disable ventd
-sudo rm /usr/local/bin/ventd
-sudo rm /etc/systemd/system/ventd.service
-sudo systemctl daemon-reload
-```
-
-Config files under `/etc/ventd/` are preserved. Delete the directory if you want a clean removal:
+The install script installs a companion uninstaller at
+`/usr/local/sbin/ventd-uninstall`. Use it rather than removing files by
+hand — a manual `rm` of the binary and unit leaves `ventd-recover.service`
+enabled, and it then fires its `OnFailure` recovery logic at every boot
+against a binary that no longer exists.
 
 ```
-sudo rm -rf /etc/ventd
+sudo /usr/local/sbin/ventd-uninstall
 ```
+
+Every step is idempotent. In order, the uninstaller:
+
+1. Disables and stops `ventd.service`, `ventd-recover.service`, and
+   `ventd-postreboot-verify.service`.
+2. `rmmod`s any out-of-tree driver ventd installed under
+   `/lib/modules/<release>/extra/`, removes its DKMS registration, and
+   deletes the `/etc/modules-load.d/ventd.conf` entry.
+3. Removes the systemd unit files + drop-ins from both
+   `/etc/systemd/system/` and `/usr/lib/systemd/system/`, then
+   `daemon-reload`s.
+4. Removes the binary and every helper (`ventd`, `ventd-nvml-helper`,
+   `ventd-recover`, `ventd-wait-hwmon`, `ventd-postreboot-verify.sh`)
+   from `/usr/local/bin` and `/usr/bin`.
+5. Removes the udev rule (`90-ventd-hwmon.rules`) and reloads, plus the
+   polkit rule (`50-ventd-update.rules`).
+6. Unloads (`apparmor_parser -R`) and removes the AppArmor profiles.
+7. Removes `/etc/ventd/` (config + auth).
+8. Removes `/var/lib/ventd/` (calibration + smart-mode state) — **unless
+   you pass `--keep-data`**.
+9. Removes `/var/log/ventd/`.
+
+To keep your learned smart-mode state and calibration for a future
+reinstall:
+
+```
+sudo /usr/local/sbin/ventd-uninstall --keep-data
+```
+
+If you installed from a `.deb` or `.rpm`, uninstall through your package
+manager instead. `sudo apt remove ventd` / `sudo dnf remove ventd`
+preserves `/var/lib/ventd/` so a reinstall resumes your state;
+`sudo apt purge ventd` (or a full `rpm -e`) runs the package
+`postremove` hook that wipes all ventd-managed state for a clean slate.
 
 ## First boot
 
-On first start with no config, `ventd` runs the setup wizard on `http://<your-ip>:9999`. It generates a one-time setup token and publishes it in two places, both kept out of journald so the token is not retained in persistent logs:
+On first start with no admin password configured, `ventd` runs the
+setup wizard on `https://<your-ip>:9999` (self-signed TLS, so your
+browser will warn — accept it). There is no setup token to copy from a
+file: issue #765 removed that gate. Instead, the first LAN client to
+reach the wizard sees a "Create your password" page, and the account it
+creates becomes the local admin. Once that password is set, normal
+session-cookie auth applies to every subsequent request.
 
-- `/run/ventd/setup-token` (0600, root-only) — the reliable path under systemd
-- The controlling TTY, if one is attached (e.g. when you start the daemon by hand)
-
-Read the token with:
-
-```
-sudo cat /run/ventd/setup-token
-```
-
-The journal does log `first-boot: setup token written` with the file path — you can use that to confirm the daemon reached first-boot state. Enter the token in the browser and the wizard walks you through hardware detection, calibration, and initial config.
+The journal logs that the daemon reached first-boot state without ever
+writing a credential to disk in cleartext — the password hash goes
+exclusively to `/etc/ventd/auth.json` (mode 0600). After you set the
+password, the wizard walks you through hardware detection, calibration,
+and initial config.
 
 ## Verification
 
@@ -198,4 +240,4 @@ systemctl status ventd
 ss -ltnp | grep 9999
 ```
 
-If the port is listening, open `http://<ip>:9999` and log in.
+If the port is listening, open `https://<ip>:9999` and log in.

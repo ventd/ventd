@@ -118,13 +118,22 @@ nvidia-smi -i 0 -pm 1
 nvidia-settings -a "[gpu:0]/GPUFanControlState=1" -a "[fan:0]/GPUTargetFanSpeed=50"
 ```
 
-## v0.2.0 status
+## Current status
 
-This is a documented known issue in the v0.2.0 release. The install
-script does not auto-apply any of the options above. Future releases
-may detect NVIDIA driver presence and offer to install the Option A
-udev rule as part of the install flow.
+GPU fan *writes* are enabled by default — there is no longer a
+`--enable-gpu-write` opt-in flag (it was removed; writes ship on). The
+only remaining gate is the per-device capability probe: ventd refuses
+the write when the NVML symbols `nvmlDeviceSetFanSpeed_v2` /
+`nvmlDeviceSetFanControlPolicy` are absent, which happens on pre-Maxwell
+hardware or an NVIDIA driver older than R515. That is a real driver-level
+constraint, not a policy choice.
 
-GPU temperature reading works regardless; only fan control is gated.
-Pure-hwmon rigs (no NVIDIA, or NVIDIA without user-requested GPU fan
-control) are unaffected.
+What the install script still does **not** auto-apply is any of the
+privilege options above. So on a healthy R515+ driver you can still hit
+`Insufficient Permissions` on the fan write until the Option A udev rule
+is in place; that remains a manual step. Auto-detecting NVIDIA presence
+and offering the Option A rule during install is on the roadmap.
+
+GPU temperature reading works regardless; only the fan *write* is gated.
+Pure-hwmon rigs (no NVIDIA, or NVIDIA without GPU fan control) are
+unaffected.
