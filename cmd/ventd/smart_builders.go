@@ -899,18 +899,74 @@ func defaultFanClassFor(f config.Fan) proxy.FanClass {
 // without monkey-patching the global filesystem. (#1281)
 var kCalPath = acrunner.DefaultKCalPath
 
+// kcalCacheEntry memoises the parsed K_cal offset so the per-tick
+// acoustic budget doesn't re-open and JSON-decode k_cal.json on every
+// controller tick (buildAcousticBudget runs once per fan per tick). The
+// cache is gated on the file's path + mtime + size: a single stat
+// syscall replaces the open+read+unmarshal on the hot path, while a
+// recalibration that rewrites the file (changed mtime/size) is still
+// picked up on the next call — so the observable result is identical to
+// an uncached LoadResult, only cheaper.
+type kcalCacheEntry struct {
+	mu      sync.Mutex
+	path    string
+	modTime time.Time
+	size    int64
+	offset  float64
+	valid   bool
+}
+
+// kcalCache is the process-wide K_cal memo. A value (not pointer) so it
+// is zero-initialised cold; get() uses a pointer receiver, and the only
+// access is through loadKCalOffset, so it is never copied.
+var kcalCache kcalCacheEntry
+
 // loadKCalOffset returns the K_cal offset (dB) when the per-host
 // microphone calibration record at kCalPath is present and parseable,
 // 0 otherwise. The offset is added to proxy.Compose() so the host
 // loudness reported by /api/v1/smart/status.acoustic.current_dba is
 // true dBA at the mic position when calibrated, and the within-host
 // au scale otherwise. (#1281)
+//
+// The parse result is memoised behind an mtime/size gate (kcalCacheEntry)
+// so repeated per-tick calls cost a single stat rather than a full
+// open+read+unmarshal; a rewritten k_cal.json is detected by its changed
+// mtime/size and reloaded on the next call.
 func loadKCalOffset() float64 {
-	r, present, err := acrunner.LoadResult(kCalPath)
-	if err != nil || !present {
+	return kcalCache.get(kCalPath)
+}
+
+// get returns the cached offset when the file at path is unchanged since
+// the last parse (same path, mtime and size), otherwise reloads. A
+// missing or unreadable file yields offset 0 and invalidates the cache,
+// so a later-written file is picked up on the next call — matching the
+// uncached LoadResult fallback exactly. The lock is held across the
+// reload so concurrent per-tick callers collapse to a single re-parse.
+func (c *kcalCacheEntry) get(path string) float64 {
+	fi, statErr := os.Stat(path)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if statErr != nil {
+		c.valid = false
 		return 0
 	}
-	return r.KCalOffset
+	if c.valid && c.path == path && c.size == fi.Size() && c.modTime.Equal(fi.ModTime()) {
+		return c.offset
+	}
+
+	r, present, err := acrunner.LoadResult(path)
+	if err != nil || !present {
+		c.valid = false
+		return 0
+	}
+	c.path = path
+	c.size = fi.Size()
+	c.modTime = fi.ModTime()
+	c.offset = r.KCalOffset
+	c.valid = true
+	return c.offset
 }
 
 // micCalibrated reports whether a K_cal calibration record is
