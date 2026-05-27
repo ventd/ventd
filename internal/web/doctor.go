@@ -84,10 +84,6 @@ func (s *Server) doctorRunner() *doctor.Runner {
 // returns the cached Report if it's < doctorReportCacheTTL old).
 // Cache is per-Server; multi-tab dashboards share one report.
 func (s *Server) handleDoctorReport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 
 	now := time.Now()

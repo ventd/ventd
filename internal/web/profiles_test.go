@@ -55,7 +55,7 @@ func TestProfile_MethodNotAllowed(t *testing.T) {
 	srv := newVersionTestServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/profile", nil)
 	w := httptest.NewRecorder()
-	srv.handleProfile(w, req)
+	srv.gateMethods([]string{http.MethodGet}, srv.handleProfile)(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /api/profile status %d want 405", w.Code)
 	}
@@ -152,7 +152,7 @@ func TestProfileActive_MethodNotAllowed(t *testing.T) {
 	srv := newVersionTestServer(t)
 	req := httptest.NewRequest(http.MethodPut, "/api/profile/active", nil)
 	w := httptest.NewRecorder()
-	srv.handleProfileActive(w, req)
+	srv.gateMethods([]string{http.MethodGet, http.MethodPost}, srv.handleProfileActive)(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status %d want 405", w.Code)
 	}

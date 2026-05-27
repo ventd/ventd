@@ -37,10 +37,6 @@ type watchdogStatus struct {
 }
 
 func (s *Server) handleSystemWatchdog(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	interval := sdnotify.WatchdogInterval()
 	resp := watchdogStatus{
 		Enabled:    interval > 0,
@@ -130,10 +126,6 @@ func (c *cachedRecovery) snapshot() recoveryStatus {
 }
 
 func (s *Server) handleSystemRecovery(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(r, w, recoveryCache.snapshot())
 }
@@ -213,10 +205,6 @@ func (c *cachedSecurity) snapshot() securityStatus {
 }
 
 func (s *Server) handleSystemSecurity(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(r, w, securityCache.snapshot())
 }
@@ -240,10 +228,6 @@ type diagnosticsResponse struct {
 }
 
 func (s *Server) handleSystemDiagnostics(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	snap := s.diag.Snapshot(hwdiag.Filter{})
 	resp := diagnosticsResponse{
 		Entries: make([]diagnosticEntry, 0, len(snap.Entries)),

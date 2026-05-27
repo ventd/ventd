@@ -380,10 +380,6 @@ type scheduleStatus struct {
 // rather than the theoretical scheduled winner — during an override
 // those can differ, which is the whole point of the override.
 func (s *Server) handleScheduleStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	live := s.cfg.Load()
 	scheds := parsedSchedules(live, s.logger)
 	now := s.now()
@@ -419,10 +415,6 @@ func (s *Server) handleScheduleStatus(w http.ResponseWriter, r *http.Request) {
 // daemon's only atomic-write primitive, and a schedule edit without
 // persistence would evaporate on restart.
 func (s *Server) handleProfileSchedule(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	limitBody(w, r, 4<<10)
 	var req struct {
 		Name     string `json:"name"`

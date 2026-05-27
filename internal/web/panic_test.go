@@ -21,15 +21,16 @@ func TestPanic_MethodNotAllowed(t *testing.T) {
 	for _, tc := range []struct {
 		path    string
 		method  string
+		allowed []string
 		handler http.HandlerFunc
 	}{
-		{"/api/panic", http.MethodGet, srv.handlePanic},
-		{"/api/panic/state", http.MethodPost, srv.handlePanicState},
-		{"/api/panic/cancel", http.MethodGet, srv.handlePanicCancel},
+		{"/api/panic", http.MethodGet, []string{http.MethodPost}, srv.handlePanic},
+		{"/api/panic/state", http.MethodPost, []string{http.MethodGet}, srv.handlePanicState},
+		{"/api/panic/cancel", http.MethodGet, []string{http.MethodPost}, srv.handlePanicCancel},
 	} {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			tc.handler(w, httptest.NewRequest(tc.method, tc.path, nil))
+			srv.gateMethods(tc.allowed, tc.handler)(w, httptest.NewRequest(tc.method, tc.path, nil))
 			if w.Code != http.StatusMethodNotAllowed {
 				t.Errorf("status %d want 405", w.Code)
 			}

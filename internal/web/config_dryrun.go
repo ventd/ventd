@@ -55,10 +55,6 @@ type DiffField struct {
 // just introduced a min_pwm:0 without allow_stop"), and the actual
 // save will reject it anyway via config.Save.
 func (s *Server) handleConfigDryrun(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	limitBody(w, r, defaultMaxBody)
 	var incoming config.Config
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {

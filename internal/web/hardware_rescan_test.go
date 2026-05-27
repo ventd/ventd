@@ -131,7 +131,7 @@ func TestRescan_HandleHardwareRescan_MethodNotAllowed(t *testing.T) {
 	h := newTestHarness(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/hardware/rescan", nil)
 	w := httptest.NewRecorder()
-	h.srv.handleHardwareRescan(w, req)
+	h.srv.gateMethods([]string{http.MethodPost}, h.srv.handleHardwareRescan)(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET status = %d, want 405", w.Code)
 	}
@@ -203,7 +203,7 @@ func TestHwmonDebug_MethodNotAllowed(t *testing.T) {
 	h := newTestHarness(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/debug/hwmon", nil)
 	w := httptest.NewRecorder()
-	h.srv.handleHwmonDebug(w, req)
+	h.srv.gateMethods([]string{http.MethodGet}, h.srv.handleHwmonDebug)(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST status = %d, want 405", w.Code)
 	}

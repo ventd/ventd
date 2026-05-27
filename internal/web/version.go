@@ -45,10 +45,6 @@ func (v VersionInfo) Print(w io.Writer, asJSON bool) error {
 // payload as `ventd --version --json` so tooling can query a running
 // daemon's build without shell access to its host.
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	s.writeJSON(r, w, s.version)
 }

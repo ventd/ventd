@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -431,35 +432,35 @@ func New(d Deps) *Server {
 		{name: "auth/state", handler: s.handleAuthState, auth: false},
 		// Build metadata — same shape as `ventd --version --json`, exposed
 		// so operators can identify a running daemon without shell access.
-		{name: "version", handler: s.handleVersion, auth: false},
+		{name: "version", methods: []string{http.MethodGet}, handler: s.handleVersion, auth: false},
 		// Self-update endpoints. /check polls GitHub for the latest tag;
 		// /apply spawns install.sh with VENTD_VERSION set and exits 202
 		// (daemon dies during the install's systemctl restart, comes
 		// back under the new binary). /var/lib/ventd state persists.
-		{name: "update/check", handler: s.handleUpdateCheck, auth: true},
-		{name: "update/apply", handler: s.handleUpdateApply, auth: true},
+		{name: "update/check", methods: []string{http.MethodGet}, handler: s.handleUpdateCheck, auth: true},
+		{name: "update/apply", methods: []string{http.MethodPost}, handler: s.handleUpdateApply, auth: true},
 		// Patch-notes endpoint — frontend reads on every page load and
 		// shows a modal when the daemon's current version is newer than
 		// the browser's last-seen-version (localStorage). #48.
-		{name: "release-notes", handler: s.handleReleaseNotes, auth: true},
+		{name: "release-notes", methods: []string{http.MethodGet}, handler: s.handleReleaseNotes, auth: true},
 
 		// Authenticated routes.
 		{name: "status", handler: s.handleStatus, auth: true},
 		{name: "events", handler: s.handleEvents, auth: true},
 		{name: "config", handler: s.handleConfig, auth: true},
-		{name: "config/dryrun", handler: s.handleConfigDryrun, auth: true},
+		{name: "config/dryrun", methods: []string{http.MethodPost}, handler: s.handleConfigDryrun, auth: true},
 		{name: "hardware", handler: s.handleHardware, auth: true},
 		{name: "hardware/inventory", handler: s.handleHardwareInventory, auth: true},
-		{name: "hardware/rescan", handler: s.handleHardwareRescan, auth: true},
-		{name: "debug/hwmon", handler: s.handleHwmonDebug, auth: true},
-		{name: "panic", handler: s.handlePanic, auth: true},
-		{name: "panic/state", handler: s.handlePanicState, auth: true},
-		{name: "panic/cancel", handler: s.handlePanicCancel, auth: true},
-		{name: "profile", handler: s.handleProfile, auth: true},
-		{name: "profile/active", handler: s.handleProfileActive, auth: true},
-		{name: "history", handler: s.handleHistory, auth: true},
-		{name: "profile/schedule", handler: s.handleProfileSchedule, auth: true},
-		{name: "schedule/status", handler: s.handleScheduleStatus, auth: true},
+		{name: "hardware/rescan", methods: []string{http.MethodPost}, handler: s.handleHardwareRescan, auth: true},
+		{name: "debug/hwmon", methods: []string{http.MethodGet}, handler: s.handleHwmonDebug, auth: true},
+		{name: "panic", methods: []string{http.MethodPost}, handler: s.handlePanic, auth: true},
+		{name: "panic/state", methods: []string{http.MethodGet}, handler: s.handlePanicState, auth: true},
+		{name: "panic/cancel", methods: []string{http.MethodPost}, handler: s.handlePanicCancel, auth: true},
+		{name: "profile", methods: []string{http.MethodGet}, handler: s.handleProfile, auth: true},
+		{name: "profile/active", methods: []string{http.MethodGet, http.MethodPost}, handler: s.handleProfileActive, auth: true},
+		{name: "history", methods: []string{http.MethodGet}, handler: s.handleHistory, auth: true},
+		{name: "profile/schedule", methods: []string{http.MethodPut}, handler: s.handleProfileSchedule, auth: true},
+		{name: "schedule/status", methods: []string{http.MethodGet}, handler: s.handleScheduleStatus, auth: true},
 		{name: "calibrate/start", handler: s.handleCalibrateStart, auth: true},
 		{name: "calibrate/status", handler: s.handleCalibrateStatus, auth: true},
 		// v0.5.5: opportunistic-probe live status — read by the dashboard
@@ -488,45 +489,45 @@ func New(d Deps) *Server {
 		{name: "hwdiag/grub-cmdline-add", handler: s.handleGrubCmdlineAdd, auth: true},
 		{name: "hwdiag/modprobe-options-write", handler: s.handleModprobeOptionsWrite, auth: true},
 		{name: "hwdiag/reset-and-reinstall", handler: s.handleResetAndReinstall, auth: true},
-		{name: "system/watchdog", handler: s.handleSystemWatchdog, auth: true},
-		{name: "system/recovery", handler: s.handleSystemRecovery, auth: true},
-		{name: "system/security", handler: s.handleSystemSecurity, auth: true},
-		{name: "system/diagnostics", handler: s.handleSystemDiagnostics, auth: true},
+		{name: "system/watchdog", methods: []string{http.MethodGet}, handler: s.handleSystemWatchdog, auth: true},
+		{name: "system/recovery", methods: []string{http.MethodGet}, handler: s.handleSystemRecovery, auth: true},
+		{name: "system/security", methods: []string{http.MethodGet}, handler: s.handleSystemSecurity, auth: true},
+		{name: "system/diagnostics", methods: []string{http.MethodGet}, handler: s.handleSystemDiagnostics, auth: true},
 		// #792 wizard recovery surface — generate a redacted diag bundle on
 		// demand so the calibration error banner can offer the operator a
 		// download instead of a Go error string. Download path is registered
 		// separately (trailing-slash route) because registerAPIRoutes only
 		// expresses exact paths.
-		{name: "diag/bundle", handler: s.handleDiagBundle, auth: true},
+		{name: "diag/bundle", methods: []string{http.MethodPost}, handler: s.handleDiagBundle, auth: true},
 		// v0.5.12 #64: outbound bundle ingest. Refused with HTTP 412
 		// when diag.upstream_ingest.enabled=false in config (default).
 		// Operator opt-in surface for the maintainer-side support flow.
-		{name: "diag/send", handler: s.handleDiagSend, auth: true},
+		{name: "diag/send", methods: []string{http.MethodPost}, handler: s.handleDiagSend, auth: true},
 		// v0.5.9 confidence-controller surfaces (PR-B). status returns
 		// per-channel aggregator + LayerA snapshots for the 5-state
 		// dashboard pill; preset GET/PUT exposes the smart-mode
 		// aggressiveness selector.
-		{name: "confidence/status", handler: s.handleConfidenceStatus, auth: true},
-		{name: "confidence/preset", handler: s.handleConfidencePreset, auth: true},
+		{name: "confidence/status", methods: []string{http.MethodGet}, handler: s.handleConfidenceStatus, auth: true},
+		{name: "confidence/preset", methods: []string{http.MethodGet, http.MethodPut}, handler: s.handleConfidencePreset, auth: true},
 		// v0.5.12 #104: deeper smart-mode telemetry. /smart/status is
 		// a one-line aggregate ("are we converged, what preset, how
 		// many channels"); /smart/channels is the per-channel deep dive
 		// covering Layer-B coupling RLS state + Layer-C marginal RLS
 		// state + signature label.
-		{name: "smart/status", handler: s.handleSmartStatus, auth: true},
-		{name: "smart/channels", handler: s.handleSmartChannels, auth: true},
+		{name: "smart/status", methods: []string{http.MethodGet}, handler: s.handleSmartStatus, auth: true},
+		{name: "smart/channels", methods: []string{http.MethodGet}, handler: s.handleSmartChannels, auth: true},
 		// v0.5.19 #50: doctor surface (spec-10). Read-only Report poll
 		// against the runtime detector pack; cached for ~5s so a
 		// multi-tab dashboard doesn't fan out into N detector re-runs
 		// per tick.
-		{name: "doctor", handler: s.handleDoctorReport, auth: true},
+		{name: "doctor", methods: []string{http.MethodGet}, handler: s.handleDoctorReport, auth: true},
 		// v0.9.0: platform_profile observation. Read-only snapshot of
 		// the kernel's generic platform-profile interface (cool /
 		// quiet / balanced / performance on Dell, Lenovo, HP, ASUS
 		// laptops). Future work may add a PUT that writes the profile;
 		// for now ventd surfaces what BIOS thermal envelope is active
 		// without taking responsibility for selecting one.
-		{name: "platform-profile", handler: s.handlePlatformProfile, auth: true},
+		{name: "platform-profile", methods: []string{http.MethodGet}, handler: s.handlePlatformProfile, auth: true},
 	})
 
 	dlHandler := s.requireAuth(s.handleDiagDownload)
@@ -564,6 +565,13 @@ type apiRoute struct {
 	name    string // trailing path after "/api/" — no leading slash
 	handler http.HandlerFunc
 	auth    bool // wrap with requireAuth before dual-registering
+	// methods is the allowed HTTP method allow-list. When non-empty,
+	// registerAPIRoutes wraps the handler in a gate that rejects any other
+	// method with a JSON 405 — declaratively, so the handler no longer
+	// hand-rolls the `if r.Method != … { … }` block. Empty means "any
+	// method" (the handler dispatches or accepts all), preserving the
+	// behaviour of routes that never gated.
+	methods []string
 }
 
 // registerAPIRoutes wires each route under both "/api/" and "/api/v1/"
@@ -589,6 +597,13 @@ type apiRoute struct {
 func (s *Server) registerAPIRoutes(routes []apiRoute) {
 	for _, r := range routes {
 		h := r.handler
+		// Method gate is innermost (just outside the handler) so it runs
+		// after auth/CSRF/body-cap — preserving the prior ordering where the
+		// handler's own r.Method check fired only after those middlewares
+		// (an unauthenticated wrong-method request still gets 401, not 405).
+		if len(r.methods) > 0 {
+			h = s.gateMethods(r.methods, h)
+		}
 		// Body cap applies to every route — the middleware no-ops
 		// on safe methods, so wrapping public GETs costs nothing.
 		h = requireMaxBody(defaultMaxBody, h)
@@ -613,6 +628,20 @@ func (s *Server) registerAPIRoutes(routes []apiRoute) {
 	// against this catch-all; only paths nothing else claims land
 	// here.
 	s.mux.HandleFunc("/api/", s.handleAPINotFound)
+}
+
+// gateMethods rejects any request whose method is not in allowed with a JSON
+// 405, replacing the hand-rolled `if r.Method != … { http 405 }` block that
+// was copy-pasted into every gated handler. The allow-list lives on apiRoute
+// so a route's accepted methods are declared where it is registered.
+func (s *Server) gateMethods(allowed []string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !slices.Contains(allowed, r.Method) {
+			s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		h(w, r)
+	}
 }
 
 // handleAPINotFound is the catch-all 404 for /api/* paths that no

@@ -56,7 +56,7 @@ func TestHandleDoctorReport_RejectsNonGET(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(method, "/api/v1/doctor", nil)
 		w := httptest.NewRecorder()
-		srv.handleDoctorReport(w, req)
+		srv.gateMethods([]string{http.MethodGet}, srv.handleDoctorReport)(w, req)
 		if w.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s: status=%d, want 405", method, w.Code)
 		}

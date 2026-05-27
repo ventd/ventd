@@ -39,9 +39,41 @@ func TestWriteJSONError(t *testing.T) {
 	}
 }
 
-// TestHandlerError_IsJSON confirms a converted handler's error path now emits
-// the JSON envelope instead of text/plain — handleProfile rejecting a non-GET
-// is a representative method-gate that used to call http.Error.
+// TestGateMethods covers the declarative method gate that replaced the
+// per-handler `if r.Method != … { … }` blocks: an allowed method passes
+// through to the wrapped handler; any other is rejected with a JSON 405
+// without the handler running.
+func TestGateMethods(t *testing.T) {
+	s := &Server{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	called := false
+	inner := func(w http.ResponseWriter, r *http.Request) { called = true; w.WriteHeader(http.StatusOK) }
+	gated := s.gateMethods([]string{http.MethodGet, http.MethodPut}, inner)
+
+	// Allowed method reaches the handler.
+	rec := httptest.NewRecorder()
+	gated(rec, httptest.NewRequest(http.MethodPut, "/x", nil))
+	if !called || rec.Code != http.StatusOK {
+		t.Errorf("allowed method: called=%v status=%d, want true/200", called, rec.Code)
+	}
+
+	// Disallowed method is rejected before the handler runs.
+	called = false
+	rec = httptest.NewRecorder()
+	gated(rec, httptest.NewRequest(http.MethodPost, "/x", nil))
+	if called {
+		t.Error("disallowed method reached the handler")
+	}
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want 405", rec.Code)
+	}
+	if ct := rec.Result().Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+}
+
+// TestHandlerError_IsJSON confirms the method-gate error path emits the JSON
+// envelope instead of text/plain — the declarative gate rejecting a non-GET on
+// the GET-only profile route is representative of every gated apiRoute.
 func TestHandlerError_IsJSON(t *testing.T) {
 	var cfgPtr atomic.Pointer[config.Config]
 	cfgPtr.Store(config.Empty())
@@ -51,7 +83,7 @@ func TestHandlerError_IsJSON(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/profile", nil)
 	rec := httptest.NewRecorder()
-	s.handleProfile(rec, req)
+	s.gateMethods([]string{http.MethodGet}, s.handleProfile)(rec, req)
 
 	res := rec.Result()
 	if res.StatusCode != http.StatusMethodNotAllowed {

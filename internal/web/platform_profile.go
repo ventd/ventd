@@ -30,10 +30,6 @@ type PlatformProfileResponse struct {
 // (echo into /sys/class/platform-profile/.../profile), which ventd's
 // controller detects and respects via back-off.
 func (s *Server) handlePlatformProfile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 
 	snap, err := platformprofile.Read()
