@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/cooling"
 	"github.com/ventd/ventd/internal/web"
@@ -58,7 +59,7 @@ func newCoolingResolver(
 					continue
 				}
 				fans = append(fans, cooling.FanInput{
-					Class:      string(defaultFanClassFor(f)),
+					Class:      string(budget.DefaultFanClassFor(f)),
 					DiameterMM: 120,
 					MaxRPM:     maxRPM,
 				})
