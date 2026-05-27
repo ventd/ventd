@@ -639,17 +639,7 @@ func (b *Backend) ClearAcquired(pwmPath string) {
 // shape. Accepts both the value and pointer form so callers can
 // construct either.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("hal/hwmon: nil opaque state")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("hal/hwmon: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+	return hal.StateFrom[State](ch, "hal/hwmon", nil)
 }
 
 // rpmPathFromPWM derives fan*N_input from pwm*N. Mirrors the private

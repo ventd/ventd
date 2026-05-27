@@ -750,17 +750,7 @@ func (b *Backend) parseSDRRecord(data []byte) (hal.Channel, bool) {
 
 // stateFrom coerces a Channel's Opaque to the IPMI State type.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("hal/ipmi: nil opaque state")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("hal/ipmi: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+	return hal.StateFrom[State](ch, "hal/ipmi", nil)
 }
 
 // pwmToPercent converts a 0-255 duty cycle to a 0-100 percent value,

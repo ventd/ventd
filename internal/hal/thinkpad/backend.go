@@ -443,21 +443,10 @@ func parseProcFan(data []byte) (hal.Reading, error) {
 // can construct either — matches the equivalent helper in
 // internal/hal/hwmon.
 func stateFrom(ch hal.Channel) (State, error) {
-	switch v := ch.Opaque.(type) {
-	case State:
-		if v.ProcPath == "" {
-			return State{}, errors.New("thinkpad: channel state has empty ProcPath")
+	return hal.StateFrom(ch, "thinkpad", func(s State) error {
+		if s.ProcPath == "" {
+			return errors.New("thinkpad: channel state has empty ProcPath")
 		}
-		return v, nil
-	case *State:
-		if v == nil {
-			return State{}, errors.New("thinkpad: nil opaque state")
-		}
-		if v.ProcPath == "" {
-			return State{}, errors.New("thinkpad: channel state has empty ProcPath")
-		}
-		return *v, nil
-	default:
-		return State{}, fmt.Errorf("thinkpad: channel %q has wrong opaque type %T", ch.ID, ch.Opaque)
-	}
+		return nil
+	})
 }
