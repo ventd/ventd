@@ -245,7 +245,8 @@ Tier-3 chip-family fallback (conf 0.6). Each board entry declares exactly one of
 
 Other small packages not separately tabled: `internal/acoustic/*` (mic capture/proxy/stall/dBA-budget — `acoustic-*.md`),
 `internal/diag/detection`, `internal/marginal`, `internal/proc`, `internal/sysclass`, `internal/preflight/checks`,
-`internal/packaging`, `internal/ndjson`, `internal/setup/orchestrator`. When in doubt, grep `docs/rules/INDEX.md`
+`internal/packaging`, `internal/ndjson`, `internal/setup/orchestrator`, `internal/smartblend` (per-controller blend
+hook wiring — composes the smart-mode runtimes into a controller.BlendFn). When in doubt, grep `docs/rules/INDEX.md`
 for the subsystem name — most have a bound rule file.
 
 ---

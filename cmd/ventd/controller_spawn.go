@@ -12,6 +12,7 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/signature"
+	"github.com/ventd/ventd/internal/smartblend"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
 )
@@ -93,7 +94,15 @@ func (s *controllerSpawner) options(
 	// Snapshots from the upstream runtimes, computes w_pred via the
 	// aggregator, and routes through BlendedController.Compute.
 	if s.smartMode != nil && s.smartMode.Blended != nil {
-		if blendFn := buildBlendFn(fanCfg.PWMPath, fanCfg, s.liveCfg, s.smartMode, s.labelFn(), s.logger); blendFn != nil {
+		deps := smartblend.Deps{
+			Coupling:   s.smartMode.Coupling,
+			Marginal:   s.smartMode.Marginal,
+			LayerA:     s.smartMode.LayerA,
+			Aggregator: s.smartMode.Aggregator,
+			Blended:    s.smartMode.Blended,
+			Decisions:  s.smartMode.Decisions,
+		}
+		if blendFn := smartblend.BuildFn(fanCfg.PWMPath, fanCfg, s.liveCfg, deps, s.labelFn()); blendFn != nil {
 			opts = append(opts, controller.WithBlend(blendFn))
 		}
 	}
