@@ -17,7 +17,7 @@ import (
 // to grow fields over time.
 func (s *Server) handleHwmonDebug(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	s.rescan.mu.Lock()

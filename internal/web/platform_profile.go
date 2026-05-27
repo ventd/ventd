@@ -31,14 +31,14 @@ type PlatformProfileResponse struct {
 // controller detects and respects via back-off.
 func (s *Server) handlePlatformProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
 
 	snap, err := platformprofile.Read()
 	if err != nil {
-		http.Error(w, "platform-profile read failed: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "platform-profile read failed: "+err.Error())
 		return
 	}
 	s.writeJSON(r, w, PlatformProfileResponse{Snapshot: snap})

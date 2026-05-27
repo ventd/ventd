@@ -140,7 +140,7 @@ func diffFanIdentities(prev, cur []string) (newFans, removedFans []string) {
 // /api/debug/hwmon.
 func (s *Server) handleHardwareRescan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	start := time.Now()

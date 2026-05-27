@@ -266,7 +266,7 @@ func (s *Server) runHistorySampler(ctx context.Context) {
 // building a response larger than anything ever stored.
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
