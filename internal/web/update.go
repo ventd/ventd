@@ -210,7 +210,7 @@ func versionAvailable(current, latest string) bool {
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -602,29 +602,29 @@ func shellQuote(s string) string {
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req updateApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	// Loose validation — version must be vX.Y.Z[-suffix]; reject
 	// anything obviously bad before passing into the install script's
 	// VENTD_VERSION env var.
 	if !looksLikeVersion(req.Version) {
-		http.Error(w, "version must look like vX.Y.Z (got "+req.Version+")", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "version must look like vX.Y.Z (got "+req.Version+")")
 		return
 	}
 	scriptPath := resolveInstallScript(req.Version, nil, s.logger)
 	if scriptPath == "" {
-		http.Error(w, "install.sh not found in any of "+strings.Join(updateInstallScriptCandidates, " ; "),
-			http.StatusServiceUnavailable)
+		s.writeJSONError(w, http.StatusServiceUnavailable,
+			"install.sh not found in any of "+strings.Join(updateInstallScriptCandidates, " ; "))
 		return
 	}
 	if err := updateRunFn(req.Version, scriptPath); err != nil {
-		http.Error(w, "spawn install: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "spawn install: "+err.Error())
 		return
 	}
 	s.logger.Info("update: install scheduled", "version", req.Version, "script", scriptPath)

@@ -85,7 +85,7 @@ func (s *Server) doctorRunner() *doctor.Runner {
 // Cache is per-Server; multi-tab dashboards share one report.
 func (s *Server) handleDoctorReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -102,7 +102,7 @@ func (s *Server) handleDoctorReport(w http.ResponseWriter, r *http.Request) {
 			// Runner-level failure (typically ctx cancelled before
 			// any detector ran). Surface so the operator knows the
 			// page is broken rather than silently empty.
-			http.Error(w, "doctor: "+err.Error(), http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "doctor: "+err.Error())
 			return
 		}
 		s.doctorCache.mu.Lock()

@@ -381,7 +381,7 @@ type scheduleStatus struct {
 // those can differ, which is the whole point of the override.
 func (s *Server) handleScheduleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	live := s.cfg.Load()
@@ -420,7 +420,7 @@ func (s *Server) handleScheduleStatus(w http.ResponseWriter, r *http.Request) {
 // persistence would evaporate on restart.
 func (s *Server) handleProfileSchedule(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	limitBody(w, r, 4<<10)
@@ -430,26 +430,26 @@ func (s *Server) handleProfileSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "request too large")
 			return
 		}
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.Name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "name required")
 		return
 	}
 	if req.Schedule != "" {
 		if _, err := config.ParseSchedule(req.Schedule); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			s.writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	live := s.cfg.Load()
 	p, ok := live.Profiles[req.Name]
 	if !ok {
-		http.Error(w, "unknown profile: "+req.Name, http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "unknown profile: "+req.Name)
 		return
 	}
 
@@ -463,7 +463,7 @@ func (s *Server) handleProfileSchedule(w http.ResponseWriter, r *http.Request) {
 
 	validated, err := config.Save(&next, s.configPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.cfg.Store(validated)

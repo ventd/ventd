@@ -39,7 +39,7 @@ const setupEventsTickInterval = 250 * time.Millisecond
 // Auth is enforced by the route registration in server.go.
 func (s *Server) handleSetupEvents(w http.ResponseWriter, r *http.Request) {
 	if s.setup == nil {
-		http.Error(w, "setup manager not wired", http.StatusServiceUnavailable)
+		s.writeJSONError(w, http.StatusServiceUnavailable, "setup manager not wired")
 		return
 	}
 

@@ -56,17 +56,17 @@ type DiffField struct {
 // save will reject it anyway via config.Save.
 func (s *Server) handleConfigDryrun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	limitBody(w, r, defaultMaxBody)
 	var incoming config.Config
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "config too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "config too large")
 			return
 		}
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	live := s.cfg.Load()

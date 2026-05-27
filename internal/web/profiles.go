@@ -34,7 +34,7 @@ type profileResponse struct {
 // feature see no change.
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	live := s.cfg.Load()
@@ -77,18 +77,18 @@ func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req struct {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.Name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "name required")
 		return
 	}
 	// Set override flag before the cfg swap so a scheduler tick firing
@@ -99,7 +99,7 @@ func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Override was set speculatively; it will clear at the next
 		// scheduled transition, which is no worse than pre-refactor.
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

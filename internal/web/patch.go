@@ -114,23 +114,23 @@ func (s *Server) handleConfigPatch(w http.ResponseWriter, r *http.Request) {
 	var patch ConfigPatch
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		if isMaxBytesErr(err) {
-			http.Error(w, "config too large", http.StatusRequestEntityTooLarge)
+			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "config too large")
 			return
 		}
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
 	current := s.cfg.Load()
 	merged, err := applyConfigPatch(current, &patch)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	validated, err := config.Save(merged, s.configPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

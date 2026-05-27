@@ -756,6 +756,21 @@ func (s *Server) writeJSON(r *http.Request, w http.ResponseWriter, v any) {
 	}
 }
 
+// writeJSONError writes a uniform JSON error envelope {"error": msg} with the
+// given status. It replaces the per-handler http.Error calls, which emitted
+// text/plain and so were inconsistent with the JSON success bodies and the
+// already-JSON 401/404 responses — the frontend parses every non-2xx body as
+// JSON and reads .error, so a text/plain body silently degraded to a bare
+// "HTTP <status>" message. Status and message are unchanged from the http.Error
+// calls this replaces; only the Content-Type and body framing change.
+func (s *Server) writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		s.logger.Warn("web: encode error response failed", "status", status, "err", err)
+	}
+}
+
 // requireAuth wraps h so that only authenticated requests pass through.
 // Unauthenticated API requests get 401 JSON; unauthenticated page requests
 // redirect to /login (or /setup on first boot, see below).

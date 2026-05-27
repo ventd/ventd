@@ -39,7 +39,7 @@ type diagBundleResponse struct {
 // bundle to the operator without requiring shell access.
 func (s *Server) handleDiagBundle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	opts := diag.Options{
@@ -67,7 +67,7 @@ func (s *Server) handleDiagBundle(w http.ResponseWriter, r *http.Request) {
 // the bundle output directory.
 func (s *Server) handleDiagDownload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	// Path is one of:
@@ -145,13 +145,13 @@ var errIngestDisabled = errors.New("upstream ingest disabled in config")
 // service is a separate spec.
 func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	live := s.cfg.Load()
 	if live == nil {
-		http.Error(w, "no live config", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "no live config")
 		return
 	}
 
@@ -166,7 +166,7 @@ func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 	}
 	parsed, err := url.Parse(live.Diag.UpstreamIngest.URL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-		http.Error(w, "diag.upstream_ingest.url must be a valid https:// URL", http.StatusPreconditionFailed)
+		s.writeJSONError(w, http.StatusPreconditionFailed, "diag.upstream_ingest.url must be a valid https:// URL")
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		newTok, err := generateIngestToken()
 		if err != nil {
-			http.Error(w, "generate token: "+err.Error(), http.StatusInternalServerError)
+			s.writeJSONError(w, http.StatusInternalServerError, "generate token: "+err.Error())
 			return
 		}
 		token = newTok
@@ -225,7 +225,7 @@ func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 	// bundle in cleartext).
 	postReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, live.Diag.UpstreamIngest.URL, bytes.NewReader(body))
 	if err != nil {
-		http.Error(w, "build request: "+err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "build request: "+err.Error())
 		return
 	}
 	postReq.Header.Set("Authorization", "Bearer "+token)

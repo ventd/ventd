@@ -180,7 +180,7 @@ type confidenceStatus struct {
 // SnapshotAll).
 func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -250,7 +250,7 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 // performance. Unknown values produce 400.
 func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPut {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -273,19 +273,19 @@ func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) 
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "bad json")
 		return
 	}
 	switch body.Preset {
 	case "silent", "balanced", "performance":
 	default:
-		http.Error(w, "preset must be silent|balanced|performance", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "preset must be silent|balanced|performance")
 		return
 	}
 
 	live := s.cfg.Load()
 	if live == nil {
-		http.Error(w, "no config loaded", http.StatusServiceUnavailable)
+		s.writeJSONError(w, http.StatusServiceUnavailable, "no config loaded")
 		return
 	}
 	// Deep-copy via JSON so we don't mutate the live pointer's
@@ -293,18 +293,18 @@ func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) 
 	var next config.Config
 	raw, err := json.Marshal(live)
 	if err != nil {
-		http.Error(w, "marshal", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "marshal")
 		return
 	}
 	if err := json.Unmarshal(raw, &next); err != nil {
-		http.Error(w, "unmarshal", http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, "unmarshal")
 		return
 	}
 	next.Smart.Preset = body.Preset
 	saved, err := config.Save(&next, s.configPath)
 	if err != nil {
 		s.logger.Warn("web: confidence preset save failed", "err", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.cfg.Store(saved)
@@ -471,7 +471,7 @@ type smartMarginalShard struct {
 // are absent (monitor-only mode).
 func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -630,7 +630,7 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 // the doctor surface for confidence-related issue triage.
 func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

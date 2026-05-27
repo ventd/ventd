@@ -121,18 +121,18 @@ func (s *Server) panicSnapshot() panicPayload {
 //     fires.
 func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req struct {
 		DurationS int `json:"duration_s"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.DurationS < 0 {
-		http.Error(w, "duration_s must be non-negative", http.StatusBadRequest)
+		s.writeJSONError(w, http.StatusBadRequest, "duration_s must be non-negative")
 		return
 	}
 
@@ -165,7 +165,7 @@ func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
 // snapshot. Polling-safe: no mutation, no side effects.
 func (s *Server) handlePanicState(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	s.writeJSON(r, w, s.panicSnapshot())
@@ -177,7 +177,7 @@ func (s *Server) handlePanicState(w http.ResponseWriter, r *http.Request) {
 // error.
 func (s *Server) handlePanicCancel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	s.restorePanic("api")
