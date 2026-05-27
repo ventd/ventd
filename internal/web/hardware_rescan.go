@@ -139,10 +139,6 @@ func diffFanIdentities(prev, cur []string) (newFans, removedFans []string) {
 // call), and stores before/after/current in the rescan state for
 // /api/debug/hwmon.
 func (s *Server) handleHardwareRescan(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	start := time.Now()
 	cur := toDebugDevices(enumerateForRescan())
 	elapsed := time.Since(start)

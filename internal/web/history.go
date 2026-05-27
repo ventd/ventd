@@ -265,10 +265,6 @@ func (s *Server) runHistorySampler(ctx context.Context) {
 // window_s=999999999 request can't run the server out of RAM
 // building a response larger than anything ever stored.
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 
 	window := s.resolveHistoryWindow(r.URL.Query().Get("window_s"))

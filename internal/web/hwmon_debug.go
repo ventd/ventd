@@ -16,10 +16,6 @@ import (
 // the UI rescan toast and hwdiag scripts to depend on, but expect it
 // to grow fields over time.
 func (s *Server) handleHwmonDebug(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	s.rescan.mu.Lock()
 	lastAt := s.rescan.lastAt
 	trigger := s.rescan.trigger

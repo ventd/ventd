@@ -354,7 +354,7 @@ func TestSystemStatus_MethodNotAllowed(t *testing.T) {
 	for name, h := range handlers {
 		t.Run(name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
-			h(rr, httptest.NewRequest(http.MethodPost, "/api/system/"+name, nil))
+			srv.gateMethods([]string{http.MethodGet}, h)(rr, httptest.NewRequest(http.MethodPost, "/api/system/"+name, nil))
 			if rr.Code != http.StatusMethodNotAllowed {
 				t.Errorf("POST /api/system/%s: %d want 405", name, rr.Code)
 			}

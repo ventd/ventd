@@ -120,10 +120,6 @@ func (s *Server) panicSnapshot() panicPayload {
 //  4. Arms the timer (if duration > 0) to call restorePanic when it
 //     fires.
 func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	var req struct {
 		DurationS int `json:"duration_s"`
 	}
@@ -164,10 +160,6 @@ func (s *Server) handlePanic(w http.ResponseWriter, r *http.Request) {
 // handlePanicState GET /api/panic/state returns the current panic
 // snapshot. Polling-safe: no mutation, no side effects.
 func (s *Server) handlePanicState(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	s.writeJSON(r, w, s.panicSnapshot())
 }
 
@@ -176,10 +168,6 @@ func (s *Server) handlePanicState(w http.ResponseWriter, r *http.Request) {
 // is a no-op 200 so a stale tab's cancel button doesn't surface an
 // error.
 func (s *Server) handlePanicCancel(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	s.restorePanic("api")
 	s.writeJSON(r, w, s.panicSnapshot())
 }

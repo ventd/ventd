@@ -179,10 +179,6 @@ type confidenceStatus struct {
 // controller hot loop (atomic.Pointer reads + a brief mutex on
 // SnapshotAll).
 func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	live := s.cfg.Load()
 	preset := "balanced"
@@ -249,10 +245,6 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 // memory + persists via Save. Recognised values: silent / balanced /
 // performance. Unknown values produce 400.
 func (s *Server) handleConfidencePreset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPut {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method == http.MethodGet {
 		live := s.cfg.Load()
@@ -470,10 +462,6 @@ type smartMarginalShard struct {
 // SnapshotAll). Returns enabled=false when the smart-mode runtimes
 // are absent (monitor-only mode).
 func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	live := s.cfg.Load()
 	preset := "balanced"
@@ -629,10 +617,6 @@ func (s *Server) handleSmartStatus(w http.ResponseWriter, r *http.Request) {
 // signature label. Used by the dashboard's channel-detail panel and
 // the doctor surface for confidence-related issue triage.
 func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	if s.aggregator == nil {
 		s.writeJSON(r, w, []smartChannelEntry{})

@@ -209,10 +209,6 @@ func versionAvailable(current, latest string) bool {
 }
 
 func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	w.Header().Set("Cache-Control", "no-store")
 	resp := updateCheckResponse{Current: s.version.Version}
 	tag, published, htmlURL, err := fetchLatestRelease(updateRepoSlug)
@@ -601,10 +597,6 @@ func shellQuote(s string) string {
 }
 
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	var req updateApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON body")

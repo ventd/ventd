@@ -29,7 +29,7 @@ func TestHandleDiagSend_NonPOST_RejectedAs405(t *testing.T) {
 	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(m, "/api/v1/diag/send", nil)
 		w := httptest.NewRecorder()
-		srv.handleDiagSend(w, req)
+		srv.gateMethods([]string{http.MethodPost}, srv.handleDiagSend)(w, req)
 		if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 			t.Errorf("%s /api/v1/diag/send: status = %d, want %d", m, got, http.StatusMethodNotAllowed)
 		}

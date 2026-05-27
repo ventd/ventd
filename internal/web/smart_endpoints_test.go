@@ -34,7 +34,7 @@ func TestHandleSmartStatus_NonGET_RejectedAs405(t *testing.T) {
 	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 		req := httptest.NewRequest(m, "/api/v1/smart/status", nil)
 		w := httptest.NewRecorder()
-		srv.handleSmartStatus(w, req)
+		srv.gateMethods([]string{http.MethodGet}, srv.handleSmartStatus)(w, req)
 		if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 			t.Errorf("%s /api/v1/smart/status: status = %d, want %d", m, got, http.StatusMethodNotAllowed)
 		}
@@ -71,7 +71,7 @@ func TestHandleSmartChannels_NonGET_RejectedAs405(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/smart/channels", nil)
 	w := httptest.NewRecorder()
-	srv.handleSmartChannels(w, req)
+	srv.gateMethods([]string{http.MethodGet}, srv.handleSmartChannels)(w, req)
 
 	if got := w.Result().StatusCode; got != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", got, http.StatusMethodNotAllowed)

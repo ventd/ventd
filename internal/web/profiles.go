@@ -33,10 +33,6 @@ type profileResponse struct {
 // renders that as "no profile dropdown" so operators unaware of the
 // feature see no change.
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	live := s.cfg.Load()
 	resp := profileResponse{
 		Active:   live.ActiveProfile,
@@ -74,10 +70,6 @@ func (s *Server) handleProfileActive(w http.ResponseWriter, r *http.Request) {
 		s.writeJSON(r, w, struct {
 			Name string `json:"name"`
 		}{Name: live.ActiveProfile})
-		return
-	}
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 	var req struct {

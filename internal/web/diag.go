@@ -38,10 +38,6 @@ type diagBundleResponse struct {
 // (calibration error banner) calls this and follows the URL to deliver the
 // bundle to the operator without requiring shell access.
 func (s *Server) handleDiagBundle(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	opts := diag.Options{
 		RedactorCfg:  redactor.DefaultConfig(),
 		VentdVersion: s.version.Version,
@@ -144,11 +140,6 @@ var errIngestDisabled = errors.New("upstream ingest disabled in config")
 // daemon-side opt-in alternative; the maintainer-side receiving
 // service is a separate spec.
 func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		s.writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	live := s.cfg.Load()
 	if live == nil {
 		s.writeJSONError(w, http.StatusInternalServerError, "no live config")
