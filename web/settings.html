@@ -141,6 +141,16 @@
           </header>
           <div class="set-row">
             <div>
+              <div class="set-row-title">Disable smart mode (predictive control)</div>
+              <div class="set-row-sub">When on, ventd's predictive (learning) controller is fully bypassed — every fan follows its reactive curve only. Calibration and learned state are preserved; turn this back off to resume predictive control. Predictive control also pauses automatically on battery, in containers, during disk scrubs, for ~10 minutes after boot or resume, and if several fans stall at once.</div>
+            </div>
+            <label class="set-toggle">
+              <input type="checkbox" id="set-smart-disable">
+              <span class="set-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="set-row">
+            <div>
               <div class="set-row-title">Quietness preset</div>
               <div class="set-row-sub">Sets controller aggressiveness AND a per-host dBA budget. <strong>Silent:</strong> 25 dBA cap (whisper at desk distance). <strong>Balanced:</strong> 32 dBA (quiet office). <strong>Performance:</strong> 45 dBA (workstation under load). The override below lets you keep a preset's controller behaviour while capping noise at a custom dBA — leave blank to use the preset default.</div>
             </div>

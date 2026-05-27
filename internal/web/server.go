@@ -22,6 +22,7 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
@@ -93,6 +94,11 @@ type Server struct {
 	// /api/v1/smart/channels handler. Lock-free reads via atomic
 	// pointer-swap; nil-safe (monitor-only mode skips wiring).
 	decisions *controller.DecisionCache
+	// gate is the v0.5.9 w_pred_system global gate evaluator (R11). The
+	// /api/v1/confidence/status handler reads its snapshot to report the
+	// gate's open/closed verdict + failing reason. nil in monitor-only
+	// mode; nil-safe.
+	gate *gate.Evaluator
 	// kCalPath is the persisted R30 microphone calibration JSON
 	// (default /var/lib/ventd/acoustic/k_cal.json). The smart-mode
 	// status handler reads it to populate the mic_calibrated bool.
@@ -1614,6 +1620,13 @@ func (s *Server) SetConfidence(agg *aggregator.Aggregator, est *layer_a.Estimato
 // daemon start. (#790)
 func (s *Server) SetDecisions(d *controller.DecisionCache) {
 	s.decisions = d
+}
+
+// SetGate wires the v0.5.9 w_pred_system gate evaluator so
+// /api/v1/confidence/status reports the gate's open/closed state and
+// refusal reason. nil-safe (monitor-only mode skips wiring).
+func (s *Server) SetGate(g *gate.Evaluator) {
+	s.gate = g
 }
 
 // confidenceChannel is the JSON wire shape for one channel's

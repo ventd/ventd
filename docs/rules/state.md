@@ -199,6 +199,24 @@ without requiring manual directory creation or a special
 
 Bound: internal/state/state_test.go:TestRULE_STATE_10_DirectoryBootstrap
 
+## RULE-STATE-11: `SchemaVersionLoaded()` reports true only after a clean `openKV` load with an acceptable schema; nil receivers report false.
+
+`state.Open` runs `CheckVersion(dir)` (RULE-STATE-05: downgrade
+refused, upgrade migrated) BEFORE `openKV`, and `openKV` sets the
+`schemaOK` flag only after `load()` returns without error (a clean
+parse, or a valid empty first boot). So reaching a constructed
+`KVDB` with `schemaOK == true` means the persisted schema is
+trustworthy. `(*KVDB).SchemaVersionLoaded()` and the
+`(*State).SchemaVersionLoaded()` passthrough are nil-safe and
+return false on a nil receiver.
+
+This is the "state schema loaded" term of the v0.5.9
+`w_pred_system` global gate (spec-v0_5_9 §2.5): the confidence
+controller keeps predictive control off until persisted state is
+loaded and trustworthy.
+
+Bound: internal/state/state_test.go:TestKV_SchemaVersionLoaded
+
 ## RULE-STATE-12: KV writes refuse before mutating in-memory state when the state directory has less than iox.MinFreeBytesForState bytes free.
 
 `KVDB.Set`, `KVDB.Delete`, and `KVDB.WithTransaction` all call

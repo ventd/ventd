@@ -75,6 +75,20 @@ func (s *Server) doctorRunner() *doctor.Runner {
 		// same calibrate artifact + RAPL TDP and warns when the
 		// estimated capacity falls below CPU TDP × 1.25.
 		detectors.NewCoolingCapacityDetector(detectors.FileCoolingCapacityLoader{}),
+		// R11: surface the w_pred_system gate — whether smart-mode
+		// predictive control is engaged and, when it isn't, why. The
+		// closure reads the same atomic snapshot the blend hook uses;
+		// a nil gate (monitor-only) reports has=false → silent.
+		detectors.NewWPredGateDetector(func() (bool, string, string, bool) {
+			if s.gate == nil {
+				return false, "", "", false
+			}
+			snap := s.gate.Read()
+			if snap == nil {
+				return false, "", "", false
+			}
+			return snap.Open, string(snap.Reason), snap.Detail, true
+		}),
 	}
 	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
 	return s.doctorCache.runner

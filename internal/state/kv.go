@@ -55,10 +55,11 @@ const kvSchemaVersion = 1
 // Writes use tempfile+rename+fsync for crash safety (RULE-STATE-01).
 // A single RWMutex serialises concurrent access within the process (RULE-STATE-06).
 type KVDB struct {
-	path   string
-	logger *slog.Logger
-	mu     sync.RWMutex
-	data   map[string]map[string]any // namespace → key → value
+	path     string
+	logger   *slog.Logger
+	mu       sync.RWMutex
+	data     map[string]map[string]any // namespace → key → value
+	schemaOK bool                      // true once load() succeeded with an acceptable schema
 }
 
 func openKV(path string, logger *slog.Logger) (*KVDB, error) {
@@ -74,7 +75,25 @@ func openKV(path string, logger *slog.Logger) (*KVDB, error) {
 	if err := db.load(); err != nil {
 		return nil, err
 	}
+	// CheckVersion (in Open) already rejected downgrades and applied
+	// migrations before we got here, and load() parsed cleanly (or this
+	// is a valid first boot), so the on-disk schema is acceptable. This
+	// is the w_pred_system gate's "schema loaded" term (spec-v0_5_9 §2.5).
+	db.schemaOK = true
 	return db, nil
+}
+
+// SchemaVersionLoaded reports whether the KV store opened cleanly with an
+// acceptable schema version. Consumed by the v0.5.9 confidence
+// controller's w_pred_system global gate (spec §2.5): predictive control
+// stays off until persisted state is trustworthy. nil-safe.
+func (db *KVDB) SchemaVersionLoaded() bool {
+	if db == nil {
+		return false
+	}
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return db.schemaOK
 }
 
 // repairMode corrects the file permission if it differs from 0640 (RULE-STATE-09).

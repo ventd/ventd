@@ -166,10 +166,26 @@ type confidenceChannel struct {
 	AgeSeconds       float64 `json:"age_seconds"`
 }
 
+// confidenceGate mirrors gate.Snapshot for the API surface: the
+// w_pred_system global gate's open/closed state, the first failing
+// reason, and each AND-term, so the dashboard + doctor can explain why
+// predictive control is (or isn't) engaged. Per spec §2.5/§3.6.
+type confidenceGate struct {
+	Open            bool   `json:"open"`
+	Reason          string `json:"reason,omitempty"`
+	Detail          string `json:"detail,omitempty"`
+	SchemaLoaded    bool   `json:"schema_loaded"`
+	PreconditionsOk bool   `json:"preconditions_ok"`
+	WizardControl   bool   `json:"wizard_control"`
+	MassStalled     bool   `json:"mass_stalled"`
+	SmartDisabled   bool   `json:"smart_disabled"`
+}
+
 type confidenceStatus struct {
 	Enabled  bool                `json:"enabled"`
 	Global   string              `json:"global_state"` // worst-of-channels collapse
 	Preset   string              `json:"preset"`
+	Gate     *confidenceGate     `json:"gate,omitempty"` // nil in monitor-only mode
 	Channels []confidenceChannel `json:"channels"`
 }
 
@@ -197,6 +213,23 @@ func (s *Server) handleConfidenceStatus(w http.ResponseWriter, r *http.Request) 
 		Enabled:  true,
 		Preset:   preset,
 		Channels: make([]confidenceChannel, 0, len(aggSnaps)),
+	}
+	// w_pred_system gate state (R11): surface the open/closed verdict +
+	// the failing reason so operators see why predictive control is
+	// engaged or refused. Same atomic snapshot the blend hook reads.
+	if s.gate != nil {
+		if g := s.gate.Read(); g != nil {
+			out.Gate = &confidenceGate{
+				Open:            g.Open,
+				Reason:          string(g.Reason),
+				Detail:          g.Detail,
+				SchemaLoaded:    g.SchemaLoaded,
+				PreconditionsOk: g.PreconditionsOk,
+				WizardControl:   g.WizardControl,
+				MassStalled:     g.MassStalled,
+				SmartDisabled:   g.SmartDisabled,
+			}
+		}
 	}
 	worst := "converged" // best state; downgrades below
 	priority := map[string]int{

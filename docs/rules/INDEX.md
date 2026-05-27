@@ -39,6 +39,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration.md | Calibration validity-probe rules (PR-2b) |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
+| confidence-gate.md | w_pred_system global gate rules — v0.5.9 / R11 |
 | confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
 | coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | diag.md | Diagnostic-bundle rules (PR-2c) |
@@ -60,6 +61,7 @@ Regenerate with: `go run ./tools/rule-index`
 | ipmi-safety.md | IPMI Safety Rules |
 | liquid-safety.md | liquid-safety — invariant bindings for the Corsair AIO backend |
 | marginal.md | Layer-C marginal-benefit rules (v0.5.8) |
+| massstall.md | Mass-stall tracker rules — R11 |
 | modprobe-options-write.md | Modprobe-options-write endpoint rules — v0.5.11 R28 Stage 1 |
 | nvml-helper.md | NVML helper rules — SUID-root write-helper for unprivileged ventd |
 | observation.md | Observation Log Rules |

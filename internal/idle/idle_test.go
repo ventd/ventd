@@ -438,3 +438,27 @@ func TestRULE_IDLE_10_StartupGateReturnsSnapshot(t *testing.T) {
 		t.Fatal("StartupGate: snapshot.Timestamp must be populated")
 	}
 }
+
+// TestHardPreconditions_Ok binds RULE-IDLE-11: Ok() is the exact inverse
+// of Any() — true only when no hard precondition is active.
+func TestHardPreconditions_Ok(t *testing.T) {
+	var clear HardPreconditions
+	if !clear.Ok() || clear.Any() {
+		t.Fatalf("zero-value preconditions must be Ok and not Any")
+	}
+	for name, h := range map[string]HardPreconditions{
+		"battery":   {OnBattery: true},
+		"container": {InContainer: true},
+		"scrub":     {StorageMaintenance: true},
+		"blocked":   {BlockedProcess: "rsync"},
+		"boot":      {BootWarmup: true},
+		"resume":    {PostResumeWarmup: true},
+	} {
+		if h.Ok() == h.Any() {
+			t.Fatalf("%s: Ok() must be the inverse of Any()", name)
+		}
+		if h.Ok() {
+			t.Fatalf("%s: an active precondition must report not-Ok", name)
+		}
+	}
+}

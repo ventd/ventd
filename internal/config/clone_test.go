@@ -144,6 +144,19 @@ func TestClone_AcousticOptimisationPointerUnaliased(t *testing.T) {
 	}
 }
 
+// TestClone_SmartDisabledPointerUnaliased verifies Clone deep-copies the
+// Smart.Disabled pointer-bool so a clone can be mutated without writing
+// through to the live config (mirrors the AcousticOptimisation case).
+func TestClone_SmartDisabledPointerUnaliased(t *testing.T) {
+	tr := true
+	src := &Config{Smart: SmartConfig{Disabled: &tr}}
+	clone := src.Clone()
+	*clone.Smart.Disabled = false
+	if *src.Smart.Disabled != true {
+		t.Errorf("Smart.Disabled ptr aliased: src=%v", *src.Smart.Disabled)
+	}
+}
+
 // TestClone_EmptyContainersStayEmpty pins the "nil-vs-empty" round-trip:
 // a nil slice/map in the source must stay nil in the clone (not get
 // promoted to a non-nil empty), so reflect.DeepEqual round-trips and

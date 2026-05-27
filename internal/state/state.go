@@ -55,6 +55,16 @@ func (s *State) Close() error {
 	return s.Log.closeAll()
 }
 
+// SchemaVersionLoaded reports whether the KV store opened cleanly with an
+// acceptable schema version (spec-v0_5_9 §2.5 w_pred_system gate term).
+// nil-safe at both the State and KVDB level.
+func (s *State) SchemaVersionLoaded() bool {
+	if s == nil {
+		return false
+	}
+	return s.KV.SchemaVersionLoaded()
+}
+
 func initDirs(base string) error {
 	for _, sub := range []string{
 		base,

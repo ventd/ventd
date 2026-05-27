@@ -190,6 +190,14 @@ type Controller struct {
 	// dashboard banner + doctor surfaces own the recurring view.
 	stuckFanWarnFired bool
 
+	// stallReport + stallChannelID feed the R11 system-wide mass-stall
+	// tracker (spec-v0_5_9 §2.5 w_pred_system gate). On every committed
+	// tick the controller reports (channelID, committed PWM, observed
+	// RPM) so the gate can drop predictive control to safe when several
+	// fans are concurrently stalled. nil-safe: unset ⇒ no reporting.
+	stallReport    StallReporter
+	stallChannelID string
+
 	// fatalErr carries a fatal error from tick() to Run(). Size-1 buffer
 	// so tick can signal without blocking; Run reads it in the next select
 	// iteration and returns the error so systemd's Restart=on-failure fires.
@@ -306,6 +314,23 @@ type BlendFn func(channelID string, sensorTemp float64, reactivePWM uint8, dt ti
 // WithBlend installs the v0.5.9 confidence-gated blend hook.
 func WithBlend(fn BlendFn) Option {
 	return func(c *Controller) { c.blendFn = fn }
+}
+
+// StallReporter is the R11 mass-stall feed. The controller calls it after
+// every committed PWM write with the channel ID, the byte just written,
+// and the observed tach RPM (-1 when tach-less or the read failed). The
+// wiring layer points it at the system-wide massstall.Tracker so the
+// w_pred_system gate can see concurrent fan stalls. nil-safe.
+type StallReporter func(channelID string, commandedPWM uint8, observedRPM int32, now time.Time)
+
+// WithStallReporter wires the mass-stall feed for one channel (spec-v0_5_9
+// §2.5). channelID is the stable key the tracker counts by (the fan's
+// PWM path). nil reporter is a no-op — pre-R11 behaviour.
+func WithStallReporter(channelID string, fn StallReporter) Option {
+	return func(c *Controller) {
+		c.stallChannelID = channelID
+		c.stallReport = fn
+	}
 }
 
 // WithPolarityChannel wires the live probe.ControllableChannel into
@@ -1238,7 +1263,10 @@ func (c *Controller) emitObservationFor(chFn chanResolver, pwm uint8) {
 func (c *Controller) markTickCompleted(now time.Time, chFn chanResolver, pwm uint8) {
 	c.lastTickAt = now
 	c.hasLastTickAt = true
-	c.maybeWarnStuckFan(chFn, pwm)
+	rpm := c.maybeWarnStuckFan(chFn, pwm)
+	if c.stallReport != nil {
+		c.stallReport(c.stallChannelID, pwm, rpm, now)
+	}
 }
 
 // stuckFanWarnPWMFloor mirrors the doctor detector's
@@ -1247,27 +1275,30 @@ func (c *Controller) markTickCompleted(now time.Time, chFn chanResolver, pwm uin
 // as intended, not a stuck-fan signal.
 const stuckFanWarnPWMFloor uint8 = 77 // 30% of 255
 
-// maybeWarnStuckFan emits one slog.LevelWarn the first time the
-// channel matches the "fan not spinning" pattern: a PWM above the
-// stiction floor was just committed and the tach reads zero. Gated
-// by c.stuckFanWarnFired so the journal trail stays short — the
+// maybeWarnStuckFan reads the tach for hwmon channels above the stiction
+// floor and emits one slog.LevelWarn the first time the fan matches the
+// "not spinning" pattern (PWM above the floor, tach reads zero). Returns
+// the rpm it read, or -1 when it didn't read (non-hwmon channel, or PWM
+// below the floor) — the value markTickCompleted folds into the mass-
+// stall reporter, so the hot loop reads the tach at most once per tick.
+//
+// The fire-once gate (c.stuckFanWarnFired) suppresses only the repeat
+// WARN, NOT the read: an already-warned stuck channel must keep reporting
+// its current RPM so the mass-stall tracker reflects reality. The
 // dashboard banner + doctor surfaces own the recurring view.
 //
-// Only hwmon channels are evaluated; non-hwmon HAL backends report
-// RPM via their own paths and the polarity / phantom classifiers on
-// the read side already cover their stuck-fan analogs.
-func (c *Controller) maybeWarnStuckFan(chFn chanResolver, pwm uint8) {
-	if c.stuckFanWarnFired {
-		return
-	}
+// Only hwmon channels are evaluated; non-hwmon HAL backends report RPM
+// via their own paths and the polarity / phantom classifiers on the read
+// side already cover their stuck-fan analogs.
+func (c *Controller) maybeWarnStuckFan(chFn chanResolver, pwm uint8) int32 {
 	if c.fanType != "hwmon" && c.fanType != "" {
-		return
+		return -1
 	}
 	if pwm < stuckFanWarnPWMFloor {
-		return
+		return -1
 	}
 	rpm := c.readRPMForObs(chFn)
-	if rpm <= 0 {
+	if rpm <= 0 && !c.stuckFanWarnFired {
 		// rpm == -1 means "tach read failed / not configured"; we
 		// cannot distinguish that from "fan dead", so emit anyway —
 		// the warn text below names the path so the operator can
@@ -1280,6 +1311,7 @@ func (c *Controller) maybeWarnStuckFan(chFn chanResolver, pwm uint8) {
 			"guidance", "run 'ventd doctor' for chip-mode and connector diagnosis")
 		c.stuckFanWarnFired = true
 	}
+	return rpm
 }
 
 // readRPMForObs returns the current tach RPM for the channel, or -1

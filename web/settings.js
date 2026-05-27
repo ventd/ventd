@@ -290,6 +290,11 @@
     var t = smartCfg().dba_target;
     inp.value = (t === undefined || t === null) ? '' : String(t);
   }
+  function paintSmartDisable() {
+    var cb = $('set-smart-disable');
+    if (!cb) return;
+    cb.checked = !!smartCfg().disabled;
+  }
 
   // Mutates a set of fields on cfg.smart (deleting any whose value is
   // null) and PUTs the whole config. On success the server returns the
@@ -367,6 +372,22 @@
     });
   }
 
+  // Wire the smart-mode master disable toggle. Checked = predictive
+  // control off (cfg.smart.disabled = true); unchecking deletes the key
+  // so it returns to the enabled default. The w_pred_system gate reads
+  // the live config and refuses (UIState "refused") on its next
+  // evaluation, so the dashboard pill flips within ~2 s.
+  var smartDisableCb = $('set-smart-disable');
+  if (smartDisableCb) {
+    smartDisableCb.addEventListener('change', function () {
+      var desired = smartDisableCb.checked;
+      putSmartPatch({ disabled: desired ? true : null }).then(function (ok) {
+        if (ok) paintSmartDisable();
+        else smartDisableCb.checked = !desired; // rollback on PUT failure
+      });
+    });
+  }
+
   // Initial paint runs after the /api/v1/config GET completes — we
   // hook into the existing loadConfig flow by polling currentConfig
   // briefly. After the first non-null cache, paint and stop.
@@ -377,6 +398,7 @@
       if (currentConfig) {
         paintPresetSegments(activeSmartPreset());
         paintDbaOverride();
+        paintSmartDisable();
         clearInterval(t);
       } else if (tries > 40) {
         // 40 × 100 ms = 4 s — give up if /config never returned.

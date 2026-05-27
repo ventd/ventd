@@ -389,3 +389,22 @@ Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETEC
 Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_MissingStateDirIsBenign
 Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_MeasurementErrorSurfaces
 Bound: internal/doctor/detectors/state_freespace_d_test.go:TestRULE_DOCTOR_DETECTOR_StateFreeSpace_RespectsContextCancel
+
+## RULE-DOCTOR-DETECTOR-WPREDGATE: Surfaces the v0.5.9 w_pred_system gate — OK when open or closed for a benign reason, Warning on mass-stall, silent in monitor-only mode.
+
+The R11 `w_pred_gate` detector reports whether smart-mode predictive
+control is engaged and, when it isn't, why. It reads the gate snapshot
+through a `WPredGateStatusFn` seam (production wires it to the daemon's
+`gate.Evaluator`; tests inject a stub), keeping the detectors package
+free of an import on `internal/confidence/gate`.
+
+Severity policy: a closed gate is usually benign and expected — smart
+mode turned off in Settings, the boot/resume warm-up, on battery, the
+wizard not in control mode — so those emit a `SeverityOK` informational
+fact (a freshly-booted host must not read as faulty). Only a concurrent
+mass-stall (`reason == "mass_stall"`) is a genuine fault and emits a
+`SeverityWarning`. Monitor-only hosts (no gate, `has == false`) and a nil
+status fn emit zero facts. The `EntityHash` keys on the failing reason so
+suppressing one reason doesn't suppress another.
+
+Bound: internal/doctor/detectors/wpred_gate_d_test.go:TestWPredGateDetector

@@ -22,6 +22,7 @@ import (
 	"github.com/ventd/ventd/internal/acoustic/budget"
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/confidence/aggregator"
+	"github.com/ventd/ventd/internal/confidence/gate"
 	"github.com/ventd/ventd/internal/confidence/layer_a"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
@@ -36,6 +37,7 @@ import (
 	"github.com/ventd/ventd/internal/idle"
 	"github.com/ventd/ventd/internal/lastfatal"
 	"github.com/ventd/ventd/internal/marginal"
+	"github.com/ventd/ventd/internal/massstall"
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/observation"
 	"github.com/ventd/ventd/internal/polarity"
@@ -682,6 +684,7 @@ func run() error {
 		Blended:    buildBlendedController(channels, cfg, logger),
 		Decisions:  controller.NewDecisionCache(),
 		Channels:   channels,
+		MassStall:  buildMassStallTracker(channels, logger),
 	}
 	if obsWriter != nil {
 		// Wire the per-tick controller observation feed into Layer-A
@@ -967,6 +970,19 @@ type SmartModeBundle struct {
 	// inverted-polarity fans (NCT6683 on MSI, IT87 on some Gigabyte)
 	// receive the correctly-flipped PWM byte. Issue #1037.
 	Channels []*probe.ControllableChannel
+
+	// MassStall is the R11 system-wide concurrent-stall tracker. Each
+	// controller reports (channel, committed PWM, observed RPM) every
+	// tick via WithStallReporter; the gate evaluator reads MassStalled.
+	// nil in monitor-only mode (no controllable channels).
+	MassStall *massstall.Tracker
+
+	// Gate is the v0.5.9 w_pred_system global gate evaluator. Built in
+	// runDaemonInternal (it closes over liveCfg) and stored back here so
+	// the controller spawner and the web surface can read it. Its Run
+	// goroutine refreshes the gate snapshot every gate.RefreshInterval.
+	// nil in monitor-only mode.
+	Gate *gate.Evaluator
 }
 
 // configLoader is the function used to load a config from disk on each
@@ -1321,6 +1337,28 @@ func runDaemonInternal(
 		webSrv.SetPolarityChannels(smartMode.Channels)
 	}
 
+	// v0.5.9 w_pred_system global gate (R11). Built here — before the web
+	// server starts serving and before the controllers spawn — because it
+	// closes over liveCfg, the daemon's KV state, and the mass-stall
+	// tracker. Stored back on the bundle so SetGate (below), the spawner's
+	// blend hook, and the web surface all read the same atomic snapshot. A
+	// daemon-lifetime goroutine refreshes the gate every
+	// gate.RefreshInterval so the expensive precondition probe never runs
+	// on the per-fan hot path. Built only when there's a blend hook to read
+	// it (Blended != nil) and KV state to back the schema/wizard terms —
+	// nil otherwise, and the blend hook then reads the gate as open,
+	// preserving pre-gate behaviour.
+	if smartMode != nil && smartMode.Blended != nil && smartMode.State != nil {
+		smartMode.Gate = buildGateEvaluator(smartMode.State, smartMode.MassStall, &liveCfg, logger)
+		gateCtx, gateCancel := context.WithCancel(ctx)
+		defer gateCancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			smartMode.Gate.Run(gateCtx)
+		}()
+	}
+
 	// v0.5.9: expose the aggregator + LayerA estimator to the web
 	// layer so the dashboard's 5-state confidence pill has a data
 	// source. Both arguments are nil-safe — monitor-only mode
@@ -1335,6 +1373,10 @@ func runDaemonInternal(
 		// /api/v1/smart/channels can show the next-tick PWM target +
 		// refusal flags alongside Layer-C's MarginalSlope.
 		webSrv.SetDecisions(smartMode.Decisions)
+		// R11: expose the w_pred_system gate snapshot so
+		// /api/v1/confidence/status reports its open/closed verdict +
+		// refusal reason. nil-safe (monitor-only skips it).
+		webSrv.SetGate(smartMode.Gate)
 	}
 
 	// v0.5.5: build and launch the opportunistic-probe scheduler when
