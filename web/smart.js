@@ -597,6 +597,22 @@
     }
     var ch = state.smart.channels || 0;
     var conv = state.smart.converged || 0;
+    var notStarted = state.smart.not_started || 0;
+    // When every reported channel is pre-first-contact (the classic
+    // "1 channel · 0 stable · 0 learning" state on a fresh single-channel
+    // host), surface the opportunistic-gate reason so the operator knows
+    // WHY no probe has fired. Without this the smart page reads "1
+    // channels active · 0 stable · 0 learning" with zero explanation —
+    // #1417.
+    if (ch > 0 && conv === 0 && (state.smart.warming_up || 0) === 0 && notStarted >= ch) {
+      var reason = gateReason(state.opp);
+      var base = ch + ' channel' + (ch === 1 ? '' : 's') +
+        ' tracked · awaiting first probe.';
+      if (reason) {
+        return base + ' Opportunistic gate: ' + reason + '.';
+      }
+      return base + ' The first probe fires opportunistically when the host is idle (typically within ~24 h of install on a quiet box).';
+    }
     return ch + ' channels active · ' + conv + ' stable · ' +
       (state.smart.warming_up || 0) + ' learning';
   }
@@ -769,7 +785,24 @@
 
     var strips = el('div', { cls: 'sm-strips' });
     if (!totalChans) {
-      strips.appendChild(el('div', { cls: 'sm-strips-empty', text: 'No smart-mode channels reported by the daemon yet.' }));
+      // The strips list only has entries for channels with active
+      // aggregator snapshots; a daemon in pure monitor-only mode (no
+      // controllable PWMs) or a fresh start where every channel is
+      // pre-first-contact yields zero strips. Distinguish those two
+      // cases (#1417): if smart/status saw channels but they're all
+      // not_started, surface that — the operator's takeaway is "the
+      // controller knows your fan, it just hasn't probed yet" rather
+      // than "the daemon found nothing".
+      var msg = 'No smart-mode channels reported by the daemon yet.';
+      if ((state.smart.channels || 0) > 0 && (state.smart.not_started || 0) >= (state.smart.channels || 0)) {
+        msg = 'Smart mode is tracking ' + state.smart.channels + ' channel' +
+          (state.smart.channels === 1 ? '' : 's') +
+          ' but no opportunistic probe has fired yet. The first probe ' +
+          'lands when the host has been idle for a sustained window.';
+        var gReason = gateReason(state.opp);
+        if (gReason) msg += ' Gate currently: ' + gReason + '.';
+      }
+      strips.appendChild(el('div', { cls: 'sm-strips-empty', text: msg }));
     } else {
       state.channels.channels.forEach(function (c) {
         strips.appendChild(buildFanStrip(c));
