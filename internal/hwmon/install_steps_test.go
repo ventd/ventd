@@ -306,3 +306,82 @@ func TestHalBackendChannelCount(t *testing.T) {
 		}
 	})
 }
+
+// TestUnloadSupersededCompetitors covers the #1397 fix: after a verified OOT
+// install, a superseded in-kernel driver that stayed resident (loaded
+// alongside the OOT driver rather than failing the modprobe with EPERM) is
+// torn down and blacklisted, so the in-session module set matches the
+// post-reboot single-driver state.
+func TestUnloadSupersededCompetitors(t *testing.T) {
+	origLoaded, origRemove, origBlacklist := moduleIsLoaded, modprobeRemove, persistBlacklist
+	t.Cleanup(func() {
+		moduleIsLoaded, modprobeRemove, persistBlacklist = origLoaded, origRemove, origBlacklist
+	})
+
+	nct6687Cfg := func(logs *[]string) PipelineConfig {
+		return PipelineConfig{
+			Driver: DriverNeed{Module: "nct6687", ChipName: "NCT6687D"},
+			Log:    func(s string) { *logs = append(*logs, s) },
+		}
+	}
+
+	t.Run("resident_competitor_unloaded_and_blacklisted", func(t *testing.T) {
+		var removed, blacklisted []string
+		moduleIsLoaded = func(m string) bool { return m == "nct6683" }
+		modprobeRemove = func(m string) ([]byte, error) { removed = append(removed, m); return nil, nil }
+		persistBlacklist = func(_, m string) error { blacklisted = append(blacklisted, m); return nil }
+
+		var logs []string
+		unloadSupersededCompetitors(nct6687Cfg(&logs))
+
+		if len(removed) != 1 || removed[0] != "nct6683" {
+			t.Fatalf("want nct6683 unloaded, got %v", removed)
+		}
+		if len(blacklisted) != 1 || blacklisted[0] != "nct6683" {
+			t.Fatalf("want nct6683 blacklisted, got %v", blacklisted)
+		}
+	})
+
+	t.Run("competitor_not_loaded_is_left_alone", func(t *testing.T) {
+		var removed, blacklisted []string
+		moduleIsLoaded = func(string) bool { return false }
+		modprobeRemove = func(m string) ([]byte, error) { removed = append(removed, m); return nil, nil }
+		persistBlacklist = func(_, m string) error { blacklisted = append(blacklisted, m); return nil }
+
+		var logs []string
+		unloadSupersededCompetitors(nct6687Cfg(&logs))
+
+		if len(removed) != 0 || len(blacklisted) != 0 {
+			t.Fatalf("want no action when competitor absent; removed=%v blacklisted=%v", removed, blacklisted)
+		}
+	})
+
+	t.Run("busy_competitor_still_blacklisted_for_next_boot", func(t *testing.T) {
+		var blacklisted []string
+		moduleIsLoaded = func(string) bool { return true }
+		modprobeRemove = func(string) ([]byte, error) {
+			return []byte("FATAL: Module nct6683 is in use"), errors.New("exit status 1")
+		}
+		persistBlacklist = func(_, m string) error { blacklisted = append(blacklisted, m); return nil }
+
+		var logs []string
+		unloadSupersededCompetitors(nct6687Cfg(&logs)) // must not panic and must still blacklist
+
+		if len(blacklisted) != 1 || blacklisted[0] != "nct6683" {
+			t.Fatalf("blacklist must be written even when unload fails, got %v", blacklisted)
+		}
+	})
+
+	t.Run("driver_with_no_competitors_is_a_noop", func(t *testing.T) {
+		moduleIsLoaded = func(string) bool {
+			t.Fatal("moduleIsLoaded should not run for a driver with no competitors")
+			return false
+		}
+		modprobeRemove = func(string) ([]byte, error) { t.Fatal("modprobeRemove should not run"); return nil, nil }
+		persistBlacklist = func(string, string) error { t.Fatal("persistBlacklist should not run"); return nil }
+
+		var logs []string
+		cfg := PipelineConfig{Driver: DriverNeed{Module: "it87"}, Log: func(s string) { logs = append(logs, s) }}
+		unloadSupersededCompetitors(cfg)
+	})
+}
