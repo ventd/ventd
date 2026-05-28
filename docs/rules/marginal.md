@@ -60,6 +60,24 @@ predicted slope's sign. Belt + braces alongside signguard
 
 Bound: internal/marginal/shard_test.go:TestSaturation_FalseDuringWarmup
 
+## RULE-CMB-SAT-04: Path-B observed-saturation accumulates only on upward-ramp ticks.
+
+#1253 refinement of RULE-CMB-SAT-02. Saturation per spec-v0_5_8
+is "a ramp that paid acoustic cost for zero thermal benefit" —
+i.e. ΔPWM > 0 produced ΔT ≈ 0. Without the ramp precondition,
+a stable idle box (controller holds PWM steady → ΔT ≈ 0
+because there is no heat to remove) accumulates the run within
+20 s and latches SaturationAdmit = false, zeroing conf_C
+forever. ObserveOutcome now increments observedZeroDeltaTRun
+only when rampingUp AND |ΔT| < SaturationDeltaT; |ΔT| ≥
+SaturationDeltaT still resets the run regardless of ramp
+direction (direct evidence the system is thermally
+responsive); a non-ramp sub-ΔT tick HOLDS the run (no
+evidence either way). Locked constants SaturationDeltaT (2 °C)
+and SaturationNWritesFastLoop (20) are unchanged.
+
+Bound: internal/marginal/shard_test.go:TestSaturation_HoldOnIdle_NoFalseSaturation
+
 ## RULE-CMB-WARMUP-01: Three-condition gate + parent Layer-B clearance.
 
 R10 §10.4 gate: n_samples ≥ 5·d² = 20 AND tr(P) ≤ 0.5·tr(P_0)

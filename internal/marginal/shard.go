@@ -312,18 +312,41 @@ func (s *Shard) IsSaturated(deltaPWM int, load float64) bool {
 // write, driving the Path-B observed-saturation gate (R11 §0).
 //
 // currentPWM is recorded as ObservedSaturationPWM the first time a
-// 20-write streak completes; reset to 0 when the streak breaks.
-func (s *Shard) ObserveOutcome(deltaT float64, currentPWM uint8) {
+// SaturationNWritesFastLoop streak completes; reset to 0 when the
+// streak breaks.
+//
+// rampingUp is true when the controller commanded MORE cooling this
+// tick than last (PWM strictly increased). Saturation per spec-v0_5_8
+// is "a ramp that paid acoustic cost for zero thermal benefit" — so
+// only upward-ramp ticks count toward the run. On a stable idle box
+// the controller holds PWM steady (rampingUp=false), and we HOLD the
+// run rather than incrementing — otherwise idle (ΔT≈0 because there
+// is no heat) is misread as saturation (ΔT≈0 because the fan can't
+// help) and conf_C latches at 0 forever (#1253 / RULE-CMB-SAT-04). A
+// clear thermal change (|ΔT| ≥ SaturationDeltaT) still resets the run
+// regardless of ramp direction — it is direct evidence the system is
+// responsive.
+//
+// The locked constants SaturationDeltaT and SaturationNWritesFastLoop
+// (R11 §0) are unchanged; only the conditions under which the run
+// accumulates are refined.
+func (s *Shard) ObserveOutcome(deltaT float64, currentPWM uint8, rampingUp bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if math.Abs(deltaT) < SaturationDeltaT {
+	switch {
+	case math.Abs(deltaT) >= SaturationDeltaT:
+		// Direct evidence of responsiveness — clear the run.
+		s.observedZeroDeltaTRun = 0
+		s.observedSaturationPWM = 0
+	case rampingUp:
+		// We commanded more cooling and got no measurable benefit.
 		s.observedZeroDeltaTRun++
 		if s.observedZeroDeltaTRun == SaturationNWritesFastLoop {
 			s.observedSaturationPWM = currentPWM
 		}
-	} else {
-		s.observedZeroDeltaTRun = 0
-		s.observedSaturationPWM = 0
+		// default: not ramping up AND ΔT below the noise floor — HOLD
+		// the existing run (no excitation this tick, nothing learned
+		// about saturation either way).
 	}
 	s.publish()
 }

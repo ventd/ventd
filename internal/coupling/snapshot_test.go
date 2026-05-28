@@ -119,3 +119,86 @@ func TestConfidence_NilReceiverReturnsZero(t *testing.T) {
 		t.Fatalf("nil Snapshot.Confidence() = %v, want 0", got)
 	}
 }
+
+// RULE-CPL-CONF-RESID-01: when κ > 10⁴ marks the coupling
+// unidentifiable but the EWMA of the squared prediction residual shows
+// the AR component still predicts well, a stable-regime escape
+// substitutes a residual-based term for the (then-zero)
+// identifiability term. Without it an idle box's conf_B is trapped at
+// 0 forever (#1253) and w_pred = min(A, B, C) can never rise.
+func TestConfidence_StableRegimeEscapeAtHighKappa(t *testing.T) {
+	t.Parallel()
+	s := &Snapshot{
+		Kind:         KindUnidentifiable,
+		Theta:        []float64{0.99, 0.0},
+		NSamples:     1000, // sample term = 1.0
+		TrP:          0.0,  // covariance term = 1.0
+		Kappa:        1e6,  // identifiabilityTerm = 0
+		EWMAResidual: 0.04, // √0.04 = 0.2°C ≪ 2°C floor → residualTerm ≈ 0.9
+		WarmingUp:    false,
+	}
+	got := s.Confidence()
+	if got <= 0 {
+		t.Fatalf("stable-regime escape: Confidence at κ=1e6, EWMA(e²)=0.04 = %v, want > 0", got)
+	}
+	if got >= 1.0 {
+		t.Fatalf("stable-regime escape: Confidence = %v, want < 1.0 (residual term caps below 1)", got)
+	}
+}
+
+// RULE-CPL-CONF-RESID-02: the stable-regime escape self-revokes the
+// moment EWMA(e²) climbs out of the noise floor. This is what keeps
+// the escape safe: confidence retracts the instant the model stops
+// predicting.
+func TestConfidence_StableRegimeEscapeRevertsOnRisingResidual(t *testing.T) {
+	t.Parallel()
+	s := &Snapshot{
+		Kind:         KindUnidentifiable,
+		NSamples:     1000,
+		TrP:          0.0,
+		Kappa:        1e6,
+		EWMAResidual: 100.0, // √100 = 10°C ≫ 2°C floor → residualTerm = 0
+		WarmingUp:    false,
+	}
+	if got := s.Confidence(); got != 0 {
+		t.Fatalf("stable-regime escape MUST collapse when residual exceeds the noise floor; got %v, want 0", got)
+	}
+}
+
+// A zero / unset residual must NOT slip through the escape as
+// "perfect prediction." The shard has no observed residual yet → no
+// data to base an escape on.
+func TestConfidence_StableRegimeRequiresNonzeroResidual(t *testing.T) {
+	t.Parallel()
+	s := &Snapshot{
+		Kind:         KindUnidentifiable,
+		NSamples:     1000,
+		TrP:          0.0,
+		Kappa:        1e6,
+		EWMAResidual: 0, // never observed
+		WarmingUp:    false,
+	}
+	if got := s.Confidence(); got != 0 {
+		t.Fatalf("escape MUST require a recorded residual (EWMA > 0); got %v at EWMA=0, want 0", got)
+	}
+}
+
+// Pin the existing log10-taper band — the #1253 escape must NOT alter
+// behaviour anywhere in [κ=100, κ=10⁴] where the model IS identifiable.
+// If the escape ever fires in this band, conf_B's identifiability
+// taper has effectively been replaced by the residual term and the
+// locked R10 §10.2 semantics are gone.
+func TestConfidence_StableRegimeDoesNotFireInTaperBand(t *testing.T) {
+	t.Parallel()
+	s := &Snapshot{
+		NSamples:     1000,
+		TrP:          0.0,
+		Kappa:        1000, // log10=3 → identifiabilityTerm = 0.5
+		EWMAResidual: 1.0,  // would give residualTerm = 0.5 IF consulted (it must not be)
+		WarmingUp:    false,
+	}
+	got := s.Confidence()
+	if math.Abs(got-0.5) > 1e-9 {
+		t.Fatalf("κ=1000 (in the locked log10 taper band): got %v, want 0.5; the escape must not fire here", got)
+	}
+}

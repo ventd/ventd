@@ -94,7 +94,7 @@ func TestSaturation_Path_A_Predicted(t *testing.T) {
 func TestSaturation_Path_B_Observed(t *testing.T) {
 	s := convergedShard(t, []float64{3.0, 0.0}) // Path A would say not-saturated
 	for i := 0; i < SaturationNWritesFastLoop; i++ {
-		s.ObserveOutcome(0.5, 200) // sub-2°C ΔT
+		s.ObserveOutcome(0.5, 200, true) // sub-2°C ΔT on an upward ramp
 	}
 	if !s.IsSaturated(1, 0.0) {
 		t.Errorf("expected saturated via Path B after %d sub-2°C writes",
@@ -104,7 +104,7 @@ func TestSaturation_Path_B_Observed(t *testing.T) {
 		t.Errorf("ObservedSaturationPWM = %d; want 200", got)
 	}
 	// Break the streak.
-	s.ObserveOutcome(5.0, 200)
+	s.ObserveOutcome(5.0, 200, true)
 	if s.Read().ObservedSaturationPWM != 0 {
 		t.Errorf("streak break should reset ObservedSaturationPWM to 0")
 	}
@@ -273,4 +273,68 @@ func (r *rng) Gaussian() float64 {
 	}
 	u2 := r.Float64()
 	return math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
+}
+
+// RULE-CMB-SAT-04 (#1253): the Path-B observed-saturation gate must
+// not accumulate on non-ramp ticks. On a stable idle box the
+// controller holds PWM steady, so ΔT≈0 reflects "no heat to remove,"
+// not "fan can't help." Counting such ticks as saturation latches
+// SaturationAdmit=false → conf_C=0 forever, the #1253 bug.
+func TestSaturation_HoldOnIdle_NoFalseSaturation(t *testing.T) {
+	s := convergedShard(t, []float64{3.0, 0.0})
+	for i := 0; i < SaturationNWritesFastLoop*2; i++ {
+		s.ObserveOutcome(0.5, 100, false) // sub-ΔT, NOT ramping up
+	}
+	if s.IsSaturated(1, 0.0) {
+		t.Errorf("idle (rampingUp=false) MUST NOT trigger Path-B saturation; got saturated after %d non-ramp ticks",
+			SaturationNWritesFastLoop*2)
+	}
+	if got := s.Read().ObservedZeroDeltaTRun; got != 0 {
+		t.Errorf("idle ticks must not accumulate the saturation run; got ObservedZeroDeltaTRun=%d", got)
+	}
+	if !s.Read().SaturationAdmitR11 {
+		t.Errorf("SaturationAdmitR11 must remain true on a stable idle box; got false")
+	}
+}
+
+// Once a ramp-up streak has accumulated, subsequent non-ramp ticks
+// HOLD the run (neither increment nor reset). A clear ΔT still resets
+// regardless of ramp direction — direct evidence of responsiveness.
+func TestSaturation_HoldsRunOnNonRampMidStreak(t *testing.T) {
+	s := convergedShard(t, []float64{3.0, 0.0})
+	for i := 0; i < 5; i++ {
+		s.ObserveOutcome(0.5, 200, true) // ramp-up + sub-ΔT
+	}
+	if got := s.Read().ObservedZeroDeltaTRun; got != 5 {
+		t.Fatalf("setup: ObservedZeroDeltaTRun = %d, want 5", got)
+	}
+	for i := 0; i < 30; i++ {
+		s.ObserveOutcome(0.3, 200, false) // sub-ΔT but no ramp
+	}
+	if got := s.Read().ObservedZeroDeltaTRun; got != 5 {
+		t.Errorf("non-ramp sub-ΔT ticks must HOLD the run; got %d, want 5", got)
+	}
+	// A clear ΔT still resets even without a ramp — direct evidence the
+	// system is thermally responsive.
+	s.ObserveOutcome(5.0, 200, false)
+	if got := s.Read().ObservedZeroDeltaTRun; got != 0 {
+		t.Errorf("|ΔT| ≥ SaturationDeltaT MUST reset regardless of ramp direction; got %d, want 0", got)
+	}
+}
+
+// Ramp-up + sub-ΔT counts; this is the spec's "ramp paid acoustic
+// cost for zero benefit" case and is unchanged by the #1253 refinement.
+func TestSaturation_RampUpCountsAsBefore(t *testing.T) {
+	s := convergedShard(t, []float64{3.0, 0.0})
+	for i := 0; i < SaturationNWritesFastLoop; i++ {
+		s.ObserveOutcome(0.5, 220, true)
+	}
+	if got := s.Read().ObservedZeroDeltaTRun; got != SaturationNWritesFastLoop {
+		t.Fatalf("ramp-up sub-ΔT ticks must still accumulate; got %d, want %d",
+			got, SaturationNWritesFastLoop)
+	}
+	if !s.IsSaturated(1, 0.0) {
+		t.Errorf("expected saturated via Path-B at %d ramp-up sub-ΔT ticks; got not saturated",
+			SaturationNWritesFastLoop)
+	}
 }
