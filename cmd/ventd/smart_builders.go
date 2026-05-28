@@ -419,6 +419,12 @@ func buildLayerAEstimator(
 		"loaded", loaded,
 		"cold_start", fresh,
 		"hwmon_fp", hwmonFingerprint)
+	// Stamp the persistence context onto the Estimator so the daemon's
+	// LayerA.Run goroutine (started in runDaemon alongside Coupling.Run
+	// / Marginal.Run) knows where to write the per-minute Save snapshot.
+	// Without this, Save is never called and every restart cold-starts
+	// — RULE-CONFA-PERSIST-RUNNER-01.
+	est.SetPersistContext(stateDir, hwmonFingerprint, logger)
 	return est
 }
 

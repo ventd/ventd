@@ -1,8 +1,10 @@
 package layer_a
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -31,6 +33,14 @@ const DefaultNoiseFloor = 150.0
 //	norm_residual = clamp(rms_residual / (5 · noise_floor), 0, 1)
 const NormResidualScale = 5.0
 
+// PersistEvery is the cadence of the periodic-save goroutine the
+// daemon spins up via Estimator.Run (RULE-CONFA-PERSIST-RUNNER-01).
+// Matches internal/coupling.PersistEvery and internal/marginal.PersistEvery
+// so all three smart-mode layers persist in lockstep. Declared as a var
+// (not a const) so persistence-runner tests can override it; production
+// callers must not write to it.
+var PersistEvery = time.Minute
+
 // Config drives Estimator construction.
 type Config struct{}
 
@@ -40,6 +50,39 @@ type Config struct{}
 type Estimator struct {
 	mu       sync.Mutex
 	channels map[string]*channelState
+
+	// Persistence-runner inputs, set by SetPersistContext. Stored on
+	// the Estimator (rather than threaded through Run's signature) so
+	// Run's surface matches internal/coupling.Runtime.Run and
+	// internal/marginal.Runtime.Run — daemon wiring in cmd/ventd/main.go
+	// invokes all three the same way. stateDir == "" disables the
+	// runner; hwmonFingerprint is stamped on every persisted bucket.
+	// Protected by mu.
+	stateDir         string
+	hwmonFingerprint string
+	logger           *slog.Logger
+
+	// runStarted is set by Run on first entry and guarantees the
+	// periodic-save loop is launched at most once over the
+	// Estimator's lifetime (mirrors internal/coupling.Runtime.runStarted
+	// and internal/marginal.Runtime.runStarted). Protected by mu.
+	runStarted bool
+}
+
+// SetPersistContext stamps the state directory + hwmon fingerprint
+// the periodic-save runner will use. Called once by
+// cmd/ventd/smart_builders.go:buildLayerAEstimator after the load
+// loop completes. Safe to call before Run; not safe to call
+// concurrently with Run. A subsequent Run with an empty stateDir
+// short-circuits to a no-op runner.
+//
+// logger may be nil — Run falls back to slog.Default().
+func (e *Estimator) SetPersistContext(stateDir, hwmonFingerprint string, logger *slog.Logger) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.stateDir = stateDir
+	e.hwmonFingerprint = hwmonFingerprint
+	e.logger = logger
 }
 
 // channelState holds the in-memory per-channel histogram and counters.
@@ -282,4 +325,79 @@ func (e *Estimator) String() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return fmt.Sprintf("layer_a.Estimator{channels=%d}", len(e.channels))
+}
+
+// Run drives the periodic-save loop until ctx is cancelled. Mirrors
+// internal/coupling.Runtime.Run and internal/marginal.Runtime.Run so
+// all three smart-mode layers persist in lockstep at PersistEvery
+// cadence (1 min). Layer-A is simpler than B/C because Save already
+// walks every channel internally, so one ticker and one Save per tick
+// is the whole loop.
+//
+// Without this runner, Save is never called in production: only
+// LoadChannel runs at startup (cmd/ventd/smart_builders.go:
+// buildLayerAEstimator), so a daemon restart always finds zero
+// persisted state and cold-starts every channel — conf_A collapses
+// to √(1/16) = 0.25 on the first idle PWM bin and never recovers
+// without an external excitation source. This is the regression
+// RULE-CONFA-PERSIST-RUNNER-01 pins.
+//
+// The state directory + hwmon fingerprint + logger are read from the
+// Estimator (set by SetPersistContext). An empty stateDir short-
+// circuits the runner — matches the empty-stateDir case in
+// buildLayerAEstimator where state-dir resolution failed and the
+// daemon runs in-memory only.
+//
+// Calling Run twice on the same Estimator returns an error — matches
+// coupling.Runtime.Run / marginal.Runtime.Run.
+func (e *Estimator) Run(ctx context.Context) error {
+	e.mu.Lock()
+	stateDir := e.stateDir
+	hwmonFingerprint := e.hwmonFingerprint
+	logger := e.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if stateDir == "" {
+		e.mu.Unlock()
+		logger.Info("layer_a: persistence runner not started (stateDir empty)")
+		return nil
+	}
+	if e.runStarted {
+		e.mu.Unlock()
+		return errors.New("layer_a: Run already called")
+	}
+	e.runStarted = true
+	channelCount := len(e.channels)
+	e.mu.Unlock()
+
+	logger.Info("layer_a: persistence runner started",
+		"channels", channelCount,
+		"persist_every", PersistEvery,
+		"state_dir", stateDir)
+	defer logger.Info("layer_a: persistence runner stopped")
+
+	persistTick := time.NewTicker(PersistEvery)
+	defer persistTick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Final save before exit, matching Layer-B / Layer-C shutdown
+			// behaviour. Errors are warned but never returned — the daemon
+			// is shutting down anyway, and the next start will cold-start
+			// from whatever the prior periodic save persisted.
+			if err := e.Save(stateDir, hwmonFingerprint); err != nil {
+				logger.Warn("layer_a: shutdown save failed", "err", err)
+			}
+			return ctx.Err()
+		case <-persistTick.C:
+			if err := e.Save(stateDir, hwmonFingerprint); err != nil {
+				logger.Warn("layer_a: periodic save failed", "err", err)
+				continue
+			}
+			logger.Debug("layer_a: periodic save complete",
+				"channels", channelCount)
+		}
+	}
 }
