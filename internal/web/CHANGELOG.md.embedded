@@ -9,6 +9,10 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- **The driver installer no longer leaves a superseded in-kernel driver loaded alongside the out-of-tree replacement after a successful `modprobe`.** `stepModprobe` only unloaded the competing in-kernel driver (`nct6683` for the OOT `nct6687`) inside its `Operation not permitted` retry branch — i.e. only when the in-kernel driver had *exclusively* claimed the chip and the OOT load failed with EPERM. On kernels where the two coexist (Proxmox `7.0.2-pve`, where `modprobe nct6687` succeeds even though `nct6683` is already bound to the NCT6687D), the success path returned immediately, leaving both drivers resident and polling the same Super-I/O register window until the next reboot — and leaving ventd's hwmon topology tracker keyed to the read-only shadow device, so removing that shadow (`rmmod nct6683`) flipped the web UI to monitor-only even though the controllable OOT device was still present and driving all channels. `RunPipeline` now tears down any still-resident superseded competitor after `stepVerify` confirms the OOT driver exposes controllable PWM, and writes the persistent blacklist so it can't reload at boot — matching the post-reboot single-driver state; a competitor still held by another consumer is logged and left for the reboot rather than failing the install. A shared `unloadAndBlacklistModule` helper de-duplicates this with the existing EPERM retry path. Surfaced by a from-`main` factory-reset reinstall test on an MSI PRO Z690-A DDR4 (NCT6687D). (#1397)
+
 ## [v1.3.0] - 2026-05-28
 
 ### Added

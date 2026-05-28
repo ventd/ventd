@@ -190,6 +190,17 @@ func RunPipeline(c PipelineConfig) error {
 		return fmt.Errorf("step verify: %w", err)
 	}
 
+	// The OOT driver is loaded and verified controllable. On kernels where
+	// a superseded in-kernel driver coexisted with it rather than blocking
+	// the load with EPERM (e.g. Proxmox 7.0.2-pve, where nct6683 and the
+	// OOT nct6687 both bound the NCT6687D), the shadow is still resident.
+	// Tear it down now so the in-session module set matches the post-reboot
+	// single-driver state and the topology tracker keys the chip to the
+	// controllable device, not the read-only shadow (#1397). Runs only
+	// after stepVerify so a driver that loaded but never took control never
+	// triggers an unload.
+	unloadSupersededCompetitors(c)
+
 	if err := stepPersist(c); err != nil {
 		// Persist failure is logged but doesn't fail the pipeline — the
 		// module is loaded and working; persistence affects survival
@@ -350,19 +361,7 @@ func stepModprobe(c PipelineConfig) error {
 			c.Log(fmt.Sprintf("In-kernel driver conflict detected — unloading %s...",
 				strings.Join(competitors, ", ")))
 			for _, m := range competitors {
-				n, a := rootArgv("modprobe", []string{"-r", m})
-				if rmOut, rmErr := exec.Command(n, a...).CombinedOutput(); rmErr != nil {
-					c.Log(fmt.Sprintf("  warning: could not unload %s: %v (%s)",
-						m, rmErr, strings.TrimSpace(string(rmOut))))
-				} else {
-					c.Log(fmt.Sprintf("  unloaded %s", m))
-				}
-				// Persist a blacklist so the competing driver
-				// doesn't auto-reload on next boot.
-				blPath := "/etc/modprobe.d/ventd-blacklist-" + m + ".conf"
-				if blErr := writeBlacklistDropIn(blPath, m); blErr != nil {
-					c.Log(fmt.Sprintf("  warning: could not blacklist %s persistently: %v", m, blErr))
-				}
+				unloadAndBlacklistModule(c, m)
 			}
 			c.Log("Retrying driver load...")
 			out2, err2 := exec.Command(mpName, mpArgs...).CombinedOutput()
@@ -397,6 +396,61 @@ func competingModulesFor(targetModule string) []string {
 		return []string{"nct6683"}
 	default:
 		return nil
+	}
+}
+
+// Test seams for the competitor-teardown helpers below. Production wiring
+// points at the real probe + exec; unit tests override these to exercise
+// the decision logic without root, a live /proc/modules, or touching
+// /etc/modprobe.d.
+var (
+	moduleIsLoaded   = moduleLoaded
+	persistBlacklist = writeBlacklistDropIn
+	modprobeRemove   = func(module string) ([]byte, error) {
+		n, a := rootArgv("modprobe", []string{"-r", module})
+		return exec.Command(n, a...).CombinedOutput()
+	}
+)
+
+// unloadAndBlacklistModule removes one competing in-kernel module and writes
+// a persistent blacklist drop-in so it does not auto-reload at the next
+// boot. Best-effort and never fatal: a busy module (another consumer still
+// holds it) is logged and left loaded — the blacklist still keeps it from
+// reappearing after a reboot. Shared by the EPERM-conflict retry path in
+// stepModprobe and the post-verify cleanup in unloadSupersededCompetitors.
+func unloadAndBlacklistModule(c PipelineConfig, module string) {
+	if out, err := modprobeRemove(module); err != nil {
+		c.Log(fmt.Sprintf("  warning: could not unload %s: %v (%s)",
+			module, err, strings.TrimSpace(string(out))))
+	} else {
+		c.Log(fmt.Sprintf("  unloaded %s", module))
+	}
+	// Persist a blacklist so the competing driver doesn't auto-reload on
+	// next boot and re-create the dual-bind.
+	blPath := "/etc/modprobe.d/ventd-blacklist-" + module + ".conf"
+	if err := persistBlacklist(blPath, module); err != nil {
+		c.Log(fmt.Sprintf("  warning: could not blacklist %s persistently: %v", module, err))
+	}
+}
+
+// unloadSupersededCompetitors tears down any in-kernel driver that the
+// just-installed OOT driver supersedes but that stayed resident because
+// `modprobe <oot>` succeeded alongside it instead of failing with EPERM
+// (#1397). Leaving the read-only shadow loaded lets two drivers poll the
+// same Super-I/O register window and lets the hwmon topology tracker key
+// the chip identity to the wrong device, which then mis-reports
+// monitor-only if that device is later removed. The caller runs this only
+// after stepVerify has confirmed the OOT driver exposes controllable PWM,
+// so a shadow is never removed when the OOT load did not actually take
+// control of the chip.
+func unloadSupersededCompetitors(c PipelineConfig) {
+	for _, m := range competingModulesFor(c.Driver.Module) {
+		if !moduleIsLoaded(m) {
+			continue
+		}
+		c.Log(fmt.Sprintf("Removing superseded in-kernel driver %s (loaded alongside %s)...",
+			m, c.Driver.Module))
+		unloadAndBlacklistModule(c, m)
 	}
 }
 
