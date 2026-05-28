@@ -4,11 +4,17 @@
 // smart so far). On load:
 //   1. Match the page's pathname to a per-page content entry (PAGES).
 //   2. If no entry: silent no-op.
-//   3. If entry exists AND localStorage 'ventd-walkthrough-<page>' is
-//      unset: inject a dismissible card just under the topbar
+//   3. If the global "seen-all" flag OR the per-page flag is set in
+//      localStorage: silent no-op (the operator has already met the
+//      walkthrough pattern; subsequent pages skip).
+//   4. Otherwise: inject a dismissible card just under the topbar
 //      describing what the operator is looking at.
-//   4. On dismiss: localStorage.setItem('ventd-walkthrough-<page>', '1')
-//      so subsequent loads skip.
+//   5. On dismiss: localStorage.setItem of both the per-page flag and
+//      the global "seen-all" flag. The first walkthrough an operator
+//      dismisses opts them out of *all* subsequent walkthrough cards
+//      — the prior per-page-only behaviour meant a fresh-install user
+//      navigated dashboard → smart → hardware and dismissed three
+//      separate cards before reaching the page they wanted (#1413).
 //
 // All content is plain text rendered through textContent — no
 // innerHTML, no markdown library, RULE-UI-01.
@@ -66,14 +72,23 @@
   }
 
   function storageKeyFor(page) { return 'ventd-walkthrough-' + page; }
+  var SEEN_ALL_KEY = 'ventd-walkthrough-seen-all';
 
   function alreadySeen(page) {
-    try { return localStorage.getItem(storageKeyFor(page)) === '1'; }
+    try {
+      if (localStorage.getItem(SEEN_ALL_KEY) === '1') return true;
+      return localStorage.getItem(storageKeyFor(page)) === '1';
+    }
     catch (_) { return true; } // no localStorage → treat as seen, never show
   }
 
   function markSeen(page) {
-    try { localStorage.setItem(storageKeyFor(page), '1'); } catch (_) {}
+    try {
+      localStorage.setItem(storageKeyFor(page), '1');
+      // Also flip the global flag so other pages' walkthroughs don't fire
+      // — one dismissal is enough; the operator has met the pattern (#1413).
+      localStorage.setItem(SEEN_ALL_KEY, '1');
+    } catch (_) {}
   }
 
   function renderBanner(page, entry) {
