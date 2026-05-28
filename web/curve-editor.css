@@ -8,6 +8,30 @@
   gap: 18px;
   align-items: stretch;
 }
+/* Empty-state takeover (#1419): when ce-empty-state isn't hidden, swap
+ * to a single-column layout so the takeover card sits where the
+ * three-column scaffolding used to be. The default three-column rule
+ * above still wins for the populated case. */
+.ce-page:has(#ce-empty-state:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ce-empty {
+  padding: 28px 28px 24px;
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  min-height: 360px;
+}
+.ce-empty-head { display: flex; }
+.ce-empty-body { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.ce-empty-body h2 { margin: 0; font-size: 1.1rem; color: var(--fg1); }
+.ce-empty-body p  { margin: 0; color: var(--fg2); line-height: 1.55; font-size: 0.92rem; }
+.ce-empty-cta { display: flex; gap: 10px; margin-top: 6px; }
+/* When the empty state is on, hide the three-column siblings entirely. */
+.ce-page:has(#ce-empty-state:not([hidden])) .ce-list,
+.ce-page:has(#ce-empty-state:not([hidden])) .ce-graph,
+.ce-page:has(#ce-empty-state:not([hidden])) .ce-props { display: none; }
 
 /* ── left list ────────────────────────────────────────────── */
 .ce-list {

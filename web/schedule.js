@@ -340,7 +340,18 @@
       })
       .catch(function () { if (!inDemo) { inDemo = true; loadDemo(); } });
   }
+  function applyEmptyState() {
+    // Hide the scaffolding (header + timeline + week + table) when no
+    // profiles exist and show a single CTA card instead (#1419). The
+    // CSS uses :has() to collapse those panes when sched-empty-state
+    // isn't hidden — keeping the layout swap a single attribute toggle.
+    var empty = document.getElementById('sched-empty-state');
+    if (!empty) return;
+    var profiles = (profilesData && profilesData.profiles) || {};
+    empty.hidden = Object.keys(profiles).length > 0;
+  }
   function renderAll() {
+    applyEmptyState();
     renderHeader();
     renderTimeline();
     renderWeek();
