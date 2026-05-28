@@ -1,10 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	stdlog "log"
 	"log/slog"
@@ -1420,13 +1422,59 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	// 1 MiB is well above any realistic ventd config (fan/sensor lists plus
 	// curves are measured in KB). Anything beyond that is pathological.
 	limitBody(w, r, defaultMaxBody)
-	var incoming config.Config
-	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
 		if isMaxBytesErr(err) {
 			s.writeJSONError(w, http.StatusRequestEntityTooLarge, "config too large")
 			return
 		}
+		s.writeJSONError(w, http.StatusBadRequest, "read body: "+err.Error())
+		return
+	}
+	if len(bytes.TrimSpace(bodyBytes)) == 0 {
+		s.writeJSONError(w, http.StatusBadRequest, "empty request body")
+		return
+	}
+
+	// Top-level merge against the live config. Decode the body into a map
+	// of present keys; absent keys mean "leave unchanged" rather than
+	// "replace with the zero-value default". Without this, a caller
+	// sending `{"smart": {"preset": "silent"}}` silently wiped sensors /
+	// fans / curves / controls / web (LAN-binding regression on
+	// web.listen falling back to 127.0.0.1:9999 — #1408). The frontend
+	// always re-PUTs the full GET'd config so this doesn't change its
+	// behaviour; the merge protects curl, scripts, and accidental partial
+	// bodies. Within a present top-level key the value still replaces
+	// fully (no deep-merge) — operators reaching for nested edits should
+	// use PATCH or send the full sub-object they want.
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(bodyBytes, &present); err != nil {
 		s.writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	currentBytes, err := json.Marshal(s.cfg.Load())
+	if err != nil {
+		s.writeJSONError(w, http.StatusInternalServerError, "marshal current config: "+err.Error())
+		return
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(currentBytes, &merged); err != nil {
+		s.writeJSONError(w, http.StatusInternalServerError, "unmarshal current config: "+err.Error())
+		return
+	}
+	for k, v := range present {
+		merged[k] = v
+	}
+	mergedBytes, err := json.Marshal(merged)
+	if err != nil {
+		s.writeJSONError(w, http.StatusInternalServerError, "marshal merged config: "+err.Error())
+		return
+	}
+
+	var incoming config.Config
+	if err := json.Unmarshal(mergedBytes, &incoming); err != nil {
+		s.writeJSONError(w, http.StatusBadRequest, "decode merged config: "+err.Error())
 		return
 	}
 	// Auth credentials live in auth.json; never persist them via the config
