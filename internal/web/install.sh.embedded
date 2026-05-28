@@ -1279,10 +1279,26 @@ install_selinux_module() {
         log_security_outcome selinux skipped "reason=module-not-shipped"
         return 0
     fi
-    if [[ ! -d /usr/share/selinux/devel ]]; then
-        echo "  ! SELinux tooling present but selinux-policy-devel is missing"
-        echo "    Install it (selinux-policy-devel on Fedora/RHEL, selinux-policy-dev"
-        echo "    on Debian/Ubuntu) then run: sudo make -C ${srcdir} install"
+    # Test for the Makefile, not the parent directory. On Fedora the
+    # default `selinux-policy-targeted` package ships an `/usr/share/selinux/devel/`
+    # directory (containing `include/` headers), but the Makefile that
+    # `make -f /usr/share/selinux/devel/Makefile ventd.pp` consumes is
+    # owned by `selinux-policy-devel`, which is NOT in the default
+    # Fedora Workstation install. The old `-d` check passed on every
+    # Fedora host and dropped the operator straight into the build-
+    # failure path, with a scary "Last 10 lines of make output" wall —
+    # for an artefact the daemon doesn't actually need (writes go via
+    # DAC, not SELinux labelling). The Makefile gate keeps the offer-
+    # to-build path for hosts that explicitly opted into the devel
+    # package and gives everyone else a clean one-line skip with the
+    # exact remediation command.
+    if [[ ! -f /usr/share/selinux/devel/Makefile ]]; then
+        echo "  ! SELinux module skipped — selinux-policy-devel not installed"
+        echo "    The daemon's hwmon writes use DAC, not SELinux labelling, so"
+        echo "    this is fine on a default install. To build + load the module:"
+        echo "      sudo dnf install -y selinux-policy-devel    # Fedora/RHEL"
+        echo "      sudo apt-get install -y selinux-policy-dev  # Debian/Ubuntu"
+        echo "      sudo bash $(readlink -f "$0")               # re-run installer"
         log_security_outcome selinux skipped "reason=selinux-policy-devel-missing"
         return 0
     fi
