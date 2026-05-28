@@ -74,6 +74,34 @@ in warmup until the gate is fully satisfied.
 
 Bound: internal/coupling/shard_test.go:TestShard_WarmupGate_AllThreeConditionsMustHold
 
+## RULE-CPL-WARMUP-02: stable-regime escape clears warmup at κ > 10⁴ when n ≥ StableRegimeMinSamples AND 0 < EWMA(e²) ≤ EFloor.
+
+#1253 fix. The classical κ ≤ 10⁴ branch from RULE-CPL-WARMUP-01
+is unchanged; this rule adds an alternative branch for when the
+PWM column is structurally unexcited (stable idle box) and the
+coupling parameter is therefore unidentifiable, but the AR
+component still predicts T_next from T_prev essentially
+perfectly. The escape demands a sustained low residual on top
+of the n_samples + tr(P) gates, and self-revokes the moment
+EWMA(e²) climbs out of the (2°C)² noise floor — so confidence
+retracts the instant the model stops predicting.
+
+Bound: internal/coupling/shard_test.go:TestShard_WarmupComplete_StableRegimeEscape
+
+## RULE-CPL-CONF-RESID-01: Confidence falls back to a residual-based term when κ > 10⁴ marks the coupling unidentifiable.
+
+#1253 fix. When identifiabilityTerm(κ) collapses to 0 above
+the locked unidentifiable threshold, Confidence substitutes
+residualTerm(EWMA(e²)) — clamp(1 - √EWMA / √EFloor) — for it
+in the four-term product. The log10 taper in [κ=100, κ=10⁴]
+is unchanged (pinned by TestConfidence_StableRegimeDoesNotFireInTaperBand);
+only the κ > 10⁴ band gets the new behaviour. The residual
+term is also 0 when EWMA(e²) = 0 (no data) or above EFloor
+(prediction broken), so the escape only contributes confidence
+when the model is empirically predictive.
+
+Bound: internal/coupling/snapshot_test.go:TestConfidence_StableRegimeEscapeAtHighKappa
+
 ## RULE-CPL-RUNTIME-01: One estimator goroutine per channel; total bounded by len(controllableChannels). NOT one goroutine per shard.
 
 R10 §10.5. Runtime.Run starts exactly one goroutine per shard

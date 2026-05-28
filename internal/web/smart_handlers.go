@@ -502,15 +502,22 @@ type smartChannelDecision struct {
 }
 
 type smartCouplingShard struct {
-	Theta        []float64 `json:"theta"`
-	NSamples     uint64    `json:"n_samples"`
-	TrP          float64   `json:"tr_p"`
-	Kappa        float64   `json:"kappa"`
-	Lambda       float64   `json:"lambda"`
-	WarmingUp    bool      `json:"warming_up"`
-	GroupedFans  []int     `json:"grouped_fans,omitempty"`
-	Reason       string    `json:"reason,omitempty"`
-	LastTickUnix int64     `json:"last_tick_unix"`
+	Theta    []float64 `json:"theta"`
+	NSamples uint64    `json:"n_samples"`
+	TrP      float64   `json:"tr_p"`
+	Kappa    float64   `json:"kappa"`
+	Lambda   float64   `json:"lambda"`
+	// EWMAResidual is the EWMA of the squared prediction residual (e²,
+	// in °C²). Operators use it to read why conf_B is held at 0 when
+	// the coupling is unidentifiable: a low residual means the AR term
+	// predicts T_next well even with κ > 10⁴ (#1253 stable-regime
+	// escape). At-or-below EFloor (= (2°C)² = 4) the residual term
+	// saturates at 1.
+	EWMAResidual float64 `json:"ewma_residual"`
+	WarmingUp    bool    `json:"warming_up"`
+	GroupedFans  []int   `json:"grouped_fans,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
+	LastTickUnix int64   `json:"last_tick_unix"`
 }
 
 type smartMarginalShard struct {
@@ -520,6 +527,18 @@ type smartMarginalShard struct {
 	NSamples       uint64    `json:"n_samples"`
 	TrP            float64   `json:"tr_p"`
 	EWMAResidual   float64   `json:"ewma_residual"`
+	// SaturationAdmitR11 is the Path-B observed-saturation admit flag
+	// (RULE-CMB-SAT-02 / RULE-AGG-SIG-COLLAPSE-01). When false, the
+	// aggregator zeroes conf_C for this shard regardless of how good
+	// every other term is. Surfaced so operators can see when this
+	// gate is the reason conf_C is 0 (#1253 diagnostic-blind-spot fix).
+	SaturationAdmitR11 bool `json:"saturation_admit_r11"`
+	// ObservedZeroDeltaTRun is the count of consecutive ramp-up ticks
+	// observed with |ΔT| < SaturationDeltaT. At SaturationNWritesFastLoop
+	// (20) the admit flag latches false until a tick with |ΔT| ≥
+	// SaturationDeltaT resets it. On an idle box (no ramp), the run
+	// holds at its current value rather than accumulating.
+	ObservedZeroDeltaTRun int `json:"observed_zero_delta_t_run"`
 	// MarginalSlope is the Layer-C model's prediction of how much the
 	// channel's temperature changes per +1 PWM unit at the last
 	// observed load — i.e. β_0 + β_1·load (RULE-CMB-SAT-01). Cooling
@@ -763,6 +782,7 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 				TrP:          c.TrP,
 				Kappa:        c.Kappa,
 				Lambda:       c.Lambda,
+				EWMAResidual: c.EWMAResidual,
 				WarmingUp:    c.WarmingUp,
 				GroupedFans:  append([]int(nil), c.GroupedFans...),
 				Reason:       c.Reason,
@@ -775,14 +795,16 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				entry.Marginal = append(entry.Marginal, &smartMarginalShard{
-					SignatureLabel: m.SignatureLabel,
-					Kind:           string(m.Kind),
-					Theta:          append([]float64(nil), m.Theta...),
-					NSamples:       m.NSamples,
-					TrP:            m.TrP,
-					EWMAResidual:   m.EWMAResidual,
-					MarginalSlope:  m.MarginalSlope,
-					WarmingUp:      m.WarmingUp,
+					SignatureLabel:        m.SignatureLabel,
+					Kind:                  string(m.Kind),
+					Theta:                 append([]float64(nil), m.Theta...),
+					NSamples:              m.NSamples,
+					TrP:                   m.TrP,
+					EWMAResidual:          m.EWMAResidual,
+					SaturationAdmitR11:    m.SaturationAdmitR11,
+					ObservedZeroDeltaTRun: m.ObservedZeroDeltaTRun,
+					MarginalSlope:         m.MarginalSlope,
+					WarmingUp:             m.WarmingUp,
 				})
 				if entry.SignatureLabel == "" {
 					// Use the first marginal shard's signature as the

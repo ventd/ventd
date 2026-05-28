@@ -327,3 +327,94 @@ func (r *detRNG) Gaussian() float64 {
 	u2 := r.Float64()
 	return math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
 }
+
+// stableRegimeShardForTest synthesises a shard whose state matches a
+// long-run stable idle regime: many samples, converged tr(P), and a
+// caller-set κ + EWMA(e²). Bypasses the slow RLS-feeding warmup so the
+// gate-decision tests are about the gate, not the estimator.
+func stableRegimeShardForTest(t *testing.T, kappa, ewmaResidual float64, n uint64) *Shard {
+	t.Helper()
+	s := makeShard(t, 0) // d = 2
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nSamples = n
+	s.kappa = kappa
+	s.ewmaResidual = ewmaResidual
+	// Synthesise a converged tr(P) ≈ 0.4·tr(P_0): set both diagonals
+	// to (0.4·pInitTr)/2 so the trace is comfortably below the locked
+	// 0.5·tr(P_0) warmup threshold.
+	const trRatio = 0.4
+	half := trRatio * s.pInitTr / 2.0
+	s.p.SetSym(0, 0, half)
+	s.p.SetSym(1, 1, half)
+	return s
+}
+
+// RULE-CPL-WARMUP-02: warmupComplete clears via the stable-regime
+// escape when κ > 10⁴ but n ≥ StableRegimeMinSamples AND
+// 0 < EWMA(e²) ≤ EFloor. This is the #1253 fix — without it, an idle
+// box's coupling shard never exits warmup because the κ-trap is
+// permanent under near-constant PWM.
+func TestShard_WarmupComplete_StableRegimeEscape(t *testing.T) {
+	s := stableRegimeShardForTest(t, 1e6, 1.0, StableRegimeMinSamples+10)
+	s.mu.Lock()
+	got := s.warmupComplete(mat.Trace(s.p))
+	s.mu.Unlock()
+	if !got {
+		t.Fatalf("warmupComplete must clear via stable-regime escape at κ=1e6, n=%d, EWMA(e²)=1.0; got false",
+			StableRegimeMinSamples+10)
+	}
+}
+
+// The escape MUST refuse when the residual is above the noise floor —
+// a model that doesn't predict can't substitute for identifiability.
+func TestShard_WarmupComplete_StableRegimeRefusesHighResidual(t *testing.T) {
+	s := stableRegimeShardForTest(t, 1e6, 25.0, StableRegimeMinSamples+10) // √25 = 5°C
+	s.mu.Lock()
+	got := s.warmupComplete(mat.Trace(s.p))
+	s.mu.Unlock()
+	if got {
+		t.Fatalf("warmupComplete MUST refuse stable-regime escape when EWMA(e²)=25 (above (2°C)² floor); got true")
+	}
+}
+
+// The escape also requires the sample-count gate — a lucky residual
+// streak in the first few ticks is not enough.
+func TestShard_WarmupComplete_StableRegimeRequiresSamples(t *testing.T) {
+	// d=2 → 5·d²=20 minSamples. n=StableRegimeMinSamples-1=49 clears
+	// the 5·d² gate but not the stable-regime gate.
+	s := stableRegimeShardForTest(t, 1e6, 0.1, StableRegimeMinSamples-1)
+	s.mu.Lock()
+	got := s.warmupComplete(mat.Trace(s.p))
+	s.mu.Unlock()
+	if got {
+		t.Fatalf("warmupComplete MUST require n ≥ StableRegimeMinSamples for the escape; got true at n=%d",
+			StableRegimeMinSamples-1)
+	}
+}
+
+// The escape also requires a *recorded* residual: an uninitialised
+// EWMA (zero) is not "perfect prediction," it is no data.
+func TestShard_WarmupComplete_StableRegimeRequiresNonzeroResidual(t *testing.T) {
+	s := stableRegimeShardForTest(t, 1e6, 0.0, StableRegimeMinSamples+10)
+	s.mu.Lock()
+	got := s.warmupComplete(mat.Trace(s.p))
+	s.mu.Unlock()
+	if got {
+		t.Fatalf("warmupComplete MUST require EWMA(e²) > 0; got true at EWMA=0")
+	}
+}
+
+// Pin that the classical κ-cleared path still completes warmup
+// independently of the residual — the #1253 change must be additive.
+func TestShard_WarmupComplete_ClassicalKappaPathUnchanged(t *testing.T) {
+	// EWMA above the noise floor (would refuse stable-regime) but κ
+	// inside the locked threshold → classical path clears warmup.
+	s := stableRegimeShardForTest(t, 50.0, 100.0, StableRegimeMinSamples+10)
+	s.mu.Lock()
+	got := s.warmupComplete(mat.Trace(s.p))
+	s.mu.Unlock()
+	if !got {
+		t.Fatalf("classical κ ≤ 10⁴ path must still clear warmup independently of EWMA(e²); got false")
+	}
+}

@@ -127,6 +127,20 @@ func (r *ringBuffer) push(v uint8) {
 	}
 }
 
+// last returns the most-recently pushed value and true, or (0, false)
+// when the buffer has never been pushed to. Nil-safe so callers can
+// `r.recentPWM[id].last()`-style guard the cold-start case without a
+// separate map lookup.
+func (r *ringBuffer) last() (uint8, bool) {
+	if r == nil {
+		return 0, false
+	}
+	if !r.full && r.head == 0 {
+		return 0, false
+	}
+	return r.vals[(r.head-1+len(r.vals))%len(r.vals)], true
+}
+
 // allEqual returns true when every sample in the buffer equals the
 // most recent value. False until the buffer is full.
 func (r *ringBuffer) allEqual() bool {
@@ -327,14 +341,18 @@ func (r *Runtime) OnObservation(in ObservationInput) {
 
 	// OAT gate (RULE-CMB-OAT-01). The current channel's PWM history
 	// is updated AFTER the gate so we only assess "other channels"
-	// in the buffer.
+	// in the buffer. We also peek the channel's previous PWM BEFORE
+	// the bump so the Path-B saturation gate can tell idle (controller
+	// holding steady) from a genuine upward ramp (#1253 / RULE-CMB-SAT-04).
 	r.mu.Lock()
 	oatPass := r.oatGate(in.ChannelID)
+	prevPWM, hasPrev := r.recentPWM[in.ChannelID].last()
 	r.bumpRecentPWM(in.ChannelID, in.PWMWritten)
 	r.mu.Unlock()
 	if !oatPass {
 		return
 	}
+	rampingUp := hasPrev && in.PWMWritten > prevPWM
 
 	key := shardKey{channel: in.ChannelID, signature: in.SignatureLabel}
 
@@ -369,8 +387,10 @@ func (r *Runtime) OnObservation(in ObservationInput) {
 			"err", err)
 	}
 
-	// Path-B observed-saturation gate.
-	s.ObserveOutcome(in.DeltaT, in.PWMWritten)
+	// Path-B observed-saturation gate. rampingUp gates accumulation
+	// so a stable-idle box (PWM held steady, ΔT≈0 because there is no
+	// heat) is not misread as fan saturation (#1253).
+	s.ObserveOutcome(in.DeltaT, in.PWMWritten, rampingUp)
 }
 
 // admitLocked creates and registers a new shard. Caller holds r.mu.

@@ -13,6 +13,11 @@ import "math"
 //     warming up (then 0).
 //   - identifiability: 1 when κ ≤ 100 (healthy); tapers linearly in
 //     log10(κ) to 0 at κ = 1e4 (R10's unidentifiable threshold).
+//     Above 1e4 a stable-regime escape (#1253 / RULE-CPL-CONF-RESID-01)
+//     substitutes a prediction-residual term — the AR component can
+//     still predict T_next well in an unexcited stable regime, and
+//     confidence then tracks empirical prediction accuracy rather
+//     than a coupling parameter that doesn't drive the output.
 //   - covariance: 1 - clamp(tr(P) / TrPCap, 0, 1). High tr(P) means
 //     the estimator is uncertain → low confidence.
 //   - sample_count: clamp(NSamples / 50, 0, 1) per R12 §Q1's
@@ -26,6 +31,14 @@ func (s *Snapshot) Confidence() float64 {
 	}
 
 	ident := identifiabilityTerm(s.Kappa)
+	if ident == 0 {
+		// κ marks the coupling unidentifiable (unexcited PWM column).
+		// Fall back to prediction-residual confidence so a stable,
+		// well-predicted regime is not trapped at zero (#1253). The
+		// term collapses again the moment the residual rises out of
+		// the noise floor.
+		ident = residualTerm(s.EWMAResidual)
+	}
 	cov := covarianceTerm(s.TrP)
 	samples := sampleCountTerm(s.NSamples)
 
@@ -37,6 +50,22 @@ func (s *Snapshot) Confidence() float64 {
 		out = 1
 	}
 	return out
+}
+
+// residualTerm folds the EWMA of e² (prediction residual squared) into
+// a [0,1] confidence proxy. Shape mirrors Layer-C's residual term:
+// clamp(1 - √EWMA(e²) / √EFloor). At-or-below the (2°C)² noise floor
+// the term saturates at 1; at-or-above it the term is 0. Returns 0
+// for a zero/NaN input (no residual recorded yet — no escape data).
+func residualTerm(ewmaE2 float64) float64 {
+	if ewmaE2 <= 0 || math.IsNaN(ewmaE2) {
+		return 0
+	}
+	x := math.Sqrt(ewmaE2) / math.Sqrt(EFloor)
+	if x >= 1 {
+		return 0
+	}
+	return 1.0 - x
 }
 
 // identifiabilityTerm tapers linearly in log10(κ) from 1 (at κ ≤ 100)

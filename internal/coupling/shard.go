@@ -52,9 +52,26 @@ const WarmupCovarianceRatio = 0.5
 
 // EWMAResidualAlpha mirrors Layer-C's marginal.EWMAResidualAlpha (R12 §Q1
 // α=0.95): the per-tick prediction residual is folded into an EWMA of e²
-// exposed on Snapshot for the R16 drift detector. Not consumed by
-// Confidence() — purely a drift-monitoring signal. RULE-DRIFT-LAYERB-RESIDUAL-01.
+// exposed on Snapshot for the R16 drift detector AND, since #1253, for
+// the stable-regime escape inside Confidence (RULE-CPL-CONF-RESID-01).
 const EWMAResidualAlpha = 0.95
+
+// EFloor is the prediction-residual noise floor used by both the
+// stable-regime escape in Confidence and the stable-regime branch of
+// warmupComplete (#1253 / RULE-CPL-CONF-RESID-01 / RULE-CPL-WARMUP-02).
+// Numerically the (2°C)² that marginal.EFloor uses for the same purpose
+// — at-or-below the sensor noise floor on coretemp/nct/it87 1°C-quantized
+// chips. Duplicated rather than imported because internal/marginal
+// already imports internal/coupling (the alias type SnapshotKind), so
+// importing the other direction would create a cycle.
+const EFloor = 4.0
+
+// StableRegimeMinSamples is the per-shard sample-count gate for the
+// warmupComplete stable-regime escape (#1253 / RULE-CPL-WARMUP-02). At
+// the controller's ~1-Hz tick rate this is ≈ 50 s of observations, long
+// enough to trust the EWMA-of-e² readout rather than a transient lucky
+// run. Mirrors marginal's NMinR12 = 50 — same role, same number.
+const StableRegimeMinSamples uint64 = 50
 
 // SnapshotKind classifies the runtime state of a shard for
 // downstream consumers (v0.5.9 controller, v0.5.10 doctor).
@@ -387,10 +404,26 @@ func (s *Shard) buildSnapshot() *Snapshot {
 	}
 }
 
-// warmupComplete returns true when ALL THREE warmup conditions
-// hold per R10 §10.4 / RULE-CPL-WARMUP-01:
+// warmupComplete returns true when ALL THREE warmup conditions hold
+// (R10 §10.4 / RULE-CPL-WARMUP-01), OR — when the coupling parameter
+// is unidentifiable because the regime is unexcited — a stable-regime
+// escape clears warmup based on direct prediction accuracy instead
+// (#1253 / RULE-CPL-WARMUP-02):
 //
-//	n_samples ≥ 5·d²  AND  tr(P) ≤ 0.5·tr(P_0)  AND  κ ≤ 10⁴
+//	(n_samples ≥ 5·d²  AND  tr(P) ≤ 0.5·tr(P_0))
+//	AND
+//	(κ ≤ 10⁴
+//	 OR
+//	 n_samples ≥ StableRegimeMinSamples AND 0 < EWMA(e²) ≤ EFloor)
+//
+// Rationale: identifiability of the coupling parameter is necessary
+// only for extrapolating to PWM levels the shard has not seen. In a
+// stable regime where PWM is held near-constant, the AR term predicts
+// T_next from T_prev essentially perfectly, and the EWMA of the
+// squared prediction residual is direct evidence the model is
+// trustworthy for the current regime. The moment a regime change
+// produces a larger residual, EWMA(e²) climbs out of the noise floor
+// and warmupComplete returns false again — the gate self-revokes.
 //
 // Caller MUST hold s.mu.
 func (s *Shard) warmupComplete(tr float64) bool {
@@ -401,10 +434,13 @@ func (s *Shard) warmupComplete(tr float64) bool {
 	if tr > WarmupCovarianceRatio*s.pInitTr {
 		return false
 	}
-	if s.kappa > UnidentifiableKappaThreshold {
-		return false
+	if s.kappa <= UnidentifiableKappaThreshold {
+		return true
 	}
-	return true
+	// Stable-regime escape (#1253 / RULE-CPL-WARMUP-02).
+	return s.nSamples >= StableRegimeMinSamples &&
+		s.ewmaResidual > 0 &&
+		s.ewmaResidual <= EFloor
 }
 
 // Read returns the current snapshot. Lock-free; safe to call
