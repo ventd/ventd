@@ -56,6 +56,16 @@ func TestUninstallScript_CoversIssue1320Artifacts(t *testing.T) {
 		{"multi-user.target.wants/ventd-recover.service", "multi-user.target.wants/ventd-recover.service"},
 		// 8. polkit rule for in-UI update (#1306).
 		{"polkit rule /usr/share/polkit-1/rules.d/50-ventd-update.rules", "/usr/share/polkit-1/rules.d/50-ventd-update.rules"},
+		// 9. compressed kernel modules — Fedora ships .ko.xz, Arch .ko.zst (#1407).
+		{".ko.xz glob match", ".ko.xz"},
+		{".ko.zst glob match", ".ko.zst"},
+		// 10. sbin install prefix — ventd-recover and ventd-wait-hwmon
+		// land in /usr/local/sbin, not the bin tree (#1407).
+		{"sbin install prefix", "VENTD_SBIN_DIR"},
+		// 11. ventd system user + group removal (#1407).
+		{"ventd user removal", "userdel"},
+		{"ventd group removal", "groupdel"},
+		{"--keep-user flag", "--keep-user"},
 	}
 	for _, w := range want {
 		if !strings.Contains(body, w.fixture) {
