@@ -16,13 +16,15 @@ import (
 )
 
 // fixture stages temp files for the platform_profile + choices + optional
-// powermode sysfs nodes. Tests inspect file contents after Write to verify
-// the exact byte sequence.
+// powermode sysfs nodes, plus the legion_laptop module marker (a placeholder
+// file standing in for /sys/module/legion_laptop). Tests inspect file
+// contents after Write to verify the exact byte sequence.
 type fixture struct {
-	dir       string
-	profile   string
-	choices   string
-	powermode string // empty when test wants Enumerate to NOT include powermode
+	dir          string
+	profile      string
+	choices      string
+	powermode    string // empty when test wants Enumerate to NOT include powermode
+	legionModule string // empty when test wants Enumerate to NOT see the legion module
 }
 
 func newFixture(t *testing.T, initialProfile, choicesContent string, withPowermode bool) *fixture {
@@ -44,6 +46,14 @@ func newFixture(t *testing.T, initialProfile, choicesContent string, withPowermo
 		if err := os.WriteFile(f.powermode, []byte("1\n"), 0o644); err != nil {
 			t.Fatalf("fixture: write powermode: %v", err)
 		}
+	}
+	// Default to "legion_laptop is loaded" so every existing test that
+	// expected a happy-path Enumerate keeps passing. Tests that want to
+	// simulate a non-Legion host (#1410) clear f.legionModule before
+	// running Enumerate.
+	f.legionModule = filepath.Join(dir, "sys-module-legion_laptop")
+	if err := os.WriteFile(f.legionModule, []byte{}, 0o644); err != nil {
+		t.Fatalf("fixture: write legion_laptop marker: %v", err)
 	}
 	return f
 }
@@ -212,6 +222,27 @@ func TestRULE_HAL_LEGION_03_EnumerateSingleChoiceRefuses(t *testing.T) {
 	}
 	if len(channels) != 0 {
 		t.Errorf("single-choice enum: len(channels) = %d; want 0", len(channels))
+	}
+}
+
+func TestRULE_HAL_LEGION_03_EnumerateNoLegionModuleReturnsEmpty(t *testing.T) {
+	// Simulate a host where platform_profile + choices exist (Dell, HP,
+	// ASUS, Framework, etc. — any vendor that wires up the kernel-generic
+	// interface) but legion_laptop is NOT loaded. The backend must stand
+	// down so it doesn't surface a phantom "Legion Fan" the controller
+	// can't drive. Regression for #1410.
+	f := newFixture(t, "balanced\n", choicesAll, true)
+	// Remove the legion_laptop module marker so statFile returns ENOENT.
+	if err := os.Remove(f.legionModule); err != nil {
+		t.Fatalf("remove legion module marker: %v", err)
+	}
+	b := newBackendForFixture(f)
+	channels, err := b.Enumerate(context.Background())
+	if err != nil {
+		t.Fatalf("Enumerate: %v", err)
+	}
+	if len(channels) != 0 {
+		t.Errorf("no legion_laptop: len(channels) = %d; want 0 (#1410)", len(channels))
 	}
 }
 
@@ -493,6 +524,7 @@ func newBackendForFixture(f *fixture) *Backend {
 	b.profilePath = f.profile
 	b.choicesPath = f.choices
 	b.powermodePath = f.powermode
+	b.legionModulePath = f.legionModule
 	return b
 }
 

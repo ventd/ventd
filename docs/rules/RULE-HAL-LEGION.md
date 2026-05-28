@@ -52,20 +52,35 @@ state quantisation). Unknown profiles return `(0, false)`.
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_02_ProfileToPWMRoundTrip
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_02_ProfileToPWMUnknownReturnsFalse
 
-## RULE-HAL-LEGION-03: Enumerate returns a single channel when platform_profile + platform_profile_choices both exist with ≥2 choices; absent / degenerate states return empty.
+## RULE-HAL-LEGION-03: Enumerate returns a single channel iff platform_profile + choices (≥2) AND /sys/module/legion_laptop are all present; absent / degenerate states return empty.
 
-Hosts without `/sys/firmware/acpi/platform_profile` return an empty
-slice (not an error) so the registry's fan-out Enumerate admits the
-absence gracefully. A degenerate `platform_profile_choices` with < 2
-values is also returned as empty — surfacing a channel would promise
-control the hardware can't deliver (mirrors RULE-DOCTOR-DETECTOR-ECLOCKEDLAPTOP's
-quiet branch). The powermode path is optional and is included in the
-channel state only when present.
+Discovery is exclusive — a host without `/sys/firmware/acpi/platform_profile`,
+without a `platform_profile_choices` set of ≥ 2 values, or without
+`/sys/module/legion_laptop` (the positive signal that legion_laptop is
+loaded) returns an empty slice (not an error) so the registry's fan-out
+Enumerate admits the absence gracefully. A degenerate
+`platform_profile_choices` with < 2 values is also returned as empty —
+surfacing a channel would promise control the hardware can't deliver
+(mirrors `RULE-DOCTOR-DETECTOR-ECLOCKEDLAPTOP`'s quiet branch).
+
+The `legion_laptop` positive gate is the discovery boundary: the
+platform_profile sysfs surface is kernel-generic and is also exposed on
+Dell, HP, ASUS, Framework, and other non-Lenovo hosts via their own
+vendor WMI/ACPI drivers. Without the module gate the backend used to
+enumerate on any of those hosts and surface a phantom "Legion Fan" the
+controller would then refuse to drive — confusing the wizard's "fans
+found" tally with no actual control surface (#1410). Legion-specific
+writes (powermode, debugfs fancurve) are reachable only when
+legion_laptop is loaded, so the module presence is the right gate.
+
+The powermode path is optional and is included in the channel state
+only when present.
 
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_03_EnumerateHappyPath
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_03_EnumerateAbsentReturnsEmpty
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_03_EnumerateNoPowermode
 Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_03_EnumerateSingleChoiceRefuses
+Bound: internal/hal/legion/backend_test.go:TestRULE_HAL_LEGION_03_EnumerateNoLegionModuleReturnsEmpty
 
 ## RULE-HAL-LEGION-04: Read enforces the empty-by-construction Reading invariant — OK=false on missing / malformed file zeroes every other field.
 
