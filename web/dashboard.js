@@ -2109,11 +2109,72 @@
       default:           return s || 'Unknown';
     }
   }
+  // anyFanSaturated returns true when at least one tracked fan is at
+  // (or within 5% of) its maximum duty cycle. Saturation is the signal
+  // that the controller is asking for everything the fan can deliver —
+  // "steady state" is the wrong story when this is true, because there
+  // is no head-room left to absorb additional thermal load (#1416).
+  function anyFanSaturated() {
+    var fans = aliveState.lastFans || {};
+    var names = Object.keys(fans);
+    for (var i = 0; i < names.length; i++) {
+      var f = fans[names[i]];
+      if (!f) continue;
+      var duty = (f.duty_pct != null) ? Number(f.duty_pct) : null;
+      if (duty == null && f.pwm != null) duty = Number(f.pwm) / 2.55;
+      if (duty != null && duty >= 95) return true;
+    }
+    return false;
+  }
+  function smartIsWarming(smart) {
+    if (!smart) return false;
+    if (smart.global_state === 'warming' || smart.global_state === 'cold-start') return true;
+    // not_started + 0 converged channels: still in the cold-start window.
+    if ((smart.not_started || 0) > 0 && (smart.converged || 0) === 0) return true;
+    return false;
+  }
   function aliveSummary(smart) {
     var span = document.createElement('span');
+
+    // Honesty checks BEFORE the "groove" branches. If the controller is
+    // demanding peak duty AND smart-mode hasn't learned anything yet,
+    // saying "steady state · loop in the groove" describes the daemon's
+    // own complacency, not what an operator listening to a screaming
+    // laptop is experiencing. Lead with the truth: max duty + warming.
+    var saturated = anyFanSaturated();
+    var warming   = smartIsWarming(smart);
+    if (saturated && warming) {
+      var s0 = document.createElement('strong');
+      s0.textContent = 'Fan at maximum duty';
+      span.appendChild(s0);
+      span.appendChild(document.createTextNode(
+        ' · smart mode is still ' + prettyState(smart.global_state || 'warming').toLowerCase() +
+        ' (no learned curve yet). Check the Curves page if this is hotter than expected.'
+      ));
+      return span;
+    }
+    if (saturated) {
+      var s1 = document.createElement('strong');
+      s1.textContent = 'Fan at maximum duty';
+      span.appendChild(s1);
+      span.appendChild(document.createTextNode(' · the curve is demanding everything the hardware can deliver right now.'));
+      return span;
+    }
+
     var recent = aliveState.decisions.slice(0, 8);
     if (recent.length === 0) {
-      span.textContent = 'system in steady state · loop is in the groove.';
+      // No decisions, no saturation: genuinely quiescent. Don't claim
+      // "in the groove" — the controller hasn't actually done anything
+      // yet on a fresh install. State it plainly.
+      if (warming) {
+        span.appendChild(document.createTextNode('System idle · smart mode is still '));
+        var st = document.createElement('strong');
+        st.textContent = prettyState(smart.global_state || 'warming').toLowerCase();
+        span.appendChild(st);
+        span.appendChild(document.createTextNode(', awaiting its first probe.'));
+        return span;
+      }
+      span.textContent = 'System idle · no controller decisions yet this window.';
       return span;
     }
     // soak detection: ANY exhaust-shaped fan name moved UP recently
@@ -2121,9 +2182,9 @@
       return d.dir === 'up' && /exhaust|rear|top/i.test(d.fan);
     });
     if (exhaustUp) {
-      var s1 = document.createElement('strong');
-      s1.textContent = 'Soak detected';
-      span.appendChild(s1);
+      var s2 = document.createElement('strong');
+      s2.textContent = 'Soak detected';
+      span.appendChild(s2);
       span.appendChild(document.createTextNode(' — pre-spinning exhaust fans to absorb the heat.'));
       return span;
     }
