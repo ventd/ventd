@@ -94,6 +94,16 @@ const DefaultPlatformProfileChoicesPath = "/sys/firmware/acpi/platform_profile_c
 // present.
 const DefaultPowermodePath = "/sys/module/legion_laptop/drivers/platform:legion/PNP0C09:00/powermode"
 
+// DefaultLegionModulePath is the sysfs marker that legion_laptop
+// is loaded. Presence is the positive signal that this host's
+// platform_profile is the one legion_laptop wires up (and that the
+// optional powermode + debugfs fancurve nodes can be reached).
+// Without this gate the backend used to enumerate on any host that
+// exposed a kernel-generic /sys/firmware/acpi/platform_profile —
+// Dell, HP, ASUS — and surface a phantom "Legion Fan" the controller
+// would then refuse to drive (#1410).
+const DefaultLegionModulePath = "/sys/module/legion_laptop"
+
 // Bucket thresholds on the 0..255 PWM input. PWM ≤ ThresholdQuiet maps
 // to the "quiet" state; PWM > ThresholdBalanced maps to "performance";
 // in-between maps to "balanced". Exposed for the bound subtests + for
@@ -155,9 +165,10 @@ type Backend struct {
 	// never reassigns. Kept as struct fields rather than package-level
 	// vars so multiple Backend instances (test parallelism) don't
 	// clobber each other.
-	profilePath   string
-	choicesPath   string
-	powermodePath string
+	profilePath      string
+	choicesPath      string
+	powermodePath    string
+	legionModulePath string
 
 	acquired sync.Map
 
@@ -173,13 +184,14 @@ func NewBackend(logger *slog.Logger) *Backend {
 		logger = slog.Default()
 	}
 	return &Backend{
-		logger:        logger,
-		profilePath:   DefaultPlatformProfilePath,
-		choicesPath:   DefaultPlatformProfileChoicesPath,
-		powermodePath: DefaultPowermodePath,
-		writeFile:     os.WriteFile,
-		readFile:      os.ReadFile,
-		statFile:      os.Stat,
+		logger:           logger,
+		profilePath:      DefaultPlatformProfilePath,
+		choicesPath:      DefaultPlatformProfileChoicesPath,
+		powermodePath:    DefaultPowermodePath,
+		legionModulePath: DefaultLegionModulePath,
+		writeFile:        os.WriteFile,
+		readFile:         os.ReadFile,
+		statFile:         os.Stat,
 	}
 }
 
@@ -191,14 +203,26 @@ func (b *Backend) Name() string { return BackendName }
 func (b *Backend) Close() error { return nil }
 
 // Enumerate probes for /sys/firmware/acpi/platform_profile and returns
-// a single channel when both the profile file and the choices file are
-// readable. The presence of platform_profile is a sufficient signal
-// that the host supports the ACPI state-switcher API; the matcher
-// (catalog) is responsible for narrowing to "this is actually a Legion"
-// when the operator wants legion-specific behaviour.
+// a single channel when all of the following hold:
 //
-// Hosts without platform_profile return an empty slice — not an error
-// — so the registry's fan-out Enumerate admits the absence gracefully.
+//   - /sys/firmware/acpi/platform_profile is readable
+//   - /sys/firmware/acpi/platform_profile_choices is readable with ≥2 values
+//   - /sys/module/legion_laptop exists (positive signal)
+//
+// The legion_laptop gate is the discovery boundary: the platform_profile
+// sysfs surface is kernel-generic and is also exposed on Dell, HP, ASUS,
+// Framework, and other non-Lenovo hosts via their own vendor WMI/ACPI
+// drivers. Without the module gate the backend used to enumerate on any
+// of those hosts and surface a phantom "Legion Fan" the controller would
+// then refuse to drive — confusing the wizard's "fans found" tally for
+// no actual control surface (#1410). Legion-specific writes
+// (powermode, debugfs fancurve) are reachable only when legion_laptop is
+// loaded, so the module presence is the right gate.
+//
+// Hosts without legion_laptop loaded return an empty slice — not an
+// error — so the registry's fan-out Enumerate admits the absence
+// gracefully and lets the kernel-generic platform_profile interface be
+// observed by internal/platformprofile rather than driven as a fan.
 //
 // Idempotent (RULE-HAL-001): the presence of these sysfs files is
 // determined by the kernel module's load state, which doesn't change
@@ -210,6 +234,7 @@ func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 	profilePath := b.profilePath
 	choicesPath := b.choicesPath
 	powermodePath := b.powermodePath
+	legionModulePath := b.legionModulePath
 
 	if _, err := b.statFile(profilePath); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -223,6 +248,14 @@ func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
 		// daemon proceeds without legion control on this host.
 		b.logger.Debug("legion: platform_profile present but choices file missing; skipping enumerate",
 			"profile", profilePath, "choices", choicesPath, "err", err)
+		return nil, nil
+	}
+	if _, err := b.statFile(legionModulePath); err != nil {
+		// legion_laptop module not loaded — platform_profile is wired
+		// up by some other (non-Lenovo) vendor driver. Stand down so
+		// the wizard doesn't claim a control surface we can't deliver.
+		b.logger.Debug("legion: legion_laptop module not loaded; skipping enumerate (not a Legion host)",
+			"profile", profilePath, "module_path", legionModulePath)
 		return nil, nil
 	}
 
