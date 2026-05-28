@@ -410,7 +410,7 @@
           min_temp: 35, max_temp: 78,
           min_pwm_pct: 28, max_pwm_pct: 92,
           hysteresis: 2, smoothing: '5s' },
-        { name: 'GPU aware',  type: 'points', sensor: 'GPU 0 (RTX 4090)',
+        { name: 'GPU aware',  type: 'points', sensor: 'GPU 0',
           points: [
             { temp: 30, pwm_pct: 25 },
             { temp: 50, pwm_pct: 35 },
@@ -420,7 +420,7 @@
           ],
           hysteresis: 3 },
         { name: 'AIO pump',   type: 'fixed', value_pct: 70 },
-        { name: 'Mix CPU+GPU', type: 'mix', sources: ['CPU package', 'GPU 0 (RTX 4090)'], function: 'max' },
+        { name: 'Mix CPU+GPU', type: 'mix', sources: ['CPU package', 'GPU 0'], function: 'max' },
         { name: 'Stealth',    type: 'linear', sensor: 'Motherboard',
           min_temp: 25, max_temp: 70,
           min_pwm_pct: 0, max_pwm_pct: 60 }
@@ -449,7 +449,7 @@
     // synthesize live status
     liveStatus = { sensors: [
       { name: 'CPU package',     value: 56,  unit: '°C' },
-      { name: 'GPU 0 (RTX 4090)', value: 67, unit: '°C' },
+      { name: 'GPU 0', value: 67, unit: '°C' },
       { name: 'Motherboard',     value: 38,  unit: '°C' }
     ]};
     updateCursor();

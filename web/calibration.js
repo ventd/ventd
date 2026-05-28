@@ -1501,9 +1501,9 @@
       applied: false,
       phase: beBackPhase,
       phase_msg: PHASES.find(function (x) { return x.id === ph; }) ? PHASES.find(function (x) { return x.id === ph; }).blurb : '',
-      board: 'ASUS ROG STRIX Z790-A',
+      board: 'Example board',
       chip_name: 'NCT6798D',
-      profile: { cpu_model: 'Intel Core i7-13700K', cpu_tdp_w: 253, gpu_model: 'NVIDIA RTX 4090', gpu_power_w: 450 },
+      profile: { cpu_model: 'Example 8-core CPU', cpu_tdp_w: 125, gpu_model: 'Discrete GPU', gpu_power_w: 220 },
       fans: fans
     };
   }

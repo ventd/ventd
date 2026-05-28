@@ -534,7 +534,7 @@
           { name: 'CPU package',     value: cpuTemp,            unit: '°C' },
           { name: 'CPU core 0',      value: cpuTemp - 1.2,      unit: '°C' },
           { name: 'CPU core 4',      value: cpuTemp + 0.4,      unit: '°C' },
-          { name: 'GPU 0 (RTX 4090)', value: gpuTemp,           unit: '°C' },
+          { name: 'GPU 0',           value: gpuTemp,            unit: '°C' },
           { name: 'AIO coolant',     value: 32 + Math.sin(t/8) * 0.5, unit: '°C' },
           { name: 'Motherboard',     value: 42 + Math.sin(t/15) * 0.8, unit: '°C' },
           { name: 'NVMe 0',          value: 47 + Math.sin(t/12) * 1.5, unit: '°C' }

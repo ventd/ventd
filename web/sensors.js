@@ -1,7 +1,14 @@
 // sensors.js — live readings table.
 //
-//   GET /api/v1/status  → { sensors: [{name, value, unit}], fans: [...] }
-//   GET /api/v1/config  → reveals which curves consume which sensor names
+//   GET /api/v1/hardware/inventory → { chips: [...], curves: [...] }
+//
+// Each chip carries its own sensor list, and each sensor already has a
+// `used_by` array (curve names that consume the alias). This is the
+// same endpoint /health and /devices consume, so the three views
+// agree on what the daemon enumerated. Previously this page fetched
+// /api/v1/status which only returns sensors *bound to curves*, so a
+// fresh-install host with one bound sensor saw "1 / TEMP" while the
+// rest of the UI saw all 17 — #1412.
 
 (function () {
   'use strict';
@@ -70,8 +77,12 @@
   });
 
   // ── data ──────────────────────────────────────────────────────────
-  var status = null;
-  var config = null;
+  // sensors is the flattened inventory.chips[].sensors[] list mapped
+  // to the shape this page already renders: {name, value, unit, used_by}.
+  // Kept as a separate variable from the raw inventory response so the
+  // pre-existing render() / renderSummary() helpers don't need to know
+  // about the chip-by-chip wire shape.
+  var sensors = null;
 
   function unitClass(unit) {
     if (unit === '°C') return 'is-temp';
@@ -86,39 +97,52 @@
     return '';
   }
 
-  // map sensor name → list of curves that use it
+  // map sensor name → list of curves that use it. The inventory
+  // response already carries `used_by` per sensor (#1412), so this
+  // helper just lifts it out of the flat sensors slice for the
+  // renderer's existing keyed lookup pattern.
   function buildUsedByMap() {
     var map = {};
-    if (!config || !config.curves) return map;
-    config.curves.forEach(function (c) {
-      var sources = [];
-      if (c.sensor) sources.push(c.sensor);
-      if (c.sources && c.sources.length) c.sources.forEach(function (s) { sources.push(s); });
-      sources.forEach(function (s) {
-        if (!map[s]) map[s] = [];
-        map[s].push(c.name);
-      });
+    if (!sensors) return map;
+    sensors.forEach(function (s) {
+      if (s.used_by && s.used_by.length) map[s.name] = s.used_by.slice();
     });
     return map;
+  }
+
+  // kindToUnit translates the inventory's `kind` ("temp"|"fan"|"volt"
+  // |"power") into the unit string the existing UI segment buttons
+  // already filter on. /status used to ship unit verbatim; inventory
+  // ships kind + unit separately, so we trust unit when present and
+  // fall back to a kind-derived default.
+  function kindToUnit(kind, unit) {
+    if (unit) return unit;
+    switch (kind) {
+      case 'temp':  return '°C';
+      case 'volt':  return 'V';
+      case 'power': return 'W';
+      case 'fan':   return 'RPM';
+      default:      return '';
+    }
   }
 
   // ── render ────────────────────────────────────────────────────────
   function render() {
     var tbody = $('sn-tbody');
     if (!tbody) return;
-    if (!status || !status.sensors || status.sensors.length === 0) {
+    if (!sensors || sensors.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4" class="sn-tbody-empty">No sensors reporting.</td></tr>';
       return;
     }
 
     // Collect history this tick.
-    status.sensors.forEach(function (s) {
+    sensors.forEach(function (s) {
       pushH(s.name, s.value == null ? null : Number(s.value));
     });
 
     var used = buildUsedByMap();
 
-    var rows = status.sensors.filter(function (s) {
+    var rows = sensors.filter(function (s) {
       if (filterUnit !== 'all' && (s.unit || '°C') !== filterUnit) return false;
       if (!filterText) return true;
       return (s.name || '').toLowerCase().indexOf(filterText) >= 0;
@@ -156,10 +180,10 @@
   }
 
   function renderSummary() {
-    if (!status || !status.sensors) return;
-    var temps = status.sensors.filter(function (s) { return (s.unit || '°C') === '°C' && s.value != null; });
-    var volts = status.sensors.filter(function (s) { return s.unit === 'V'  && s.value != null; });
-    var pows  = status.sensors.filter(function (s) { return s.unit === 'W'  && s.value != null; });
+    if (!sensors) return;
+    var temps = sensors.filter(function (s) { return (s.unit || '°C') === '°C' && s.value != null; });
+    var volts = sensors.filter(function (s) { return s.unit === 'V'  && s.value != null; });
+    var pows  = sensors.filter(function (s) { return s.unit === 'W'  && s.value != null; });
 
     $('sn-temp-count').textContent = temps.length;
     $('sn-volt-count').textContent = volts.length;
@@ -177,7 +201,7 @@
     var usedCount = 0;
     Object.keys(used).forEach(function (k) { if (k) usedCount++; });
     $('sn-used-count').textContent = usedCount;
-    var unused = (status.sensors || []).filter(function (s) { return !(used[s.name] || []).length; }).length;
+    var unused = sensors.filter(function (s) { return !(used[s.name] || []).length; }).length;
     $('sn-unused-sub').textContent = unused === 0 ? 'all sensors in use' : unused + ' unused';
 
     var meta = $('sn-meta');
@@ -191,14 +215,36 @@
     if (l) l.textContent = ok ? 'live' : 'reconnecting…';
   }
 
+  // flattenInventory maps the chip-grouped inventory response into the
+  // flat {name, value, unit, used_by} shape the renderer consumes.
+  // Sensors with no live reading (Value=0 + the rare zero-reading case
+  // is indistinguishable from "no value" on this wire shape, so we use
+  // the kind/unit to mark voltage/temp as readable and let the
+  // sparkline reflect actual values). Aliases (config-supplied
+  // friendly names) win over driver labels when present.
+  function flattenInventory(inv) {
+    if (!inv || !inv.chips) return [];
+    var out = [];
+    inv.chips.forEach(function (chip) {
+      (chip.sensors || []).forEach(function (s) {
+        var name = s.alias || s.label || s.id || '';
+        out.push({
+          name: name,
+          value: s.value,
+          unit: kindToUnit(s.kind, s.unit),
+          used_by: s.used_by || []
+        });
+      });
+    });
+    return out;
+  }
+
   var inDemo = false;
   function poll() {
-    Promise.all([
-      fetch('/api/v1/status', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); }),
-      fetch('/api/v1/config', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
-    ])
-      .then(function (out) {
-        status = out[0]; config = out[1];
+    fetch('/api/v1/hardware/inventory', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (inv) {
+        sensors = flattenInventory(inv);
         renderSummary(); render(); setLive(true);
       })
       .catch(function () { if (!inDemo) { inDemo = true; demo(); } });
@@ -209,30 +255,23 @@
     function tick() {
       t++;
       var jitter = function (n, scale) { return n + (Math.random() - 0.5) * scale; };
-      status = { sensors: [
-        { name: 'CPU package',     value: jitter(50, 3),   unit: '°C' },
-        { name: 'CPU core 0',      value: jitter(48, 3),   unit: '°C' },
-        { name: 'CPU core 4',      value: jitter(52, 3),   unit: '°C' },
-        { name: 'GPU 0 (RTX 4090)', value: jitter(64, 4),  unit: '°C' },
-        { name: 'AIO coolant',     value: jitter(33, 0.5), unit: '°C' },
-        { name: 'Motherboard',     value: jitter(42, 0.6), unit: '°C' },
-        { name: 'NVMe 0',          value: jitter(47, 1.5), unit: '°C' },
-        { name: 'NVMe 1',          value: jitter(45, 1.2), unit: '°C' },
-        { name: 'sda',             value: jitter(36, 0.5), unit: '°C' },
-        { name: 'sdb',             value: jitter(38, 0.5), unit: '°C' },
-        { name: '+12V rail',       value: jitter(12.05, 0.04), unit: 'V' },
-        { name: '+5V rail',        value: jitter(5.02,  0.02), unit: 'V' },
-        { name: '+3.3V rail',      value: jitter(3.31,  0.02), unit: 'V' },
-        { name: 'CPU power',       value: jitter(140, 12),     unit: 'W' },
-        { name: 'GPU power',       value: jitter(180, 18),     unit: 'W' }
-      ]};
-      config = { curves: [
-        { name: 'Quiet CPU',  sensor: 'CPU package' },
-        { name: 'GPU aware',  sensor: 'GPU 0 (RTX 4090)' },
-        { name: 'AIO pump',   sensor: 'AIO coolant' },
-        { name: 'Mix',        sources: ['CPU package', 'GPU 0 (RTX 4090)'] },
-        { name: 'Stealth',    sensor: 'Motherboard' }
-      ]};
+      sensors = [
+        { name: 'CPU package',     value: jitter(50, 3),   unit: '°C', used_by: ['Quiet CPU'] },
+        { name: 'CPU core 0',      value: jitter(48, 3),   unit: '°C', used_by: [] },
+        { name: 'CPU core 4',      value: jitter(52, 3),   unit: '°C', used_by: [] },
+        { name: 'GPU 0', value: jitter(64, 4),  unit: '°C', used_by: ['GPU aware', 'Mix'] },
+        { name: 'AIO coolant',     value: jitter(33, 0.5), unit: '°C', used_by: ['AIO pump'] },
+        { name: 'Motherboard',     value: jitter(42, 0.6), unit: '°C', used_by: ['Stealth'] },
+        { name: 'NVMe 0',          value: jitter(47, 1.5), unit: '°C', used_by: [] },
+        { name: 'NVMe 1',          value: jitter(45, 1.2), unit: '°C', used_by: [] },
+        { name: 'sda',             value: jitter(36, 0.5), unit: '°C', used_by: [] },
+        { name: 'sdb',             value: jitter(38, 0.5), unit: '°C', used_by: [] },
+        { name: '+12V rail',       value: jitter(12.05, 0.04), unit: 'V', used_by: [] },
+        { name: '+5V rail',        value: jitter(5.02,  0.02), unit: 'V', used_by: [] },
+        { name: '+3.3V rail',      value: jitter(3.31,  0.02), unit: 'V', used_by: [] },
+        { name: 'CPU power',       value: jitter(140, 12),     unit: 'W', used_by: [] },
+        { name: 'GPU power',       value: jitter(180, 18),     unit: 'W', used_by: [] }
+      ];
       renderSummary(); render(); setLive(false);
     }
     tick();
