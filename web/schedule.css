@@ -4,6 +4,22 @@
 
 .sched-page { gap: 18px; }
 
+/* Empty-state takeover (#1419): when sched-empty-state isn't hidden,
+ * hide every other scheduling pane so the takeover card stands alone
+ * instead of sitting above an empty header / empty timeline / empty
+ * week / empty table. */
+.sched-empty {
+  padding: 28px 28px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+  max-width: 760px;
+}
+.sched-empty h2 { margin: 0; font-size: 1.1rem; color: var(--fg1); }
+.sched-empty p  { margin: 0; color: var(--fg2); line-height: 1.55; font-size: 0.92rem; }
+.sched-page:has(#sched-empty-state:not([hidden])) .sched-header,
+.sched-page:has(#sched-empty-state:not([hidden])) .sched-timeline-card,
+.sched-page:has(#sched-empty-state:not([hidden])) .sched-week-card,
+.sched-page:has(#sched-empty-state:not([hidden])) .sched-table-card { display: none; }
+
 /* header stats */
 .sched-header {
   display: grid;

@@ -65,6 +65,28 @@
 
     <div class="shell-content sched-page">
 
+      <!-- Empty-state takeover (#1419). When the config has zero profiles
+           the full header / timeline / week / table scaffolding renders
+           "ACTIVE: —", "PROFILES: 0", an empty 24-hour bar, seven empty
+           Mon-Sun rows, and an empty table — all saying "nothing to
+           schedule" twelve different ways. Replace with a single CTA. -->
+      <section class="sched-empty card" id="sched-empty-state" hidden>
+        <div class="card-eyebrow">SCHEDULE</div>
+        <h2>No profiles configured yet.</h2>
+        <p>
+          Profiles let ventd switch between curve sets by time of day — quieter
+          fans overnight, faster ramps during the workday, full attack while
+          gaming. Each profile binds one or more fans to a curve and runs on a
+          schedule grammar like <span class="mono">22:00-08:00 *</span>.
+        </p>
+        <p>
+          Define profiles in your <span class="mono">config.yaml</span> under
+          <span class="mono">profiles</span> and add a
+          <span class="mono">schedule</span> block per profile; the daemon
+          picks them up on the next config reload.
+        </p>
+      </section>
+
       <!-- HEADER stats -->
       <section class="sched-header">
         <div class="sched-stat sched-stat--active">

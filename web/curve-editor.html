@@ -69,6 +69,29 @@
 
     <div class="shell-content ce-page">
 
+      <!-- Empty-state takeover (shown by JS when config.curves is empty —
+           #1419). Replaces the three-column scaffolding so a fresh install
+           with no curves doesn't render an empty graph / empty rail /
+           empty properties pane to display nothing. -->
+      <section class="ce-empty card" id="ce-empty-state" hidden>
+        <div class="ce-empty-head">
+          <div class="card-eyebrow">CURVES</div>
+        </div>
+        <div class="ce-empty-body">
+          <h2>No curves configured yet.</h2>
+          <p>
+            Curves map sensor temperatures to fan duty cycles. The setup
+            wizard normally writes one per fan after calibration finishes;
+            if you're seeing this card, either the wizard hasn't run yet
+            or its calibration phase didn't complete.
+          </p>
+          <div class="ce-empty-cta">
+            <a class="btn btn--primary" href="/calibration">Run calibration</a>
+            <a class="btn btn--ghost" href="/settings">Open Settings</a>
+          </div>
+        </div>
+      </section>
+
       <!-- LEFT: curve list -->
       <aside class="ce-list">
         <div class="ce-list-head">

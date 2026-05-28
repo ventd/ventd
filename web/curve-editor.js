@@ -103,7 +103,19 @@
   }
 
   // ── rendering ──────────────────────────────────────────────────────
+  function applyEmptyState() {
+    // Toggle the takeover card vs the three-column layout based on
+    // whether config has any curves (#1419). The three-column scaffolding
+    // (empty graph + empty rail + dashes in properties) renders nothing
+    // useful on a fresh install; the takeover replaces all of it with
+    // a single CTA card pointing at calibration.
+    var empty = $('ce-empty-state');
+    if (!empty) return;
+    var curves = (config && config.curves) || [];
+    empty.hidden = curves.length > 0;
+  }
   function renderList() {
+    applyEmptyState();
     var list = $('ce-list');
     if (!list) return;
     var curves = (config && config.curves) || [];
