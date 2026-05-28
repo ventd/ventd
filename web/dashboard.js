@@ -456,10 +456,47 @@
     .catch(function () {});
 
   // ── panic ──────────────────────────────────────────────────────────
+  // POST /api/v1/panic expects a JSON body with `duration_s` (the query
+  // string is ignored by the handler). The previous implementation sent
+  // no body and didn't read the response, so the 400 ('invalid JSON
+  // body') the server returned was invisible: the click looked like it
+  // worked, the fan didn't change, the operator had no way to tell.
+  // Fix: send the correct body, check the response, paint busy + error
+  // states on the button so an operator can see what happened (#1409).
   var panicBtn = $('dash-panic');
   if (panicBtn) panicBtn.addEventListener('click', function () {
     if (!confirm('Pin all fans to maximum for 60 seconds?')) return;
-    fetch('/api/v1/panic?duration=60', { method: 'POST', credentials: 'same-origin' });
+    var originalLabel = panicBtn.textContent;
+    panicBtn.disabled = true;
+    panicBtn.textContent = 'Panicking…';
+    fetch('/api/v1/panic', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration_s: 60 })
+    })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (body) {
+            throw new Error('HTTP ' + r.status + ': ' + body);
+          });
+        }
+        return r.json();
+      })
+      .then(function (state) {
+        var remaining = state && state.remaining_s ? state.remaining_s : 60;
+        panicBtn.textContent = 'Panic (' + remaining + 's)';
+        // Restore the button label when the server-side timer expires.
+        setTimeout(function () {
+          panicBtn.disabled = false;
+          panicBtn.textContent = originalLabel;
+        }, remaining * 1000);
+      })
+      .catch(function (err) {
+        panicBtn.disabled = false;
+        panicBtn.textContent = originalLabel;
+        alert('Panic failed: ' + err.message);
+      });
   });
 
   // ── demo mode ──────────────────────────────────────────────────────
