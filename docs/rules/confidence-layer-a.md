@@ -87,6 +87,24 @@ than risk silent corruption.
 
 Bound: internal/confidence/layer_a/persistence_test.go:TestPersistence_SchemaMismatch
 
+## RULE-CONFA-PERSIST-RUNNER-01: Estimator.Run drives a PersistEvery (1 min) save loop with final save on ctx.Done.
+
+The Layer-A `Save()` is invoked by the daemon's `Estimator.Run`
+goroutine — wired in `cmd/ventd/main.go` alongside
+`smartMode.Coupling.Run` / `smartMode.Marginal.Run`. Without this
+runner `LoadChannel` still runs at startup, but nothing ever
+writes, so a daemon restart finds zero persisted state and
+cold-starts every channel — `conf_A` collapses to `√(1/16) = 0.25`
+on the single idle PWM bin and never recovers without an external
+excitation source. The HIL fallout was visible on the v1.3.0
+binary `4df5737`: `loaded=0 cold_start=8` after every restart.
+`PersistEvery` matches `internal/coupling.PersistEvery` and
+`internal/marginal.PersistEvery` so all three smart-mode layers
+persist in lockstep at 1 min cadence; cancellation of the daemon
+ctx triggers exactly one final save before `Run` returns.
+
+Bound: internal/confidence/layer_a/run_test.go:TestRun_PeriodicSaveCallsSaveAtTickerCadence
+
 ## RULE-CONFA-SNAPSHOT-01: Read() lock-free via atomic.Pointer.
 
 The published `Snapshot` for each channel is stored in an

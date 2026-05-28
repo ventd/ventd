@@ -1494,6 +1494,24 @@ func runDaemonInternal(
 		}()
 	}
 
+	// v0.5.9: launch the Layer-A periodic-save goroutine. Mirrors the
+	// Coupling / Marginal lifecycle pattern at PersistEvery (1 min)
+	// cadence — without it, Save is never called and every restart
+	// cold-starts the conf_A histogram from zero (RULE-CONFA-PERSIST-RUNNER-01).
+	// buildLayerAEstimator stamps stateDir + hwmonFingerprint onto the
+	// Estimator via SetPersistContext; Run reads them back.
+	if smartMode != nil && smartMode.LayerA != nil {
+		layerACtx, layerACancel := context.WithCancel(ctx)
+		defer layerACancel()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smartMode.LayerA.Run(layerACtx); err != nil && err != context.Canceled {
+				logger.Warn("layer_a: runtime exited with error", "err", err)
+			}
+		}()
+	}
+
 	// sp owns the controller wiring shared by the startup loop below and the
 	// SIGHUP/restart reload loop. Constructing it once means both paths build
 	// identical controller.Options by construction (see controllerSpawner) —
