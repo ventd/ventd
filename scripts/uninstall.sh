@@ -4,8 +4,9 @@
 # ventd uninstall script
 #
 # Usage:
-#   sudo /usr/local/sbin/ventd-uninstall            # remove binary + service unit + state
-#   sudo /usr/local/sbin/ventd-uninstall --keep-data  # binary + service only, leave /var/lib/ventd
+#   sudo /usr/local/sbin/ventd-uninstall                # remove binary + service unit + state + account
+#   sudo /usr/local/sbin/ventd-uninstall --keep-data    # leave /var/lib/ventd, remove everything else
+#   sudo /usr/local/sbin/ventd-uninstall --keep-user    # leave the ventd user/group, remove everything else
 #
 # What this script does (in order — every step idempotent):
 #   1. systemctl disable --now for every ventd-managed unit
@@ -16,9 +17,9 @@
 #   3. Remove every ventd systemd unit + its drop-ins under
 #      /etc/systemd/system AND /usr/lib/systemd/system (the installer
 #      can land helpers in either tree depending on distro).
-#   4. Remove every ventd helper binary in $VENTD_PREFIX —
-#      ventd, ventd-nvml-helper, ventd-postreboot-verify.sh,
-#      ventd-recover, ventd-wait-hwmon.
+#   4. Remove every ventd helper binary in $VENTD_PREFIX and
+#      $VENTD_SBIN_DIR — ventd, ventd-nvml-helper,
+#      ventd-postreboot-verify.sh, ventd-recover, ventd-wait-hwmon.
 #   5. Remove the udev rules ventd dropped + reload the rules.
 #   6. Remove the AppArmor profiles ventd dropped — unloading via
 #      apparmor_parser -R first so the kernel doesn't hold a reference
@@ -27,17 +28,21 @@
 #   8. Remove /var/lib/ventd/ — calibration, smart-mode shards.
 #      Skipped when --keep-data is passed.
 #   9. Remove /var/log/ventd/ — install + SELinux-build logs.
-#  10. Remove this script itself.
+#  10. Remove the ventd user and group. Skipped when --keep-user is passed.
+#  11. Remove this script itself.
 
 set -euo pipefail
 
 VENTD_PREFIX="${VENTD_PREFIX:-/usr/local/bin}"
+VENTD_SBIN_DIR="${VENTD_SBIN_DIR:-/usr/local/sbin}"
 KEEP_DATA=0
+KEEP_USER=0
 for arg in "$@"; do
     case "$arg" in
         --keep-data) KEEP_DATA=1 ;;
+        --keep-user) KEEP_USER=1 ;;
         -h|--help)
-            sed -n '1,30p' "$0" | grep -E '^#( |$)' | sed 's/^# \{0,1\}//'
+            sed -n '1,32p' "$0" | grep -E '^#( |$)' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -75,10 +80,14 @@ fi
 # the UI step (or never used it).
 release="$(uname -r 2>/dev/null || true)"
 extra_dir="/lib/modules/${release}/extra"
+# Fedora/RHEL ship compressed modules as `.ko.xz`, Arch as `.ko.zst`, Debian
+# as plain `.ko`. The previous glob matched only the last shape, leaving DKMS
+# modules on disk (and registered) on every other distro.
 if [[ -n "$release" && -d "$extra_dir" ]]; then
-    for ko in "$extra_dir"/*.ko; do
+    for ko in "$extra_dir"/*.ko "$extra_dir"/*.ko.xz "$extra_dir"/*.ko.zst; do
         [[ -e "$ko" ]] || continue
-        mod="$(basename "$ko" .ko)"
+        mod="$(basename "$ko")"
+        mod="${mod%.ko*}"
         log "rmmod $mod (if loaded)"
         rmmod "$mod" 2>/dev/null || true
         if command -v dkms >/dev/null 2>&1; then
@@ -122,18 +131,17 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 # 4. Binaries — the main daemon AND every helper the installer drops
-# into the same prefix.
+# into the bin/sbin prefixes. ventd-wait-hwmon and ventd-recover land
+# in $VENTD_SBIN_DIR (default /usr/local/sbin), not $VENTD_PREFIX, so
+# we have to check both trees on each helper.
 for helper in ventd ventd-nvml-helper ventd-postreboot-verify.sh \
               ventd-recover ventd-wait-hwmon; do
-    if [[ -e "$VENTD_PREFIX/$helper" ]]; then
-        log "removing $VENTD_PREFIX/$helper"
-        rm -f "$VENTD_PREFIX/$helper"
-    fi
-    # Cover the alternate install prefix too.
-    if [[ -e "/usr/bin/$helper" ]]; then
-        log "removing /usr/bin/$helper"
-        rm -f "/usr/bin/$helper"
-    fi
+    for dir in "$VENTD_PREFIX" /usr/bin "$VENTD_SBIN_DIR" /usr/sbin; do
+        if [[ -e "$dir/$helper" ]]; then
+            log "removing $dir/$helper"
+            rm -f "$dir/$helper"
+        fi
+    done
 done
 
 # 5. udev rules. ventd's installer ships
@@ -200,7 +208,40 @@ if [[ -d /var/log/ventd ]]; then
     rm -rf /var/log/ventd
 fi
 
-# 10. Self.
+# 10. ventd system user + group. Belt-and-braces: only remove the user
+# if no other process is running as it (the systemctl disable at step 1
+# stops the only ventd-owned process the installer ships). The group is
+# removed last so a botched user-removal leaves the group around as an
+# obvious stranded artefact rather than silently losing both.
+# Skipped under --keep-user when an operator wants the account to
+# survive a reinstall (e.g. preserves usermod -aG memberships for nvml).
+if [[ $KEEP_USER -eq 0 ]]; then
+    if getent passwd ventd >/dev/null 2>&1; then
+        if pgrep -u ventd >/dev/null 2>&1; then
+            log "leaving ventd user (processes still running under it)"
+        elif command -v userdel >/dev/null 2>&1; then
+            log "removing ventd user"
+            userdel ventd 2>/dev/null || true
+        elif command -v deluser >/dev/null 2>&1; then
+            # BusyBox deluser (Alpine, Void-musl).
+            log "removing ventd user"
+            deluser ventd 2>/dev/null || true
+        fi
+    fi
+    if getent group ventd >/dev/null 2>&1; then
+        if command -v groupdel >/dev/null 2>&1; then
+            log "removing ventd group"
+            groupdel ventd 2>/dev/null || true
+        elif command -v delgroup >/dev/null 2>&1; then
+            log "removing ventd group"
+            delgroup ventd 2>/dev/null || true
+        fi
+    fi
+else
+    log "leaving ventd user/group in place (--keep-user)"
+fi
+
+# 11. Self.
 self="$(readlink -f "$0" 2>/dev/null || true)"
 if [[ -n "$self" && -f "$self" ]]; then
     log "removing $self"
