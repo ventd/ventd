@@ -126,3 +126,70 @@ func TestRULE_DOCTOR_DETECTOR_CalibrationCurveQuality_MalformedJSON_WarningFact(
 		t.Fatalf("malformed JSON must produce one decode-warning Fact; got %+v", facts)
 	}
 }
+
+// dell_smm pwm is a state index, not a duty cycle. A non-monotonic
+// flag on a Dell laptop is the transition between fan states (off/
+// low/full = 0/128/255 read-back), not a defect. The Fact downgrades
+// to OK and the detail text calls out the quantization explicitly.
+// Regression for #1411.
+func TestRULE_DOCTOR_DETECTOR_CalibrationCurveQuality_DellSMM_OKSeverityWithQuantizationDetail(t *testing.T) {
+	raw := []byte(`{
+		"results": [
+			{"pwm_path": "/sys/class/hwmon/hwmon3/pwm1", "max_rpm": 5000, "non_monotonic_curve": true, "max_drop_rpm": 1350}
+		]
+	}`)
+	det := NewCalibrationCurveQualityDetector(stubArtifactLoader{raw: raw})
+	det.ChipNameForPath = func(p string) string { return "dell_smm" }
+	facts, err := det.Probe(context.Background(), doctor.Deps{})
+	if err != nil {
+		t.Fatalf("Probe err = %v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("expected 1 fact; got %d", len(facts))
+	}
+	f := facts[0]
+	if f.Severity != doctor.SeverityOK {
+		t.Errorf("dell_smm: severity = %v, want SeverityOK", f.Severity)
+	}
+	for _, want := range []string{"dell_smm", "state index"} {
+		if !strings.Contains(f.Detail, want) {
+			t.Errorf("dell_smm detail must contain %q; got: %s", want, f.Detail)
+		}
+	}
+	// The fallback wording must not appear on the dell_smm branch —
+	// the listed causes (super-IO quantisation, fan stalls, tach noise)
+	// are not what's happening on this driver.
+	for _, banned := range []string{"super-IO tach quantisation", "noisy tach signal"} {
+		if strings.Contains(f.Detail, banned) {
+			t.Errorf("dell_smm detail must not include generic cause %q; got: %s", banned, f.Detail)
+		}
+	}
+}
+
+// A super-IO board (e.g. NCT6687) reporting non-monotonic stays on
+// the generic warning path — the chip-aware branch is opt-in via
+// stateQuantizedChip and a chip name not on that list keeps the
+// neutral wording the v0.5 cleanup landed.
+func TestRULE_DOCTOR_DETECTOR_CalibrationCurveQuality_SuperIO_KeepsGenericWarning(t *testing.T) {
+	raw := []byte(`{
+		"results": [
+			{"pwm_path": "/sys/class/hwmon/hwmon2/pwm1", "max_rpm": 2400, "non_monotonic_curve": true, "max_drop_rpm": 500}
+		]
+	}`)
+	det := NewCalibrationCurveQualityDetector(stubArtifactLoader{raw: raw})
+	det.ChipNameForPath = func(p string) string { return "nct6687" }
+	facts, err := det.Probe(context.Background(), doctor.Deps{})
+	if err != nil {
+		t.Fatalf("Probe err = %v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("expected 1 fact; got %d", len(facts))
+	}
+	f := facts[0]
+	if f.Severity != doctor.SeverityWarning {
+		t.Errorf("nct6687: severity = %v, want SeverityWarning", f.Severity)
+	}
+	if !strings.Contains(f.Detail, "super-IO tach quantisation") {
+		t.Errorf("non-state-quantized chip must use generic detail; got: %s", f.Detail)
+	}
+}
