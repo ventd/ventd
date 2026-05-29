@@ -339,6 +339,60 @@ func TestE2E_CalibrationScopeUsesRealData(t *testing.T) {
 	}
 }
 
+// TestE2E_MonitorOnlyDashboardShowsSetupCTA asserts that the dashboard, opened
+// on a daemon with no fans under control (config.Empty() — the harness
+// default), renders an actionable "set up fan control" CTA instead of a passive
+// "No fan data" dead-end. Navigates /dashboard directly — "/" meta-refreshes a
+// no-controls daemon to /health, but the dashboard is still reachable from the
+// nav, which is exactly the monitor-only dead-end being fixed.
+// Guards RULE-WEB-MONITOR-ONLY-CTA (#1472).
+func TestE2E_MonitorOnlyDashboardShowsSetupCTA(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// No MustWaitStable — the dashboard polls + animates sparklines, so the DOM
+	// never goes idle; poll for the CTA the empty-fans render produces instead.
+	page.MustNavigate(h.server.URL + "/dashboard")
+
+	deadline := time.Now().Add(8 * time.Second)
+	var href string
+	for time.Now().Before(deadline) {
+		r, err := page.Eval(`() => { var a = document.querySelector('.dash-cta-btn'); return a ? a.getAttribute('href') : ''; }`)
+		if err == nil && r.Value.Str() != "" {
+			href = r.Value.Str()
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	if href == "" {
+		t.Fatal("monitor-only dashboard never rendered the setup CTA button")
+	}
+	if href != "/calibration" {
+		t.Fatalf("CTA href = %q, want /calibration", href)
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		data := page.MustScreenshot()
+		path := os.TempDir() + "/ventd-monitor-only-cta.png"
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatalf("write screenshot: %v", err)
+		}
+		t.Logf("monitor-only CTA screenshot: %s", path)
+	}
+}
+
 // TestE2E_AuthStateProbeDoesNotLockOut exercises the end-to-end path
 // for audit finding S2 at the browser layer. The old login page would
 // POST an empty password to detect first-boot mode; after the fix the

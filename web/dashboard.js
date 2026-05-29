@@ -164,7 +164,18 @@
     var grid = $('fans-grid');
     if (!grid) return;
     if (!fans || fans.length === 0) {
-      grid.innerHTML = '<div class="dash-grid-empty">No fan data yet…</div>';
+      // renderFanTiles only runs from applyStatus (a real poll/SSE payload),
+      // so an empty list here is a genuine "no fans under control" daemon (the
+      // pre-first-poll placeholder is the static HTML; demo mode always has
+      // synthetic fans). A monitor-only host that opens the dashboard from the
+      // nav would otherwise hit a passive "No fan data" dead-end — point it at
+      // the one action that changes that. RULE-WEB-MONITOR-ONLY-CTA.
+      grid.innerHTML =
+        '<div class="dash-grid-empty dash-cta">' +
+          '<div class="dash-cta-title">ventd isn\'t controlling any fans yet</div>' +
+          '<div class="dash-cta-text">It\'s monitoring only. Run setup to detect and calibrate your fans — then ventd manages them automatically.</div>' +
+          '<a class="btn btn--primary dash-cta-btn" href="/calibration">Set up fan control</a>' +
+        '</div>';
       return;
     }
     Array.prototype.forEach.call(grid.querySelectorAll('.dash-grid-empty'), function (n) { n.remove(); });
