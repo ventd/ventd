@@ -111,29 +111,9 @@ func (d *VendorRemediationDetector) Probe(ctx context.Context, deps doctor.Deps)
 		})
 	}
 
-	if isFrameworkLaptop(dmi) {
-		facts = append(facts, doctor.Fact{
-			Detector: d.Name(),
-			Severity: doctor.SeverityOK,
-			Class:    recovery.ClassUnknown,
-			Title:    "Framework laptop detected: cros_ec_fan handles fan control on Framework 13/16; fw-fanctrl tunes the curve",
-			Detail: fmt.Sprintf(
-				"DMI matched a Framework laptop (product=%q). The mainline `cros_ec_fan` "+
-					"kernel module (kernel 6.7+) exposes the Framework EC's pwm + tach as "+
-					"hwmon with `name=cros_ec`. When the module is loaded, ventd's existing "+
-					"hwmon backend drives the pwm directly. Operators wanting a "+
-					"Framework-tuned curve (charging-vs-discharging strategies, etc.) can "+
-					"layer the `fw-fanctrl` userspace tool "+
-					"(https://github.com/TamtamHero/fw-fanctrl) on top, or use ventd's own "+
-					"curve config. Older Framework 13 Intel 11th-gen boards on pre-6.7 "+
-					"kernels can use `ectool` directly via "+
-					"https://github.com/DHowett/framework-laptop-kmod-impostor.",
-				strings.TrimSpace(dmi.ProductName),
-			),
-			EntityHash: doctor.HashEntity("vendor_remediation", "framework:"+dmi.ProductName),
-			Observed:   now,
-		})
-	}
+	// Framework laptops are handled by the dedicated FrameworkStrategiesDetector
+	// (framework_strategies_d.go), which is backed by the vendored fw-fanctrl
+	// curve corpus and carries the correct cros_ec_hwmon kernel facts.
 
 	if isClevoFamily(dmi) {
 		facts = append(facts, doctor.Fact{
@@ -282,13 +262,6 @@ func isAppleIntelMac(dmi hwdb.DMI) bool {
 		}
 	}
 	return false
-}
-
-// isFrameworkLaptop matches DMI strings emitted by Framework
-// Computer firmware. Framework uses sys_vendor "Framework"
-// consistently across 13/16 generations.
-func isFrameworkLaptop(dmi hwdb.DMI) bool {
-	return strings.EqualFold(strings.TrimSpace(dmi.SysVendor), "Framework")
 }
 
 // isClevoFamily matches DMI strings emitted by Clevo / Tongfang

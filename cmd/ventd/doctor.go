@@ -68,6 +68,10 @@ func runDoctor(args []string, logger *slog.Logger) (exitCode int, err error) {
 		// in monitor-only mode. Nil Catalog → loader runs once on
 		// first Probe; cheap to defer.
 		detectors.NewNBFCMatchDetector(countWritablePWMFiles("/sys/class/hwmon"), nil),
+		// spec-17 PR-2 — surface the vendored fw-fanctrl curve presets on a
+		// Framework laptop (cros_ec_hwmon drives the EC fan via hwmon). Nil
+		// Catalog → loader runs once on first Probe; quiet on non-Framework hosts.
+		detectors.NewFrameworkStrategiesDetector(nil),
 		// T3.1 — HP Omen / Victus gaming-laptop family. Mainline
 		// hp-wmi handles hotkeys only; fan control needs omen-fan
 		// or omen-fan-control kmod patch. Quiet on non-HP hosts.
