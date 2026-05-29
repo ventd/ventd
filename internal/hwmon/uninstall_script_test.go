@@ -73,3 +73,40 @@ func TestUninstallScript_CoversIssue1320Artifacts(t *testing.T) {
 		}
 	}
 }
+
+// TestUninstallScript_ScopesModuleRemovalToVentdConf guards the safety fix
+// for the audit finding that the OOT-driver removal step swept *every* *.ko
+// under /lib/modules/<release>/extra/ — rmmod-ing and dkms-removing unrelated
+// out-of-tree modules (nvidia-open, zfs, v4l2loopback, …) on uninstall and, in
+// the worst case, taking out the GPU driver. Removal must be scoped to exactly
+// the module names ventd recorded in /etc/modules-load.d/ventd.conf, matching
+// the daemon's own module-scoped CleanupOrphanInstall path.
+func TestUninstallScript_ScopesModuleRemovalToVentdConf(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/uninstall.sh")
+	if err != nil {
+		t.Fatalf("read scripts/uninstall.sh: %v", err)
+	}
+	body := string(data)
+
+	// Must derive the module list from the ventd-written record.
+	for _, needle := range []string{
+		`load_conf="/etc/modules-load.d/ventd.conf"`,
+		"ventd_modules",
+		`done < "$load_conf"`,
+	} {
+		if !strings.Contains(body, needle) {
+			t.Errorf("uninstall.sh no longer scopes module removal to ventd.conf (missing %q)", needle)
+		}
+	}
+
+	// Must NOT blanket-sweep every module under extra/ — the dangerous pattern
+	// that removed unrelated DKMS modules (including the GPU driver).
+	for _, banned := range []string{
+		`for ko in "$extra_dir"`,
+		`"$extra_dir"/*.ko`,
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("uninstall.sh reintroduced the blanket extra/*.ko sweep (found %q) — removal must stay scoped to ventd's own modules", banned)
+		}
+	}
+}

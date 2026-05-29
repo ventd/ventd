@@ -74,34 +74,56 @@ if command -v systemctl >/dev/null 2>&1; then
     done
 fi
 
-# 2. OOT driver under /lib/modules/<release>/extra/. The in-UI factory
-# reset path already did this via the daemon's CleanupOrphanInstall,
-# but the script is idempotent for cases where the operator skipped
-# the UI step (or never used it).
+# 2. OOT driver(s) ventd installed under /lib/modules/<release>/extra/.
+# The in-UI factory reset path already does this via the daemon's
+# CleanupOrphanInstall (which is module-scoped); the script is the
+# idempotent fallback for operators who skipped the UI step.
+#
+# CRITICAL: scope removal to exactly the module(s) ventd recorded in
+# /etc/modules-load.d/ventd.conf — NEVER sweep every *.ko in extra/. That
+# directory also holds unrelated out-of-tree / DKMS modules (nvidia, zfs,
+# v4l2loopback, …) that ventd never installed; blindly rmmod-ing and
+# dkms-removing them used to take out the GPU driver on uninstall.
 release="$(uname -r 2>/dev/null || true)"
 extra_dir="/lib/modules/${release}/extra"
-# Fedora/RHEL ship compressed modules as `.ko.xz`, Arch as `.ko.zst`, Debian
-# as plain `.ko`. The previous glob matched only the last shape, leaving DKMS
-# modules on disk (and registered) on every other distro.
-if [[ -n "$release" && -d "$extra_dir" ]]; then
-    for ko in "$extra_dir"/*.ko "$extra_dir"/*.ko.xz "$extra_dir"/*.ko.zst; do
-        [[ -e "$ko" ]] || continue
-        mod="$(basename "$ko")"
-        mod="${mod%.ko*}"
+load_conf="/etc/modules-load.d/ventd.conf"
+
+# Read the authoritative list of modules ventd loaded: one bare module name
+# per line, skipping comments/blanks (matches the Go reader in
+# internal/hwmon, readModuleNames). Default IFS trims surrounding whitespace.
+ventd_modules=()
+if [[ -r "$load_conf" ]]; then
+    while read -r mod _; do
+        [[ -z "$mod" || "$mod" == \#* ]] && continue
+        ventd_modules+=("$mod")
+    done < "$load_conf"
+fi
+
+if [[ ${#ventd_modules[@]} -eq 0 ]]; then
+    # No record of what ventd installed (legacy pre-record install, or the
+    # conf was already removed). Do NOT guess by sweeping extra/*.ko — that
+    # is how the old code removed unrelated modules. Leave them in place.
+    log "no ventd module record in $load_conf — skipping kernel-module removal (refusing to sweep $extra_dir blindly)"
+    log "  if ventd installed an out-of-tree driver, remove it manually:"
+    log "    sudo modprobe -r <module> && sudo dkms remove --all <module>/<version>"
+else
+    for mod in "${ventd_modules[@]}"; do
         log "rmmod $mod (if loaded)"
         rmmod "$mod" 2>/dev/null || true
-        if command -v dkms >/dev/null 2>&1; then
-            if dkms status 2>/dev/null | grep -q "^$mod"; then
-                log "dkms remove $mod"
-                dkms remove --all "$mod" 2>/dev/null || true
-            fi
+        if command -v dkms >/dev/null 2>&1 && dkms status 2>/dev/null | grep -q "^$mod"; then
+            log "dkms remove $mod"
+            dkms remove --all "$mod" 2>/dev/null || true
         fi
-        rm -f "$ko"
+        # Remove only this module's object under extra/. Fedora/RHEL ship
+        # compressed modules as `.ko.xz`, Arch as `.ko.zst`, Debian as plain
+        # `.ko`; cover all three. Unrelated modules in extra/ are untouched.
+        if [[ -n "$release" && -d "$extra_dir" ]]; then
+            rm -f "$extra_dir/$mod.ko" "$extra_dir/$mod.ko.xz" "$extra_dir/$mod.ko.zst" 2>/dev/null || true
+        fi
     done
 fi
-# The installer writes /etc/modules-load.d/ventd.conf (no dash); the
-# old glob `ventd-*.conf` never matched. Cover both shapes so a
-# legacy install that wrote a dashed variant is also cleaned.
+# Remove the module-load record itself (read above). The installer writes
+# /etc/modules-load.d/ventd.conf (no dash); cover a legacy dashed variant too.
 rm -f /etc/modules-load.d/ventd.conf /etc/modules-load.d/ventd-*.conf 2>/dev/null || true
 
 # 3. systemd unit files + drop-ins for every unit the installer ships.
