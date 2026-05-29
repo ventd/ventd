@@ -19,11 +19,11 @@ import (
 func TestBuildFn_NilDepsReturnsNil(t *testing.T) {
 	t.Parallel()
 	cfgPtr := &atomic.Pointer[config.Config]{}
-	if BuildFn("ch", config.Fan{}, cfgPtr, Deps{}, nil) != nil {
+	if BuildFn("ch", config.Fan{}, cfgPtr, Deps{}, nil, 0, false) != nil {
 		t.Fatal("expected nil BlendFn with empty Deps")
 	}
 	la, _ := layer_a.New(layer_a.Config{})
-	if BuildFn("ch", config.Fan{}, cfgPtr, Deps{LayerA: la}, nil) != nil {
+	if BuildFn("ch", config.Fan{}, cfgPtr, Deps{LayerA: la}, nil, 0, false) != nil {
 		t.Fatal("expected nil BlendFn without Aggregator/Blended")
 	}
 }
@@ -52,7 +52,7 @@ func TestBuildFn_ColdStartReturnsReactive(t *testing.T) {
 		Smart: config.SmartConfig{Setpoints: map[string]float64{"ch": 60}},
 	})
 
-	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" })
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" }, 0, false)
 	if fn == nil {
 		t.Fatal("expected non-nil BlendFn when LayerA/Aggregator/Blended are wired")
 	}
@@ -102,7 +102,7 @@ func TestBlend_GateClosedForcesReactive(t *testing.T) {
 		t.Fatal("precondition: gate must be closed")
 	}
 	d, agg := newDeps(closed)
-	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" })
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" }, 0, false)
 	if got := fn("ch", 70, reactive, 2*time.Second, time.Now()); got != reactive {
 		t.Errorf("closed-gate blend = %d, want reactive %d", got, reactive)
 	}
@@ -112,7 +112,7 @@ func TestBlend_GateClosedForcesReactive(t *testing.T) {
 
 	// nil gate → treated as open → wPredSystem=true → not refused.
 	dNil, aggNil := newDeps(nil)
-	fnNil := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, dNil, func() string { return "" })
+	fnNil := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, dNil, func() string { return "" }, 0, false)
 	fnNil("ch", 70, reactive, 2*time.Second, time.Now())
 	if snap := aggNil.Read("ch"); snap == nil || snap.UIState == aggregator.UIStateRefused {
 		t.Fatalf("nil gate must be open (not refused); got %+v", snap)
@@ -164,7 +164,7 @@ func TestBlend_DriftFlagsFromDetectorIntoTick(t *testing.T) {
 	}
 	cfgPtr := &atomic.Pointer[config.Config]{}
 	cfgPtr.Store(&config.Config{Smart: config.SmartConfig{Setpoints: map[string]float64{"ch": 60}}})
-	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" })
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" }, 0, false)
 	fn("ch", 70, 150, 2*time.Second, time.Now())
 
 	snap := agg.Read("ch")
@@ -173,5 +173,63 @@ func TestBlend_DriftFlagsFromDetectorIntoTick(t *testing.T) {
 	}
 	if snap.UIState != aggregator.UIStateDrifting {
 		t.Fatalf("a set drift flag must collapse to UIState drifting; got %q", snap.UIState)
+	}
+}
+
+// TestBuildFn_NoSetpointNoDerived_ReactiveOnly binds RULE-CTRL-SMART-RELAX-FLOOR:
+// when neither a configured nor a derivable setpoint exists, the channel has no
+// reference signal for the IMC-PI, so the closure runs reactive-only — it
+// returns the reactive PWM and caches no predictive decision, instead of the
+// old silent 70°C predictive path.
+func TestBuildFn_NoSetpointNoDerived_ReactiveOnly(t *testing.T) {
+	t.Parallel()
+	la, err := layer_a.New(layer_a.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := controller.NewDecisionCache()
+	d := Deps{
+		LayerA:     la,
+		Aggregator: aggregator.New(aggregator.Config{}),
+		Blended:    controller.NewBlended(controller.BlendedConfig{}),
+		Decisions:  dec,
+	}
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(&config.Config{Smart: config.SmartConfig{}}) // no setpoints
+
+	// derivedOK == false ⇒ no thermal limit resolved for the bound sensor.
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" }, 0, false)
+	const reactive uint8 = 150
+	if got := fn("ch", 70, reactive, 2*time.Second, time.Now()); got != reactive {
+		t.Errorf("unresolved setpoint: output = %d, want reactive %d", got, reactive)
+	}
+	if _, ok := dec.Load("ch"); ok {
+		t.Error("reactive-only path must not cache a predictive decision")
+	}
+}
+
+// TestBuildFn_DerivedSetpointUsed: with no configured setpoint but a derived
+// one available (derivedOK), the closure proceeds through the predictive path
+// (a decision is cached) rather than running reactive-only.
+func TestBuildFn_DerivedSetpointUsed(t *testing.T) {
+	t.Parallel()
+	la, err := layer_a.New(layer_a.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := controller.NewDecisionCache()
+	d := Deps{
+		LayerA:     la,
+		Aggregator: aggregator.New(aggregator.Config{}),
+		Blended:    controller.NewBlended(controller.BlendedConfig{}),
+		Decisions:  dec,
+	}
+	cfgPtr := &atomic.Pointer[config.Config]{}
+	cfgPtr.Store(&config.Config{Smart: config.SmartConfig{}}) // no setpoints
+
+	fn := BuildFn("ch", config.Fan{MinPWM: 0, MaxPWM: 255}, cfgPtr, d, func() string { return "" }, 65.0, true)
+	fn("ch", 70, 150, 2*time.Second, time.Now())
+	if _, ok := dec.Load("ch"); !ok {
+		t.Error("a derived setpoint should let the closure proceed and cache a decision")
 	}
 }

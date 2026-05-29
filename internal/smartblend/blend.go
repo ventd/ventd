@@ -47,12 +47,19 @@ type Deps struct {
 // controller then runs without a blend hook. The channel ID and fan
 // config are captured once; PWM bounds and the setpoint are re-read
 // from the live Config every call so SIGHUP changes propagate.
+// derivedSetpoint / derivedOK carry the wiring layer's fallback setpoint for
+// this channel, computed once from the bound sensor's thermal limit
+// (controller.DeriveSmartSetpointC). They are consulted only when the operator
+// configured no smart.setpoints entry for the channel; derivedOK == false means
+// no plausible limit resolved and the channel runs reactive-only.
 func BuildFn(
 	channelID string,
 	fanCfg config.Fan,
 	liveCfg *atomic.Pointer[config.Config],
 	d Deps,
 	labelFn func() string,
+	derivedSetpoint float64,
+	derivedOK bool,
 ) controller.BlendFn {
 	if d.LayerA == nil || d.Aggregator == nil || d.Blended == nil {
 		return nil
@@ -62,15 +69,23 @@ func BuildFn(
 		if live == nil {
 			return reactivePWM
 		}
+		// Resolve the IMC-PI reference setpoint and the below-curve relax
+		// margin. An operator-configured setpoint always wins. Absent one,
+		// fall back to the value the wiring layer derived from the bound
+		// sensor's thermal limit (crit/Tjmax − margin, derivedSetpoint). If
+		// even that could not resolve (derivedOK == false), there is no
+		// reference signal for the controller, so run this channel
+		// reactive-only — never predicting against a guessed target, which
+		// is the path the old code took to its silent 70°C default.
+		// RULE-CTRL-SMART-RELAX-FLOOR.
 		setpoint, ok := live.Smart.Setpoints[chID]
 		if !ok {
-			// Fallback: setpoint matches the bound sensor's normal
-			// operating range. Per spec §3.7's silence on absence,
-			// we use a class-default of 70°C — a conservative
-			// midpoint for desktop CPU/GPU temperatures. v0.6.x
-			// can refine this from the system class.
-			setpoint = 70.0
+			if !derivedOK {
+				return reactivePWM
+			}
+			setpoint = derivedSetpoint
 		}
+		relaxMargin := live.Smart.RelaxMarginPWM()
 
 		var couplingSnap *coupling.Snapshot
 		if d.Coupling != nil {
@@ -159,6 +174,7 @@ func BuildFn(
 			Now:          now,
 			MinPWM:       fanCfg.MinPWM,
 			MaxPWM:       fanCfg.MaxPWM,
+			RelaxMargin:  relaxMargin,
 		})
 
 		// First-contact mark: persisted only after the clamped tick

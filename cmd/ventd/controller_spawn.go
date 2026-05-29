@@ -13,6 +13,7 @@ import (
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/smartblend"
+	"github.com/ventd/ventd/internal/sysclass"
 	"github.com/ventd/ventd/internal/watchdog"
 	"github.com/ventd/ventd/internal/web"
 )
@@ -55,6 +56,7 @@ func (s *controllerSpawner) labelFn() func() string {
 // for the startup and reload paths by construction — that identity is the
 // whole point of this helper.
 func (s *controllerSpawner) options(
+	ctrl config.Control,
 	fanCfg config.Fan,
 	calMap map[hwdb.ChannelKey]*hwdb.ChannelCalibration,
 	resolvePWMUnitMax func(string) int,
@@ -116,11 +118,53 @@ func (s *controllerSpawner) options(
 			Gate:       s.smartMode.Gate,
 			Drift:      s.smartMode.Drift,
 		}
-		if blendFn := smartblend.BuildFn(fanCfg.PWMPath, fanCfg, s.liveCfg, deps, s.labelFn()); blendFn != nil {
+		derivedSetpoint, derivedOK := s.deriveSmartSetpoint(ctrl)
+		if blendFn := smartblend.BuildFn(fanCfg.PWMPath, fanCfg, s.liveCfg, deps, s.labelFn(), derivedSetpoint, derivedOK); blendFn != nil {
 			opts = append(opts, controller.WithBlend(blendFn))
 		}
 	}
 	return opts
+}
+
+// deriveSmartSetpoint resolves the smart-mode fallback setpoint for a control's
+// channel when the operator configured none: the bound sensor's thermal limit
+// (tempN_crit / CPU Tjmax) minus a margin. ok is false when the sensor exposes
+// no plausible limit — BuildFn then runs the channel reactive-only instead of
+// guessing a target. Resolved once at controller construction; crit/Tjmax are
+// static for the life of the daemon. RULE-CTRL-SMART-RELAX-FLOOR.
+func (s *controllerSpawner) deriveSmartSetpoint(ctrl config.Control) (float64, bool) {
+	cfg := s.liveCfg.Load()
+	if cfg == nil {
+		return 0, false
+	}
+	path := hwmonSensorPathForCurve(cfg, ctrl.Curve)
+	if path == "" {
+		return 0, false
+	}
+	return controller.DeriveSmartSetpointC(path, sysclass.TjmaxFromCPUInfo)
+}
+
+// hwmonSensorPathForCurve returns the hwmon sysfs temp path bound to a curve via
+// its sensor, or "" when the curve, its sensor, or a hwmon path can't be
+// resolved — e.g. a non-hwmon sensor such as an NVML GPU temp, which exposes no
+// sysfs crit register and so yields no derivable setpoint.
+func hwmonSensorPathForCurve(cfg *config.Config, curveName string) string {
+	var sensorName string
+	for _, cv := range cfg.Curves {
+		if cv.Name == curveName {
+			sensorName = cv.Sensor
+			break
+		}
+	}
+	if sensorName == "" {
+		return ""
+	}
+	for _, sn := range cfg.Sensors {
+		if sn.Name == sensorName && sn.Type == "hwmon" {
+			return sn.Path
+		}
+	}
+	return ""
 }
 
 // spawn constructs one controller and launches its goroutine under the shared

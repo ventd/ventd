@@ -123,6 +123,44 @@ re-armed only on `WipeNamespaces`.
 
 Bound: internal/controller/blended_test.go:TestBlend_FirstContactClamp_NeverReducesCooling
 
+## RULE-CTRL-SMART-RELAX-FLOOR: a converged predictive arm may relax the fan at most RelaxMargin PWM below the reactive curve; with no resolvable setpoint the channel runs reactive-only.
+
+The first-contact clamp (RULE-CTRL-BLEND-02) only guards the
+*first* w_pred>0 tick. After a channel converges
+(`SeenFirstContact`), the predictive arm may settle below the
+reactive curve, bounded otherwise only by `MinPWM`. The reactive
+curve is the trusted here-and-now signal ("at this temperature the
+fan needs at least PWM P"); relaxing far below it bets a stale or
+miscalibrated estimate against the curve's reading and can under-cool
+the part.
+
+`Compute` therefore floors the predictive arm every tick to
+`max(MinPWM, ReactivePWM − in.RelaxMargin)` (helper `relaxFloorPWM`);
+because Step 6's blend is a convex mix of predictive and reactive —
+both ≥ floor — the output is floored too. `RelaxMargin` comes from
+`Config.Smart.RelaxMarginPWM()`: nil ⇒ `DefaultMaxRelaxBelowCurve`
+(25 ≈ 10% of range), an explicit `0` ⇒ never below the curve
+(boost-only). `BlendedResult.RelaxFloorClamped` surfaces an engaged
+floor to the doctor telemetry.
+
+The setpoint that drives the relaxation is resolved without guessing:
+an operator `smart.setpoints` entry wins; absent one the wiring layer
+derives it from the bound sensor's thermal limit
+(`DeriveSmartSetpointC` = `tempN_crit` / CPU Tjmax −
+`smartSetpointMarginBelowLimitC`, clamped to
+[`smartSetpointMinC`, `smartSetpointMaxC`]); if no plausible limit
+resolves, `BuildFn` runs the channel reactive-only rather than
+predict against the old silent 70°C default.
+
+Bound: internal/controller/relax_floor_test.go:TestRelaxFloor_BoundsConvergedBelowCurveRelax
+Bound: internal/controller/relax_floor_test.go:TestRelaxFloor_ZeroMargin_NeverBelowReactive
+Bound: internal/controller/relax_floor_test.go:TestDeriveSmartSetpointC
+Bound: internal/controller/relax_floor_test.go:TestRelaxFloorPWM
+Bound: internal/config/relax_margin_test.go:TestRelaxMarginPWM
+Bound: internal/smartblend/blend_test.go:TestBuildFn_NoSetpointNoDerived_ReactiveOnly
+Bound: internal/smartblend/blend_test.go:TestBuildFn_DerivedSetpointUsed
+Bound: cmd/ventd/relax_setpoint_test.go:TestHwmonSensorPathForCurve
+
 ## RULE-CTRL-BLEND-03: w_pred = 0 returns reactive byte-exact and skips PI math entirely.
 
 When `w_pred ≤ 0` on input, the controller short-circuits at
