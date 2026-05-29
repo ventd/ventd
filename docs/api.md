@@ -196,6 +196,44 @@ VersionInfo
 
 ---
 
+## Monitoring
+
+### `GET /metrics`
+
+Prometheus text-exposition (version 0.0.4) scrape of the daemon's live state.
+Unauthenticated, like the `/healthz` and `/readyz` probes — operational
+telemetry with no secrets — so a scrape config needs no credentials:
+
+```yaml
+scrape_configs:
+  - job_name: ventd
+    scheme: https
+    tls_config: { insecure_skip_verify: true }  # self-signed cert by default
+    static_configs:
+      - targets: ["ventd-host:9999"]
+```
+
+**Auth**: none
+
+**Metrics**:
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `ventd_up` | gauge | — | `1` while the daemon is serving. |
+| `ventd_build_info` | gauge | `version` | Constant `1`; carries the build version. |
+| `ventd_start_time_seconds` | gauge | — | Unix start time (use for `time() - ventd_start_time_seconds` uptime). |
+| `ventd_shadow_mode` | gauge | — | `1` when in shadow mode (no hardware writes). |
+| `ventd_sensor_temperature_celsius` | gauge | `sensor` | Per-sensor temperature in °C. |
+| `ventd_sensor_value` | gauge | `sensor`, `unit` | Non-temperature sensor readings (%, W, V, MHz). |
+| `ventd_fan_pwm` | gauge | `fan`, `label` | Current PWM duty byte (0–255). |
+| `ventd_fan_rpm` | gauge | `fan`, `label` | Tachometer reading in RPM (omitted for fans with no tach). |
+
+Sensor reads that returned a sentinel/implausible value, and fans with no
+tachometer, are omitted rather than reported as `0` — a scraped series is
+always a value the daemon actually read.
+
+---
+
 ## Configuration
 
 ### `GET /api/config`

@@ -387,6 +387,9 @@ func New(d Deps) *Server {
 	// within the last 5s, so it stays 503 during stalls.
 	s.mux.HandleFunc("/healthz", s.handleHealthz)
 	s.mux.HandleFunc("/readyz", s.handleReadyz)
+	// /metrics is the Prometheus scrape surface — unauthenticated like the
+	// health probes (operational telemetry, no secrets). RULE-WEB-METRICS-EXPOSITION.
+	s.mux.HandleFunc("/metrics", s.handleMetrics)
 	// Static UI assets (HTML/CSS/JS) live under the embedded `ui/` tree.
 	// Authentication is intentionally NOT required: these are the same
 	// bytes the unauth'd /login page already depends on, and withholding
