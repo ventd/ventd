@@ -1,0 +1,33 @@
+# apidoccheck burn-down baseline
+#
+# API routes registered by internal/web that do NOT yet have a section in
+# docs/api.md. apidoccheck treats these as known debt: it will NOT fail on
+# them, but it WILL fail if a NEW undocumented route appears, if a route here
+# stops existing, or if one of these is later documented (then remove it).
+#
+# Goal: this list only ever shrinks. To burn one down, add its section to
+# docs/api.md (method header + **Auth** line) and delete the line here.
+#
+# One route name per line (trailing path after /api/, no leading slash).
+
+admin/factory-reset
+calibrate/reset
+confidence/preset
+confidence/status
+diag/bundle
+diag/send
+doctor
+hardware/inventory
+hwdiag/grub-cmdline-add
+hwdiag/load-apparmor
+hwdiag/modprobe-options-write
+hwdiag/reset-and-reinstall
+platform-profile
+probe/opportunistic/status
+release-notes
+setup/apply-monitor-only
+setup/events
+smart/channels
+smart/status
+update/apply
+update/check
