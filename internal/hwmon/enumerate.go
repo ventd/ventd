@@ -13,6 +13,31 @@ import (
 // alternate root into EnumerateDevices to classify against a synthetic tree.
 const DefaultHwmonRoot = "/sys/class/hwmon"
 
+// RootOverrideEnv redirects hwmon class enumeration away from the production
+// /sys/class/hwmon to a synthetic on-disk tree, for development and testing
+// without real hardware (see tools/hwmonsim). Empty/unset means production.
+// This is a dev/test seam, NOT a production knob: when set, the daemon drives
+// whatever fan files live under the override instead of real hardware.
+const RootOverrideEnv = "VENTD_HWMON_ROOT"
+
+// EffectiveRoot returns the hwmon class root to enumerate: the trimmed value of
+// the VENTD_HWMON_ROOT override when set, else DefaultHwmonRoot. Because every
+// discovered channel carries an absolute path rooted here, reads and writes
+// follow the override automatically — no other seam is required.
+func EffectiveRoot() string {
+	if r := strings.TrimSpace(os.Getenv(RootOverrideEnv)); r != "" {
+		return r
+	}
+	return DefaultHwmonRoot
+}
+
+// RootIsOverridden reports whether VENTD_HWMON_ROOT is steering enumeration
+// away from production /sys. Callers use it to log a loud warning so a stray
+// override in production can't masquerade as healthy real-hardware control.
+func RootIsOverridden() bool {
+	return EffectiveRoot() != DefaultHwmonRoot
+}
+
 // CapabilityClass names the fan-control shape of an hwmon device. It is a
 // string type so diagnostic JSON surfaces human-readable values directly
 // instead of opaque integer codes.

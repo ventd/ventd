@@ -116,6 +116,10 @@ type Backend struct {
 	logger   *slog.Logger
 	acquired sync.Map // key: pwmPath (string), value: struct{}
 
+	// warnOverrideOnce guards the one-time loud log emitted when
+	// VENTD_HWMON_ROOT steers enumeration to a synthetic tree.
+	warnOverrideOnce sync.Once
+
 	// ebusyRates tracks per-channel EBUSY occurrence counts in a 60s
 	// rolling window. RULE-HWMON-EBUSY-RATE-OBSERVABILITY. Key:
 	// pwmPath; value: *ebusyStats. Concurrent Write calls update
@@ -182,7 +186,17 @@ func (b *Backend) Close() error { return nil }
 // lives in internal/hwmon + internal/hwdiag and pulling it in here
 // would widen the import graph without benefit.
 func (b *Backend) Enumerate(ctx context.Context) ([]hal.Channel, error) {
-	devices := hwmon.EnumerateDevices(hwmon.DefaultHwmonRoot)
+	root := hwmon.EffectiveRoot()
+	if hwmon.RootIsOverridden() {
+		// Loud, once: a stray VENTD_HWMON_ROOT in production must never
+		// look like healthy real-hardware control. This path drives
+		// whatever fan files live under the override (tools/hwmonsim).
+		b.warnOverrideOnce.Do(func() {
+			b.logger.Warn("hwmon: VENTD_HWMON_ROOT override active — enumerating a synthetic tree, NOT real hardware",
+				"root", root, "env", hwmon.RootOverrideEnv)
+		})
+	}
+	devices := hwmon.EnumerateDevices(root)
 	var out []hal.Channel
 	for _, dev := range devices {
 		if dev.Class == hwmon.ClassSkipNVIDIA {
