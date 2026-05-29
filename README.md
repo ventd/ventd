@@ -128,9 +128,9 @@ If you've already read it once and trust it, or you're in a trusted-provisioning
 curl -sSL https://raw.githubusercontent.com/ventd/ventd/main/scripts/install.sh | sudo bash
 ```
 
-Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), runs an interactive preflight that gates Y/N on install-time blockers (Secure Boot, missing kernel headers, conflicting in-tree drivers, GRUB cmdline gaps), downloads the binary, verifies its SHA-256 against the published `checksums.txt` for the release, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
+Either way, the script detects your architecture and init system (systemd, OpenRC, or runit), runs an interactive preflight that gates Y/N on install-time blockers (Secure Boot, missing kernel headers, conflicting in-tree drivers, GRUB cmdline gaps), downloads the binary, verifies its SHA-256 against the published `checksums.txt` and — when `cosign` is installed — its keyless signature against the ventd release identity, drops it at `/usr/local/bin/ventd`, installs the service file, enables it, and starts the daemon. It prints one thing: the URL to open in your browser.
 
-ventd serves a self-signed TLS certificate on first boot, so your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. There is no setup token to recover from a file; ventd uses a first-login-creates-account flow.
+ventd serves a self-signed TLS certificate on first boot, so your browser will warn; accept it (or front the daemon with nginx/Caddy for a Let's Encrypt cert). The first visit shows a "Create your password" page; that account becomes the local admin for the web UI. Enrolling **from the host itself** (localhost / an SSH tunnel) needs nothing more. Enrolling **from another machine** on the network requires a one-time setup token — the installer prints it, and it's also in `journalctl -u ventd` and `/run/ventd/setup-token` — so a stranger on your LAN can't claim the daemon before you do. The token is retired the moment a password is set.
 
 ## Uninstall
 

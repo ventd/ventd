@@ -1,13 +1,22 @@
-// ventd-nvml-helper is a SUID-root helper for NVML write operations.
+// ventd-nvml-helper proxies a small whitelisted set of NVML write
+// operations that require root (`nvmlDeviceSetFanSpeed_v2`,
+// `nvmlDeviceSetDefaultFanSpeed_v2`, `nvmlDeviceSetFanControlPolicy`).
 //
-// ventd runs as the unprivileged `ventd` user (correct security posture
-// per RULE-INSTALL-01) but NVIDIA's NVML library requires root for fan
-// control writes (`nvmlDeviceSetFanSpeed_v2`, `nvmlDeviceSetDefaultFanSpeed_v2`,
-// `nvmlDeviceSetFanControlPolicy`). This helper is installed SUID-root by
-// the ventd .deb / .rpm postinst and proxies a small whitelisted set of
-// NVML write subcommands. The daemon dispatches to this helper for write
-// operations; reads continue to use NVML directly from the daemon (no
-// elevation needed).
+// Deployment note: the SHIPPED systemd unit runs the daemon as `User=root`
+// and the .deb / .rpm postinst installs this binary **NOT SUID** (see
+// scripts/postinstall.sh) — so in the default deployment the daemon already
+// has root euid, `needsHelper()` returns false, and the daemon calls NVML
+// directly; this binary is dormant. The helper exists for the alternative
+// posture where the daemon runs as a non-root user: there it is installed
+// SUID-root so the daemon can dispatch GPU writes to it. Reads always use
+// NVML directly from the daemon (no elevation needed).
+//
+// SECURITY: a SUID-root install of this binary is runnable by ANY local
+// user (SUID binaries authenticate no caller), so it must never be more
+// than a thin, range-checked NVML shim. Do not add it to the install path
+// without re-reviewing that property — a local unprivileged user able to
+// drive a GPU fan to 0% is a hardware-DoS vector. The shipped (root daemon,
+// non-SUID helper) posture avoids this entirely.
 //
 // The helper itself is intentionally tiny (~150 LOC):
 //

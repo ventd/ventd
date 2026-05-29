@@ -37,6 +37,7 @@ func buildPrimitives(cfg Config) []Primitive {
 	case ProfileTrustedRecipient:
 		// trusted-recipient keeps hostname (P1 disabled) but strips everything else.
 		return []Primitive{
+			&P11Secret{},
 			&P2DMI{},
 			&P3MAC{},
 			&P4IP{},
@@ -55,6 +56,7 @@ func buildPrimitives(cfg Config) []Primitive {
 			p1 = NewP1Hostname()
 		}
 		return []Primitive{
+			&P11Secret{},
 			p1,
 			&P2DMI{},
 			&P3MAC{},

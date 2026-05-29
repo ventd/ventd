@@ -97,6 +97,26 @@
         </div>
       </div>
 
+      <div class="setup-field" id="setup-token-field" hidden>
+        <label class="setup-label" for="setup-token">
+          Setup token
+        </label>
+        <div class="setup-input-wrap">
+          <input
+            id="setup-token"
+            class="setup-input mono"
+            type="text"
+            autocomplete="off"
+            placeholder="from the installer output or journalctl -u ventd">
+        </div>
+        <p class="setup-label-hint" id="setup-token-help">
+          You're setting up from another machine. Paste the one-time token the
+          installer printed (also in <span class="mono">/run/ventd/setup-token</span>
+          or <span class="mono">journalctl -u ventd</span>) so nobody else on the
+          network can claim this daemon first.
+        </p>
+      </div>
+
       <div class="setup-error" id="setup-error" hidden role="alert"></div>
 
       <button type="submit" class="btn btn--primary btn--lg setup-submit" id="setup-submit">

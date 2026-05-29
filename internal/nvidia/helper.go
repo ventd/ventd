@@ -13,8 +13,11 @@ import (
 	"time"
 )
 
-// HelperPath is the default install location for the SUID-root NVML
-// write-helper shipped by the ventd .deb / .rpm postinst. Override via
+// HelperPath is the default install location for the NVML write-helper.
+// In the shipped posture (root daemon) the postinst installs it NOT SUID
+// and it stays dormant; in a non-root-daemon deployment it is installed
+// SUID-root so the daemon can dispatch GPU writes to it. See the package
+// header in cmd/ventd-nvml-helper for the security rationale. Override via
 // the VENTD_NVML_HELPER environment variable for tests / non-standard
 // install layouts.
 const HelperPath = "/usr/local/sbin/ventd-nvml-helper"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -135,6 +136,13 @@ type Server struct {
 	loginLim       *loginLimiter
 	tlsActive      bool         // server serves TLS directly; gates HSTS
 	trustedProxies []*net.IPNet // set at New-time from live.Web.TrustProxy
+	// setupToken is the one-time first-boot enrolment token. It is set at
+	// New() when no admin password exists yet and required for first-boot
+	// enrolment from a NON-loopback client (the LAN claim-window guard,
+	// H1). Loopback enrolment (localhost / SSH tunnel) is tokenless.
+	// Cleared the moment a password is set. Empty pointer => no token in
+	// effect (a password already exists, or this is a test server).
+	setupToken atomic.Pointer[string]
 	// sseInterval bounds how often /api/events emits a status frame.
 	// Matches the existing client-side poll cadence (2s) so the server
 	// load profile stays unchanged when one SSE client displaces the
@@ -351,6 +359,19 @@ func New(d Deps) *Server {
 	}
 	s.liveHash.Store(&initialHash)
 
+	// First-boot enrolment token (H1). When no admin password exists yet,
+	// any LAN client that reaches the listener before the operator can
+	// complete the wizard and seize the daemon (root-equivalent). Generate
+	// a one-time token now; enrolment from a non-loopback address must
+	// present it (loopback stays tokenless for the on-box / SSH-tunnel
+	// case). The token is logged and written to a root-only file so the
+	// installer can surface it; it is cleared the instant a password is
+	// set. Only mint one when authPath is set (production) — test servers
+	// drive the hash directly and don't exercise the file/journal path.
+	if initialHash == "" && authPath != "" {
+		s.mintSetupToken()
+	}
+
 	// Construct the http.Server at New-time rather than ListenAndServe-time
 	// so Shutdown() can safely be called from another goroutine without
 	// racing on the httpSrv field. Handler is immutable after New; Addr is
@@ -366,6 +387,13 @@ func New(d Deps) *Server {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 20,
+		// Pin the TLS floor explicitly rather than inheriting the
+		// crypto/tls default, which has drifted across Go releases.
+		// TLS 1.2 is the minimum any current browser needs; 1.0/1.1 are
+		// deprecated (RFC 8996) and have no place on a LAN-bound admin
+		// surface. Operators fronting ventd with a reverse proxy can
+		// still set their own policy at the proxy.
+		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 		// Route stdlib http server logs (including TLS handshake errors)
 		// through slog. tlsHandshakeWatcher promotes the
 		// browser-cached-cert pattern to a one-shot WARN (#1169).
@@ -1030,6 +1058,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // auth applies — every subsequent request must present the session
 // cookie obtained via /login.
 func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, live *config.Config, ipKey string) {
+	// H1 claim-window guard: loopback enrolment is tokenless (on-box / SSH
+	// tunnel); a non-loopback client must present the one-time setup token
+	// minted at startup (logged + written to the setup-token file the
+	// installer surfaces). Without this, any LAN host that beats the
+	// operator to the listener can seize the daemon. The guard runs before
+	// any password work so a wrong/absent token costs nothing.
+	if !s.firstBootTokenOK(r) {
+		s.logger.Warn("web: first-boot enrolment refused — missing/invalid setup token from non-loopback client",
+			"remote", r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		s.writeJSON(r, w, map[string]string{
+			"error": "first-boot enrolment from a non-loopback address requires the setup token",
+			"hint":  "find it in the daemon log (journalctl -u ventd) or " + setupTokenFile + ", then send it as the " + setupTokenHeader + " header or " + setupTokenField + " form field — or open the UI from this host (localhost) to enrol without a token",
+		})
+		return
+	}
+
 	newPassword := r.FormValue("new_password")
 
 	if len(newPassword) < 8 {
@@ -1076,6 +1122,9 @@ func (s *Server) handleFirstBootLogin(w http.ResponseWriter, r *http.Request, li
 	}
 
 	s.loginLim.recordSuccess(ipKey)
+	// The first-boot window is now closed — retire the enrolment token so it
+	// can never be reused and the on-disk copy doesn't linger.
+	s.clearSetupToken()
 	s.logger.Info("web: first-boot password set", "remote", r.RemoteAddr)
 
 	tok, err := s.sessions.create()

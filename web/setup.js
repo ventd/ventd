@@ -153,6 +153,13 @@
       setBusy(true);
       var body = new URLSearchParams();
       body.set('new_password', pw);
+      // Include the setup token when the field is present + filled. Only
+      // non-loopback enrolment needs it; the field stays hidden until the
+      // daemon asks for it (403 below), so localhost setup is unaffected.
+      var tokenField = document.getElementById('setup-token');
+      if (tokenField && tokenField.value.trim() !== '') {
+        body.set('setup_token', tokenField.value.trim());
+      }
 
       fetch('/login', {
         method: 'POST',
@@ -164,6 +171,13 @@
           if (resp.ok) {
             window.location.assign('/');
             return;
+          }
+          // 403 on first-boot enrolment means a setup token is required
+          // (we're not on loopback). Reveal the token field and focus it.
+          if (resp.status === 403) {
+            var tf = document.getElementById('setup-token-field');
+            if (tf) { tf.hidden = false; }
+            if (tokenField) { tokenField.focus(); }
           }
           return resp.json().catch(function () { return null; }).then(function (data) {
             var msg = data && data.error ? data.error : ('Setup failed (HTTP ' + resp.status + ').');
