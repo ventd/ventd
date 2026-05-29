@@ -8,14 +8,16 @@ The web UI exclusively uses this API; everything the browser can do, a script ca
 
 **Session cookie flow** (used by all `session` routes):
 
-1. `POST /login` with `{"password": "..."}` — response sets a `session` cookie.
-2. Include the cookie on subsequent requests: `-H 'Cookie: session=<value>'`.
+1. `POST /login` with the form field `password=...` — `POST /login` is **form-encoded** (`application/x-www-form-urlencoded`), not JSON. The response sets a `ventd_session` cookie (HttpOnly) and a `ventd_csrf` cookie, and returns `{"status": "ok", "csrf_token": "..."}`.
+2. Include the cookie on subsequent requests: `-H 'Cookie: ventd_session=<value>'`. State-changing requests must also present the CSRF token (the `ventd_csrf` cookie, or the `csrf_token` from the login response).
 3. Session lifetime is controlled by `web.session_ttl` (default 24 h).
 4. `GET /logout` clears the cookie.
 
-**Setup-token flow** (first-boot only):
+`POST /login` requires a same-origin `Origin` header; cross-origin requests are rejected with `403 forbidden: origin mismatch`.
 
-On first boot, ventd prints a one-time setup token to stdout / journald. Send it to `POST /login` with `{"setup_token": "...", "new_password": "..."}` to set the initial password and receive a session cookie.
+**First-boot flow** (initial password set):
+
+Before an admin password is configured, `POST /login` with the form field `new_password=...` sets the initial password and starts a session. Issue #765 removed the setup-token gate, so no token is required.
 
 **Rate limiting**: the login endpoint applies per-IP rate limiting. Consecutive failures trigger a lockout governed by `web.login_fail_threshold` and `web.login_lockout_cooldown`.
 
@@ -222,7 +224,7 @@ Returns `400` with an error message if validation fails.
 **Example**:
 ```bash
 curl -X PUT http://localhost:9999/api/config \
-     -H 'Cookie: session=...' \
+     -H 'Cookie: ventd_session=...' \
      -H 'Content-Type: application/json' \
      -d @config.json
 ```
@@ -274,7 +276,7 @@ ProfileResponse
 **Example**:
 ```bash
 curl -X POST http://localhost:9999/api/profile/active \
-     -H 'Cookie: session=...' \
+     -H 'Cookie: ventd_session=...' \
      -d '{"name": "silent"}'
 ```
 
@@ -381,7 +383,7 @@ Kicks off a calibration sweep for a specific fan. The sweep ramps PWM from min t
 **Example**:
 ```bash
 curl -X POST 'http://localhost:9999/api/calibrate/start?fan=/sys/class/hwmon/hwmon3/pwm1' \
-     -H 'Cookie: session=...'
+     -H 'Cookie: ventd_session=...'
 ```
 
 ### `GET /api/calibrate/status`
@@ -519,7 +521,7 @@ PanicPayload
 **Example**:
 ```bash
 curl -X POST http://localhost:9999/api/panic \
-     -H 'Cookie: session=...' \
+     -H 'Cookie: ventd_session=...' \
      -d '{"duration_s": 300}'
 ```
 
@@ -711,7 +713,7 @@ Allows an authenticated user to change the dashboard password.
 
 ## Login / logout (HTML endpoints)
 
-These endpoints are used by the browser login page. They are not typically called from scripts, but they do accept JSON.
+These endpoints are used by the browser login page. They are not typically called from scripts. Unlike the `/api/*` routes, `POST /login` takes **form-encoded** fields (`application/x-www-form-urlencoded`), not JSON, and requires a same-origin `Origin` header.
 
 ### `GET /login`
 
@@ -723,19 +725,26 @@ Serves the login HTML page. If the session cookie is already valid, redirects to
 
 Authenticates the user. Two flows depending on boot state:
 
-- **Normal login**: `{"password": "..."}`
-- **First-boot**: `{"setup_token": "...", "new_password": "..."}` — sets the initial password and logs in.
+- **Normal login**: form field `password=...`
+- **First-boot**: form field `new_password=...` — sets the initial password and logs in. No setup token is required (#765 removed the gate).
 
 **Auth**: none
 
-**Request body**:
-```ts
-{ password: string }
-// or on first boot:
-{ setup_token: string, new_password: string }
+**Request body** (`application/x-www-form-urlencoded`):
+```
+password=<password>
+# or on first boot:
+new_password=<new password>
 ```
 
-**Response**: sets `session` cookie; `{"status": "ok"}` on success, `4xx` on failure.
+Example:
+```sh
+curl -k -X POST https://host:9999/login \
+  -H 'Origin: https://host:9999' \
+  --data-urlencode 'password=...'
+```
+
+**Response**: sets the `ventd_session` (HttpOnly) and `ventd_csrf` cookies; `{"status": "ok", "csrf_token": "..."}` on success, `4xx` on failure.
 
 ### `GET /logout`
 
