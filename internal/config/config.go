@@ -133,6 +133,35 @@ type Config struct {
 	// daemon can post bundles to with explicit per-bundle operator
 	// consent. Empty (default) → no ingest, behaves as v0.5.11.
 	Diag DiagConfig `yaml:"diag,omitempty" json:"diag,omitempty"`
+
+	// Apply groups daemon-wide actuation policy (#1346). Currently just
+	// the shadow-mode toggle; see ApplyConfig.
+	Apply ApplyConfig `yaml:"apply,omitempty" json:"apply,omitempty"`
+}
+
+// ApplyConfig groups daemon-wide actuation policy. The motivating knob
+// is shadow mode (#1346) — a migration on-ramp for operators already
+// running CoolerControl / fan2go / thinkfan who want to evaluate ventd
+// before handing over fan control.
+type ApplyConfig struct {
+	// Shadow, when true, runs the full smart-mode + reactive pipeline —
+	// calibration learning, decisions, the recent-decisions feed — but
+	// issues NO hardware writes: every PWM and platform_profile write
+	// short-circuits to a structured "would_write" log line, and the
+	// recent-decisions feed shows what ventd WOULD have done if it were
+	// in charge. Calibration is refused while shadow mode is on (it
+	// cannot run without writing PWM, so taking over for calibration is
+	// an explicit, separate step). The watchdog restore is a natural
+	// no-op because no channel is ever written. Default false. Set via
+	// `apply.shadow: true` in config.yaml or the `--shadow` daemon flag.
+	Shadow bool `yaml:"shadow,omitempty" json:"shadow,omitempty"`
+}
+
+// ShadowMode reports whether the daemon is running in shadow mode (no
+// hardware writes). Nil-safe so live-config readers on the hot path can
+// call it without a guard.
+func (c *Config) ShadowMode() bool {
+	return c != nil && c.Apply.Shadow
 }
 
 // DiagConfig groups diagnostic-bundle outbound transport options.

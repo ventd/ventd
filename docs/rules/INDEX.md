@@ -72,6 +72,7 @@ Regenerate with: `go run ./tools/rule-index`
 | preflight-orchestrator.md | Preflight orchestrator rules — v0.5.11 |
 | probe.md | Daemon-startup probe rules |
 | setup.md | Setup wizard rules |
+| shadow-mode.md | Shadow mode (#1346) |
 | signature.md | Workload signature learning rules (v0.5.6) |
 | signguard.md | Sign-guard rules (v0.5.8) |
 | smart-mode-wiring-1035.md | Smart-mode pipeline wiring rules — issue #1035 |

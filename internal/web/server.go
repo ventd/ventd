@@ -1242,6 +1242,12 @@ type statusResponse struct {
 	StartedAt time.Time      `json:"started_at"`
 	Sensors   []sensorStatus `json:"sensors"`
 	Fans      []fanStatus    `json:"fans"`
+	// ShadowMode is true when the daemon is running in shadow mode
+	// (#1346): the Fans values reflect what ventd WOULD command, but no
+	// hardware write is issued. The dashboard renders an "observing only"
+	// banner so the operator can't mistake the live duty readings for
+	// values ventd is actually driving.
+	ShadowMode bool `json:"shadow_mode"`
 }
 
 type sensorStatus struct {
@@ -1279,10 +1285,11 @@ func (s *Server) buildStatus() statusResponse {
 	live := s.cfg.Load()
 
 	resp := statusResponse{
-		Timestamp: time.Now().UTC(),
-		StartedAt: s.startedAt,
-		Sensors:   make([]sensorStatus, 0, len(live.Sensors)),
-		Fans:      make([]fanStatus, 0, len(live.Fans)),
+		Timestamp:  time.Now().UTC(),
+		StartedAt:  s.startedAt,
+		Sensors:    make([]sensorStatus, 0, len(live.Sensors)),
+		Fans:       make([]fanStatus, 0, len(live.Fans)),
+		ShadowMode: live.ShadowMode(),
 	}
 
 	for _, sensor := range live.Sensors {
@@ -1580,12 +1587,24 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 
 // handleCalibrateStart POST /api/calibrate/start?fan=<pwmPath>
 func (s *Server) handleCalibrateStart(w http.ResponseWriter, r *http.Request) {
+	live := s.cfg.Load()
+	// Shadow mode (#1346): calibration cannot run without writing PWM
+	// (it sweeps duty and measures RPM response), so it's refused while
+	// shadow mode is on rather than silently producing a flat, useless
+	// sweep. Taking over for calibration is an explicit, separate step:
+	// disable shadow mode and restart. 423 Locked is the honest status —
+	// the resource exists but is unavailable in the current daemon mode.
+	if live.ShadowMode() {
+		s.writeJSONError(w, http.StatusLocked,
+			"calibration is unavailable in shadow mode — ventd issues no fan writes while observing. "+
+				"Remove --shadow / apply.shadow and restart to take over and calibrate.")
+		return
+	}
 	pwmPath := r.URL.Query().Get("fan")
 	if pwmPath == "" {
 		s.writeJSONError(w, http.StatusBadRequest, "fan query param required")
 		return
 	}
-	live := s.cfg.Load()
 	var fan *config.Fan
 	for i := range live.Fans {
 		if live.Fans[i].PWMPath == pwmPath {
