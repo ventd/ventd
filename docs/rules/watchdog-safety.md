@@ -251,3 +251,36 @@ watchdog's safety guarantees by extending the IPMI backend's
 restore dispatch — no change to the watchdog package required.
 
 Bound: internal/watchdog/safety_test.go:wd_register_ipmi_routes_restore_through_watchdog
+
+## RULE-WD-RECOVER-HANDBACK: the standalone crash-recovery path hands fans to firmware auto, never to manual mode
+
+`ventd-recover` (the `OnFailure=ventd-recover.service` oneshot,
+`cmd/ventd-recover`) and `hwmon.RecoverAllPWM` (the in-process
+`ventd -recover` flag) fire *after* the daemon has already died on an
+uncatchable exit (SIGKILL, OOM, escaped panic, hardware-watchdog timeout) —
+the in-daemon watchdog `Restore` never ran. These paths have no access to the
+per-channel captured `origEnable` (it died with the daemon) and must make a
+blind, best-effort hand-back.
+
+They MUST NOT write `pwm_enable=1`. Per RULE-WD-PRIOR-CRASH-FALLBACK, `1` is
+**manual** mode: on most super-I/O chips (NCT6687, ITE IT87xx, Nuvoton) it
+pins the fan at whatever PWM byte the crashed daemon last wrote — often
+near-zero mid-spin-down or mid-calibration — instead of returning control to
+firmware. Writing `1` here reintroduces, on the emergency path, exactly the
+residual-manual bug #1039 fixed on the graceful `Register` path (#1434).
+
+Both paths walk `{2, 99, 0}` — the same ordering as
+`watchdog.SafePreDaemonEnableSequence` (`2` = automatic, the de-facto
+convention; `99` = SuperIO placeholder some vendor drivers use for auto incl.
+NCT6687D pre-#169; `0` = ABI full-speed last-resort). The first value the chip
+accepts without `EINVAL` wins; a non-`EINVAL` error (EACCES/EIO/device-gone)
+aborts the channel because no other value would land either. The standalone
+binary keeps a *local copy* of the sequence — it must not import
+`internal/watchdog` (binary-size budget, `TestVentdRecover_BinarySize`); a
+guard test asserts the copy never contains `1`. Reading the persisted
+`LastKnownStore` value from the standalone binary so it can prefer the captured
+pre-daemon value over the blind `{2, 99, 0}` walk is a future enhancement;
+`{2, 99, 0}` is exactly the documented fallback when no stored value resolves.
+
+Bound: internal/hwmon/recover_test.go:TestRecoverAllPWM_HandsBackToFirmwareAutoNotManual
+Bound: cmd/ventd-recover/recover_test.go:TestRestoreAll_NeverWritesManualMode

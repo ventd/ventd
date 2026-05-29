@@ -84,7 +84,7 @@ If your hardware is in the [What ventd cannot control](#what-ventd-cannot-contro
 
 ventd is in charge of your fans, and a stopped fan can overheat a chip in seconds. The safety model:
 
-* If ventd crashes or is killed, fans return to firmware (BIOS) control within two seconds. A separate root-privileged binary, `ventd-recover`, is wired via `OnFailure=ventd-recover.service` and walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file to write `1`. The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires.
+* If ventd crashes or is killed, fans return to firmware (BIOS) control within two seconds. A separate root-privileged binary, `ventd-recover`, is wired via `OnFailure=ventd-recover.service` and walks every `/sys/class/hwmon/hwmon*/pwm<N>_enable` file, handing each channel back to firmware automatic mode — it writes the automatic value and falls back across the kernel's documented auto encodings (`2` → `99` → `0`), never the manual-mode value `1` (which would leave the fan pinned at the dead daemon's last duty). The main daemon's `WatchdogSec=2s` ensures a hung main loop gets SIGKILLed and the recovery path fires.
 * During fan testing, fans cannot be stopped for longer than two seconds. A per-fan sentinel escalates to a quiet floor (`SafePWMFloor = 30`, roughly 12% duty) if the zero state persists past that window.
 * If a fan can't be acquired, the dashboard, `ventd doctor`, and `ventd diag` all say so in plain words. No silent failures.
 

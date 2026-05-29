@@ -10,8 +10,9 @@ import (
 )
 
 // TestVentdRecover_NoAllocs verifies that writeToFD — the hot write path that
-// fires for every pwm_enable file — makes zero heap allocations. The package-
-// level [2]byte array means no per-call allocation is needed.
+// fires for every pwm_enable file — makes zero heap allocations on the happy
+// path. The package-level byte arrays and the func-value syscall seams mean no
+// per-call allocation is needed.
 func TestVentdRecover_NoAllocs(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "pwm1_enable")
@@ -89,8 +90,10 @@ func TestVentdRecover_IsPWMEnable(t *testing.T) {
 	}
 }
 
-// TestVentdRecover_RestoreAll verifies that restoreAll writes "1\n" to every
-// pwm<N>_enable file under hwmon* directories and ignores other files.
+// TestVentdRecover_RestoreAll verifies that restoreAll hands every
+// pwm<N>_enable file under hwmon* directories back to firmware (writes the
+// automatic value "2") and ignores other files. Targets start at a manual-ish
+// "5" so the write is observable; bystanders start at "5" and must stay "5".
 func TestVentdRecover_RestoreAll(t *testing.T) {
 	root := t.TempDir()
 	hwmon0 := filepath.Join(root, "hwmon0")
@@ -102,13 +105,13 @@ func TestVentdRecover_RestoreAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Files that should be written.
+	// Files that should be handed back to firmware (5 → 2).
 	targets := []string{
 		filepath.Join(hwmon0, "pwm1_enable"),
 		filepath.Join(hwmon0, "pwm2_enable"),
 		filepath.Join(hwmon1, "pwm1_enable"),
 	}
-	// Files that must NOT be written.
+	// Files that must NOT be touched (stay 5).
 	bystanders := []string{
 		filepath.Join(hwmon0, "fan1_input"),
 		filepath.Join(hwmon0, "temp1_input"),
@@ -116,7 +119,7 @@ func TestVentdRecover_RestoreAll(t *testing.T) {
 	}
 
 	for _, p := range append(targets, bystanders...) {
-		if err := os.WriteFile(p, []byte("2\n"), 0600); err != nil {
+		if err := os.WriteFile(p, []byte("5\n"), 0600); err != nil {
 			t.Fatalf("setup %s: %v", p, err)
 		}
 	}
@@ -128,14 +131,115 @@ func TestVentdRecover_RestoreAll(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", p, err)
 		}
-		if strings.TrimSpace(string(b)) != "1" {
-			t.Errorf("%s: got %q want \"1\"", p, string(b))
+		if strings.TrimSpace(string(b)) != "2" {
+			t.Errorf("%s: got %q want \"2\" (firmware automatic)", p, string(b))
 		}
 	}
 	for _, p := range bystanders {
 		b, _ := os.ReadFile(p)
-		if strings.TrimSpace(string(b)) != "2" {
-			t.Errorf("bystander %s was modified: got %q want \"2\"", p, string(b))
+		if strings.TrimSpace(string(b)) != "5" {
+			t.Errorf("bystander %s was modified: got %q want \"5\"", p, string(b))
+		}
+	}
+}
+
+// TestRestoreAll_NeverWritesManualMode is the regression guard for #1434
+// (RULE-WD-RECOVER-HANDBACK): the crash-recovery path must hand fans back to
+// firmware automatic mode (2), never write pwm_enable=1 (manual), which on
+// most super-I/O chips pins the fan at the dead daemon's last PWM.
+func TestRestoreAll_NeverWritesManualMode(t *testing.T) {
+	root := t.TempDir()
+	hwmon0 := filepath.Join(root, "hwmon0")
+	if err := os.MkdirAll(hwmon0, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// "5" stands in for any manual-ish residual a crashed daemon left behind.
+	targets := []string{
+		filepath.Join(hwmon0, "pwm1_enable"),
+		filepath.Join(hwmon0, "pwm2_enable"),
+	}
+	for _, p := range targets {
+		if err := os.WriteFile(p, []byte("5\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	restoreAll(root)
+
+	for _, p := range targets {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		got := strings.TrimSpace(string(b))
+		if got == "1" {
+			t.Errorf("%s: recovery wrote MANUAL mode (1) — pins the fan; must hand back to firmware (#1434)", p)
+		}
+		if got != "2" {
+			t.Errorf("%s: got %q, want \"2\" (firmware automatic)", p, got)
+		}
+	}
+}
+
+// TestWriteToFD_EINVALWalksToNextValue verifies the fallback walk: when the
+// chip rejects "2" and "99" with EINVAL, writeToFD advances to "0". The syscall
+// seams are injected so the rejection is deterministic (a real tmpfile accepts
+// any value).
+func TestWriteToFD_EINVALWalksToNextValue(t *testing.T) {
+	origWrite, origSeek := sysWrite, sysSeek
+	defer func() { sysWrite, sysSeek = origWrite, origSeek }()
+
+	var written []string
+	sysSeek = func(int, int64, int) (int64, error) { return 0, nil }
+	sysWrite = func(_ int, p []byte) (int, error) {
+		written = append(written, strings.TrimSpace(string(p)))
+		if string(p) == "0\n" { // only the last candidate is accepted
+			return len(p), nil
+		}
+		return 0, syscall.EINVAL
+	}
+
+	writeToFD(7) // fd is irrelevant; the seams ignore it
+
+	if got := strings.Join(written, ","); got != "2,99,0" {
+		t.Fatalf("write sequence = %q, want \"2,99,0\" (must walk 2 → 99 → 0 on EINVAL)", got)
+	}
+}
+
+// TestWriteToFD_HardErrorAborts verifies that a non-EINVAL error (e.g. EACCES /
+// device gone) aborts the walk immediately — trying other values cannot help
+// if the file itself is unwritable.
+func TestWriteToFD_HardErrorAborts(t *testing.T) {
+	origWrite, origSeek := sysWrite, sysSeek
+	defer func() { sysWrite, sysSeek = origWrite, origSeek }()
+
+	attempts := 0
+	sysSeek = func(int, int64, int) (int64, error) { return 0, nil }
+	sysWrite = func(int, []byte) (int, error) {
+		attempts++
+		return 0, syscall.EACCES
+	}
+
+	writeToFD(7)
+
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (a non-EINVAL error must abort the walk)", attempts)
+	}
+}
+
+// TestEnableHandbackSequence_NoManualMode locks the safety invariant: the
+// recovery sequence is {2, 99, 0} and never the manual value 1 (#1434).
+func TestEnableHandbackSequence_NoManualMode(t *testing.T) {
+	want := []string{"2\n", "99\n", "0\n"}
+	if len(enableHandbackSequence) != len(want) {
+		t.Fatalf("sequence length = %d, want %d", len(enableHandbackSequence), len(want))
+	}
+	for i, b := range enableHandbackSequence {
+		if string(b) != want[i] {
+			t.Errorf("sequence[%d] = %q, want %q", i, string(b), want[i])
+		}
+		if strings.TrimSpace(string(b)) == "1" {
+			t.Errorf("sequence[%d] is the MANUAL value 1 — must never be written on recovery (#1434)", i)
 		}
 	}
 }
