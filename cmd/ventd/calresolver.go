@@ -8,6 +8,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/hal"
 	halasahi "github.com/ventd/ventd/internal/hal/asahi"
+	halasuswmi "github.com/ventd/ventd/internal/hal/asuswmi"
 	halcrosec "github.com/ventd/ventd/internal/hal/crosec"
 	halgpu "github.com/ventd/ventd/internal/hal/gpu"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
@@ -58,6 +59,7 @@ func newChannelResolver() calibrate.ChannelResolver {
 // breaking the CLI wizard end-to-end — issue #1025).
 func registerHALBackends(logger *slog.Logger, amdOverdrive bool) {
 	hal.Register(halasahi.BackendName, halasahi.NewBackend(logger))
+	hal.Register(halasuswmi.BackendName, halasuswmi.NewBackend(logger))
 	halcorsair.RegisterAll(logger, halcorsair.ProbeOptions{})
 	halgpu.RegisterAll(logger, halgpu.ProbeOptions{AMDOverdrive: amdOverdrive})
 	hal.Register(halcrosec.BackendName, halcrosec.NewBackend(logger))

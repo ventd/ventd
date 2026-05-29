@@ -1,0 +1,69 @@
+schema_version: "1.2"
+# ASUS WMI custom fan curve (asus_custom_fan_curve hwmon) — mainline.
+#
+# The mainline asus-wmi driver (drivers/platform/x86/asus-wmi.c, loaded as
+# asus-nb-wmi on ROG/TUF/Strix/Scar/Flow/Zephyrus/Zenbook/Vivobook/ProArt/ROG
+# Ally notebooks) registers a second hwmon device named "asus_custom_fan_curve"
+# whose write surface is an EIGHT-POINT fan curve per fan, NOT a per-tick duty
+# register:
+#
+#   pwm1_auto_point1..8_temp   CPU fan curve temperatures (whole °C)
+#   pwm1_auto_point1..8_pwm    CPU fan curve duty (0-255; the kernel scales it
+#                              to a percentage before the ACPI call —
+#                              arg3 += (100 * pwm / 255) << shift)
+#   pwm1_enable                1 = manual (apply the stored custom curve),
+#                              2 = factory auto (curve retained),
+#                              3 = factory auto + reset curve to default
+#   pwm2_*                     the same block for the GPU fan
+#
+# (FAN_CURVE_POINTS == 8, FAN_CURVE_DEV_CPU == 0x00, FAN_CURVE_DEV_GPU == 0x01.)
+# The custom-fan-curve feature landed in kernel 5.17 and stabilised across the
+# ASUS line by 6.4 — hence kernel_version.min 6.4.
+#
+# Because the firmware runs the control loop itself against the EC's thermal
+# zone once the curve is programmed, ventd drives this surface through the
+# internal/hal/asuswmi CurveSink backend (CapWriteCurve) — program the eight
+# points once and re-program only on curve change — NOT the per-tick hwmon pwm
+# path. This row is therefore SEPARATE from asus-wmi-sensors.yaml (the older,
+# read-only board-sensor surface on a different module).
+#
+# ventd vendors seerge/g-helper's default fan-curve presets under
+# internal/hwdb/asus/ (spec-17 PR-3) as reference curves an ASUS owner can
+# adopt; the doctor's asus_fan_curves card surfaces them. ventd talks to the
+# kernel asus-wmi sysfs directly and never shells out to g-helper / asusctl.
+
+driver_profiles:
+  - module: "asus-nb-wmi"
+    family: "asus-wmi-fancurve"
+    description: "ASUS WMI custom fan curve (hwmon name=asus_custom_fan_curve) — eight-point CPU (pwm1) + GPU (pwm2) fan curves on ROG/TUF/Strix/Scar/Flow/Zephyrus/Zenbook/Vivobook/ProArt/ROG Ally notebooks. The firmware follows the programmed curve against its own thermal zone; ventd's asuswmi CurveSink backend programs the curve once via pwm_enable=1 rather than writing a per-tick duty. Distinct from asus-wmi-sensors (read-only board sensors)."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 200
+    recommended_alternative_driver: null
+    conflicts_with_userspace:
+      - daemon: "asusd"
+        detection: "systemctl is-active asusd"
+        resolution: "coexist_warning"
+        reason: "asusctl's asusd writes the same asus_custom_fan_curve pwm*_auto_point* nodes via the supergfxd/asusd ACPI path; concurrent control fights over the EC's manual/auto fan state."
+      - daemon: "g-helper"
+        detection: "command -v g-helper"
+        resolution: "coexist_warning"
+        reason: "g-helper (Windows; Linux port utajum/g-helper-linux) drives the same ASUS WMI fan-curve ACPI method. Interleaved curve writes can leave the EC in manual mode after ventd exits."
+    fan_control_capable: true
+    fan_control_via: null
+    kernel_version:
+      min: "6.4"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: true
+    citations:
+      - "https://github.com/torvalds/linux/blob/master/drivers/platform/x86/asus-wmi.c (asus_custom_fan_curve hwmon: FAN_CURVE_POINTS 8, pwmN_auto_pointM_{temp,pwm}, pwmN_enable 1/2/3)"
+      - "https://www.spinics.net/lists/platform-driver-x86/msg28117.html (asus-wmi: Add support for custom fan curves — upstream patch series)"
+      - "https://wiki.archlinux.org/title/Fan_speed_control#ASUS (asus_custom_fan_curve sysfs usage)"

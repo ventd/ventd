@@ -1,0 +1,36 @@
+upstream:  github.com/seerge/g-helper
+commit:    1d3044807b42894998cd6b3a6432b914a9d13429
+synced:    2026-05-29T00:00:00Z
+license:   GPL-3.0
+files:
+  - configs/g-helper.json  (app/AppConfig.cs::GetDefaultCurve @ 1d30448, lines 271-300; 3 modes × {cpu,gpu})
+provenance: |
+  g-helper does NOT ship a per-model fan-curve dictionary — ASUS stores per-model
+  curves in the BIOS and g-helper reads them over WMI (AsusACPI DevsCPUFanCurve
+  0x00110024 / DevsGPUFanCurve). The only vendorable curve data g-helper carries
+  is AppConfig.GetDefaultCurve()'s model-AGNOSTIC fallback curves, returned when
+  the BIOS exposes no stored curve. Those are transcribed here verbatim.
+
+  Source format: each curve is a 16-byte array — bytes 0-7 are temperatures (°C),
+  bytes 8-15 are fan duty (percent). The hex strings transcribed (commit 1d30448):
+    Turbo    GPU 1E-3F-44-48-4C-50-54-62-16-1F-26-2D-39-47-55-5F
+    Turbo    CPU 1E-3F-44-48-4C-50-54-62-11-1A-22-29-34-43-51-5A
+    Silent   GPU 1E-31-3B-42-47-50-5A-64-00-00-04-11-1B-23-28-2D
+    Silent   CPU 1E-31-3B-42-47-50-5A-64-00-00-03-0C-14-1C-22-29
+    Balanced GPU 3A-3D-40-44-48-4D-51-62-0C-16-1D-1F-26-2D-34-4A
+    Balanced CPU 3A-3D-40-44-48-4D-51-62-08-11-16-1A-22-29-30-45
+  (the C# `default` switch case == AsusACPI.PerformanceBalanced.)
+
+  Cross-validated against utajum/g-helper-linux (the Linux WMI-call port) for the
+  CPU=pwm1 / GPU=pwm2 device ordering and the percent unit of the duty bytes.
+note: |
+  curve-PRESET corpus only — these are reference fan curves an ASUS owner can
+  adopt. ventd drives the ASUS fan via the kernel asus-wmi sysfs through the
+  internal/hal/asuswmi CurveSink backend; it NEVER shells out to g-helper,
+  asusctl, or any WMI tool, so the corpus carries no EC-register / ACPI-method
+  map and there is no register allowlist to gate. The asuswmi backend converts a
+  preset's percent duty to the kernel's 0-255 pwm byte when programming.
+license_note: |
+  g-helper itself is GPL-3.0 — clean ingest into this GPL-3.0 codebase. asusctl
+  (the other major ASUS Linux tool) is MPL-2.0: studied for algorithm reference
+  only, NEVER source-copied here. None of asusctl's source is vendored.

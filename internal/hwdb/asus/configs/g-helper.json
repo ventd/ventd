@@ -1,0 +1,75 @@
+{
+  "source": "g-helper",
+  "note": "g-helper AppConfig.GetDefaultCurve() fallback fan curves, used when the BIOS exposes no stored curve. Mode-keyed (silent/balanced/turbo), not model-keyed: ASUS stores per-model curves in the BIOS, so g-helper ships only these model-agnostic defaults. 16-byte source format = 8 temperature bytes (°C) + 8 fan-duty bytes (percent).",
+  "presets": [
+    {
+      "mode": "silent",
+      "cpu": [
+        {"temp": 30, "pct": 0},
+        {"temp": 49, "pct": 0},
+        {"temp": 59, "pct": 3},
+        {"temp": 66, "pct": 12},
+        {"temp": 71, "pct": 20},
+        {"temp": 80, "pct": 28},
+        {"temp": 90, "pct": 34},
+        {"temp": 100, "pct": 41}
+      ],
+      "gpu": [
+        {"temp": 30, "pct": 0},
+        {"temp": 49, "pct": 0},
+        {"temp": 59, "pct": 4},
+        {"temp": 66, "pct": 17},
+        {"temp": 71, "pct": 27},
+        {"temp": 80, "pct": 35},
+        {"temp": 90, "pct": 40},
+        {"temp": 100, "pct": 45}
+      ]
+    },
+    {
+      "mode": "balanced",
+      "cpu": [
+        {"temp": 58, "pct": 8},
+        {"temp": 61, "pct": 17},
+        {"temp": 64, "pct": 22},
+        {"temp": 68, "pct": 26},
+        {"temp": 72, "pct": 34},
+        {"temp": 77, "pct": 41},
+        {"temp": 81, "pct": 48},
+        {"temp": 98, "pct": 69}
+      ],
+      "gpu": [
+        {"temp": 58, "pct": 12},
+        {"temp": 61, "pct": 22},
+        {"temp": 64, "pct": 29},
+        {"temp": 68, "pct": 31},
+        {"temp": 72, "pct": 38},
+        {"temp": 77, "pct": 45},
+        {"temp": 81, "pct": 52},
+        {"temp": 98, "pct": 74}
+      ]
+    },
+    {
+      "mode": "turbo",
+      "cpu": [
+        {"temp": 30, "pct": 17},
+        {"temp": 63, "pct": 26},
+        {"temp": 68, "pct": 34},
+        {"temp": 72, "pct": 41},
+        {"temp": 76, "pct": 52},
+        {"temp": 80, "pct": 67},
+        {"temp": 84, "pct": 81},
+        {"temp": 98, "pct": 90}
+      ],
+      "gpu": [
+        {"temp": 30, "pct": 22},
+        {"temp": 63, "pct": 31},
+        {"temp": 68, "pct": 38},
+        {"temp": 72, "pct": 45},
+        {"temp": 76, "pct": 57},
+        {"temp": 80, "pct": 71},
+        {"temp": 84, "pct": 85},
+        {"temp": 98, "pct": 95}
+      ]
+    }
+  ]
+}
