@@ -154,6 +154,32 @@ all fan control.
 Bound: internal/controller/safety_test.go:sensor_read/enoent_skip
 Bound: internal/controller/safety_test.go:sensor_read/eio_skip
 
+## RULE-CTRL-LOWTEMP-DISCONNECT: an implausibly-low temp reading is treated as data-loss, never trusted as a cold chip
+
+A disconnected thermistor / tach pin reads a real-looking but bogus low value
+(~0–8 °C), which the sentinel filter (≥150 °C / ≤−273 °C) does NOT reject. If
+the controller trusts it, the curve evaluates against a "very cold" chip and
+computes minimum PWM — under-cooling a chip whose real temperature is unknown
+and possibly hot. A running CPU / GPU / VRM / board sensor never legitimately
+sits below the ambient floor (`hwmon.LowTempAmbientFloorCelsius`, 10 °C), so a
+sub-floor reading on a **hwmon temp** sensor is almost certainly a dead pin.
+
+`readAllSensors` therefore classifies a hwmon temp reading for which
+`hwmon.IsLowTempLikelyDisconnected` holds as **data-loss** — the same class as
+a sentinel — so it is dropped from the curve's sensor map and recorded in the
+sentinel set. The existing sentinel path then carries forward the last good
+PWM and, after the sentinel grace period, hands the fan to firmware (BIOS
+curve, which reads the chip's own working sensor) rather than trusting the
+bogus low value. The check is gated to temp paths (`strings.Contains(path,
+"temp")`) so a legitimately low voltage / RPM reading is not misclassified, and
+to hwmon types (nvidia/msiec self-validate and are not disconnected-pin prone).
+
+Stuck-but-plausible sensors (a temp frozen mid-range while the chip heats) are
+a separate, harder problem (variance/correlation detection, false-positive
+prone) and are out of scope here.
+
+Bound: internal/controller/lowtemp_disconnect_test.go:TestReadAllSensors_LowTempDisconnectedFlaggedAsSentinel
+
 ## RULE-HWMON-PUMP-FLOOR: pump fans never written below pump_minimum
 
 Fans marked `is_pump: true` circulate coolant; spinning below a threshold

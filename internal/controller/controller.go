@@ -1251,6 +1251,24 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string
 			}
 			continue
 		}
+		// Disconnected / implausibly-low temp sensor. A temp control sensor
+		// reading below the ambient floor (an unplugged tach/thermistor pin
+		// reads ~0–8°C) is almost certainly a dead sensor, not a genuinely cold
+		// chip — a running CPU/GPU/VRM/board sensor never sits below 10°C.
+		// Trusting it makes the curve compute minimum PWM and under-cool. Treat
+		// it as data-loss (same class as a sentinel) so the controller carries
+		// forward the last good PWM and, after the sentinel grace period, hands
+		// the fan to firmware — never trusting the bogus low reading. Gated to
+		// hwmon temp paths so a legitimately low voltage / RPM reading isn't
+		// misclassified. RULE-CTRL-LOWTEMP-DISCONNECT.
+		if s.Type != "nvidia" && s.Type != "msiec" && strings.Contains(s.Path, "temp") && halhwmon.IsLowTempLikelyDisconnected(val) {
+			logger.Warn("controller: temp sensor reads implausibly low (likely disconnected); treating as data-loss to avoid under-cooling",
+				"sensor", s.Name, "path", s.Path, "value_c", val, "floor_c", halhwmon.LowTempAmbientFloorCelsius)
+			if sentinelDst != nil {
+				sentinelDst[s.Name] = true
+			}
+			continue
+		}
 		dst[s.Name] = val
 	}
 }
