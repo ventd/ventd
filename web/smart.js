@@ -111,6 +111,20 @@
     function pad(n) { return (n < 10 ? '0' : '') + n; }
     return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
   }
+  // fmtUptime renders a daemon-uptime duration in seconds as a compact,
+  // human-readable span (MVP-3 / #931): real uptime from the daemon's
+  // started_at, not a browser wall clock dressed up as "live".
+  function fmtUptime(seconds) {
+    if (seconds == null || !isFinite(seconds) || seconds < 0) return '—';
+    var s = Math.floor(seconds);
+    if (s < 60)    return s + 's';
+    var m = Math.floor(s / 60);
+    if (m < 60)    return m + 'm';
+    var h = Math.floor(m / 60);
+    if (h < 24)    return h + 'h ' + (m % 60) + 'm';
+    var d = Math.floor(h / 24);
+    return d + 'd ' + (h % 24) + 'h';
+  }
   function parseRFC3339(s) {
     if (!s) return null;
     var t = Date.parse(s);
@@ -130,6 +144,7 @@
     channels:    null,    // /api/v1/smart/channels payload
     opp:         null,    // /api/v1/probe/opportunistic/status payload
     confidence:  null,    // /api/v1/confidence/status payload
+    status:      null,    // /api/v1/status payload (best-effort; for daemon uptime)
     version:     null,    // /api/v1/version (best-effort)
     fetchError:  null,    // last poll error message
     lastPollAt:  null,
@@ -164,7 +179,11 @@
       fetchJSON('/api/v1/smart/status'),
       fetchJSON('/api/v1/smart/channels'),
       fetchJSON('/api/v1/probe/opportunistic/status'),
-      fetchJSON('/api/v1/confidence/status')
+      fetchJSON('/api/v1/confidence/status'),
+      // /api/v1/status is fetched best-effort for the daemon-uptime clock
+      // (MVP-3): a transient hiccup on it must never blank the smart page,
+      // so its failure resolves to null and the last good value is kept.
+      fetchJSON('/api/v1/status').catch(function () { return null; })
     ]).then(function (rs) {
       // Successful poll — update state; clear error.
       var prevChannels = state.channels;
@@ -172,6 +191,7 @@
       state.channels   = rs[1] || {};
       state.opp        = rs[2] || {};
       state.confidence = rs[3] || {};
+      state.status     = rs[4] || state.status;
       state.fetchError = null;
       state.lastPollAt = Date.now();
 
@@ -255,16 +275,22 @@
   // use the internal name (acc-blue for warming etc.) so styling
   // doesn't shift. (#1254 / #1228 child fix.)
   function prettyState(s) {
+    // MVP-1 (#1254): plain-English labels for the internal state enum.
+    // The remaining jargon leaks were `refused` ("Refused" tells a
+    // non-technical user nothing actionable) and `unknown` ("Unknown"
+    // reads as broken when it's just the pre-first-poll transient), so
+    // those become "Needs setup" / "Connecting" per the issue spec;
+    // converged/cold-start/drifting align to the same spec wording.
     switch (s) {
-      case 'converged':  return 'Stable';
+      case 'converged':  return 'Active';
       case 'warming':    return 'Learning';
-      case 'cold-start': return 'Starting up';
-      case 'drifting':   return 'Adjusting';
-      case 'refused':    return 'Refused';
+      case 'cold-start': return 'Just started';
+      case 'drifting':   return 'Re-learning';
+      case 'refused':    return 'Needs setup';
       case 'idle':       return 'Idle';
       case 'fallback':   return 'Fallback';
-      case 'unknown':    return 'Unknown';
-      default:           return s || 'Unknown';
+      case 'unknown':    return 'Connecting';
+      default:           return s || 'Connecting';
     }
   }
 
@@ -515,13 +541,15 @@
 
     var right = el('div', { cls: 'sm-head-right' });
 
-    // "Uptime" clock — we don't have a real uptime endpoint, so show
-    // a wall clock as a "live" indicator. Label says "Browser time"
-    // to make the source explicit; previously labelled "Now" which
-    // a first-time user reads as daemon uptime (#1254 / #931).
+    // Real daemon uptime (MVP-3 / #931): computed from the daemon's
+    // started_at on /api/v1/status, not a browser wall clock dressed up
+    // as "live". Shows "—" until the first status payload lands or when
+    // started_at is the Go zero value (parseRFC3339 returns null).
     var c1 = el('div', { cls: 'sm-head-clock' });
-    c1.appendChild(el('div', { cls: 'sm-head-clock-label', text: 'Browser time' }));
-    c1.appendChild(el('div', { cls: 'sm-head-clock-val', text: fmtClockHHMMSS(new Date()) }));
+    c1.appendChild(el('div', { cls: 'sm-head-clock-label', text: 'Uptime' }));
+    var startedMs = state.status && parseRFC3339(state.status.started_at);
+    var uptimeText = startedMs ? fmtUptime((Date.now() - startedMs) / 1000) : '—';
+    c1.appendChild(el('div', { cls: 'sm-head-clock-val', text: uptimeText }));
     right.appendChild(c1);
 
     // Last probe — derived from opp.started_at when running OR when
@@ -930,8 +958,10 @@
     var dl = el('dl', { cls: 'sm-sys-list' });
     dl.appendChild(sysRow('Preset',   state.smart.preset || '—'));
     dl.appendChild(sysRow('Channels', String(state.smart.channels != null ? state.smart.channels : '—')));
+    // "Learning"/"Active" match the prettyState labels for warming/converged
+    // so the count rows and the status pills speak the same language (#1254).
     dl.appendChild(sysRow('Learning', String(state.smart.warming_up != null ? state.smart.warming_up : '—')));
-    dl.appendChild(sysRow('Stable',   String(state.smart.converged != null ? state.smart.converged : '—')));
+    dl.appendChild(sysRow('Active',   String(state.smart.converged != null ? state.smart.converged : '—')));
     dl.appendChild(sysRow('Min confidence', fmt2(state.smart.confidence_min)));
     dl.appendChild(sysRow('Max confidence', fmt2(state.smart.confidence_max)));
     card.appendChild(dl);
