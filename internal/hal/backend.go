@@ -86,6 +86,24 @@ const (
 	// orthogonal to CapWritePWM — a channel may have one, both, or
 	// neither (#1166).
 	CapWritePowerProfile
+
+	// CapWriteCurve — the channel is driven by a whole fan curve
+	// programmed into the hardware once, after which the firmware
+	// follows it on its own (the GPU / EC reads its own temperature
+	// and interpolates between anchor points) rather than by a
+	// per-tick duty Write. Distinct from CapWritePWM because the
+	// daemon hands the hardware a (temperature → percent) curve and
+	// then stops driving the channel per tick — the firmware owns the
+	// control loop.
+	//
+	// Channels that advertise this bit MUST also satisfy hal.CurveSink
+	// on their backend. The controller programs such a channel once at
+	// apply time and re-programs only when the bound curve changes; it
+	// does NOT spawn a per-tick PWM loop for it. The capability is
+	// orthogonal to CapWritePWM — the same backend may expose per-tick
+	// PWM on one card (AMD RDNA1/2) and curve-upload on another
+	// (RDNA3/4) (spec-17 PR-1b).
+	CapWriteCurve
 )
 
 // Channel is a single fan endpoint exposed by a backend. ID is

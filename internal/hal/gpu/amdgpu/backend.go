@@ -13,6 +13,14 @@ import (
 // registry-lookup dispatch.
 const BackendName = "amdgpu"
 
+// Backend satisfies both the per-tick FanBackend contract (RDNA1/2) and the
+// curve-upload CurveSink contract (RDNA3/4); the channel's Caps decide which
+// applies per card.
+var (
+	_ hal.FanBackend = (*Backend)(nil)
+	_ hal.CurveSink  = (*Backend)(nil)
+)
+
 // State is the per-channel payload carried in hal.Channel.Opaque. It holds
 // the fully-probed CardInfo (sysfs paths + RDNA-gen + the amd_overdrive
 // flag) so Read / Write / Restore operate without re-enumerating.
@@ -27,12 +35,14 @@ type State struct {
 //
 // Control surface, by card:
 //   - RDNA1/2 (no fan_curve) WITH amd_overdrive  → CapRead|CapWritePWM|CapRestore
-//   - RDNA1/2 without amd_overdrive               → CapRead|CapRestore (monitor)
-//   - RDNA3+ (fan_curve interface)                → CapRead|CapRestore (monitor)
+//   - RDNA3/4 (fan_curve interface) WITH amd_overdrive → CapRead|CapWriteCurve|CapRestore
+//   - any card without amd_overdrive              → CapRead|CapRestore (monitor)
 //
-// RDNA3+ per-tick duty control needs the gpu_od/fan_ctrl/fan_curve model
-// (set-a-curve, hardware-follows) rather than per-tick WritePWM, so v1
-// exposes those cards as monitor-only; the curve model is a follow-up.
+// RDNA3/4 has no writable per-tick duty: its kernel ABI is the
+// gpu_od/fan_ctrl/fan_curve model (program a 5-anchor curve once, the
+// firmware follows it). Those cards therefore implement hal.CurveSink
+// (CapWriteCurve) rather than CapWritePWM — the controller programs the curve
+// once and re-programs only when the bound curve changes (spec-17 PR-1b).
 type Backend struct {
 	logger       *slog.Logger
 	sysRoot      string
@@ -76,7 +86,19 @@ func (b *Backend) Enumerate(_ context.Context) ([]hal.Channel, error) {
 		card := cards[i]
 		card.AMDOverdrive = b.amdOverdrive
 		caps := hal.CapRead | hal.CapRestore
-		if b.amdOverdrive && !card.HasFanCurve {
+		switch {
+		case !b.amdOverdrive:
+			// Monitor-only: writes are gated off behind --enable-amd-overdrive
+			// (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01).
+		case card.HasFanCurve:
+			// RDNA3/4: the kernel ABI is gpu_od/fan_ctrl/fan_curve — program a
+			// curve once and the firmware follows it — not a per-tick pwm1
+			// duty. Advertise CapWriteCurve so the controller programs it via
+			// hal.CurveSink instead of spawning a per-tick PWM loop (spec-17
+			// PR-1b / RULE-HAL-CURVE-SINK).
+			caps |= hal.CapWriteCurve
+		default:
+			// RDNA1/2: per-tick pwm1 duty control.
 			caps |= hal.CapWritePWM
 		}
 		out = append(out, hal.Channel{
@@ -119,6 +141,26 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 		return err
 	}
 	return st.Card.WritePWM(pwm)
+}
+
+// WriteCurve programs the RDNA3/4 hardware fan curve (hal.CurveSink). The
+// caller supplies points ascending by TempC; fanCurvePointsFromHAL normalises
+// them to exactly five ascending anchors with non-decreasing percentages
+// (the gpu_od/fan_ctrl/fan_curve hardware requires five points) and the write
+// goes through CardInfo.WriteFanCurveGated, which re-checks the amd_overdrive
+// gate (RULE-EXPERIMENTAL-AMD-OVERDRIVE-01) and the RDNA4 kernel-6.15 gate
+// (RULE-EXPERIMENTAL-AMD-OVERDRIVE-04) before touching sysfs. Only valid on
+// channels that advertised CapWriteCurve (RDNA3/4 + amd_overdrive).
+func (b *Backend) WriteCurve(ch hal.Channel, points []hal.CurvePoint) error {
+	st, err := stateFrom(ch)
+	if err != nil {
+		return err
+	}
+	curve, err := fanCurvePointsFromHAL(points)
+	if err != nil {
+		return err
+	}
+	return st.Card.WriteFanCurveGated(curve)
 }
 
 // Restore returns the GPU fan to firmware/auto control (pwm1_enable=2 on
