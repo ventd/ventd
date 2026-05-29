@@ -36,27 +36,34 @@ func liveReadPlatformProfile() (string, []string, bool) {
 	return current, choices, true
 }
 
-// ECLockedLaptopDetector surfaces the "fan control owned entirely by
-// the EC" case — common on consumer HP / Dell / Lenovo / ASUS laptops
-// where userspace gets the platform_profile ACPI enum but no `pwm*`
-// duty-cycle write file and no `fan*_input` tach. ventd's probe
-// correctly classifies these as `monitor_only` per RULE-PROBE-04, but
-// without this card the operator gets no diagnostic — just an empty
-// dashboard with no path forward.
+// ECLockedLaptopDetector surfaces that ventd's platform_profile control
+// loop is live, so the operator can see and override it. It fires on any
+// host whose kernel exposes the ACPI platform_profile enum with ≥ 2
+// choices, because ventd's zero-config platform_profile controller starts
+// unconditionally whenever that interface exists (see
+// startPlatformProfileController) — meaning "interface present" is a
+// faithful proxy for "ventd is actively driving the selector".
 //
-// The card explains the limitation, names the active platform_profile
-// + available choices, and points at issue #872 (v0.6 platform_profile
-// selector mode) so operators know follow-up work is scoped.
+// Two flavours, keyed on the probe's controllable-channel count:
 //
-// Fires when ALL of:
-//   - /sys/firmware/acpi/platform_profile exists with non-empty value
-//   - /sys/firmware/acpi/platform_profile_choices lists ≥ 2 enum values
-//   - The probe's controllable-channel count is zero
+//   - count == 0 — pure EC-locked laptop (consumer HP / Dell / Lenovo /
+//     ASUS): the EC owns all PWM actuation, so per-fan smart-mode does
+//     not apply and the platform_profile selector is the only fan lever.
+//     ventd's probe classifies these as `monitor_only` per RULE-PROBE-04;
+//     the card names the limitation and the active selector value.
 //
-// Quiet when any of those conditions don't hold — desktops have
-// controllable channels (smart_mode applies); servers without
-// platform_profile aren't this category; hosts with platform_profile
-// AND a writable pwm get smart_mode, not this card.
+//   - count > 0 — hybrid host (e.g. Dell Latitude with a single
+//     dell_smm pwm + platform_profile): smart-mode drives the writable
+//     PWM channel(s) AND the platform_profile controller drives the
+//     selector. Previously suppressed (#1415), which left the operator
+//     blind to an active control loop they couldn't see or override.
+//
+// Both cards name the active platform_profile + available choices and
+// give the kernel `echo` override (respected with a 10-minute back-off).
+//
+// Quiet when the platform_profile interface is absent (servers / embedded
+// hosts — other detectors handle the monitor-only case) or exposes a
+// single degenerate choice (no operator-meaningful adjustment).
 //
 // Severity: OK. The hardware works as designed; the card is
 // informational, not a warning (mirrors the experimental_flags
@@ -65,7 +72,8 @@ func liveReadPlatformProfile() (string, []string, bool) {
 // but don't" cases.
 type ECLockedLaptopDetector struct {
 	// ControllableChannelCount is len(probe.ProbeResult.ControllableChannels)
-	// at daemon-start. Zero = monitor-only, the trigger condition.
+	// at daemon-start. Zero selects the monitor-only card; > 0 selects
+	// the hybrid card.
 	ControllableChannelCount int
 
 	// ReadPlatformProfile returns the active value + available choices.
@@ -89,14 +97,12 @@ func NewECLockedLaptopDetector(controllableChannels int, readFn PlatformProfileR
 func (d *ECLockedLaptopDetector) Name() string { return "ec_locked_laptop" }
 
 // Probe reads platform_profile and emits an OK-severity (informational)
-// Fact when the host is EC-locked.
+// Fact describing the live platform_profile control loop — the
+// monitor-only flavour when no PWM channels are controllable, the hybrid
+// flavour when smart-mode also owns writable channels.
 func (d *ECLockedLaptopDetector) Probe(ctx context.Context, deps doctor.Deps) ([]doctor.Fact, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
-	}
-	if d.ControllableChannelCount > 0 {
-		// Smart-mode applies; this card is irrelevant.
-		return nil, nil
 	}
 	current, choices, ok := d.ReadPlatformProfile()
 	if !ok {
@@ -113,13 +119,41 @@ func (d *ECLockedLaptopDetector) Probe(ctx context.Context, deps doctor.Deps) ([
 	}
 
 	now := timeNowFromDeps(deps)
+
+	// platform_profile present with a real choice set ⇒ ventd's
+	// zero-config platform_profile controller is driving the selector
+	// (it starts unconditionally whenever the interface exists). Surface
+	// that the loop is live regardless of whether smart-mode also owns
+	// writable PWM channels, so the operator can see and override it.
+	if d.ControllableChannelCount > 0 {
+		// Hybrid host: writable PWM channel(s) AND platform_profile,
+		// both actively driven. #1415 — gating this on count == 0 left
+		// hybrid operators blind to an active platform_profile loop.
+		return []doctor.Fact{{
+			Detector: d.Name(),
+			Severity: doctor.SeverityOK,
+			Class:    recovery.ClassUnknown,
+			Title:    fmt.Sprintf("platform_profile controller active (current: %s)", current),
+			Detail: fmt.Sprintf(
+				"This host has both writable PWM channel(s) — driven per-fan by smart-mode — and an ACPI platform_profile selector at /sys/firmware/acpi/platform_profile, currently set to %q with choices [%s]. In addition to the per-fan PWM loop, ventd's platform_profile controller actively drives the selector from live thermal/load inputs. To override, write the kernel interface directly — `echo <choice> | sudo tee /sys/firmware/acpi/platform_profile` — which ventd detects and respects with a 10-minute back-off before resuming automatic control.",
+				current,
+				strings.Join(choices, ", "),
+			),
+			EntityHash: doctor.HashEntity("platform_profile_active", strings.Join(choices, ",")),
+			Observed:   now,
+		}}, nil
+	}
+
+	// Monitor-only host: the EC owns all PWM actuation (no controllable
+	// channels at probe time), so per-fan smart-mode does not apply and
+	// the platform_profile selector is the only fan-related lever.
 	return []doctor.Fact{{
 		Detector: d.Name(),
 		Severity: doctor.SeverityOK,
 		Class:    recovery.ClassUnknown,
-		Title:    fmt.Sprintf("Fan control owned by the EC; manual selector is platform_profile (current: %s)", current),
+		Title:    fmt.Sprintf("Fan control owned by the EC; ventd drives platform_profile (current: %s)", current),
 		Detail: fmt.Sprintf(
-			"This hardware exposes no PWM duty-cycle write surface — typical of HP/Dell/Lenovo/ASUS consumer laptops where the embedded controller owns fan actuation. ventd is running in monitor-only mode (no controllable channels were found at probe time). The only operator-facing fan-related control on this host is the ACPI platform_profile enum at /sys/firmware/acpi/platform_profile, currently set to %q with choices [%s]. Direct selection: `echo <choice> | sudo tee /sys/firmware/acpi/platform_profile`. A future v0.6 ventd mode (issue #872) will drive platform_profile from CPU temperature bands so this is automated; for v0.5.x the operator picks manually.",
+			"This hardware exposes no PWM duty-cycle write surface — typical of HP/Dell/Lenovo/ASUS consumer laptops where the embedded controller owns fan actuation. No controllable PWM channels were found at probe time, so per-fan smart-mode does not apply. The only operator-facing fan-related lever is the ACPI platform_profile enum at /sys/firmware/acpi/platform_profile, currently set to %q with choices [%s]. ventd's platform_profile controller (spec #872) drives this automatically from live thermal/load inputs. To override, write the kernel interface directly — `echo <choice> | sudo tee /sys/firmware/acpi/platform_profile` — which ventd detects and respects with a 10-minute back-off before resuming automatic control.",
 			current,
 			strings.Join(choices, ", "),
 		),
