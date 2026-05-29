@@ -465,6 +465,33 @@ Ramps a fan's PWM briefly (~5 s) to identify which RPM sensor is correlated with
 
 **Response**: _see source (internal/web/calibrate.go:handleDetectRPM)_ — output of `cal.DetectRPMSensor(fan)`: `{sensor_path, correlation_score}` or an error.
 
+### `POST /api/calibrate/reset`
+
+Wipes all persisted calibration state (the learned-curve store and `calibration.json`) so the next run starts from scratch. Idempotent.
+
+**Auth**: session
+
+**Response**:
+```ts
+{ status: "ok" }
+```
+
+### `GET /api/platform-profile`
+
+Reads the kernel `platform_profile` interface (`/sys/firmware/acpi/platform_profile`) — the firmware power/thermal selector ventd's zero-config controller drives on hosts that expose it.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  present:   boolean    // false when the kernel/firmware exposes no interface
+  current:   string     // active profile, e.g. "balanced"; empty if unset
+  available: string[]   // allowed values, e.g. ["cool","quiet","balanced","performance"]
+  path:      string     // sysfs directory read
+}
+```
+
 ---
 
 ## Smart mode & confidence
@@ -593,6 +620,25 @@ GET returns the active preset; PUT changes it (mutates the live config and persi
 { preset: string }
 ```
 
+### `GET /api/probe/opportunistic/status`
+
+Status of the opportunistic probe scheduler — the background process that excites an idle channel during quiet moments so smart mode can learn its coupling without disturbing a busy system.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  running:           boolean
+  channel_id?:       number    // channel currently being probed
+  gap_pwm?:          number    // PWM step applied for the probe
+  started_at?:       string    // RFC3339
+  last_reason?:      string    // machine reason the last probe ended/was skipped
+  last_reason_human?: string   // operator-readable form of last_reason
+  tick_count:        number
+}
+```
+
 ---
 
 ## Doctor
@@ -620,6 +666,72 @@ Runs the diagnostic detector suite (cached briefly between calls) and returns a 
     journal?:    string[]
   }[]
   detector_errors?: { detector: string, err: string }[]   // detectors that themselves failed
+}
+```
+
+---
+
+## Updates & release notes
+
+### `GET /api/update/check`
+
+Checks GitHub for a newer release. Network errors are surfaced in `error` rather than failing the request.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  current:        string    // running version
+  latest:         string    // latest release tag
+  available:      boolean    // latest is strictly newer than current
+  published_at?:  string    // RFC3339 from GitHub
+  url?:           string    // release page URL
+  error?:         string    // populated on fetch failure
+  last_apply_error?: {       // details of a previous failed in-UI update, if any
+    at:           string
+    version:      string
+    status:       "failed" | "timed_out"
+    detail?:      string
+    journal_tail?: string
+  }
+}
+```
+
+### `POST /api/update/apply`
+
+Spawns `install.sh` to roll the daemon binary forward to the requested version (binary swap only — never builds or loads a kernel module). Returns immediately; the install runs detached.
+
+**Auth**: session
+
+**Request body** (JSON):
+```ts
+{ version: string }   // must look like vX.Y.Z
+```
+
+**Response**: `202 Accepted`
+```ts
+{ status: "scheduled", version: string, message?: string }
+```
+
+Returns `400` if the version is malformed and `503` if the updater is unavailable.
+
+### `GET /api/release-notes`
+
+Returns CHANGELOG sections (newest-first) so the UI can show what changed.
+
+**Auth**: session
+
+**Query params**:
+- `since` (optional) — only return sections newer than this version.
+
+**Response**:
+```ts
+{
+  current:  string
+  since?:   string                                          // echoed query param
+  sections: { version: string, date?: string, markdown: string }[]
+  error?:   string                                          // populated when CHANGELOG can't be read
 }
 ```
 
@@ -800,6 +912,39 @@ Returns distro-specific Machine Owner Key enrollment instructions. Does **not** 
   detail:   string     // prose explanation
 }
 ```
+
+### `POST /api/diag/bundle`
+
+Generates a redacted diagnostic bundle (logs, config, hwmon topology) on disk and returns a download handle. Redaction profile is governed by config.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  filename:         string
+  download_url:     string   // GET /api/diag/download/<filename>
+  redaction_profile: string
+}
+```
+
+### `POST /api/diag/send`
+
+Generates a diagnostic bundle and uploads it to the configured `diag.upstream_ingest.url` (must be a valid `https://` URL).
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  reference:       string   // upstream-assigned reference id
+  bytes:           number   // bundle size uploaded
+  redactor_profile: string
+  url:             string   // upstream URL the bundle landed at
+}
+```
+
+Returns `412 Precondition Failed` when no valid upstream ingest URL is configured, and `502 Bad Gateway` when the upload is rejected.
 
 ---
 
