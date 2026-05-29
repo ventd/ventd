@@ -1594,7 +1594,7 @@ func runDaemonInternal(
 				return fmt.Errorf("resolve control: %w", err)
 			}
 
-			sp.spawn(ctrl, fanCfg, sp.options(fanCfg, calMap, resolvePWMUnitMax), cfg.PollInterval.Duration)
+			sp.spawn(ctrl, fanCfg, sp.options(ctrl, fanCfg, calMap, resolvePWMUnitMax), cfg.PollInterval.Duration)
 		}
 	}
 
@@ -1698,7 +1698,7 @@ func runDaemonInternal(
 							"fan", ctrl.Fan, "err", err)
 						continue
 					}
-					sp.spawn(ctrl, fanCfg, sp.options(fanCfg, reloadCalMap, reloadPWMUnitMax), newCfg.PollInterval.Duration)
+					sp.spawn(ctrl, fanCfg, sp.options(ctrl, fanCfg, reloadCalMap, reloadPWMUnitMax), newCfg.PollInterval.Duration)
 				}
 				logger.Info("controllers started after first-boot config reload",
 					"count", len(newCfg.Controls))

@@ -322,6 +322,13 @@ type BlendedInputs struct {
 	// PWM clamps from the fan config.
 	MinPWM uint8
 	MaxPWM uint8
+
+	// RelaxMargin bounds how far below ReactivePWM the predictive arm may
+	// relax this tick (PWM units): the floor is max(MinPWM, ReactivePWM −
+	// RelaxMargin). 0 ⇒ never below the reactive curve (boost-only) — also
+	// how the wiring layer signals that no setpoint could be resolved.
+	// Sourced from Config.Smart.RelaxMarginPWM(). RULE-CTRL-SMART-RELAX-FLOOR.
+	RelaxMargin uint8
 }
 
 // BlendedResult is the hot-path output. The wiring layer writes
@@ -337,6 +344,10 @@ type BlendedResult struct {
 	CostRefused       bool
 	DBABudgetRefused  bool
 	FirstContactClamp bool
+	// RelaxFloorClamped reports that the predictive arm wanted to relax the
+	// fan more than RelaxMargin below the reactive curve and was floored to
+	// max(MinPWM, ReactivePWM − RelaxMargin). RULE-CTRL-SMART-RELAX-FLOOR.
+	RelaxFloorClamped bool
 	PIRefused         bool
 	IntegratorFrozen  bool
 
@@ -520,10 +531,26 @@ func (b *BlendedController) Compute(in BlendedInputs) BlendedResult {
 		firstContactClamp = true
 	}
 
+	// Step 4b: Below-curve relax floor (RULE-CTRL-SMART-RELAX-FLOOR). Bound how
+	// far a converged predictive estimate may relax the fan below the reactive
+	// curve's current value: at most in.RelaxMargin PWM units (0 ⇒ never below
+	// the curve / boost-only). The reactive curve is the trusted here-and-now
+	// signal, so this caps the under-cool a stale or miscalibrated model can
+	// cause, independent of MinPWM. The first-contact clamp above already raised
+	// predictivePWM to reactive on the first tick, so this composes as a no-op
+	// there. Step 6's blend is a convex mix of predictivePWM and ReactivePWM —
+	// both ≥ floor — so flooring the predictive arm here floors the output too.
+	relaxFloorClamped := false
+	if floor := relaxFloorPWM(in.ReactivePWM, in.MinPWM, in.RelaxMargin); predictivePWM < floor {
+		predictivePWM = floor
+		relaxFloorClamped = true
+	}
+
 	res.PredictivePWM = predictivePWM
 	res.PathARefused = pathARefused
 	res.IntegratorFrozen = integratorFrozen
 	res.FirstContactClamp = firstContactClamp
+	res.RelaxFloorClamped = relaxFloorClamped
 
 	// Step 5: Cost gate. Only relevant when Path-A didn't refuse
 	// (otherwise we're already on reactive).
@@ -694,4 +721,16 @@ func saturateF64(v, lo, hi float64) float64 {
 		return hi
 	}
 	return v
+}
+
+// relaxFloorPWM is the lowest PWM the predictive arm may relax to this tick:
+// max(minPWM, reactive − margin). margin == 0 collapses the floor to reactive
+// (boost-only). Computed in int to avoid uint8 underflow when margin > reactive.
+// RULE-CTRL-SMART-RELAX-FLOOR.
+func relaxFloorPWM(reactive, minPWM, margin uint8) uint8 {
+	floor := int(reactive) - int(margin)
+	if floor < int(minPWM) {
+		floor = int(minPWM)
+	}
+	return uint8(floor)
 }

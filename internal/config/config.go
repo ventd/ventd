@@ -247,6 +247,34 @@ type SmartConfig struct {
 	// explicit false is distinguishable from "unset"; nil/unset means
 	// smart mode enabled (the default).
 	Disabled *bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
+
+	// MaxRelaxBelowCurve bounds how far (in PWM units) smart mode may
+	// relax a converged fan below the reactive curve's current value.
+	// The reactive curve is the trusted here-and-now signal ("at this
+	// temperature the fan needs at least PWM P"); this is the safety
+	// floor against a stale or miscalibrated predictive estimate
+	// under-cooling the part, independent of MinPWM. nil/unset ⇒
+	// DefaultMaxRelaxBelowCurve (25 ≈ 10% of the 0-255 range); an
+	// explicit 0 means "never relax below the curve" (the predictive
+	// arm may only boost above it). RULE-CTRL-SMART-RELAX-FLOOR.
+	MaxRelaxBelowCurve *uint8 `yaml:"max_relax_below_curve,omitempty" json:"max_relax_below_curve,omitempty"`
+}
+
+// DefaultMaxRelaxBelowCurve is the fallback for SmartConfig.MaxRelaxBelowCurve
+// when the operator configures none — the maximum number of PWM units a
+// converged smart-mode channel may sit below the reactive curve's current
+// value. RULE-CTRL-SMART-RELAX-FLOOR.
+const DefaultMaxRelaxBelowCurve uint8 = 25
+
+// RelaxMarginPWM resolves the configured below-curve relax margin, applying
+// DefaultMaxRelaxBelowCurve when unset. A configured 0 is honoured (hard
+// floor: smart mode may never relax below the reactive curve, only boost
+// above it). RULE-CTRL-SMART-RELAX-FLOOR.
+func (s SmartConfig) RelaxMarginPWM() uint8 {
+	if s.MaxRelaxBelowCurve != nil {
+		return *s.MaxRelaxBelowCurve
+	}
+	return DefaultMaxRelaxBelowCurve
 }
 
 // Closed set of preset names. Empty string is allowed (treated as

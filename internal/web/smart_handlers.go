@@ -488,17 +488,18 @@ type smartChannelEntry struct {
 // controller.BlendedResult. The wire shape stays small — the doctor
 // surface still consumes the full Result via its own path.
 type smartChannelDecision struct {
-	OutputPWM        uint8   `json:"output_pwm"`
-	ReactivePWM      uint8   `json:"reactive_pwm"`
-	PredictivePWM    uint8   `json:"predictive_pwm"`
-	UIState          string  `json:"ui_state"` // reactive | blended | refused-pi | refused-pathA | refused-cost | refused-dba
-	PredictedDBA     float64 `json:"predicted_dba,omitempty"`
-	PathARefused     bool    `json:"path_a_refused,omitempty"`
-	CostRefused      bool    `json:"cost_refused,omitempty"`
-	DBABudgetRefused bool    `json:"dba_budget_refused,omitempty"`
-	PIRefused        bool    `json:"pi_refused,omitempty"`
-	IntegratorFrozen bool    `json:"integrator_frozen,omitempty"`
-	DiagnosticReason string  `json:"diagnostic_reason,omitempty"`
+	OutputPWM         uint8   `json:"output_pwm"`
+	ReactivePWM       uint8   `json:"reactive_pwm"`
+	PredictivePWM     uint8   `json:"predictive_pwm"`
+	UIState           string  `json:"ui_state"` // reactive | blended | refused-pi | refused-pathA | refused-cost | refused-dba
+	PredictedDBA      float64 `json:"predicted_dba,omitempty"`
+	PathARefused      bool    `json:"path_a_refused,omitempty"`
+	CostRefused       bool    `json:"cost_refused,omitempty"`
+	DBABudgetRefused  bool    `json:"dba_budget_refused,omitempty"`
+	PIRefused         bool    `json:"pi_refused,omitempty"`
+	IntegratorFrozen  bool    `json:"integrator_frozen,omitempty"`
+	RelaxFloorClamped bool    `json:"relax_floor_clamped,omitempty"`
+	DiagnosticReason  string  `json:"diagnostic_reason,omitempty"`
 }
 
 type smartCouplingShard struct {
@@ -762,17 +763,18 @@ func (s *Server) handleSmartChannels(w http.ResponseWriter, r *http.Request) {
 		}
 		if dec, ok := decisionsByChannel[a.ChannelID]; ok {
 			entry.Decision = &smartChannelDecision{
-				OutputPWM:        dec.Result.OutputPWM,
-				ReactivePWM:      dec.ReactivePWM,
-				PredictivePWM:    dec.Result.PredictivePWM,
-				UIState:          dec.Result.UIState,
-				PredictedDBA:     dec.Result.PredictedDBA,
-				PathARefused:     dec.Result.PathARefused,
-				CostRefused:      dec.Result.CostRefused,
-				DBABudgetRefused: dec.Result.DBABudgetRefused,
-				PIRefused:        dec.Result.PIRefused,
-				IntegratorFrozen: dec.Result.IntegratorFrozen,
-				DiagnosticReason: dec.Result.DiagnosticReason,
+				OutputPWM:         dec.Result.OutputPWM,
+				ReactivePWM:       dec.ReactivePWM,
+				PredictivePWM:     dec.Result.PredictivePWM,
+				UIState:           dec.Result.UIState,
+				PredictedDBA:      dec.Result.PredictedDBA,
+				PathARefused:      dec.Result.PathARefused,
+				CostRefused:       dec.Result.CostRefused,
+				DBABudgetRefused:  dec.Result.DBABudgetRefused,
+				PIRefused:         dec.Result.PIRefused,
+				IntegratorFrozen:  dec.Result.IntegratorFrozen,
+				RelaxFloorClamped: dec.Result.RelaxFloorClamped,
+				DiagnosticReason:  dec.Result.DiagnosticReason,
 			}
 		}
 		if c, ok := couplingByChannel[a.ChannelID]; ok && c != nil {

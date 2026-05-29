@@ -109,6 +109,19 @@ const (
 	// garbage register (e.g. nct6687 thermistors reporting 0 / -128 / 16).
 	emergencyMinPlausibleC = 40.0
 	emergencyMaxPlausibleC = 150.0
+
+	// smartSetpointMarginBelowLimitC is how far below the resolved thermal
+	// limit (tempN_crit / CPU Tjmax) the smart-mode fallback setpoint is
+	// placed when the operator configured none — a "hold here under sustained
+	// load" target, well below the throttle point. An explicit
+	// smart.setpoints entry always overrides this derived value.
+	smartSetpointMarginBelowLimitC = 30.0
+	// smartSetpointMinC / smartSetpointMaxC bound the derived fallback
+	// setpoint to a sane operating band: a low-crit sensor must not yield a
+	// target so low the fan never relaxes, nor one so high it forfeits the
+	// failsafe's headroom.
+	smartSetpointMinC = 45.0
+	smartSetpointMaxC = 90.0
 )
 
 type Controller struct {
@@ -1076,29 +1089,63 @@ func (c *Controller) overtempForce(sensorName, sensorPath string, tempC float64,
 // threshold is available — the failsafe then stays disabled rather than
 // inventing a low absolute that would false-fire on a chip running hot by design.
 func (c *Controller) resolveEmergencyEngageC(sensorPath string) float64 {
-	if sensorPath == "" {
-		return 0
-	}
-	base := strings.TrimSuffix(sensorPath, "_input")
-	var baseLimit float64
-	if v, ok := readMilliCelsiusFile(base + "_crit"); ok && plausibleCritC(v) {
-		baseLimit = v
-	} else if label, ok := readTrimmedFile(base + "_label"); ok && isCPUSensorLabel(label) {
-		if c.tjmaxFn != nil {
-			if tj := c.tjmaxFn(); plausibleCritC(tj) {
-				baseLimit = tj
-			}
-		}
-	}
+	baseLimit := resolveSensorLimitC(sensorPath, c.tjmaxFn)
 	if baseLimit == 0 {
 		return 0
 	}
 	engage := baseLimit + emergencyMarginC
 	// Never engage above the chip's declared shutdown line, if it exposes one.
+	base := strings.TrimSuffix(sensorPath, "_input")
 	if em, ok := readMilliCelsiusFile(base + "_emergency"); ok && plausibleCritC(em) && engage > em {
 		engage = em
 	}
 	return engage
+}
+
+// resolveSensorLimitC resolves a control sensor's base thermal limit (°C) from
+// its sysfs path: the chip's tempN_crit throttle point when plausible, else —
+// for a CPU-labelled sensor with no crit register (common on super-I/O CPU
+// temps) — the CPU-model Tjmax. Returns 0 when neither resolves. Shared by the
+// over-temperature failsafe (adds a margin → engage temp) and the smart-mode
+// setpoint fallback (subtracts a margin → hold target). tjmaxFn may be nil.
+func resolveSensorLimitC(sensorPath string, tjmaxFn func() float64) float64 {
+	if sensorPath == "" {
+		return 0
+	}
+	base := strings.TrimSuffix(sensorPath, "_input")
+	if v, ok := readMilliCelsiusFile(base + "_crit"); ok && plausibleCritC(v) {
+		return v
+	}
+	if label, ok := readTrimmedFile(base + "_label"); ok && isCPUSensorLabel(label) {
+		if tjmaxFn != nil {
+			if tj := tjmaxFn(); plausibleCritC(tj) {
+				return tj
+			}
+		}
+	}
+	return 0
+}
+
+// DeriveSmartSetpointC resolves a smart-mode fallback setpoint (°C) for a
+// control sensor that has no operator-configured setpoint: the sensor's thermal
+// limit (resolveSensorLimitC) minus smartSetpointMarginBelowLimitC, clamped to
+// [smartSetpointMinC, smartSetpointMaxC]. ok is false when no plausible limit
+// resolves — the wiring layer must then run smart mode boost-only (never
+// relaxing below the reactive curve) rather than guess an absolute target.
+// RULE-CTRL-SMART-RELAX-FLOOR.
+func DeriveSmartSetpointC(sensorPath string, tjmaxFn func() float64) (float64, bool) {
+	limit := resolveSensorLimitC(sensorPath, tjmaxFn)
+	if limit == 0 {
+		return 0, false
+	}
+	sp := limit - smartSetpointMarginBelowLimitC
+	if sp < smartSetpointMinC {
+		sp = smartSetpointMinC
+	}
+	if sp > smartSetpointMaxC {
+		sp = smartSetpointMaxC
+	}
+	return sp, true
 }
 
 func plausibleCritC(v float64) bool {
