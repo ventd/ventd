@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/polarity"
 	"github.com/ventd/ventd/internal/probe"
+	"github.com/ventd/ventd/internal/sysclass"
 	"github.com/ventd/ventd/internal/watchdog"
 )
 
@@ -86,6 +89,28 @@ func curveSigOf(c config.CurveConfig) curveSig {
 }
 
 // Controller manages one fan channel.
+// Over-temperature failsafe tuning (RULE-CTRL-OVERTEMP-FAILSAFE).
+const (
+	// emergencyMarginC is added above the chip throttle point (_crit) or
+	// model Tjmax to set the engage temp, so a thermally-limited chip that
+	// *operates* at Tjmax (e.g. a power-limited desktop CPU that throttles to
+	// hold Tjmax under load) never trips in normal use — the failsafe fires
+	// only when cooling has actually failed and temp climbs past the throttle
+	// point. Ignored when the source is the chip's own _emergency line.
+	emergencyMarginC = 4.0
+	// emergencyReleaseC is how far below the engage temp the sensor must fall
+	// before the failsafe releases back to curve control (release hysteresis).
+	emergencyReleaseC = 6.0
+	// emergencyDebounce is the dwell a threshold crossing must persist before
+	// engage or release fires, rejecting transient single-tick spikes.
+	emergencyDebounce = 3 * time.Second
+	// emergencyMinPlausibleC / emergencyMaxPlausibleC bound a believable
+	// critical temperature; values outside are treated as an unconfigured or
+	// garbage register (e.g. nct6687 thermistors reporting 0 / -128 / 16).
+	emergencyMinPlausibleC = 40.0
+	emergencyMaxPlausibleC = 150.0
+)
+
 type Controller struct {
 	fanName    string
 	curveName  string
@@ -237,6 +262,20 @@ type Controller struct {
 	// Not reset on hot-reload: a fresh controller starts false again, and
 	// shadow mode is a startup-time decision so it never toggles mid-run.
 	shadowAnnounced bool
+
+	// Over-temperature failsafe state (RULE-CTRL-OVERTEMP-FAILSAFE). A
+	// curve-independent backstop: when the control sensor crosses the chip's
+	// emergency threshold (hwmon _crit/_emergency, or the CPU-model Tjmax for
+	// CPU sensors that expose no crit), force full speed regardless of curve,
+	// smart blend, schedule, hysteresis, or the operator's max_pwm cap. The
+	// threshold is resolved once per control sensor and cached; engage and
+	// release are debounced to reject transient spikes.
+	tjmaxFn              func() float64 // CPU-model Tjmax source; default sysclass.TjmaxFromCPUInfo
+	emergencyEngageC     float64        // resolved engage temp °C; 0 = no failsafe for this sensor
+	emergencyResolvedFor string         // sensor name the threshold was resolved for (recompute on change)
+	emergencyEngaged     bool           // currently forcing full speed
+	overTempSince        time.Time      // first tick at/above engage temp (debounce); zero = not over
+	underTempSince       time.Time      // first tick below release temp while engaged (debounce); zero = not under
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -257,6 +296,14 @@ func WithSensorReadHook(hook func()) Option {
 // no checker is installed the tick behaves exactly as before.
 func WithPanicChecker(p PanicChecker) Option {
 	return func(c *Controller) { c.panic = p }
+}
+
+// WithTjmaxFunc overrides the CPU-model Tjmax source used by the
+// over-temperature failsafe when a control sensor exposes no hwmon crit.
+// Tests inject a fixed value so the failsafe threshold doesn't depend on the
+// host's /proc/cpuinfo. RULE-CTRL-OVERTEMP-FAILSAFE.
+func WithTjmaxFunc(fn func() float64) Option {
+	return func(c *Controller) { c.tjmaxFn = fn }
 }
 
 // WithCalibration installs per-channel calibration data for this controller.
@@ -455,6 +502,7 @@ func New(
 		sensorInvalidSince: make(map[string]time.Time),
 		piState:            make(map[string]curve.PIState),
 		fatalErr:           make(chan error, 1),
+		tjmaxFn:            sysclass.TjmaxFromCPUInfo,
 	}
 	// Backend dispatch:
 	//   - "nvidia" / "hwmon" / ""  → the two legacy in-tree backends
@@ -822,6 +870,20 @@ func (c *Controller) tick() {
 		delete(c.piState, c.pwmPath)
 	}
 
+	// Over-temperature failsafe (RULE-CTRL-OVERTEMP-FAILSAFE): a curve-
+	// independent backstop. Runs AFTER the curve + smart blend + clamp so it
+	// overrides all of them, and forces full speed bypassing even the operator
+	// max_pwm cap — at a genuine thermal emergency, hardware survival beats the
+	// noise budget. Debounced + hysteresis-gated inside overtempForce so a
+	// thermally-limited chip running at its throttle point never trips.
+	if curveCfg.Sensor != "" {
+		if t, ok := sensors[curveCfg.Sensor]; ok {
+			if c.overtempForce(curveCfg.Sensor, sensorPathByName(live, curveCfg.Sensor), t, now) {
+				pwm = 255
+			}
+		}
+	}
+
 	// hwmon-safety rule 1: never write PWM=0 unless MinPWM=0 AND
 	// AllowStop=true. clamp already enforces the MinPWM floor, so pwm==0
 	// here implies MinPWM==0; refuse when AllowStop is false.
@@ -938,6 +1000,144 @@ func computePWM(
 		}
 	}
 	return pwm, newPI, stateful, raw
+}
+
+// overtempForce is the curve-independent over-temperature failsafe. Given the
+// control sensor's current temperature and the tick time, it returns true when
+// the failsafe should force the fan to full speed. The engage temperature is
+// resolved once per control sensor (chip tempN_crit/tempN_emergency, or the
+// CPU-model Tjmax for a CPU-labelled sensor that exposes no crit) and cached;
+// engage and release are debounced by emergencyDebounce and separated by
+// emergencyReleaseC hysteresis. Returns false (failsafe disabled) when no
+// plausible threshold can be resolved — better silent than false-firing on a
+// guessed absolute. RULE-CTRL-OVERTEMP-FAILSAFE.
+func (c *Controller) overtempForce(sensorName, sensorPath string, tempC float64, now time.Time) bool {
+	if c.emergencyResolvedFor != sensorName {
+		c.emergencyEngageC = c.resolveEmergencyEngageC(sensorPath)
+		c.emergencyResolvedFor = sensorName
+		c.emergencyEngaged = false
+		c.overTempSince = time.Time{}
+		c.underTempSince = time.Time{}
+		if c.emergencyEngageC == 0 {
+			c.logger.Info("controller: over-temperature failsafe disabled — no critical threshold for sensor",
+				"sensor", sensorName, "pwm_path", c.pwmPath)
+		} else {
+			c.logger.Info("controller: over-temperature failsafe armed",
+				"sensor", sensorName, "engage_c", c.emergencyEngageC, "pwm_path", c.pwmPath)
+		}
+	}
+	if c.emergencyEngageC == 0 {
+		return false
+	}
+
+	if !c.emergencyEngaged {
+		if tempC >= c.emergencyEngageC {
+			if c.overTempSince.IsZero() {
+				c.overTempSince = now
+			}
+			if now.Sub(c.overTempSince) >= emergencyDebounce {
+				c.emergencyEngaged = true
+				c.underTempSince = time.Time{}
+				c.logger.Error("controller: OVER-TEMPERATURE FAILSAFE engaged — forcing full speed",
+					"sensor", sensorName, "temp_c", tempC, "engage_c", c.emergencyEngageC,
+					"pwm_path", c.pwmPath)
+			}
+		} else {
+			c.overTempSince = time.Time{}
+		}
+		return c.emergencyEngaged
+	}
+
+	// Engaged: hold full speed until the sensor falls a release margin below
+	// the engage temp for the debounce dwell.
+	if tempC < c.emergencyEngageC-emergencyReleaseC {
+		if c.underTempSince.IsZero() {
+			c.underTempSince = now
+		}
+		if now.Sub(c.underTempSince) >= emergencyDebounce {
+			c.emergencyEngaged = false
+			c.overTempSince = time.Time{}
+			c.logger.Warn("controller: over-temperature failsafe released — returning to curve control",
+				"sensor", sensorName, "temp_c", tempC, "engage_c", c.emergencyEngageC,
+				"pwm_path", c.pwmPath)
+		}
+	} else {
+		c.underTempSince = time.Time{}
+	}
+	return c.emergencyEngaged
+}
+
+// resolveEmergencyEngageC computes the failsafe engage temperature (°C) for a
+// control sensor from its sysfs path. Priority: hwmon tempN_crit (the chip's
+// throttle point) → else, for a CPU-labelled sensor with no crit, the CPU-model
+// Tjmax (common on super-I/O CPU temps that expose no crit register). The
+// engage temp is that base limit + emergencyMarginC, capped at the chip's
+// tempN_emergency (shutdown line) when present. Returns 0 when no plausible
+// threshold is available — the failsafe then stays disabled rather than
+// inventing a low absolute that would false-fire on a chip running hot by design.
+func (c *Controller) resolveEmergencyEngageC(sensorPath string) float64 {
+	if sensorPath == "" {
+		return 0
+	}
+	base := strings.TrimSuffix(sensorPath, "_input")
+	var baseLimit float64
+	if v, ok := readMilliCelsiusFile(base + "_crit"); ok && plausibleCritC(v) {
+		baseLimit = v
+	} else if label, ok := readTrimmedFile(base + "_label"); ok && isCPUSensorLabel(label) {
+		if c.tjmaxFn != nil {
+			if tj := c.tjmaxFn(); plausibleCritC(tj) {
+				baseLimit = tj
+			}
+		}
+	}
+	if baseLimit == 0 {
+		return 0
+	}
+	engage := baseLimit + emergencyMarginC
+	// Never engage above the chip's declared shutdown line, if it exposes one.
+	if em, ok := readMilliCelsiusFile(base + "_emergency"); ok && plausibleCritC(em) && engage > em {
+		engage = em
+	}
+	return engage
+}
+
+func plausibleCritC(v float64) bool {
+	return v >= emergencyMinPlausibleC && v <= emergencyMaxPlausibleC
+}
+
+// isCPUSensorLabel reports whether a hwmon temp label names a CPU/package
+// sensor, so the CPU-model Tjmax is an appropriate critical-threshold fallback
+// when the sensor exposes no tempN_crit.
+func isCPUSensorLabel(label string) bool {
+	l := strings.ToLower(strings.TrimSpace(label))
+	for _, kw := range []string{"cpu", "package", "tctl", "tdie", "core"} {
+		if strings.Contains(l, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// readMilliCelsiusFile reads a hwmon millidegree file and returns °C. ok is
+// false on any read/parse error (file absent, unreadable, non-numeric).
+func readMilliCelsiusFile(path string) (float64, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, false
+	}
+	return float64(n) / 1000.0, true
+}
+
+func readTrimmedFile(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(data)), true
 }
 
 // initCurveStateIfNeeded resets smoothing / hysteresis / PI state when the
@@ -1117,6 +1317,17 @@ func buildCurve(cfg config.CurveConfig, allCurves []config.CurveConfig) (curve.C
 	default:
 		return nil, fmt.Errorf("unknown curve type %q", cfg.Type)
 	}
+}
+
+// sensorPathByName returns the sysfs path of the named sensor, or "" if the
+// sensor is absent from the live config.
+func sensorPathByName(cfg *config.Config, name string) string {
+	for i := range cfg.Sensors {
+		if cfg.Sensors[i].Name == name {
+			return cfg.Sensors[i].Path
+		}
+	}
+	return ""
 }
 
 func findFanByPath(cfg *config.Config, pwmPath, fanType string) (config.Fan, bool) {
