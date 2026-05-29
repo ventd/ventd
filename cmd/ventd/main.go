@@ -86,6 +86,37 @@ func main() {
 	}
 }
 
+// defaultLoopbackListen is the Empty()-defaulted bind: loopback only, satisfying
+// RULE-INSTALL-03 (no plaintext bind on 0.0.0.0).
+const defaultLoopbackListen = "127.0.0.1:9999"
+
+// promoteLoopbackDefaultToWildcard rebinds the loopback default to the LAN
+// wildcard so the URL install.sh prints is reachable from other machines. It
+// promotes ONLY the loopback default (an operator-provisioned bind is left
+// untouched) and ONLY when TLS is active (so the promoted bind is never
+// plaintext — RULE-INSTALL-03). Applied identically on first-boot and on every
+// later start, so the LAN bind persists across reboots rather than being lost
+// with the in-memory first-boot promotion. Returns true if it promoted.
+// RULE-INSTALL-LAN-PROMOTION-PERSISTS.
+func promoteLoopbackDefaultToWildcard(cfg *config.Config, logger *slog.Logger) bool {
+	if !cfg.Web.TLSEnabled() || cfg.Web.Listen != defaultLoopbackListen {
+		return false
+	}
+	_, port, err := net.SplitHostPort(cfg.Web.Listen)
+	if err != nil {
+		return false
+	}
+	cfg.Web.Listen = net.JoinHostPort("0.0.0.0", port)
+	logger.Info("promoting listen address to LAN wildcard (TLS active)", "listen", cfg.Web.Listen)
+	return true
+}
+
+// fileExists reports whether path names an existing regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func run() error {
 	// Positional subcommand dispatch must happen before flag.Parse() because
 	// "diag bundle" args include its own flag set that conflicts with main's.
@@ -354,23 +385,34 @@ func run() error {
 			cfg.Web.TLSKey = keyPath
 			logger.Info("first-boot: TLS enabled with self-signed cert", "sha256", fp)
 			// Empty() defaults Listen to 127.0.0.1:9999 to satisfy
-			// RULE-INSTALL-03 (no plaintext bind on 0.0.0.0). Now that
-			// TLS is active, promote loopback to wildcard so the LAN URL
-			// install.sh prints actually resolves. Without this the
-			// first-time user sees "connection refused" when they open
-			// the printed URL from another machine — defeating the
-			// "open the browser" promise in the README. Skip promotion
-			// if the operator pre-provisioned a non-default Listen
-			// (host:port other than 127.0.0.1:9999).
-			if cfg.Web.Listen == "127.0.0.1:9999" {
-				_, port, splitErr := net.SplitHostPort(cfg.Web.Listen)
-				if splitErr == nil {
-					cfg.Web.Listen = net.JoinHostPort("0.0.0.0", port)
-					logger.Info("first-boot: promoting listen address to wildcard now that TLS is active",
-						"listen", cfg.Web.Listen)
-				}
-			}
+			// RULE-INSTALL-03 (no plaintext bind on 0.0.0.0). Now that TLS is
+			// active, promote loopback to the LAN wildcard so the URL install.sh
+			// prints resolves from other machines. First-boot LAN enrolment is
+			// gated by the one-time setup token (#1466), so the open window is
+			// not a takeover risk.
+			promoteLoopbackDefaultToWildcard(cfg, logger)
 		}
+	}
+
+	// On a later start (no longer first-boot) the first-boot promotion is gone —
+	// it was applied in memory above and never persisted — so without this the
+	// daemon falls back to loopback after a reboot and the LAN URL that worked
+	// during setup breaks (RULE-INSTALL-LAN-PROMOTION-PERSISTS). Re-adopt the
+	// self-signed cert generated during first-boot (present at the default paths
+	// but possibly not named in config.yaml), then re-apply the same promotion
+	// so the LAN bind persists across restarts.
+	if !firstBoot && !cfg.Web.TLSEnabled() {
+		dir := filepath.Dir(*configPath)
+		certPath := filepath.Join(dir, "tls.crt")
+		keyPath := filepath.Join(dir, "tls.key")
+		if fileExists(certPath) && fileExists(keyPath) {
+			cfg.Web.TLSCert = certPath
+			cfg.Web.TLSKey = keyPath
+			logger.Info("adopting self-signed cert generated on a prior first-boot", "cert", certPath)
+		}
+	}
+	if !firstBoot {
+		promoteLoopbackDefaultToWildcard(cfg, logger)
 	}
 
 	// Enforce the transport-security guard unconditionally. First-boot is
