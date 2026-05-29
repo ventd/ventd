@@ -11,17 +11,9 @@
 # One route name per line (trailing path after /api/, no leading slash).
 
 admin/factory-reset
-calibrate/reset
-diag/bundle
-diag/send
 hwdiag/grub-cmdline-add
 hwdiag/load-apparmor
 hwdiag/modprobe-options-write
 hwdiag/reset-and-reinstall
-platform-profile
-probe/opportunistic/status
-release-notes
 setup/apply-monitor-only
 setup/events
-update/apply
-update/check
