@@ -1,16 +1,44 @@
 package hwmon
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
-// RecoverAllPWM walks /sys/class/hwmon for every pwm<N>_enable file
-// and writes "1" to it (kernel-defined "automatic" mode), handing
-// fan control back to the firmware/BIOS curve.
+// enableHandbackSequence is the ordered set of pwm_enable values the crash-
+// recovery path writes to hand a channel back to firmware control. The first
+// value the chip accepts without EINVAL wins.
+//
+// It MUST NOT contain 1. On most super-I/O chips (NCT6687, ITE IT87xx,
+// Nuvoton) pwm_enable=1 is MANUAL mode: writing it after a crash pins the fan
+// at whatever PWM byte the dead daemon last wrote — often near-zero mid-spin-
+// down or mid-calibration — instead of returning control to the BIOS curve.
+// That is the residual-manual bug #1039 fixed on the in-daemon Register path
+// (RULE-WD-PRIOR-CRASH-FALLBACK); the recovery path must not reintroduce it.
+//
+// The sequence mirrors watchdog.SafePreDaemonEnableSequence. It is duplicated
+// here rather than imported because internal/watchdog imports internal/hwmon
+// (importing it back would be a cycle); TestEnableHandbackSequence_NeverManual
+// guards the value so the local copy cannot drift to include the manual value.
+//   - 2  — "automatic": de-facto userspace convention, hits ~all in-tree drivers.
+//   - 99 — SuperIO auto placeholder some vendor drivers use (NCT6687D pre-#169);
+//     the kernel ABI defines 2+ as a range, not a single value.
+//   - 0  — ABI "no fan speed control / full speed": noisy but mechanically safe
+//     last resort.
+//
+// RULE-WD-RECOVER-HANDBACK.
+var enableHandbackSequence = []int{2, 99, 0}
+
+// RecoverAllPWM walks /sys/class/hwmon for every pwm<N>_enable file and hands
+// each channel back to firmware control by walking enableHandbackSequence
+// (2 → 99 → 0), taking the first value the chip accepts without EINVAL. It
+// deliberately never writes pwm_enable=1 (manual) — see enableHandbackSequence.
 //
 // Used by the ventd-recover.service systemd OnFailure= oneshot:
 // when the long-running daemon exits unexpectedly (SIGKILL, OOM,
@@ -20,8 +48,8 @@ import (
 // graceful-exit Restore path to deliver the README's "any exit path
 // within two seconds" promise.
 //
-// Idempotent: writing 1 to a pwm<N>_enable that's already 1 is a
-// no-op. Tolerant: a file we cannot write (permission denied, EIO,
+// Idempotent: writing the automatic value to a channel already in automatic
+// mode is a no-op. Tolerant: a file we cannot write (permission denied, EIO,
 // device gone) is logged and skipped — never aborts the loop.
 //
 // Returns the number of files successfully reset and the number of
@@ -60,14 +88,16 @@ func RecoverAllPWMAt(logger *slog.Logger, root string) (succeeded, failed int) {
 			continue
 		}
 
-		if err := writePWMEnable(enablePath, "1"); err != nil {
+		chosen, err := restoreFirmwareControl(enablePath)
+		if err != nil {
 			failed++
-			logger.Warn("recover: failed to reset pwm_enable",
+			logger.Warn("recover: failed to hand pwm_enable back to firmware",
 				"path", enablePath, "err", err)
 			continue
 		}
 		succeeded++
-		logger.Info("recover: reset pwm_enable to automatic", "path", enablePath)
+		logger.Info("recover: handed pwm_enable back to firmware",
+			"path", enablePath, "value", chosen)
 	}
 
 	logger.Info("recover: complete",
@@ -77,10 +107,44 @@ func RecoverAllPWMAt(logger *slog.Logger, root string) (succeeded, failed int) {
 	return succeeded, failed
 }
 
-// writePWMEnable writes "1\n" to the given pwm_enable path. Separate
+// restoreFirmwareControl walks enableHandbackSequence against path, writing
+// each candidate until one lands without EINVAL. Returns the value that stuck.
+func restoreFirmwareControl(path string) (int, error) {
+	return pickEnableValue(enableHandbackSequence, func(v int) error {
+		return writePWMEnable(path, strconv.Itoa(v))
+	})
+}
+
+// pickEnableValue tries each candidate via attempt and returns the first that
+// succeeds. attempt returns nil on success, an error wrapping syscall.EINVAL
+// to advance to the next candidate, or any other error to abort: a value the
+// driver rejects as out-of-range (EINVAL) means try the next; a file we cannot
+// write at all (EACCES, EIO, device gone) means no other value will land
+// either. Kept pure (no I/O) so the fallback-walk logic is unit-testable
+// without a chip that rejects values.
+func pickEnableValue(seq []int, attempt func(int) error) (int, error) {
+	var lastErr error
+	for _, v := range seq {
+		err := attempt(v)
+		if err == nil {
+			return v, nil
+		}
+		lastErr = err
+		if !errors.Is(err, syscall.EINVAL) {
+			break // hard failure; a different value won't land either
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("recover: empty enable sequence")
+	}
+	return 0, lastErr
+}
+
+// writePWMEnable writes value+"\n" to the given pwm_enable path. Separate
 // from internal/hwmon/hwmon.go's WritePWMEnable so the recover path
 // has no dependency on the package's main public API surface — keeps
-// the recover binary surface as small as possible.
+// the recover binary surface as small as possible. Errors wrap the
+// underlying syscall error with %w so pickEnableValue can detect EINVAL.
 func writePWMEnable(path, value string) error {
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
