@@ -203,7 +203,20 @@ crash-recovery path; never the manual value 1). The result: a fan ventd no
 longer controls is returned to the BIOS curve instead of frozen. Controlled
 channels, already-auto channels, and channels on unmanaged chips are untouched.
 
+The same stranding can happen on a **live** reload, not just across a restart.
+The reload path (SIGHUP / in-process) does not tear controllers down — it swaps
+`liveCfg` and existing controllers pick up new parameters on their next tick. A
+controller whose fan or curve is removed from the new config would otherwise
+skip-tick forever (`controller.tick` logs "fan/curve not found in live config,
+skipping tick"), leaving its fan frozen in manual mode at the dead config's last
+PWM. So when a controller detects its binding has gone, `restoreOnUnbind` hands
+that fan back to firmware auto **once** (via `watchdog.RestoreOne`, same `{2, 99,
+0}` handback). The controller owns its channel, so this can't fight another
+writer; `markTickCompleted` re-arms the one-shot guard when the binding returns,
+so a fan removed, re-added, then removed again is handed back each time.
+
 Bound: internal/hwmon/reconcile_test.go:TestReconcileUnmanagedManual
+Bound: internal/controller/unbind_restore_test.go:TestRestoreOnUnbind
 
 ## RULE-HWMON-PUMP-FLOOR: pump fans never written below pump_minimum
 
