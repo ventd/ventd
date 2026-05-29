@@ -33,6 +33,7 @@ Regenerate with: `go run ./tools/rule-index`
 | acoustic-capture.md | Acoustic capture — R30 mic-calibration primitives |
 | acoustic-proxy.md | Acoustic proxy — R33 no-mic loudness estimator |
 | acoustic-stall.md | Acoustic stall detector — R31 (advisory only) |
+| asus.md | ASUS WMI custom fan curve — HAL backend + g-helper corpus rules |
 | blended-controller.md | Blended IMC-PI controller rules — v0.5.9 PR-A.3 |
 | calibrate-persist.md | Calibration Result Persistence Rules |
 | calibration-safety.md | Calibration Safety Rules |
@@ -47,9 +48,11 @@ Regenerate with: `go run ./tools/rule-index`
 | doctor.md | Doctor rules — v0.5.10 |
 | envelope.md | Envelope probing rules |
 | experimental.md | Experimental-feature flag rules |
+| framework.md | Framework / fw-fanctrl corpus rules |
 | go-conventions.md | Go Conventions — ventd |
 | gpu.md | GPU HAL backend rules (spec-03 PR 2d) |
 | hal-contract.md | HAL Backend Contract |
+| hal-curve-sink.md | HAL CurveSink rules |
 | hidraw-safety.md | hidraw-safety — invariant bindings for pure-Go Linux hidraw substrate |
 | hwdb-schema.md | HWDB schema invariants |
 | hwdb.md | Hardware database rules (PR-2 schema, fingerprint matcher, capture, overrides) |
