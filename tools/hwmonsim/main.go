@@ -54,6 +54,7 @@ import (
 type config struct {
 	out      string
 	board    string
+	preset   string
 	fans     int
 	temps    int
 	chip     string
@@ -78,6 +79,7 @@ func main() {
 	cfg := config{}
 	flag.StringVar(&cfg.out, "out", "", "directory to materialise the synthetic hwmon tree in (required)")
 	flag.StringVar(&cfg.board, "board", "", "seed chip name(s) from a catalog board id (or \"list\" to list ids)")
+	flag.StringVar(&cfg.preset, "preset", "", "built-in multi-chip topology (or \"list\"): desktop | laptop | gpu")
 	flag.IntVar(&cfg.fans, "fans", 3, "number of controllable pwm fans per device")
 	flag.IntVar(&cfg.temps, "temps", 2, "number of temperature sensors per device")
 	flag.StringVar(&cfg.chip, "chip", "nct6687", "hwmon `name` value when --board is not used (must not be \"nvidia\")")
@@ -92,6 +94,10 @@ func main() {
 
 	if cfg.board == "list" {
 		listBoards()
+		return
+	}
+	if cfg.preset == "list" {
+		listPresets()
 		return
 	}
 	if cfg.out == "" {
@@ -126,45 +132,138 @@ func main() {
 	run(devices, cfg, stop)
 }
 
-// buildDevices resolves the device list: one nct6687 (or --chip) device by
-// default, or one device per controller chip of the named catalog board.
+// deviceSpec is a chip + fan/temp count, before an hwmonN dir is assigned.
+// fans == 0 means a temp-only device (NVMe, ACPI thermal zone) — it enumerates
+// as ClassNoFans (a sensor, not a controllable channel), which exercises the
+// daemon's "skip this, it has no fans" path.
+type deviceSpec struct {
+	chip  string
+	fans  int
+	temps int
+}
+
+// presets are built-in multi-chip topologies that mirror common real machines,
+// including the non-controllable devices a real /sys/class/hwmon carries — so
+// the daemon's enumeration + classification (ClassPrimary / ClassNoFans /
+// ClassSkipNVIDIA) is exercised, not just the all-fans happy path.
+var presets = map[string][]deviceSpec{
+	// Desktop: a super-I/O with 6 case/CPU fans, a controllable GPU, an NVMe
+	// (temp-only), an ACPI thermal zone (temp-only), and an nvidia device the
+	// enumerator must skip.
+	"desktop": {
+		{chip: "nct6687", fans: 6, temps: 4},
+		{chip: "amdgpu", fans: 1, temps: 1},
+		{chip: "nvme", fans: 0, temps: 1},
+		{chip: "acpitz", fans: 0, temps: 1},
+		{chip: "nvidia", fans: 1, temps: 1}, // ClassSkipNVIDIA — must be ignored
+	},
+	// Laptop: ACPI thermal zones + a single EC-driven fan.
+	"laptop": {
+		{chip: "acpitz", fans: 0, temps: 2},
+		{chip: "thinkpad", fans: 1, temps: 1},
+	},
+	// GPU box: one controllable AMD GPU plus an nvidia device to skip.
+	"gpu": {
+		{chip: "amdgpu", fans: 1, temps: 2},
+		{chip: "nvidia", fans: 1, temps: 1},
+	},
+}
+
+// buildDevices resolves the device list from --preset, --board, or the default
+// single --chip device.
 func buildDevices(cfg config) ([]device, error) {
-	if cfg.board == "" {
+	switch {
+	case cfg.preset != "":
+		specs, ok := presets[cfg.preset]
+		if !ok {
+			return nil, fmt.Errorf("unknown preset %q (try --preset list)", cfg.preset)
+		}
+		devs := assignDirs(cfg.out, specs)
+		fmt.Printf("hwmonsim: preset %q — %d device(s): %s\n", cfg.preset, len(devs), chipList(devs))
+		return devs, nil
+
+	case cfg.board != "":
+		entry, err := findBoard(cfg.board)
+		if err != nil {
+			return nil, err
+		}
+		devs := devicesFromBoard(entry, cfg)
+		if len(devs) == 0 {
+			return nil, fmt.Errorf("board %q has no controllable controller chip to simulate (all unknown/fanless)", cfg.board)
+		}
+		fmt.Printf("hwmonsim: seeded from board %q — %d controller(s): %s\n",
+			entry.ID, len(devs), chipList(devs))
+		return devs, nil
+
+	default:
 		if cfg.chip == "nvidia" {
 			return nil, fmt.Errorf("--chip nvidia would be skipped by the enumerator; pick another name")
 		}
 		return []device{{dir: filepath.Join(cfg.out, "hwmon0"), chip: cfg.chip, fans: cfg.fans, temps: cfg.temps}}, nil
 	}
+}
 
-	entry, err := findBoard(cfg.board)
-	if err != nil {
-		return nil, err
-	}
-	// Primary + additional controllers, in order, skipping chips with no
-	// real controllable hwmon presence ("unknown" / empty / nvidia).
-	chips := []string{entry.PrimaryController.Chip}
+// devicesFromBoard derives one device per controller chip of a catalog board.
+// The primary controller's fan count is taken from the board's fan_profiles or
+// pwm_groups when present (the real channel count), else --fans; additional
+// controllers use --fans. Chips with no controllable hwmon presence
+// ("unknown" / empty / nvidia) are skipped.
+func devicesFromBoard(entry *hwdb.BoardCatalogEntry, cfg config) []device {
+	primaryFans := boardFanCount(entry, cfg.fans)
+	specs := []deviceSpec{{chip: entry.PrimaryController.Chip, fans: primaryFans, temps: cfg.temps}}
 	for _, c := range entry.AdditionalControllers {
-		chips = append(chips, c.Chip)
+		specs = append(specs, deviceSpec{chip: c.Chip, fans: cfg.fans, temps: cfg.temps})
 	}
-	var devices []device
-	for _, chip := range chips {
-		chip = strings.TrimSpace(chip)
+	var kept []deviceSpec
+	for _, s := range specs {
+		chip := strings.TrimSpace(s.chip)
 		if chip == "" || chip == "unknown" || chip == "nvidia" {
 			continue
 		}
-		devices = append(devices, device{
-			dir:   filepath.Join(cfg.out, fmt.Sprintf("hwmon%d", len(devices))),
-			chip:  chip,
-			fans:  cfg.fans,
-			temps: cfg.temps,
+		s.chip = chip
+		kept = append(kept, s)
+	}
+	return assignDirs(cfg.out, kept)
+}
+
+// boardFanCount returns the primary controller's channel count from the
+// catalog: len(fan_profiles) when populated, else the distinct pwm_groups
+// channel count, else the supplied default. (No current board populates these,
+// so this is correct-when-present and future-proof.)
+func boardFanCount(entry *hwdb.BoardCatalogEntry, dflt int) int {
+	if n := len(entry.FanProfiles); n > 0 {
+		return n
+	}
+	if n := len(entry.PWMGroups); n > 0 {
+		return n
+	}
+	return dflt
+}
+
+// assignDirs turns specs into devices with contiguous hwmonN directories.
+func assignDirs(out string, specs []deviceSpec) []device {
+	devs := make([]device, 0, len(specs))
+	for _, s := range specs {
+		devs = append(devs, device{
+			dir:   filepath.Join(out, fmt.Sprintf("hwmon%d", len(devs))),
+			chip:  s.chip,
+			fans:  s.fans,
+			temps: s.temps,
 		})
 	}
-	if len(devices) == 0 {
-		return nil, fmt.Errorf("board %q has no controllable controller chip to simulate (all unknown/fanless)", cfg.board)
+	return devs
+}
+
+func listPresets() {
+	names := make([]string, 0, len(presets))
+	for n := range presets {
+		names = append(names, n)
 	}
-	fmt.Printf("hwmonsim: seeded from board %q — %d controller(s): %s\n",
-		entry.ID, len(devices), chipList(devices))
-	return devices, nil
+	sort.Strings(names)
+	fmt.Println("hwmonsim: built-in presets:")
+	for _, n := range names {
+		fmt.Printf("  %-10s %s\n", n, chipList(assignDirs("", presets[n])))
+	}
 }
 
 func chipList(devices []device) string {
@@ -258,6 +357,11 @@ func run(devices []device, cfg config, stop <-chan os.Signal) {
 			return
 		case <-ticker.C:
 			for di, d := range devices {
+				if d.fans == 0 {
+					// Temp-only device (NVMe / ACPI zone): no fans to model;
+					// its temps keep their materialised value.
+					continue
+				}
 				totalDuty := 0.0
 				for i := 1; i <= d.fans; i++ {
 					pwm := readInt(filepath.Join(d.dir, fmt.Sprintf("pwm%d", i)), 0)
