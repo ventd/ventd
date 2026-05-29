@@ -219,6 +219,15 @@ type Controller struct {
 	// Used to detect the engagement transition and reset piState exactly once.
 	wasInPanic bool
 
+	// unboundRestored gates the one-shot firmware hand-back when this
+	// controller's config binding (its fan or curve) disappears on a live
+	// reload. Without it the fan would sit frozen in manual mode at the dead
+	// config's last PWM — the live-reload analog of the startup stranding fixed
+	// by RULE-CTRL-RECONCILE-STRANDED. Cleared by markTickCompleted when the
+	// binding returns, so a fan removed, re-added, then removed again is handed
+	// back each time. RULE-CTRL-RECONCILE-STRANDED.
+	unboundRestored bool
+
 	// stuckFanWarnFired gates the once-per-daemon-lifetime
 	// slog.LevelWarn for the #757 "fan not spinning" surface. The
 	// controller emits a single Warn line the first time it sees a
@@ -711,6 +720,7 @@ func (c *Controller) tick() {
 	fan, ok := findFanByPath(live, c.pwmPath, c.fanType)
 	if !ok {
 		c.logger.Warn("controller: fan not found in live config, skipping tick")
+		c.restoreOnUnbind("fan")
 		c.hasLastTickAt = false
 		return
 	}
@@ -764,6 +774,7 @@ func (c *Controller) tick() {
 	curveCfg, ok := findCurve(live, curveName)
 	if !ok {
 		c.logger.Warn("controller: curve not found in live config, skipping tick", "curve", curveName)
+		c.restoreOnUnbind("curve")
 		c.hasLastTickAt = false
 		return
 	}
@@ -1562,9 +1573,31 @@ func (c *Controller) emitObservationFor(chFn chanResolver, pwm uint8) {
 // successful tick sites in tick() (manual write, hysteresis hold,
 // curve-driven write) flow through this helper so the warn gate
 // is uniform.
+// restoreOnUnbind hands this controller's fan back to firmware once when its
+// config binding (fan or curve) has been removed on a live reload. The reload
+// path doesn't tear controllers down — a controller whose binding vanishes
+// otherwise skip-ticks forever, leaving the fan frozen in manual mode at the
+// dead config's last PWM. That is the live-reload analog of the cross-process
+// stranding fixed at startup by RULE-CTRL-RECONCILE-STRANDED. The controller
+// owns its channel, so handing it back here can't fight another writer. Guarded
+// to fire once per unbind; markTickCompleted re-arms it when the binding
+// returns. Idempotent if the channel is already on firmware control.
+func (c *Controller) restoreOnUnbind(missing string) {
+	if c.unboundRestored {
+		return
+	}
+	c.logger.Warn("controller: config binding removed on reload; handing fan back to firmware auto",
+		"missing", missing, "pwm_path", c.pwmPath)
+	c.wd.RestoreOne(c.pwmPath)
+	c.unboundRestored = true
+}
+
 func (c *Controller) markTickCompleted(now time.Time, chFn chanResolver, pwm uint8) {
 	c.lastTickAt = now
 	c.hasLastTickAt = true
+	// Binding is healthy again (fan + curve/manual resolved this tick); re-arm
+	// the unbind hand-back so a later removal restores the fan once more.
+	c.unboundRestored = false
 	rpm := c.maybeWarnStuckFan(chFn, pwm)
 	if c.stallReport != nil {
 		c.stallReport(c.stallChannelID, pwm, rpm, now)
