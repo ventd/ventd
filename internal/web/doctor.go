@@ -29,6 +29,7 @@ import (
 
 	"github.com/ventd/ventd/internal/doctor"
 	"github.com/ventd/ventd/internal/doctor/detectors"
+	"github.com/ventd/ventd/internal/recovery"
 )
 
 // doctorReportCacheTTL caps how often the detectors actually run.
@@ -124,5 +125,44 @@ func (s *Server) handleDoctorReport(w http.ResponseWriter, r *http.Request) {
 	s.doctorCache.mu.Lock()
 	report := s.doctorCache.report
 	s.doctorCache.mu.Unlock()
-	s.writeJSON(r, w, report)
+	s.writeJSON(r, w, doctorReportWithRemediation(report))
+}
+
+// doctorFactView is a doctor.Fact plus the operator-actionable remediation
+// entries for its failure class. The embedded Fact promotes every existing
+// field + json tag, so the wire shape is a superset of the bare Fact — adding
+// only `remediation` — and CLI/diff consumers that unmarshal into doctor.Fact
+// ignore the extra field.
+type doctorFactView struct {
+	doctor.Fact
+	Remediation []recovery.Remediation `json:"remediation,omitempty"`
+}
+
+// doctorReportView mirrors doctor.Report but carries enriched facts. Built
+// per-request from the cached report (never mutates the cache).
+type doctorReportView struct {
+	Schema         string                 `json:"schema_version"`
+	Generated      time.Time              `json:"generated"`
+	Facts          []doctorFactView       `json:"facts"`
+	DetectorErrors []doctor.DetectorError `json:"detector_errors,omitempty"`
+	Severity       doctor.Severity        `json:"severity"`
+}
+
+// doctorReportWithRemediation attaches each fact's per-class remediation
+// (recovery.RemediationFor — the same catalogue the calibration recovery cards
+// use) so the Doctor page can render "Apply fix" / "Learn more" affordances,
+// not just describe the problem. Findings whose class has no catalogue entry
+// (ClassUnknown) get only the generic diagnostic-bundle action.
+func doctorReportWithRemediation(report doctor.Report) doctorReportView {
+	view := doctorReportView{
+		Schema:         report.Schema,
+		Generated:      report.Generated,
+		DetectorErrors: report.DetectorErrors,
+		Severity:       report.Severity,
+		Facts:          make([]doctorFactView, len(report.Facts)),
+	}
+	for i, f := range report.Facts {
+		view.Facts[i] = doctorFactView{Fact: f, Remediation: recovery.RemediationFor(f.Class)}
+	}
+	return view
 }

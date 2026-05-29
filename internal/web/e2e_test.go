@@ -48,7 +48,9 @@ import (
 
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/doctor"
 	"github.com/ventd/ventd/internal/hwdiag"
+	"github.com/ventd/ventd/internal/recovery"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 )
 
@@ -3311,5 +3313,80 @@ func TestE2E_Profile_ImportFlow(t *testing.T) {
 	}
 	if got := active.Value.Str(); got != "performance" {
 		t.Errorf("/api/profile active = %q, want performance", got)
+	}
+}
+
+// TestE2E_DoctorShowsFixThisAction forces a doctor report with an actionable
+// failure class into the cache, then asserts the Doctor page renders an "Apply
+// fix" button (wired to the real backed endpoint) and a "Learn more" link to
+// the now-existing wiki page — not just a description. Guards
+// RULE-WEB-DOCTOR-FIX-THIS (#1474).
+func TestE2E_DoctorShowsFixThisAction(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	// Pin a fresh report with a missing-headers blocker so the page has a
+	// fact whose class carries the install-kernel-headers action. reportAt=now
+	// keeps it non-stale, so the handler serves this instead of re-running.
+	h.srv.doctorCache.mu.Lock()
+	h.srv.doctorCache.report = doctor.Report{
+		Schema:    "1",
+		Generated: time.Now().UTC(),
+		Severity:  doctor.SeverityBlocker,
+		Facts: []doctor.Fact{{
+			Detector: "dkms_status",
+			Class:    recovery.ClassMissingHeaders,
+			Severity: doctor.SeverityBlocker,
+			Title:    "Kernel headers missing",
+			Observed: time.Now().UTC(),
+		}},
+	}
+	h.srv.doctorCache.reportAt = time.Now()
+	h.srv.doctorCache.mu.Unlock()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	page.MustNavigate(h.server.URL + "/doctor")
+
+	deadline := time.Now().Add(8 * time.Second)
+	var btnText, docHref string
+	for time.Now().Before(deadline) {
+		b, err := page.Eval(`() => { var e = document.querySelector('.doc-rem-btn'); return e ? e.textContent : ''; }`)
+		if err == nil && b.Value.Str() != "" {
+			btnText = b.Value.Str()
+			if d, derr := page.Eval(`() => { var a = document.querySelector('.doc-rem-doclink'); return a ? a.getAttribute('href') : ''; }`); derr == nil {
+				docHref = d.Value.Str()
+			}
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	if btnText == "" {
+		t.Fatal("Doctor page never rendered an Apply-fix button for an actionable fact")
+	}
+	if !strings.Contains(btnText, "Apply fix") {
+		t.Errorf("fix button text = %q, want it to contain 'Apply fix'", btnText)
+	}
+	if docHref != "https://github.com/ventd/ventd/wiki/kernel-headers" {
+		t.Errorf("Learn-more href = %q, want the kernel-headers wiki page", docHref)
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		data := page.MustScreenshot()
+		path := os.TempDir() + "/ventd-doctor-fix-this.png"
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatalf("write screenshot: %v", err)
+		}
+		t.Logf("doctor fix-this screenshot: %s", path)
 	}
 }
