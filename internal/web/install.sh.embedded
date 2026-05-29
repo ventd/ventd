@@ -36,11 +36,14 @@
 #   3. Creates /etc/ventd/ for config and calibration data.
 #   4. Installs the service unit for the detected init system
 #      (systemd, OpenRC, or runit).
-#   5. Enables AND starts the service. The daemon prints a one-time setup
-#      token to its log on first boot — the web UI's first-boot wizard
-#      prompts for it, and you can recover it with journalctl.
+#   5. Enables AND starts the service. On first boot the web UI's setup
+#      wizard is open (no password yet), so the daemon binds loopback only
+#      until you set one — preventing a LAN peer from claiming it first.
 #
-# After installation, open http://<this-machine-ip>:9999 in your browser.
+# During first-boot setup, reach the wizard from the machine itself
+# (https://localhost:9999) or over an SSH tunnel
+# (ssh -L 9999:localhost:9999 <host>). Once you set an admin password the
+# daemon binds the LAN and https://<this-machine-ip>:9999 works from anywhere.
 
 set -euo pipefail
 

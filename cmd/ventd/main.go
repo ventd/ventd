@@ -86,6 +86,27 @@ func main() {
 	}
 }
 
+// defaultLoopbackListen is the Empty()-defaulted bind address: loopback only,
+// satisfying RULE-INSTALL-03 (no plaintext bind on 0.0.0.0).
+const defaultLoopbackListen = "127.0.0.1:9999"
+
+// shouldPromoteToWildcard reports whether the loopback default listen address
+// should be promoted to the LAN wildcard at startup. It promotes only once the
+// daemon is locked (an admin password is set) and TLS is active, and only from
+// the loopback default — never during the open first-boot window, so a fresh
+// LAN install can't be claimed by a racing peer, and never over plaintext. An
+// operator-provisioned non-default Listen is left untouched.
+// RULE-INSTALL-FIRSTBOOT-LOOPBACK.
+func shouldPromoteToWildcard(listen string, tlsActive, hasPassword bool) bool {
+	return tlsActive && hasPassword && listen == defaultLoopbackListen
+}
+
+// fileExists reports whether path names an existing regular file.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func run() error {
 	// Positional subcommand dispatch must happen before flag.Parse() because
 	// "diag bundle" args include its own flag set that conflicts with main's.
@@ -353,23 +374,33 @@ func run() error {
 			cfg.Web.TLSCert = certPath
 			cfg.Web.TLSKey = keyPath
 			logger.Info("first-boot: TLS enabled with self-signed cert", "sha256", fp)
-			// Empty() defaults Listen to 127.0.0.1:9999 to satisfy
-			// RULE-INSTALL-03 (no plaintext bind on 0.0.0.0). Now that
-			// TLS is active, promote loopback to wildcard so the LAN URL
-			// install.sh prints actually resolves. Without this the
-			// first-time user sees "connection refused" when they open
-			// the printed URL from another machine — defeating the
-			// "open the browser" promise in the README. Skip promotion
-			// if the operator pre-provisioned a non-default Listen
-			// (host:port other than 127.0.0.1:9999).
-			if cfg.Web.Listen == "127.0.0.1:9999" {
-				_, port, splitErr := net.SplitHostPort(cfg.Web.Listen)
-				if splitErr == nil {
-					cfg.Web.Listen = net.JoinHostPort("0.0.0.0", port)
-					logger.Info("first-boot: promoting listen address to wildcard now that TLS is active",
-						"listen", cfg.Web.Listen)
-				}
-			}
+			// Deliberately do NOT promote Listen to the LAN wildcard here.
+			// During first-boot no admin password is set yet and the
+			// password-set step is open (#765), so a LAN-reachable wizard is a
+			// takeover race: anyone on the network could reach the printed URL
+			// and claim the daemon before the operator does. The first-boot
+			// wizard therefore stays loopback-only — reach it via a local
+			// browser or `ssh -L 9999:localhost:9999 <host>`. Promotion to the
+			// LAN happens later, once a password is set (maybePromoteListen
+			// below), and persists across reboots via the cert re-adoption just
+			// below. RULE-INSTALL-FIRSTBOOT-LOOPBACK.
+		}
+	}
+
+	// On a later start (no longer first-boot) the self-signed cert generated
+	// during first-boot is on disk at the default paths but may not be named in
+	// config.yaml. Re-adopt it so TLS — and therefore the LAN promotion below —
+	// survives a reboot instead of silently falling back to loopback (which is
+	// what made the first-boot LAN URL "break after reboot").
+	if !firstBoot && !cfg.Web.TLSEnabled() {
+		dir := filepath.Dir(*configPath)
+		certPath := filepath.Join(dir, "tls.crt")
+		keyPath := filepath.Join(dir, "tls.key")
+		if fileExists(certPath) && fileExists(keyPath) {
+			cfg.Web.TLSCert = certPath
+			cfg.Web.TLSKey = keyPath
+			logger.Info("adopting self-signed cert generated on a prior first-boot",
+				"cert", certPath)
 		}
 	}
 
@@ -397,6 +428,25 @@ func run() error {
 	if authHash == "" {
 		if auth, loadErr := authpersist.Load(authPath); loadErr == nil && auth != nil {
 			authHash = auth.Admin.BcryptHash
+		}
+	}
+
+	// Now that we know whether the daemon is locked (an admin password is set),
+	// promote the loopback default to the LAN wildcard — the counterpart to the
+	// first-boot loopback hold above. Only when locked AND over TLS, and only
+	// from the loopback default, so the open first-boot wizard is never
+	// LAN-reachable and the promotion is never over plaintext. The LAN URL
+	// install.sh prints comes alive on the first start after a password is set,
+	// and on every start thereafter (so it survives reboots). The transport
+	// guard is re-validated so a promotion can never expose the wizard plaintext.
+	if shouldPromoteToWildcard(cfg.Web.Listen, cfg.Web.TLSEnabled(), authHash != "") {
+		if _, port, splitErr := net.SplitHostPort(cfg.Web.Listen); splitErr == nil {
+			cfg.Web.Listen = net.JoinHostPort("0.0.0.0", port)
+			logger.Info("promoting listen address to LAN wildcard (admin password set, TLS active)",
+				"listen", cfg.Web.Listen)
+			if err := cfg.Web.RequireTransportSecurity(); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -298,7 +298,18 @@ if command -v systemctl >/dev/null 2>&1; then
     fi
 
     echo ""
-    echo "ventd installed. Open https://$(hostname -I | awk '{print $1}'):9999 to set up."
+    LAN_IP="$(hostname -I | awk '{print $1}')"
+    echo "ventd installed. The first-boot setup wizard is open without a password,"
+    echo "so it binds loopback only until you set one — reach it from THIS machine:"
+    echo ""
+    echo "    https://localhost:9999"
+    echo ""
+    echo "  …or tunnel from your workstation:"
+    echo "    ssh -L 9999:localhost:9999 ${USER:-<user>}@${LAN_IP:-<host>}   then open https://localhost:9999"
+    echo ""
+    echo "Once you set an admin password, ventd binds the LAN and you can use"
+    echo "https://${LAN_IP:-<this-host-ip>}:9999 from other machines (restart the"
+    echo "service, or it switches over on its next start)."
     echo ""
 fi
 

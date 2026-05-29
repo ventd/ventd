@@ -47,6 +47,28 @@ alongside a TLS configuration.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_WebListenDefault
 
+## RULE-INSTALL-FIRSTBOOT-LOOPBACK: the loopback default is promoted to the LAN wildcard only after a password is set, over TLS
+
+On a fresh install the setup wizard's password-set step is open without auth
+(#765). If the daemon also bound the LAN wildcard during that window, anyone on
+the network could reach the printed URL and claim the daemon before the operator
+— a first-boot takeover race. So the daemon **holds the loopback default**
+(`127.0.0.1:9999`) for the entire unauthenticated first-boot window: the wizard
+is reachable only via a local browser or `ssh -L 9999:localhost:9999 <host>`.
+
+`shouldPromoteToWildcard` promotes the loopback default to `0.0.0.0` only once
+the daemon is **locked** (an admin password is set) AND TLS is active, and only
+from the loopback default (an operator-provisioned bind is left untouched).
+Because the gate is "password is set" rather than "first-boot", a locked daemon
+re-promotes on every start — so the LAN URL also survives a reboot (the prior
+in-memory, first-boot-only promotion did not, which is why the LAN URL "broke
+after reboot"). The previously-generated self-signed cert is re-adopted from its
+default path on later starts so the promoted bind is always TLS, and
+`RequireTransportSecurity` is re-validated after promotion as a hard backstop
+against ever exposing the wizard over plaintext.
+
+Bound: cmd/ventd/firstboot_listen_test.go:TestShouldPromoteToWildcard
+
 ## RULE-INSTALL-04: Every AppArmorProfile= directive must reference a profile shipped in deploy/apparmor.d/
 
 A `AppArmorProfile=<name>` directive in a shipped unit pins the process to
