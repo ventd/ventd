@@ -18,6 +18,7 @@ package gpu
 import (
 	"log/slog"
 
+	"github.com/ventd/ventd/internal/hal"
 	"github.com/ventd/ventd/internal/hal/gpu/amdgpu"
 	gpunvml "github.com/ventd/ventd/internal/hal/gpu/nvml"
 	"github.com/ventd/ventd/internal/nvidia"
@@ -54,10 +55,20 @@ func registerAMD(logger *slog.Logger, opts ProbeOptions) {
 		logger.Debug("gpu: AMD enumeration failed", "err", err)
 		return
 	}
+	if len(cards) == 0 {
+		return
+	}
+	// Register the amdgpu FanBackend so config.Fan.Type=="amdgpu" resolves via
+	// the controller's registry dispatch (hal.Backend) and the watchdog's
+	// registry-backed restore. Per-card write capability (RDNA1/2 +
+	// amd_overdrive) is decided in the backend's Enumerate; the experimental
+	// gate is re-checked at the WritePWM call. Before this, registerAMD only
+	// logged — the backend was never registered, so AMD GPUs were dead code
+	// despite the README advertising them.
+	hal.Register(amdgpu.BackendName, amdgpu.NewBackend(logger, opts.SysRoot, opts.AMDOverdrive))
 	for i := range cards {
-		cards[i].AMDOverdrive = opts.AMDOverdrive
-		writable := opts.AMDOverdrive
-		logger.Info("gpu: AMD GPU registered",
+		writable := opts.AMDOverdrive && !cards[i].HasFanCurve
+		logger.Info("gpu: AMD GPU backend registered",
 			"card", cards[i].CardPath,
 			"has_fan_curve", cards[i].HasFanCurve,
 			"writable", writable,

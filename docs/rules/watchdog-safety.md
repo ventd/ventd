@@ -320,3 +320,28 @@ pre-daemon value over the blind `{2, 99, 0}` walk is a future enhancement;
 
 Bound: internal/hwmon/recover_test.go:TestRecoverAllPWM_HandsBackToFirmwareAutoNotManual
 Bound: cmd/ventd-recover/recover_test.go:TestRestoreAll_NeverWritesManualMode
+
+## RULE-WD-RESTORE-REGISTRY-BACKEND: non-hwmon registry backends restore through their own HAL backend, not hwmon
+
+`restoreOne` special-cases nvidia, msi-ec, and IPMI, then falls to a default
+branch. Before this rule the default branch ALWAYS routed to the hwmon backend
+— which is correct only for true hwmon fans. Every other registry backend
+(amdgpu, corsair, thinkpad, pwmsys, legion, crosec, asahi, lenovoideapad, nbfc)
+carries a backend-private channel ID as its `pwmPath` — a DRM card path, a USB
+HID index, a procfs node — not a hwmon `pwm<N>` file. The hwmon restore then
+wrote `pwm_enable=2` to a nonexistent `<id>_enable` path, the error was
+swallowed, and the channel was **silently left in manual mode on exit**. For a
+GPU that means the card stays in manual after the daemon dies, with no firmware
+thermal fallback until something resets it — a real overheat risk.
+
+The default branch now, for any `fanType` other than `"hwmon"`/`""`, looks the
+backend up in the HAL registry (`hal.Backend`), rebuilds the channel by
+matching `pwmPath` against the backend's `Enumerate` output, and restores
+through that backend's own `Restore` (amdgpu → `pwm_enable=2` / fan_curve reset;
+corsair → its HID restore; etc.). A channel that can't be found is logged, not
+silently mis-restored. Only true hwmon fans, and types whose backend failed to
+register, fall through to the hwmon path. This is what makes the amdgpu backend
+(and every other registry backend) safe to leave under ventd control: the
+exit-restore contract (RULE-WD-RESTORE-EXIT) now actually reaches them.
+
+Bound: internal/watchdog/registry_restore_test.go:TestRestore_RegistryBackendRestoredViaOwnBackend

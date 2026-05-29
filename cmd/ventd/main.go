@@ -258,7 +258,7 @@ func run() error {
 	}
 
 	if *doSetup {
-		return runSetup(*configPath, logger, acousticOptionsFromFlags(*micDevice, *micRefSPL, *micSeconds, *micOut))
+		return runSetup(*configPath, logger, acousticOptionsFromFlags(*micDevice, *micRefSPL, *micSeconds, *micOut), *enableAMDOverdrive)
 	}
 
 	logger.Info("ventd starting")
@@ -544,7 +544,7 @@ func run() error {
 	// hal.Resolve can drive Phase 2 features (IPMI / liquidctl / cros_ec
 	// / pwmsys / asahi inventory in the web UI, diagnostics probes) off
 	// a single source of truth.
-	registerHALBackends(logger)
+	registerHALBackends(logger, expFlags.AMDOverdrive)
 	if channels, err := hal.Enumerate(context.Background()); err != nil {
 		logger.Warn("hal: initial enumerate failed", "err", err)
 	} else {
