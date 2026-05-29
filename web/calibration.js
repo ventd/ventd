@@ -598,67 +598,89 @@
     if (els.narratorMsg)     els.narratorMsg.textContent = p.phase_msg || '';
   }
 
-  // ── scope (decorative live signal) ──────────────────────────────────
+  // pickScopeFan returns the fan whose sweep is most informative to plot:
+  // the one actively calibrating, else the most-progressed, else the first.
+  function pickScopeFan(fans) {
+    var best = null;
+    for (var i = 0; i < fans.length; i++) {
+      var f = fans[i];
+      if (f.cal_phase === 'calibrating') return f;
+      if (!best || (f.cal_progress || 0) > (best.cal_progress || 0)) best = f;
+    }
+    return best;
+  }
+
+  // ── scope (live PWM/tach trace from the real sweep) ─────────────────
+  // Driven entirely by the backend's per-fan current_pwm / current_rpm and the
+  // rolling RPM buffer paintAllSparks maintains — never synthetic. Before any
+  // duty/tach exists (detecting / driver / enum phases) it renders a flat
+  // baseline with "—" readouts rather than a fabricated waveform, matching the
+  // no-theatre contract the rest of the UI follows ("show — rather than
+  // invent"). The motion is real: the RX trace scrolls as fresh tach samples
+  // arrive each poll during the sweep.
   function paintScope(currentPhase) {
     if (!els.scopeTx || !els.scopeRx) return;
     var W = 800, H = 200;
-    var t = Date.now();
+    var fans = (lastProgress && lastProgress.fans) || [];
+    var fan = pickScopeFan(fans);
+    var key = fan ? (fan.pwm_path || fan.id || 'f0') : null;
+    var rpmBuf = key ? (sparkBufs[key] || []) : [];
+    var pwm = fan && fan.current_pwm != null ? fan.current_pwm : null; // 0-100 %
+    var rpm = fan && fan.current_rpm != null ? fan.current_rpm : null; // rpm
+    var live = currentPhase === 'detecting_rpm' || currentPhase === 'probing_polarity'
+            || currentPhase === 'calibrating' || currentPhase === 'finalizing';
+    var capturing = live && rpm != null;
 
-    // TX trace — square pulse train, frequency varies by phase
-    var hz = currentPhase === 'calibrating' ? 0.05 + 0.03 * Math.sin(t * 0.001) : 0.08;
-    var pts = '';
-    for (var x = 0; x <= W; x += 2) {
-      var ph = (x * hz + t * 0.06) % 12;
-      var y = ph < 5 ? H * 0.28 : H * 0.62;
-      pts += (x === 0 ? 'M ' : ' L ') + x + ' ' + y.toFixed(1);
-    }
-    els.scopeTx.setAttribute('d', pts);
+    // TX trace — the commanded duty as a level line at the real current_pwm
+    // height (flat midline when there is no duty to show yet).
+    var txY = pwm != null ? (H * 0.05 + H * 0.9 * (1 - pwm / 100)) : H * 0.5;
+    els.scopeTx.setAttribute('d', 'M 0 ' + txY.toFixed(1) + ' L ' + W + ' ' + txY.toFixed(1));
 
-    // RX trace — narrower / lower amplitude (or noise floor pre-pairing)
-    var rxPts = '';
-    if (currentPhase === 'detecting' || currentPhase === 'installing_driver' || currentPhase === 'scanning_fans') {
-      for (var x2 = 0; x2 <= W; x2 += 6) {
-        var y2 = H * 0.78 + (Math.sin(x2 * 0.4 + t * 0.005) * 3);
-        rxPts += (x2 === 0 ? 'M ' : ' L ') + x2 + ' ' + y2.toFixed(1);
+    // RX trace — the real RPM history, scaled to its own max (flat baseline
+    // until at least two tach samples have been captured).
+    var rxPts;
+    if (rpmBuf.length >= 2) {
+      var max = 1;
+      for (var m = 0; m < rpmBuf.length; m++) if (rpmBuf[m] > max) max = rpmBuf[m];
+      rxPts = '';
+      for (var x = 0; x < rpmBuf.length; x++) {
+        var px = (x / (rpmBuf.length - 1)) * W;
+        var py = H * 0.95 - (rpmBuf[x] / max) * (H * 0.55);
+        rxPts += (x === 0 ? 'M ' : ' L ') + px.toFixed(1) + ' ' + py.toFixed(1);
       }
     } else {
-      var rhz = currentPhase === 'calibrating' ? 0.09 + 0.06 * Math.sin(t * 0.0008) : 0.06;
-      for (var x3 = 0; x3 <= W; x3 += 2) {
-        var rph = (x3 * rhz + t * 0.04) % 14;
-        var ry = rph < 2 ? H * 0.62 : H * 0.78;
-        rxPts += (x3 === 0 ? 'M ' : ' L ') + x3 + ' ' + ry.toFixed(1);
-      }
+      rxPts = 'M 0 ' + (H * 0.78).toFixed(1) + ' L ' + W + ' ' + (H * 0.78).toFixed(1);
     }
     els.scopeRx.setAttribute('d', rxPts);
 
-    // ribbon
+    // ribbon — real values, "—" wherever there is no real source.
     var stageMap = {
       detecting: 'super-io', installing_driver: 'kmod-build', scanning_fans: 'enum-pwm',
       detecting_rpm: 'tach-pair', probing_polarity: 'polarity', calibrating: 'sweep',
       finalizing: 'solver', done: 'idle'
     };
     if (els.sribStage)  els.sribStage.textContent = stageMap[currentPhase] || '—';
-    if (els.scopeMeta)  els.scopeMeta.textContent = currentPhase === 'detecting' ? 'trace · 2-ch · noise floor' : 'trace · 2-ch · pwm/tach';
-    if (els.scopeState) els.scopeState.textContent = currentPhase === 'done' ? 'IDLE' : 'CAPTURING';
-    var hasPwm = !(currentPhase === 'detecting' || currentPhase === 'installing_driver');
-    if (els.sribDuty) els.sribDuty.textContent = hasPwm ? '25 kHz' : '—';
-    var hasTach = currentPhase === 'detecting_rpm' || currentPhase === 'probing_polarity'
-               || currentPhase === 'calibrating' || currentPhase === 'finalizing';
-    if (els.sribTach) els.sribTach.textContent = hasTach
-      ? Math.round(20 + Math.abs(Math.sin(t * 0.002)) * 40) + ' Hz' : '—';
-    if (els.sribAdc) els.sribAdc.textContent = hasPwm
-      ? Math.round(220 + Math.sin(t * 0.004) * 40) + ' mV' : '—';
+    if (els.scopeMeta)  els.scopeMeta.textContent = capturing ? 'pwm + tach · live sweep' : 'pwm + tach · idle';
+    if (els.scopeState) els.scopeState.textContent = capturing ? 'CAPTURING' : 'IDLE';
+    if (els.sribDuty)   els.sribDuty.textContent = pwm != null ? pwm + ' %' : '—';
+    // Tach frequency derived from the real RPM (rpm / 60). "—" pre-pairing.
+    if (els.sribTach)   els.sribTach.textContent = capturing ? (rpm / 60).toFixed(1) + ' Hz' : '—';
+    // No ADC-voltage source exists in the progress payload — never fabricate one.
+    if (els.sribAdc)    els.sribAdc.textContent = '—';
 
-    // tiny spark
+    // tiny spark — tail of the same real RPM buffer.
     if (els.sribSparkPath) {
       var sd = '';
-      for (var i = 0; i < 28; i++) {
-        var v = currentPhase === 'calibrating' ? 0.4 + 0.4 * Math.sin((t - i * 120) * 0.003)
-              : currentPhase === 'finalizing'  ? 0.2 + 0.1 * Math.sin((t - i * 120) * 0.002)
-              : 0.3 + 0.2 * Math.sin((t - i * 120) * 0.004);
-        v = clamp(v, 0, 1);
-        var sx = (i / 27) * 100, sy = (1 - v) * 14;
-        sd += (i === 0 ? 'M ' : ' L ') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+      var n = Math.min(28, rpmBuf.length);
+      if (n >= 2) {
+        var smax = 1;
+        for (var s = rpmBuf.length - n; s < rpmBuf.length; s++) if (rpmBuf[s] > smax) smax = rpmBuf[s];
+        var idx = 0;
+        for (var b = rpmBuf.length - n; b < rpmBuf.length; b++) {
+          var sx = (idx / (n - 1)) * 100, sy = 14 - (rpmBuf[b] / smax) * 14;
+          sd += (idx === 0 ? 'M ' : ' L ') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+          idx++;
+        }
       }
       els.sribSparkPath.setAttribute('d', sd);
     }
@@ -958,9 +980,11 @@
 
   // ── live card / done / error orchestration ─────────────────────────
   var lastUiPhase = 'detecting';
+  var lastProgress = null; // latest real Progress payload, read by paintScope
   function applyProgress(p) {
     var ui = uiPhase(p);
     lastUiPhase = ui;
+    lastProgress = p;
     paintPipeline(ui);
     var sweepStats = { totalSamples: Math.round((Date.now() - (startedAt || Date.now())) / 1000 * 4.2) };
     updateBridgeStats(p, ui, sweepStats);
