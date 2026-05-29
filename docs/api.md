@@ -337,6 +337,47 @@ Re-enumerates the hwmon tree, diffs against the previous snapshot, and stores th
 }
 ```
 
+### `GET /api/hardware/inventory`
+
+Composes `monitor.Scan()` with the live config (aliases + curve coupling) and a per-sensor rolling history ring into the feed the redesigned Hardware page consumes. The web UI polls this at ~1.5 s; this is also the source `/sensors`, `/devices`, and `/health` agree on (unlike `GET /api/status`, which only returns curve-bound sensors). Side-effect-free apart from the in-process history ring (reset on daemon restart).
+
+**Auth**: session
+
+**Query params**:
+- `include_phantoms` (optional) — when present, includes mirror / phantom `fan*_input` rows. Default-off: a host with one physical fan shows one row.
+
+**Response**:
+```ts
+{
+  chips: {
+    id:     string
+    bus:    "hwmon" | "nvml" | "acpi"
+    name:   string          // friendly chip-family name
+    path:   string          // sysfs / device path
+    model:  string          // friendly + chip-code line
+    status: "ok" | "offline"
+    sensors: {
+      id:    string                       // stable unique key (sensor path)
+      label: string                       // raw driver label, e.g. "temp1"
+      alias?: string                      // config-supplied friendly name
+      kind:  "temp" | "fan" | "volt" | "power"
+      value: number
+      unit:  string
+      history: number[]                   // chronological, oldest first, ≤ 60 samples
+      position?: { x: number, y: number } // operator-supplied heatmap coords
+      used_by: string[]                   // curve IDs consuming this sensor
+      likely_disconnected?: boolean       // suspicious-low temp band
+    }[]
+  }[]
+  curves: {
+    id:       string
+    name:     string
+    consumes: string[]   // sensor IDs with a live matching alias
+    drives:   string[]   // fan PWM IDs bound to this curve
+  }[]
+}
+```
+
 ### `GET /api/debug/hwmon`
 
 Returns the before/after snapshots from the most recent hardware rescan plus the current view. Useful for diagnosing hot-plug events.
@@ -423,6 +464,164 @@ Ramps a fan's PWM briefly (~5 s) to identify which RPM sensor is correlated with
 - `fan` — hwmon PWM path
 
 **Response**: _see source (internal/web/calibrate.go:handleDetectRPM)_ — output of `cal.DetectRPMSensor(fan)`: `{sensor_path, correlation_score}` or an error.
+
+---
+
+## Smart mode & confidence
+
+ventd's predictive controller blends a learned model with the reactive curve. These read-only endpoints expose what it has learned and why predictive control is (or isn't) engaged. See `docs/architecture/` and the `RULE-AGG-*` / `RULE-CPL-*` / `RULE-CMB-*` rule families for the underlying model.
+
+### `GET /api/smart/status`
+
+One-object summary of the worst-case global state, the active preset, and channel counts — the dashboard renders it as a single status pill or banner.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  enabled:        boolean
+  preset:         string         // "silent" | "balanced" | "performance"
+  global_state:   string         // worst per-channel UI state across the fleet
+  channels:       number
+  warming_up:     number         // channels still warming Layer B/C
+  converged:      number         // fully converged channels
+  not_started?:   number         // channels that have never seen first contact
+  confidence_min: number | null  // min w_pred across channels (0..1); null pre-warmup
+  confidence_max: number | null  // max w_pred; null pre-warmup
+  acoustic: {
+    enabled:        boolean
+    target_dba?:    number       // resolved dBA cap
+    current_dba?:   number       // host loudness; dBA if mic-calibrated, else "au" scale
+    mic_calibrated: boolean
+    mode?:          "measured" | "estimated"
+  }
+  cooling: {                     // chassis cooling-capacity estimate (#1285)
+    capacity_w?: number          // watts at 70 °C ΔT
+    cpu_tdp_w?:  number          // CPU package power limit (RAPL)
+    adequate:    boolean
+    has_signal:  boolean         // false when unavailable; UI hides the panel
+  }
+}
+```
+
+### `GET /api/smart/channels`
+
+Deep per-channel snapshot array — the learned coupling/marginal shards and the controller's most-recent decision for each channel. Nested shard objects are omitted when the corresponding runtime is absent.
+
+**Auth**: session
+
+**Response**: a JSON array of
+```ts
+{
+  channel_id:       string
+  name?:            string   // operator-friendly fan name from config
+  ui_state:         string   // converged | warming | cold-start | drifting | refused
+  w_pred:           number   // 0..1 final blend weight
+  signature_label?: string
+  coupling?:        object   // per-channel coupling shard (theta, kappa, lambda, ewma_residual, n_samples, …)
+  marginal?:        object[] // per-PWM marginal shards
+  decision?: {               // the BlendedResult the next tick will write
+    output_pwm:        number
+    reactive_pwm:      number
+    predictive_pwm:    number
+    ui_state:          string  // reactive | blended | refused-pi | refused-pathA | refused-cost | refused-dba
+    predicted_dba?:    number
+    diagnostic_reason?: string
+    // plus path_a_refused / cost_refused / dba_budget_refused / pi_refused / integrator_frozen booleans
+  }
+}
+```
+
+### `GET /api/confidence/status`
+
+Per-channel confidence snapshot (the 5-state pill grid) plus the `w_pred_system` gate verdict. Read-only; never blocks the controller hot loop.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  enabled:      boolean
+  global_state: string   // worst-of-channels collapse; "idle" when none
+  preset:       string
+  gate?: {               // w_pred_system gate; omitted in monitor-only mode
+    open:             boolean
+    reason?:          string
+    detail?:          string
+    schema_loaded:    boolean
+    preconditions_ok: boolean
+    wizard_control:   boolean
+    mass_stalled:     boolean
+    smart_disabled:   boolean
+  }
+  channels: {
+    channel_id:         string
+    name?:              string
+    w_pred:             number
+    ui_state:           string
+    conf_a:             number
+    conf_b:             number
+    conf_c:             number
+    tier:               number
+    coverage:           number
+    seen_first_contact: boolean
+    age_seconds:        number
+    drift_active:       boolean
+    drift_a?:           DriftLayer   // omitted until the layer converges
+    drift_b?:           DriftLayer
+    drift_c?:           DriftLayer
+  }[]
+}
+
+// DriftLayer: { drifting: boolean, residual: number, baseline: number, control_limit: number }
+```
+
+### `GET /api/confidence/preset`, `PUT /api/confidence/preset`
+
+GET returns the active preset; PUT changes it (mutates the live config and persists). Recognised values: `silent`, `balanced`, `performance`; anything else is `400`.
+
+**Auth**: session
+
+**Request body** (PUT, JSON):
+```ts
+{ preset: "silent" | "balanced" | "performance" }
+```
+
+**Response** (both):
+```ts
+{ preset: string }
+```
+
+---
+
+## Doctor
+
+### `GET /api/doctor`
+
+Runs the diagnostic detector suite (cached briefly between calls) and returns a structured report — the data behind the `/doctor` page. Each fact is a card with a severity, an operator-facing title/detail, and a stable `entity_hash` used for per-fact suppression.
+
+**Auth**: session
+
+**Response**:
+```ts
+{
+  schema_version: string        // pins the JSON shape (RULE-DOCTOR-08)
+  generated:      string        // RFC3339
+  severity:       "ok" | "warning" | "blocker"   // worst-case rollup
+  facts: {
+    detector:    string
+    severity:    "ok" | "warning" | "blocker"
+    class:       string         // FailureClass; routes the recovery card
+    title:       string
+    detail?:     string
+    entity_hash: string         // 16 hex chars; stable across restarts
+    observed:    string         // RFC3339
+    journal?:    string[]
+  }[]
+  detector_errors?: { detector: string, err: string }[]   // detectors that themselves failed
+}
+```
 
 ---
 
