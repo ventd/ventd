@@ -1,0 +1,12 @@
+package web
+
+import "net/http"
+
+func (s *Server) register() {
+	s.registerAPIRoutes([]apiRoute{
+		{name: "ping", handler: s.handlePing, auth: false},
+		{name: "status", handler: s.handleStatus, auth: true},
+		{name: "config", methods: []string{http.MethodGet, http.MethodPut, http.MethodPatch}, handler: s.handleConfig, auth: true},
+		{name: "events", handler: s.handleEvents, auth: true},
+	})
+}

@@ -92,6 +92,11 @@ step "rulelint --suggest --check-binding-uniqueness"
 go run ./tools/rulelint --suggest --check-binding-uniqueness
 green "ok"
 
+# 6b. apidoccheck — docs/api.md must stay in sync with the registered API surface
+step "apidoccheck"
+go run ./tools/apidoccheck
+green "ok"
+
 # 7. go test -short
 step "go test -count=1 -short ./..."
 go test -count=1 -short ./...
