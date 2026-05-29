@@ -285,6 +285,17 @@ type Controller struct {
 	// shadow mode is a startup-time decision so it never toggles mid-run.
 	shadowAnnounced bool
 
+	// lastCurvePoints is the anchor set last successfully programmed into a
+	// hal.CurveSink channel (RDNA3/4 GPU fan_curve, vendor-EC fancurve). The
+	// curve-sink loop re-programs the hardware only when the freshly-computed
+	// anchors differ from these — which catches any change that alters the
+	// output curve (bound curve, its points, the fan's PWM bounds, a manual
+	// override) regardless of which config field moved. hasProgrammedCurve is
+	// false until the first successful program and is cleared on a failed
+	// write so the next tick retries. spec-17 PR-1b.
+	lastCurvePoints    []hal.CurvePoint
+	hasProgrammedCurve bool
+
 	// Over-temperature failsafe state (RULE-CTRL-OVERTEMP-FAILSAFE). A
 	// curve-independent backstop: when the control sensor crosses the chip's
 	// emergency threshold (hwmon _crit/_emergency, or the CPU-model Tjmax for
@@ -630,6 +641,18 @@ func (c *Controller) Run(ctx context.Context, interval time.Duration) (err error
 			err = fmt.Errorf("controller %s: panic: %v", c.fanName, r)
 		}
 	}()
+
+	// CurveSink channels (RDNA3/4 GPU fan_curve, vendor-EC fancurve) are
+	// driven by a whole curve programmed into the hardware once, after which
+	// the firmware runs the control loop on its own. They have no per-tick
+	// duty write, so they run a dedicated loop that programs the curve at
+	// startup and re-programs only when the bound curve changes — never the
+	// per-tick tick() path below. Detected here (not at construction) because
+	// the curve-sink capability lives on the backend-built channel, which a
+	// hwmon-free backend only materialises via Enumerate (spec-17 PR-1b).
+	if cs := c.curveSinkBackend(); cs != nil {
+		return c.runCurveSink(ctx, interval, cs)
+	}
 
 	if c.fanType == "nvidia" {
 		c.logger.Info("controller: nvidia fan control acquired", "gpu_index", c.pwmPath)

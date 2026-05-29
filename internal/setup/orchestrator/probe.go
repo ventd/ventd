@@ -264,9 +264,13 @@ func probeHALFans(rc *RunContext, enumerate func(ctx context.Context) ([]hal.Cha
 		if halPassSkipBackends[backend] {
 			continue
 		}
-		if ch.Caps&hal.CapWritePWM == 0 {
+		if ch.Caps&(hal.CapWritePWM|hal.CapWriteCurve) == 0 {
 			// Read-only / power-profile-only channels can't be driven by
-			// the controller's PWM path; nothing for the wizard to do.
+			// the controller's PWM path or its curve-upload path; nothing
+			// for the wizard to do. CapWriteCurve channels (RDNA3/4 GPU
+			// fan_curve) ARE controllable — the controller programs a curve
+			// once via hal.CurveSink instead of writing per-tick PWM, so the
+			// wizard must admit them as fans (spec-17 PR-1b).
 			continue
 		}
 		out = append(out, ProbedFan{
