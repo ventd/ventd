@@ -153,3 +153,51 @@
 .status-pill.is-rollup-blocker { background: var(--red-bg);   color: var(--red);   }
 .status-pill.is-rollup-warning { background: var(--amber-bg); color: var(--amber); }
 .status-pill.is-rollup-ok      { background: var(--teal-bg);  color: var(--teal);  }
+
+/* Remediation affordances on each fact card (RULE-WEB-DOCTOR-FIX-THIS):
+   per-class "Apply fix" / "Learn more" actions from recovery.RemediationFor. */
+.doc-card-remediation {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.doc-rem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.doc-rem-label {
+  font-weight: 600;
+  color: var(--fg1);
+}
+.doc-rem-desc {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--fg2);
+}
+.doc-rem-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.doc-rem-doclink {
+  font-size: 0.85rem;
+  color: var(--blue);
+  text-decoration: none;
+}
+.doc-rem-doclink:hover { text-decoration: underline; }
+.doc-rem-result {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--fg2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}

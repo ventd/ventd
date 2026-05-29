@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ventd/ventd/internal/doctor"
+	"github.com/ventd/ventd/internal/recovery"
 )
 
 // TestHandleDoctorReport_Smoke runs the handler against the harness
@@ -120,5 +121,56 @@ func TestDoctorPage_EmbeddedAndRoutesRegistered(t *testing.T) {
 		if path == "/doctor" && !strings.Contains(body, "<title>Doctor") {
 			t.Errorf("%s: body missing expected <title>", path)
 		}
+	}
+}
+
+// TestDoctorReportWithRemediation binds RULE-WEB-DOCTOR-FIX-THIS: each fact in
+// the doctor response carries the actionable remediation for its failure class
+// (recovery.RemediationFor), so the Doctor page can offer "Apply fix" / "Learn
+// more" — while the report's other fields are preserved unchanged.
+func TestDoctorReportWithRemediation(t *testing.T) {
+	t.Parallel()
+	report := doctor.Report{
+		Schema:    "1",
+		Generated: time.Unix(1700000000, 0).UTC(),
+		Severity:  doctor.SeverityBlocker,
+		Facts: []doctor.Fact{
+			{Detector: "dkms_status", Class: recovery.ClassMissingHeaders, Title: "headers", Severity: doctor.SeverityBlocker},
+			{Detector: "misc", Class: recovery.ClassUnknown, Title: "unknown thing", Severity: doctor.SeverityWarning},
+		},
+	}
+
+	view := doctorReportWithRemediation(report)
+
+	// Report-level fields preserved.
+	if view.Schema != "1" || !view.Generated.Equal(report.Generated) || view.Severity != doctor.SeverityBlocker {
+		t.Fatalf("report fields not preserved: %+v", view)
+	}
+	if len(view.Facts) != 2 {
+		t.Fatalf("got %d facts, want 2", len(view.Facts))
+	}
+
+	// Fact 0 (missing headers) carries the real backed action.
+	var hasInstallHeaders bool
+	for _, r := range view.Facts[0].Remediation {
+		if r.ActionURL == "/api/hwdiag/install-kernel-headers" {
+			hasInstallHeaders = true
+		}
+	}
+	if !hasInstallHeaders {
+		t.Errorf("missing_headers fact lacks the install-kernel-headers action: %+v", view.Facts[0].Remediation)
+	}
+	// Embedded Fact fields promote through.
+	if view.Facts[0].Title != "headers" || view.Facts[0].Class != recovery.ClassMissingHeaders {
+		t.Errorf("embedded Fact fields lost: %+v", view.Facts[0].Fact)
+	}
+
+	// Unknown class → only the generic diagnostic-bundle action, no invented fix.
+	rem1 := view.Facts[1].Remediation
+	if len(rem1) != 1 {
+		t.Fatalf("unknown class should have exactly the bundle action, got %d: %+v", len(rem1), rem1)
+	}
+	if rem1[0].ActionURL != "/api/diag/bundle" {
+		t.Errorf("unknown-class remediation = %q, want the diag bundle", rem1[0].ActionURL)
 	}
 }

@@ -146,7 +146,105 @@
       pre.textContent = fact.journal.join('\n');
       card.appendChild(pre);
     }
+
+    renderRemediation(card, fact.remediation);
     return card;
+  }
+
+  // renderRemediation appends per-class fix affordances to a fact card. Each
+  // entry comes from the daemon (recovery.RemediationFor — the same catalogue
+  // the calibration recovery cards use), so a button only appears when there's
+  // a real backing endpoint; doc-only classes get a "Learn more" link. Pure DOM
+  // (no innerHTML), matching this file's injection-boundary convention.
+  function renderRemediation(card, remediation) {
+    if (!Array.isArray(remediation) || remediation.length === 0) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'doc-card-remediation';
+    remediation.forEach(function (rem) {
+      var row = document.createElement('div');
+      row.className = 'doc-rem';
+
+      var label = document.createElement('div');
+      label.className = 'doc-rem-label';
+      label.textContent = rem.label || '';
+      row.appendChild(label);
+
+      if (rem.description) {
+        var desc = document.createElement('div');
+        desc.className = 'doc-rem-desc';
+        desc.textContent = rem.description;
+        row.appendChild(desc);
+      }
+
+      var actions = document.createElement('div');
+      actions.className = 'doc-rem-actions';
+      var result = document.createElement('div');
+      result.className = 'doc-rem-result';
+      result.hidden = true;
+
+      if (rem.action_url && rem.kind !== 'docs_only') {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn--primary doc-rem-btn';
+        btn.textContent = rem.kind === 'modal_instr' ? 'Show steps' : 'Apply fix';
+        btn.addEventListener('click', function () { handleDoctorFix(btn, result, rem); });
+        actions.appendChild(btn);
+      }
+      if (rem.doc_url) {
+        var link = document.createElement('a');
+        link.className = 'doc-rem-doclink';
+        link.href = rem.doc_url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = (rem.kind === 'docs_only' ? 'Open instructions' : 'Learn more') + ' ↗';
+        actions.appendChild(link);
+      }
+      row.appendChild(actions);
+      row.appendChild(result);
+      wrap.appendChild(row);
+    });
+    card.appendChild(wrap);
+  }
+
+  // handleDoctorFix POSTs to a remediation's action endpoint. The shared
+  // fetch wrapper (shared/brand.js) injects the X-CSRF-Token header, so a plain
+  // fetch is correct here. Success/failure + any returned command list or
+  // reboot requirement is surfaced inline in the card's result area.
+  function handleDoctorFix(btn, resultEl, rem) {
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch(rem.action_url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: rem.action_body ? rem.action_body : null
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = t ? JSON.parse(t) : {}; } catch (_) { /* non-JSON body */ }
+        return { ok: r.ok, status: r.status, j: j, raw: t };
+      });
+    }).then(function (res) {
+      resultEl.hidden = false;
+      if (!res.ok) {
+        resultEl.textContent = 'Failed: ' + ((res.j && res.j.error) || res.raw || ('HTTP ' + res.status));
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+        return;
+      }
+      var msg = 'Done.';
+      if (res.j && Array.isArray(res.j.commands) && res.j.commands.length) msg = res.j.commands.join('\n');
+      else if (res.j && res.j.detail) msg = res.j.detail;
+      else if (res.j && res.j.log && res.j.log.length) msg = res.j.log.join('\n');
+      if (rem.requires_reboot) msg += '\n\nReboot required for this to take effect.';
+      resultEl.textContent = msg;
+      btn.textContent = '✓ Applied';
+    }).catch(function (err) {
+      resultEl.hidden = false;
+      resultEl.textContent = 'Failed: ' + ((err && err.message) || 'network error');
+      btn.disabled = false;
+      btn.textContent = 'Retry';
+    });
   }
 
   function renderDetectorErrorCard(err) {

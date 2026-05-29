@@ -285,3 +285,23 @@ synthetic fans — so it never flashes during the pre-first-poll window (the
 static HTML placeholder covers that).
 
 Bound: internal/web/e2e_test.go:TestE2E_MonitorOnlyDashboardShowsSetupCTA
+
+## RULE-WEB-DOCTOR-FIX-THIS: each Doctor finding carries its class's actionable remediation, so the page can offer "Apply fix" / "Learn more", not just describe the problem.
+
+The Doctor page once only listed findings + a class label. The /api/v1/doctor
+response now attaches `recovery.RemediationFor(fact.Class)` to each fact — the
+**same** catalogue the calibration recovery cards use — as an additive
+`remediation` field. The response is a superset of `doctor.Report` (the cache is
+untouched; the per-request view embeds each `doctor.Fact` and appends
+remediation), so CLI/diff consumers that unmarshal into `doctor.Report` ignore
+the extra field and no schema bump is needed.
+
+`doctor.js` renders each remediation as an **Apply fix** button (POST to the
+real backed `hwdiag/*` / `setup/*` endpoint — CSRF auto-injected by the shared
+`brand.js` fetch wrapper) and/or a **Learn more** link to the wiki page. Buttons
+appear only for entries with a real `action_url`; doc-only classes get the link.
+A finding whose class has no catalogue entry (`ClassUnknown`) gets only the
+generic diagnostic-bundle action — no invented handlers.
+
+Bound: internal/web/doctor_test.go:TestDoctorReportWithRemediation
+Bound: internal/web/e2e_test.go:TestE2E_DoctorShowsFixThisAction
