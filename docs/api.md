@@ -913,6 +913,48 @@ Returns distro-specific Machine Owner Key enrollment instructions. Does **not** 
 }
 ```
 
+### `POST /api/hwdiag/load-apparmor`
+
+Loads ventd's AppArmor profile into the kernel. Streams progress as an install log.
+
+**Auth**: session
+
+**Response**: `InstallLogResponse`
+
+### `POST /api/hwdiag/grub-cmdline-add`
+
+Adds a kernel command-line parameter to the GRUB config and regenerates it (e.g. `acpi_enforce_resources=lax` to unblock a Super-I/O chip). Takes effect on next boot.
+
+**Auth**: session
+
+**Request body** (JSON):
+```ts
+{ param: string }   // a malformed/empty param is rejected with 400
+```
+
+**Response**: `InstallLogResponse` (with `reboot_needed: true`)
+
+### `POST /api/hwdiag/modprobe-options-write`
+
+Writes a `/etc/modprobe.d` drop-in for a kernel module and reloads it. The `(module, options)` pair must be in ventd's allowlist, else `400`.
+
+**Auth**: session
+
+**Request body** (JSON):
+```ts
+{ module: string, options: string }
+```
+
+**Response**: `InstallLogResponse`
+
+### `POST /api/hwdiag/reset-and-reinstall`
+
+Cleans up the installed out-of-tree driver and reinstalls it from scratch — the recovery path when a driver install is in a wedged state. `400` if no installed OOT driver is found to clean up.
+
+**Auth**: session
+
+**Response**: `InstallLogResponse`
+
 ### `POST /api/diag/bundle`
 
 Generates a redacted diagnostic bundle (logs, config, hwmon topology) on disk and returns a download handle. Redaction profile is governed by config.
@@ -959,6 +1001,20 @@ Returns current wizard progress.
 **Auth**: session
 
 **Response**: _see source (internal/web/setup_handlers.go:handleSetupStatus)_ — output of `setup.ProgressNeeded(cfg)`: `{needed: bool, step: string, ...}`.
+
+### `GET /api/setup/events`
+
+Server-Sent Events stream of the setup/calibration activity feed — the structured rows the wizard renders live. Backed by a bounded in-memory ring + per-connection cursor.
+
+**Auth**: session
+
+**Query params**:
+- `since` (optional) — Unix-ms cursor; only events newer than this are sent (resume without re-receiving the full log).
+
+**Response**: `text/event-stream`, each event's data a JSON object:
+```ts
+{ ts: number, level: string, tag: string, text: string }
+```
 
 ### `POST /api/setup/start`
 
@@ -1017,6 +1073,28 @@ Loads a kernel module from a fixed allowlist via `modprobe` and persists it to `
 **Response**:
 ```ts
 InstallLogResponse
+```
+
+### `POST /api/setup/apply-monitor-only`
+
+Completes setup in monitor-only mode — ventd reads sensors but drives no fans. Writes a minimal config and starts the daemon in that mode.
+
+**Auth**: session
+
+**Response**:
+```ts
+{ status: "ok", mode: "monitor_only" }
+```
+
+### `POST /api/admin/factory-reset`
+
+Wipes the KV state and config, then uninstalls ventd — the full teardown the setup UI offers. Responds immediately, then performs the uninstall in the background, so the response confirms the reset has begun rather than completed.
+
+**Auth**: session
+
+**Response**:
+```ts
+{ status: "uninstalling" }
 ```
 
 ---

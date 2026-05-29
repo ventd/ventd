@@ -10,10 +10,5 @@
 #
 # One route name per line (trailing path after /api/, no leading slash).
 
-admin/factory-reset
-hwdiag/grub-cmdline-add
-hwdiag/load-apparmor
-hwdiag/modprobe-options-write
-hwdiag/reset-and-reinstall
-setup/apply-monitor-only
-setup/events
+# (empty) — every registered /api route is documented in docs/api.md.
+# Keep it that way: a new route must be documented, not added back here.
