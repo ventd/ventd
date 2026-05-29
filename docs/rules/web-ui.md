@@ -269,3 +269,19 @@ fabricated. The live-sweep motion is real: fresh tach samples scroll the RX trac
 as each poll arrives.
 
 Bound: internal/web/e2e_test.go:TestE2E_CalibrationScopeUsesRealData
+
+## RULE-WEB-MONITOR-ONLY-CTA: a daemon with no fans under control shows a setup call-to-action, not a passive "No fan data" dead-end.
+
+When the daemon controls no fans (monitor-only: BIOS/EC-locked hardware, or
+setup not yet run), the dashboard's fans grid renders an actionable CTA —
+"ventd isn't controlling any fans yet … run setup to detect and calibrate your
+fans" linking to `/calibration` — instead of a bare "No fan data yet…"
+placeholder. `/` meta-refreshes a no-controls daemon to `/health` (#784), but
+the dashboard stays reachable from the nav, so the dead-end is real.
+
+The CTA renders only on a genuine empty-fans payload: `renderFanTiles` runs only
+from `applyStatus` (a real poll/SSE frame), and demo mode always carries
+synthetic fans — so it never flashes during the pre-first-poll window (the
+static HTML placeholder covers that).
+
+Bound: internal/web/e2e_test.go:TestE2E_MonitorOnlyDashboardShowsSetupCTA
