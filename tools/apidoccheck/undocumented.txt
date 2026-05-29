@@ -12,12 +12,8 @@
 
 admin/factory-reset
 calibrate/reset
-confidence/preset
-confidence/status
 diag/bundle
 diag/send
-doctor
-hardware/inventory
 hwdiag/grub-cmdline-add
 hwdiag/load-apparmor
 hwdiag/modprobe-options-write
@@ -27,7 +23,5 @@ probe/opportunistic/status
 release-notes
 setup/apply-monitor-only
 setup/events
-smart/channels
-smart/status
 update/apply
 update/check
