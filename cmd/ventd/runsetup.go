@@ -61,7 +61,7 @@ func makeAcousticRunner() setup.AcousticRunner {
 // runSetup runs the interactive CLI setup wizard and writes an initial
 // config. acousticOpts.MicDevice="" disables the optional R30
 // mic-calibration step.
-func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptions) error {
+func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptions, amdOverdrive bool) error {
 	fmt.Println("=== ventd setup wizard ===")
 	fmt.Println()
 
@@ -83,7 +83,7 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// the run, and a CLI-driven first-boot is impossible. The daemon
 	// path does this in runDaemon at the controller setup site; the
 	// standalone setup wizard previously skipped it. Issue #1025.
-	registerHALBackends(logger)
+	registerHALBackends(logger, amdOverdrive)
 	// v0.8.x: calibration.json moved to /var/lib/ventd/setup/. Migrate any
 	// legacy file before constructing the manager so the wizard reads from
 	// the new canonical location. See calibrate.MigrateLegacyPath.

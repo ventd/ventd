@@ -769,6 +769,31 @@ func (w *Watchdog) restoreOne(e entry) {
 			Opaque: halmsiec.State{SysfsRoot: e.pwmPath},
 		}
 	default:
+		// Non-hwmon registry backends (amdgpu, corsair, thinkpad, pwmsys,
+		// legion, crosec, asahi, lenovoideapad, nbfc) restore through their
+		// OWN HAL backend, not hwmon: their pwmPath is a backend-private
+		// channel ID (a DRM card path, a HID index, a procfs node), not a
+		// hwmon pwm file, so the hwmon pwm_enable=2 write below would target a
+		// nonexistent path and silently leave the fan in manual mode — and a
+		// GPU left in manual after exit can overheat with no firmware
+		// fallback. Look the backend up in the registry, rebuild the channel
+		// via Enumerate (match by ID), and Restore through it. Falls through
+		// to hwmon for true hwmon fans (type "hwmon"/"") and for a type whose
+		// backend failed to register (legacy config / typo), which logs a
+		// clear failure. RULE-WD-RESTORE-REGISTRY-BACKEND.
+		if e.fanType != "hwmon" && e.fanType != "" {
+			if rbe, ok := hal.Backend(e.fanType); ok {
+				rch, found := enumerateChannelByID(rbe, e.pwmPath)
+				if !found {
+					w.logger.Warn("watchdog: registry backend channel not found at restore; cannot hand fan back to firmware",
+						"fan_type", e.fanType, "channel", e.pwmPath)
+					return
+				}
+				be = rbe
+				ch = rch
+				break
+			}
+		}
 		be = w.hwmonBe
 		caps := hal.CapRestore
 		if e.rpmTarget {
@@ -802,4 +827,19 @@ func (w *Watchdog) restoreOne(e entry) {
 	// remaining entries, and a backend that logged its failure has
 	// already communicated it.
 	_ = be.Restore(ch)
+}
+
+// enumerateChannelByID asks a HAL backend to enumerate its channels and returns
+// the one whose ID matches, for the watchdog's registry-backend restore path
+// (RULE-WD-RESTORE-REGISTRY-BACKEND). Partial-failure joined errors are ignored:
+// a backend that returns some channels plus an error still lets us find the
+// target channel to restore.
+func enumerateChannelByID(be hal.FanBackend, id string) (hal.Channel, bool) {
+	chs, _ := be.Enumerate(context.Background())
+	for _, c := range chs {
+		if c.ID == id {
+			return c, true
+		}
+	}
+	return hal.Channel{}, false
 }
