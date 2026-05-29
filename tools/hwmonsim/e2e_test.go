@@ -24,13 +24,14 @@ func TestE2E_BackendDrivesLiveSim(t *testing.T) {
 	cfg := baseCfg()
 	cfg.fans = 1
 	cfg.tick = 5 * time.Millisecond
-	if err := materialise(dev, cfg); err != nil {
+	if err := materialise(dev, cfg.chip, cfg.fans, cfg.temps); err != nil {
 		t.Fatal(err)
 	}
 
 	stop := make(chan os.Signal, 1)
 	done := make(chan struct{})
-	go func() { run(dev, cfg, stop); close(done) }()
+	devices := []device{{dir: dev, chip: cfg.chip, fans: cfg.fans, temps: cfg.temps}}
+	go func() { run(devices, cfg, stop); close(done) }()
 	t.Cleanup(func() {
 		stop <- os.Interrupt
 		<-done

@@ -3,13 +3,35 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/hwdb"
 )
 
 func baseCfg() config {
 	return config{fans: 3, temps: 2, chip: "nct6687", maxRPM: 2200, minRPM: 500,
 		stopPWM: 25, startPWM: 40, model: "spinup", tick: time.Millisecond}
+}
+
+// firstBoardWithControllableChip returns a real catalog board id whose primary
+// controller chip is one hwmonsim would simulate (not unknown/empty/nvidia),
+// plus that chip — so the board test tracks the catalog instead of hard-coding.
+func firstBoardWithControllableChip(t *testing.T) (id, chip string) {
+	t.Helper()
+	entries, err := hwdb.LoadBoardCatalog()
+	if err != nil {
+		t.Fatalf("load board catalog: %v", err)
+	}
+	for _, e := range entries {
+		c := e.PrimaryController.Chip
+		if c != "" && c != "unknown" && c != "nvidia" {
+			return e.ID, c
+		}
+	}
+	t.Skip("no catalog board with a controllable primary chip")
+	return "", ""
 }
 
 func TestRpmFor_Linear(t *testing.T) {
@@ -82,8 +104,7 @@ func TestTempMilliC_MonotonicCooling(t *testing.T) {
 func TestMaterialise_FaithfulShape(t *testing.T) {
 	root := t.TempDir()
 	dev := filepath.Join(root, "hwmon0")
-	cfg := baseCfg()
-	if err := materialise(dev, cfg); err != nil {
+	if err := materialise(dev, "nct6687", 3, 2); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"name", "pwm1", "pwm1_enable", "fan1_input", "pwm3", "fan3_input", "temp1_input", "temp2_input"} {
@@ -94,5 +115,52 @@ func TestMaterialise_FaithfulShape(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dev, "name"))
 	if got := string(b); got != "nct6687\n" {
 		t.Errorf("name = %q, want nct6687", got)
+	}
+}
+
+func TestBuildDevices_DefaultSingle(t *testing.T) {
+	cfg := baseCfg()
+	cfg.out = t.TempDir()
+	cfg.chip = "it87"
+	devs, err := buildDevices(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(devs) != 1 || devs[0].chip != "it87" {
+		t.Fatalf("default buildDevices = %+v, want one it87 device", devs)
+	}
+}
+
+func TestBuildDevices_FromBoardSeedsChips(t *testing.T) {
+	// Pick a real catalog board with a known primary chip, via the same
+	// loader buildDevices uses, so the test tracks the catalog.
+	id, chip := firstBoardWithControllableChip(t)
+	cfg := baseCfg()
+	cfg.out = t.TempDir()
+	cfg.board = id
+	devs, err := buildDevices(cfg)
+	if err != nil {
+		t.Fatalf("buildDevices(board=%q): %v", id, err)
+	}
+	if len(devs) == 0 {
+		t.Fatalf("board %q produced no devices", id)
+	}
+	if devs[0].chip != chip {
+		t.Errorf("board %q primary chip = %q, want %q", id, devs[0].chip, chip)
+	}
+	// hwmonN dirs must be contiguous from hwmon0.
+	for i, d := range devs {
+		if filepath.Base(d.dir) != "hwmon"+strconv.Itoa(i) {
+			t.Errorf("device %d dir = %q, want hwmon%d", i, d.dir, i)
+		}
+	}
+}
+
+func TestBuildDevices_UnknownBoard(t *testing.T) {
+	cfg := baseCfg()
+	cfg.out = t.TempDir()
+	cfg.board = "definitely-not-a-real-board-xyz"
+	if _, err := buildDevices(cfg); err == nil {
+		t.Fatal("expected error for unknown board id")
 	}
 }
