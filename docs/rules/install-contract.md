@@ -47,6 +47,27 @@ alongside a TLS configuration.
 
 Bound: deploy/install-contract_test.go:TestInstallContract_WebListenDefault
 
+## RULE-INSTALL-LAN-PROMOTION-PERSISTS: the loopback→wildcard promotion is applied on every start, not just first-boot, so the LAN bind survives a reboot
+
+On first-boot the daemon generates a self-signed cert and promotes its bind from
+the loopback default (`127.0.0.1:9999`) to the LAN wildcard so the URL the
+installer prints resolves from other machines. That promotion was applied in
+memory and gated on `firstBoot`, so it was never persisted: after a reboot the
+daemon (no longer first-boot) fell back to the config's loopback default and the
+LAN URL that worked during setup gave "connection refused".
+
+`promoteLoopbackDefaultToWildcard` is the single promotion routine, applied
+identically on first-boot AND on every later start. It promotes **only** the
+loopback default (an operator-provisioned non-default `web.listen` is left
+untouched) and **only** when TLS is active, so the promoted bind is never
+plaintext (RULE-INSTALL-03 still holds, re-validated by
+`RequireTransportSecurity`). On a later start the self-signed cert generated
+during first-boot is re-adopted from its default path so TLS — and therefore the
+promotion — is present. First-boot LAN exposure is not a takeover risk because
+enrolment from a non-loopback address requires the one-time setup token (#1466).
+
+Bound: cmd/ventd/lan_promotion_test.go:TestPromoteLoopbackDefaultToWildcard
+
 ## RULE-INSTALL-04: Every AppArmorProfile= directive must reference a profile shipped in deploy/apparmor.d/
 
 A `AppArmorProfile=<name>` directive in a shipped unit pins the process to
