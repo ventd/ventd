@@ -272,6 +272,73 @@ func TestE2E_SmartPageScriptExecutes(t *testing.T) {
 	page.Timeout(5 * time.Second).MustElement(".sm-empty")
 }
 
+// TestE2E_CalibrationScopeUsesRealData drives the calibration page in demo
+// mode and asserts the signal scope is wired to the real sweep payload, not a
+// synthetic Math.sin waveform: the IIFE runs (the scope path gets a non-empty
+// `d`), and the "ADC noise" readout — which has no real source in the progress
+// payload — stays "—" rather than a fabricated voltage. Guards
+// RULE-WEB-CALIBRATION-SCOPE-REALDATA (#1469).
+func TestE2E_CalibrationScopeUsesRealData(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	if _, err := page.Eval(`async (pw) => {
+		const b = new URLSearchParams(); b.append('password', pw);
+		const r = await fetch('/login', {method:'POST', body:b});
+		return r.status;
+	}`, h.password); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// ?demo=1 drives the page from synthetic-but-realistic Progress payloads
+	// (the same shape the backend emits), so the scope renders without an
+	// active calibration on the test daemon. Note: no MustWaitStable here — the
+	// calibration page animates continuously (demo playback + the scope paint
+	// timer), so the DOM never goes idle; we poll for the painted scope instead.
+	page.MustNavigate(h.server.URL + "/calibration?demo=1")
+
+	// The scope TX path is empty in the static HTML; paintScope (which only
+	// runs if the IIFE parsed and the paint timer fired) sets a non-empty `d`.
+	deadline := time.Now().Add(8 * time.Second)
+	painted := false
+	for time.Now().Before(deadline) {
+		r, err := page.Eval(`() => { var e = document.querySelector('#cal-scope-tx'); return e ? (e.getAttribute('d') || '') : ''; }`)
+		if err == nil && r.Value.Str() != "" {
+			painted = true
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	if !painted {
+		t.Fatal("calibration scope TX path never painted — the IIFE did not run or paintScope errored")
+	}
+
+	// No-theatre invariant: the ADC-noise readout has no real source in the
+	// progress payload, so it must read "—" — never a fabricated millivolt
+	// value (the old synthetic behaviour).
+	adcRes, err := page.Eval(`() => { var e = document.querySelector('#cal-srib-adc'); return e ? e.textContent : ''; }`)
+	if err != nil {
+		t.Fatalf("read ADC readout: %v", err)
+	}
+	if adc := adcRes.Value.Str(); adc != "—" {
+		t.Fatalf("scope ADC readout = %q, want \"—\" (no fabricated value)", adc)
+	}
+
+	if os.Getenv("VENTD_E2E_SCREENSHOTS") == "1" {
+		time.Sleep(800 * time.Millisecond) // let the demo advance into the sweep
+		data := page.MustScreenshot()
+		path := os.TempDir() + "/ventd-calibration-scope.png"
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatalf("write screenshot: %v", err)
+		}
+		t.Logf("calibration scope screenshot: %s", path)
+	}
+}
+
 // TestE2E_AuthStateProbeDoesNotLockOut exercises the end-to-end path
 // for audit finding S2 at the browser layer. The old login page would
 // POST an empty password to detect first-boot mode; after the fix the

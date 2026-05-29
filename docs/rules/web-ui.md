@@ -249,3 +249,23 @@ Bound: internal/web/metrics_test.go:TestWriteMetrics_Format
 Bound: internal/web/metrics_test.go:TestWriteMetrics_OmitsEmptyFamiliesAndBlankVersion
 Bound: internal/web/metrics_test.go:TestHandleMetrics_GETOnly
 Bound: internal/web/metrics_test.go:TestEscapeLabelValue
+
+## RULE-WEB-CALIBRATION-SCOPE-REALDATA: the calibration signal scope is driven by the real sweep payload, never a synthetic waveform.
+
+The calibration page's signal scope (`web/calibration.js` `paintScope`) once drew
+its TX/RX traces and its PWM-duty / tach-freq / ADC-noise readouts (and the
+CAPTURING state) from `Math.sin(Date.now())` — fabricated numbers presented as
+live instrument readings, which violates the no-theatre contract the rest of the
+UI follows ("show — rather than invent").
+
+`paintScope` now reads the real Progress payload (`lastProgress.fans`): the TX
+trace is the active fan's real `current_pwm` level, the RX trace is its real RPM
+history (the rolling buffer `paintAllSparks` maintains), the duty readout is the
+real `current_pwm` %, and the tach readout is the real `current_rpm` / 60 Hz.
+Before any duty/tach exists (the detect / driver / enumerate phases) it renders a
+flat baseline with "—" readouts rather than a synthetic waveform. The ADC-noise
+readout has **no** real source in the payload, so it is always "—" — never
+fabricated. The live-sweep motion is real: fresh tach samples scroll the RX trace
+as each poll arrives.
+
+Bound: internal/web/e2e_test.go:TestE2E_CalibrationScopeUsesRealData
