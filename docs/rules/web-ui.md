@@ -224,3 +224,28 @@ is appropriate for that surface.
 
 Bound: internal/web/csrf_test.go:oversized_post_to_authed_route_returns_413
 Bound: internal/web/csrf_test.go:undersized_post_passes_body_cap
+
+## RULE-WEB-METRICS-EXPOSITION: /metrics renders live state in Prometheus text format, sourced from buildStatus(), with sentinel/unknown readings omitted.
+
+`GET /metrics` exposes the daemon's live state in the Prometheus text
+exposition format (version 0.0.4) so a homelab Prometheus / Grafana-Agent
+scrape works out of the box. It is registered directly on the mux next to
+`/healthz` and `/readyz` and is **unauthenticated** by design — operational
+telemetry with the same posture as the health probes, carrying no secrets — so
+a scrape config needs no credentials. The handler is GET-only (405 otherwise).
+
+Every sample is sourced from `buildStatus()` — the same live snapshot
+`/api/v1/status` serves — rather than a parallel read path, so a metric can
+never report a value the daemon isn't actually reading. Honesty of the surface
+is enforced the same way the dashboard is: a sensor whose read returned a
+sentinel/implausible value (nil `Value`) and a fan with no tachometer (nil
+`RPM`) are **omitted** from the exposition rather than reported as `0` — a
+scraped series is always a value the daemon trusts. Each metric family emits its
+`# HELP`/`# TYPE` header exactly once and only when it has at least one sample.
+Label values are escaped per the exposition spec (backslash, double-quote,
+newline only).
+
+Bound: internal/web/metrics_test.go:TestWriteMetrics_Format
+Bound: internal/web/metrics_test.go:TestWriteMetrics_OmitsEmptyFamiliesAndBlankVersion
+Bound: internal/web/metrics_test.go:TestHandleMetrics_GETOnly
+Bound: internal/web/metrics_test.go:TestEscapeLabelValue
