@@ -1,0 +1,15 @@
+schema_version: "1.2"
+
+# ChromeOS EC hwmon chip. The cros_ec_hwmon driver registers its hwmon device
+# with name="cros_ec"; the hwdb matcher's chip-family tier keys on that name to
+# resolve the cros_ec_hwmon driver profile (chips/cros_ec.yaml → cros-ec.yaml).
+# Framework 13/16 (Intel + AMD) and ChromeOS devices land here.
+
+chip_profiles:
+  - name: "cros_ec"
+    inherits_driver: "cros_ec_hwmon"
+    description: "ChromeOS Embedded Controller hwmon (Framework laptops + ChromeOS devices). pwm1 fan control writable since kernel 6.18; sensors since 6.15."
+    overrides: {}
+    channel_overrides: {}
+    citations:
+      - "https://www.kernel.org/doc/html/latest/hwmon/cros_ec_hwmon.html"

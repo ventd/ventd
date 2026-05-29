@@ -1,0 +1,59 @@
+schema_version: "1.2"
+# ChromeOS Embedded Controller hwmon driver (cros_ec_hwmon) — mainline.
+#
+# Framework laptops (and ChromeOS devices) run ChromeOS-derived EC firmware.
+# The mainline `cros_ec_hwmon` driver landed in kernel 6.15 as READ-ONLY
+# (fan tachometer + temperature sensors). Writable fan control — `pwm1` duty
+# (0-255) + `pwm1_enable` — landed later, in kernel 6.18
+# (drivers/hwmon/cros_ec_hwmon.c: cros_ec_hwmon_write_pwm_input /
+# cros_ec_hwmon_write_pwm_enable, attributes exposed 0644). The hwmon `name`
+# attribute is "cros_ec", which the chip catalog row (chips/cros_ec.yaml) keys
+# on so ventd's existing hwmon backend drives it.
+#
+# pwm1_enable semantics (from the kernel source): 0 = unsupported (the EC has
+# no "fan off" mode and returns -EOPNOTSUPP); 1 = manual (pwm1 writes only take
+# effect in this mode); any other value = firmware auto. So ventd acquires with
+# pwm1_enable=1 and restores with pwm1_enable=2 (auto) on exit — the standard
+# hwmon manual/auto contract.
+#
+# Pre-6.18 kernels expose only the read-only sensors; on those, and to layer a
+# Framework-tuned curve, the community tool fw-fanctrl
+# (github.com/TamtamHero/fw-fanctrl) drives the EC via ectool. ventd vendors
+# fw-fanctrl's curve presets under internal/hwdb/framework/ (spec-17 PR-2) as
+# reference curves, but never shells out to ectool/fw-fanctrl itself.
+
+driver_profiles:
+  - module: "cros_ec_hwmon"
+    family: "chromeos-ec"
+    description: "ChromeOS Embedded Controller hwmon driver — mainline. Exposes the EC fan tachometer + temperature sensors as hwmon (name=cros_ec) since kernel 6.15, and writable pwm1 duty (0-255) + pwm1_enable since kernel 6.18. Covers Framework 13/16 (Intel + AMD) and ChromeOS devices whose EC implements the fan PWM control command. ventd's standard hwmon backend drives the pwm1 surface directly."
+    capability: "rw_full"
+    pwm_unit: "duty_0_255"
+    pwm_unit_max: null
+    pwm_enable_modes:
+      "1": "manual"
+      "2": "bios_auto"
+    off_behaviour: "bios_dependent"
+    polling_latency_ms_hint: 100
+    recommended_alternative_driver: null
+    conflicts_with_userspace:
+      - daemon: "fw-fanctrl"
+        detection: "command -v fw-fanctrl"
+        resolution: "coexist_warning"
+        reason: "TamtamHero/fw-fanctrl drives the same Framework EC fan via ectool (EC_CMD_THERMAL_AUTO_FAN_CTRL / set-fan-duty). Concurrent control between fw-fanctrl and ventd's hwmon writes fights over the EC's manual/auto fan state."
+      - daemon: "ectool"
+        detection: "command -v ectool"
+        resolution: "coexist_warning"
+        reason: "Direct ectool fan commands target the same EC PWM surface as cros_ec_hwmon; interleaved writes can leave the EC in manual mode after ventd exits."
+    fan_control_capable: true
+    fan_control_via: null
+    kernel_version:
+      min: "6.18"
+    required_modprobe_args: []
+    pwm_polarity_reservation: "not_applicable"
+    exit_behaviour: "restore_auto"
+    runtime_conflict_detection_supported: false
+    firmware_curve_offload_override: false
+    citations:
+      - "https://www.kernel.org/doc/html/latest/hwmon/cros_ec_hwmon.html (mainline cros_ec_hwmon driver documentation)"
+      - "https://github.com/torvalds/linux/blob/v6.18/drivers/hwmon/cros_ec_hwmon.c (writable pwm1 + pwm1_enable landed v6.18; sensors since v6.15)"
+      - "https://github.com/TamtamHero/fw-fanctrl (Framework curve-tuning userspace tool, drives the EC via ectool)"

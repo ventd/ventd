@@ -1,0 +1,13 @@
+upstream:  github.com/TamtamHero/fw-fanctrl
+tag:       v1.0.4
+commit:    776f619cea2b07bf7c21cdd41e9e50297377ec3b
+synced:    2026-05-29T00:00:00Z
+license:   BSD-3-Clause
+files:
+  - configs/fw-fanctrl.json      (src/fw_fanctrl/_resources/config.json @ 776f619; 7 strategies)
+  - configs/fw-fanctrl-amd.json  (github.com/Bill-git1/fw-fanctrl-AMD config.json; BSD-3-Clause fork
+                                  adding batteryChargingStatusPath + an explicit on-battery strategy;
+                                  the AC-vs-discharging dual-strategy idea later landed upstream as the
+                                  strategyOnDischarging key)
+note: curve-preset corpus only — fw-fanctrl drives the Framework EC via ectool; ventd does NOT
+      shell out to it. These are vendored as reference fan curves a Framework operator can adopt.
