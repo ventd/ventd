@@ -86,7 +86,17 @@ func WatchdogInterval() time.Duration {
 // When WATCHDOG_USEC is unset (no Watchdog= in the unit, or running
 // off systemd entirely) the function returns a no-op stop and never
 // starts a goroutine.
-func StartHeartbeat() (stop func()) {
+//
+// When alive is non-nil it is consulted before each ping: a false result
+// WITHHOLDS the WATCHDOG=1 notification so systemd's WatchdogSec elapses and
+// restarts the daemon. This is the load-bearing gate that turns a *stalled
+// control loop* into a restart — a free-running ping would keep the daemon
+// "healthy" to systemd even if every controller goroutine wedged, holding fans
+// at their last PWM forever; withholding the ping lets WatchdogSec fire →
+// SIGKILL → OnFailure=ventd-recover hands fans back to firmware. A nil alive
+// always pings (pre-gating behaviour; tests and callers with no control loop to
+// gate on). RULE-WD-HEARTBEAT-LIVENESS.
+func StartHeartbeat(alive func() bool) (stop func()) {
 	interval := WatchdogInterval()
 	if interval <= 0 {
 		return func() {}
@@ -103,7 +113,9 @@ func StartHeartbeat() (stop func()) {
 			case <-done:
 				return
 			case <-t.C:
-				_ = Notify(Watchdog)
+				if alive == nil || alive() {
+					_ = Notify(Watchdog)
+				}
 			}
 		}
 	}()

@@ -1107,11 +1107,24 @@ func runDaemonInternal(
 
 	// systemd Type=notify integration. Tells systemd we're up so the
 	// service transitions to "active" only after configs are loaded
-	// and controllers are running. Pairs with WatchdogSec= in the
-	// unit: a heartbeat goroutine pings every WATCHDOG_USEC/2 so the
-	// kernel kills us if the main loop hangs. Both are no-ops when
-	// running off systemd (sdnotify reads NOTIFY_SOCKET from env).
-	stopHeartbeat := sdnotify.StartHeartbeat()
+	// and controllers are running. Pairs with WatchdogSec= in the unit.
+	//
+	// The heartbeat is GATED on control-loop liveness (RULE-WD-HEARTBEAT-
+	// LIVENESS): it pings WATCHDOG=1 only while a controller has ticked
+	// within livenessWindow. If every controller goroutine wedges, the ping
+	// is withheld so WatchdogSec fires → SIGKILL → OnFailure=ventd-recover
+	// hands fans back to firmware — a free-running ping would instead keep
+	// the daemon "healthy" while fans sat at their last PWM forever. Monitor-
+	// only mode (no controllers ⇒ no ticks ⇒ LastSensorRead stays zero) and
+	// pre-first-tick startup both read as alive, so the daemon is never killed
+	// when there's no control loop to stall. Both are no-ops off systemd.
+	livenessWindow := 5 * cfg.PollInterval.Duration
+	if livenessWindow < watchdogStallFloor {
+		livenessWindow = watchdogStallFloor
+	}
+	stopHeartbeat := sdnotify.StartHeartbeat(func() bool {
+		return controlLoopAlive(readyState.LastSensorRead(), time.Now(), livenessWindow, logger)
+	})
 	defer stopHeartbeat()
 	defer func() { _ = sdnotify.Notify(sdnotify.Stopping) }()
 	// Latch the /readyz watchdog gate once the heartbeat (or its no-op
