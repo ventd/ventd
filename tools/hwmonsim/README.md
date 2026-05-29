@@ -47,11 +47,31 @@ go run ./tools/hwmonsim --out /tmp/vsim --once          # static tree, no model
 # Seed the chip name(s) + controller topology from a real catalog board:
 go run ./tools/hwmonsim --board list                    # list catalog board ids
 go run ./tools/hwmonsim --out /tmp/vsim --board asrock-b650m-pg-lightning
+
+# Built-in multi-chip topologies (incl. non-controllable devices):
+go run ./tools/hwmonsim --preset list
+go run ./tools/hwmonsim --out /tmp/vsim --preset desktop
 ```
 
-Flags: `--out` (required unless `--board list`), `--board`, `--fans`, `--temps`,
-`--chip`, `--max-rpm`, `--min-rpm`, `--stop-pwm`, `--start-pwm`, `--model`,
-`--tick`, `--once`.
+Flags: `--out` (required unless `--board list` / `--preset list`), `--preset`,
+`--board`, `--fans`, `--temps`, `--chip`, `--max-rpm`, `--min-rpm`,
+`--stop-pwm`, `--start-pwm`, `--model`, `--tick`, `--once`.
+
+### `--preset`
+
+`--preset <name>` materialises a built-in multi-chip topology that mirrors a
+real machine — including the **non-controllable** devices a real
+`/sys/class/hwmon` carries, so the daemon's enumeration *and classification*
+(`ClassPrimary` / `ClassNoFans` / `ClassSkipNVIDIA`) are exercised, not just the
+all-fans happy path:
+
+- `desktop` — `nct6687` (6 fans) + `amdgpu` (1 fan) + `nvme` (temp-only) +
+  `acpitz` (temp-only) + `nvidia` (skipped by the enumerator).
+- `laptop` — `acpitz` (temp-only) + a single EC fan (`thinkpad`).
+- `gpu` — `amdgpu` (1 fan) + `nvidia` (skipped).
+
+A device with 0 fans is temp-only (sensors, no control channel). `--preset list`
+prints them.
 
 ### `--board`
 
@@ -61,8 +81,10 @@ daemon uses) and seeds the device `name`(s) and controller topology from it: one
 `hwmonN` per controller chip (primary + additional), using the real chip names —
 so the daemon's hwdb chip-family / tier-3 matching runs against a real board's
 chips. Controllers with no controllable hwmon presence (`unknown` / fanless) are
-skipped. Fan counts and RPM ranges come from the flags (the catalog doesn't
-carry them). `--board list` prints every id with its chip(s).
+skipped. The primary controller's fan count comes from the board's
+`fan_profiles` or `pwm_groups` when the catalog populates them, else `--fans`;
+RPM ranges always come from the flags. `--board list` prints every id with its
+chip(s).
 
 ## Scope
 
