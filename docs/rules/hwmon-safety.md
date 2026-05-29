@@ -180,6 +180,31 @@ prone) and are out of scope here.
 
 Bound: internal/controller/lowtemp_disconnect_test.go:TestReadAllSensors_LowTempDisconnectedFlaggedAsSentinel
 
+## RULE-CTRL-RECONCILE-STRANDED: on startup, hand back to firmware any fan left in manual mode that the current config no longer controls
+
+ventd takes manual control of a fan by writing `pwm_enable=1`. If a later config
+controls FEWER fans than an earlier one — a re-setup that admits a different
+subset, an operator who removes a control, an upgrade that regenerates the
+config — the dropped fans are left at `pwm_enable=1` from the earlier run. No
+controller drives them, the watchdog never registered them (so even exit-restore
+misses them), and they sit **frozen at the dead config's last PWM**, unresponsive
+to temperature. This is the root cause behind "after re-running setup, some of my
+fans stopped responding": the wizard admits a subset and the rest are stranded
+in manual mode, indistinguishable from BIOS-curve fans until the chip cooks.
+
+On startup (after the watchdog registers the controlled channels, before the
+controllers spawn) the daemon calls `hwmon.ReconcileUnmanagedManual` with the
+set of hwmon pwm paths it controls this run. For every hwmon chip that contains
+at least one controlled channel — and ONLY those chips, never one ventd has
+nothing to do with — it scans the chip's `pwm<N>_enable` files and, for any
+channel reading manual (1) that is not in the controlled set, hands it back to
+firmware auto via the `{2, 99, 0}` sequence (the same handback as the
+crash-recovery path; never the manual value 1). The result: a fan ventd no
+longer controls is returned to the BIOS curve instead of frozen. Controlled
+channels, already-auto channels, and channels on unmanaged chips are untouched.
+
+Bound: internal/hwmon/reconcile_test.go:TestReconcileUnmanagedManual
+
 ## RULE-HWMON-PUMP-FLOOR: pump fans never written below pump_minimum
 
 Fans marked `is_pump: true` circulate coolant; spinning below a threshold

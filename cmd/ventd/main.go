@@ -1070,6 +1070,25 @@ func runDaemonInternal(
 	for _, fan := range cfg.Fans {
 		wd.Register(fan.PWMPath, fan.Type)
 	}
+	// Reconcile stranded manual fans (RULE-CTRL-RECONCILE-STRANDED): a prior
+	// config may have flipped a fan to manual mode (pwm_enable=1) that THIS
+	// config no longer controls — it would otherwise sit frozen at the dead
+	// config's last PWM, unresponsive to temperature, because no controller
+	// drives it and the watchdog never registered it. Hand any such channel
+	// back to firmware auto, scoped to the hwmon chips we actually control, so
+	// no fan is ever left stranded across a re-setup or config edit.
+	controlledPWM := make(map[string]bool)
+	for _, ctrl := range cfg.Controls {
+		for i := range cfg.Fans {
+			f := cfg.Fans[i]
+			if f.Name == ctrl.Fan && (f.Type == "hwmon" || f.Type == "") && f.PWMPath != "" {
+				controlledPWM[f.PWMPath] = true
+			}
+		}
+	}
+	if n := hwmon.ReconcileUnmanagedManual(controlledPWM, logger); n > 0 {
+		logger.Info("reconcile: handed stranded manual fans back to firmware auto on startup", "count", n)
+	}
 	// Route every enumerated IPMI channel through the watchdog so the
 	// cross-cutting RULE-WD-RESTORE-EXIT safety contract covers IPMI
 	// too (issue #1043). The actual SET_FAN_MODE / Dell auto-enable
