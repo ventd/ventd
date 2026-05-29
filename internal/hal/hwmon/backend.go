@@ -49,6 +49,21 @@ const (
 	EBUSYEscalateThreshold = 20
 )
 
+// ReassertReadbackInterval throttles the silent-revert read-back in
+// ensureManualMode: at most one pwm_enable read per channel per interval.
+// The EBUSY retry in Write only catches reverts that surface as EBUSY on the
+// duty write; some chips/BIOSes reassert firmware control *without* EBUSY, and
+// resume-from-suspend commonly resets pwm_enable silently — in those cases
+// ventd keeps writing duty bytes the chip ignores until something trips EBUSY.
+// This read-back closes that gap on every init system (no systemd-sleep hook
+// needed). RULE-HWMON-MODE-REASSERT-READBACK.
+const ReassertReadbackInterval = 10 * time.Second
+
+// manualPWMEnable is the pwm_enable value ensureManualMode writes to take
+// manual control (kernel hwmon ABI: 1 = manual). reassertIfReverted treats a
+// read-back of any other value as a silent revert to firmware/auto.
+const manualPWMEnable = 1
+
 // ebusyStats tracks the rolling EBUSY count for one channel. The
 // window resets when EBUSYWindow elapses since the first event in
 // the current burst.
@@ -125,6 +140,20 @@ type Backend struct {
 	// without real sysfs. nil in production: writeDuty falls through
 	// to the real hwmon.WritePWM / hwmon.WriteFanTarget dispatch.
 	writeDutyFn func(st State, pwm uint8) error
+
+	// reassertChecks throttles the silent-revert read-back per channel.
+	// Key: pwmPath; value: time.Time of the last read-back. Seeded at
+	// acquire time so the first read-back lands one interval later, then
+	// refreshed on each check. RULE-HWMON-MODE-REASSERT-READBACK.
+	reassertChecks sync.Map
+
+	// readPWMEnable reads a pwm*_enable value back so ensureManualMode can
+	// detect a silent revert to firmware/auto. nil → hwmon.ReadPWMEnable.
+	// Overridden in tests via export_test.go.
+	readPWMEnable func(pwmPath string) (int, error)
+	// readPWMEnablePath is the fan*_target (RPM-target) read seam.
+	// nil → hwmon.ReadPWMEnablePath.
+	readPWMEnablePath func(path string) (int, error)
 }
 
 // NewBackend constructs a Backend that logs through the given slog
@@ -588,6 +617,10 @@ func (b *Backend) restoreRPMTarget(st State) error {
 // from silently masking retries on every subsequent tick.
 func (b *Backend) ensureManualMode(st State) error {
 	if _, ok := b.acquired.Load(st.PWMPath); ok {
+		// Already ours — but the chip may have silently reverted to
+		// firmware/auto (resume-from-suspend, or a BIOS that reasserts
+		// without EBUSY). Throttled read-back re-asserts if so.
+		b.reassertIfReverted(st)
 		return nil
 	}
 	writePWMEnable := b.writePWMEnable
@@ -607,6 +640,9 @@ func (b *Backend) ensureManualMode(st State) error {
 	}
 	if writeErr == nil {
 		b.acquired.Store(st.PWMPath, struct{}{})
+		// Seed the read-back throttle so the first revert check lands one
+		// interval after acquisition, not on the very next tick.
+		b.reassertChecks.Store(st.PWMPath, b.now())
 		if st.RPMTarget {
 			b.logger.Info("controller: RPM-target fan manual control acquired", "path", st.PWMPath)
 		} else {
@@ -626,6 +662,73 @@ func (b *Backend) ensureManualMode(st State) error {
 	return fmt.Errorf("hal/hwmon: take manual control %s: %w", st.PWMPath, writeErr)
 }
 
+// reassertIfReverted re-asserts manual mode on an already-acquired channel
+// when the chip has silently reverted pwm_enable to firmware/auto. The Write
+// EBUSY-retry only catches reverts that surface as EBUSY on the duty write; a
+// chip that flips pwm_enable back without EBUSY, or a resume-from-suspend that
+// resets it, would otherwise leave ventd writing duty bytes the firmware
+// ignores. Throttled to one read per channel per ReassertReadbackInterval.
+//
+// A read error (driver doesn't expose pwm_enable — e.g. nct6683 for the
+// NCT6687D) is "can't verify" and skipped: such channels were acquired via the
+// not-supported branch and write the duty byte directly regardless.
+// RULE-HWMON-MODE-REASSERT-READBACK.
+func (b *Backend) reassertIfReverted(st State) {
+	now := b.now()
+	if last, ok := b.reassertChecks.Load(st.PWMPath); ok {
+		if lt, ok := last.(time.Time); ok && now.Sub(lt) < ReassertReadbackInterval {
+			return
+		}
+	}
+	b.reassertChecks.Store(st.PWMPath, now)
+
+	readEnable := b.readPWMEnable
+	if readEnable == nil {
+		readEnable = hwmon.ReadPWMEnable
+	}
+	readEnablePath := b.readPWMEnablePath
+	if readEnablePath == nil {
+		readEnablePath = hwmon.ReadPWMEnablePath
+	}
+
+	var cur int
+	var err error
+	if st.RPMTarget {
+		cur, err = readEnablePath(hwmon.RPMTargetEnablePath(st.PWMPath))
+	} else {
+		cur, err = readEnable(st.PWMPath)
+	}
+	if err != nil {
+		return // can't verify (driver may not expose pwm_enable) — leave as-is
+	}
+	if cur == manualPWMEnable {
+		return // still in manual mode — nothing to do
+	}
+
+	// Silent revert detected: the chip is back under firmware control. Re-assert.
+	writePWMEnable := b.writePWMEnable
+	if writePWMEnable == nil {
+		writePWMEnable = hwmon.WritePWMEnable
+	}
+	writePWMEnablePath := b.writePWMEnablePath
+	if writePWMEnablePath == nil {
+		writePWMEnablePath = hwmon.WritePWMEnablePath
+	}
+	var werr error
+	if st.RPMTarget {
+		werr = writePWMEnablePath(hwmon.RPMTargetEnablePath(st.PWMPath), manualPWMEnable)
+	} else {
+		werr = writePWMEnable(st.PWMPath, manualPWMEnable)
+	}
+	if werr != nil {
+		b.logger.Warn("hwmon: detected silent pwm_enable revert but re-assert failed",
+			"pwm_path", st.PWMPath, "observed_enable", cur, "err", werr)
+		return
+	}
+	b.logger.Info("hwmon: re-asserted manual mode after silent pwm_enable revert (resume / BIOS reassertion)",
+		"pwm_path", st.PWMPath, "observed_enable", cur)
+}
+
 // ClearAcquired forgets that a channel's manual-mode flag was set.
 // The watchdog calls this from Restore so a follow-on controller
 // re-start (e.g. daemon self-exec after a config apply) reacquires
@@ -633,6 +736,7 @@ func (b *Backend) ensureManualMode(st State) error {
 // still accurate.
 func (b *Backend) ClearAcquired(pwmPath string) {
 	b.acquired.Delete(pwmPath)
+	b.reassertChecks.Delete(pwmPath)
 }
 
 // stateFrom coerces a Channel's Opaque payload into the hwmon State

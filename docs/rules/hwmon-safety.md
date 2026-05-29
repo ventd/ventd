@@ -66,6 +66,32 @@ primitive only; it never converts a real EBUSY-storm into a hung daemon.
 Bound: internal/hal/hwmon/backend_test.go:TestWrite_EBUSY_ReacquiresAndRetries
 Bound: internal/hal/hwmon/backend_test.go:TestWrite_PersistentEBUSY_FailsAfterOneRetry
 
+## RULE-HWMON-MODE-REASSERT-READBACK: throttled pwm_enable read-back re-asserts manual mode after a silent revert
+
+RULE-HWMON-MODE-REACQUIRE handles the revert that surfaces as EBUSY on the
+duty write. This rule handles the SILENT revert: a chip/BIOS that flips
+pwm_enable back to firmware/auto WITHOUT erroring subsequent duty writes, and
+resume-from-suspend, which commonly resets pwm_enable. In those cases EBUSY
+never fires, so ventd would keep writing duty bytes the firmware silently
+ignores until something else trips EBUSY — the fan drifts back to the BIOS
+curve (best case) or stops (worst case) while the daemon reports itself
+healthy. This is the real-world suspend/resume failure most Linux fan tools hit.
+
+On every already-acquired channel, `ensureManualMode` MUST, at most once per
+`ReassertReadbackInterval` per channel, read pwm_enable back and — if it is no
+longer the manual value (1) — re-write `pwm_enable=1` and log at INFO. The
+read-back is throttled (seeded at acquire time) so it costs one extra sysfs
+read per channel per interval, not per tick. A read error (driver does not
+expose pwm_enable — e.g. in-tree nct6683 for the NCT6687D) is "can't verify"
+and skipped: those channels were acquired via the not-supported branch and
+write duty directly regardless. This is the control-loop periodic re-write
+foreshadowed by RULE-HWMON-MODE-REACQUIRE, and it works on every init system
+(no systemd-sleep hook required), self-healing resume, BIOS-reassert-without-
+EBUSY, and external `echo > pwm_enable` interference alike.
+
+Bound: internal/hal/hwmon/backend_reassert_test.go:TestReassertIfReverted_SilentRevertReacquiresManualMode
+Bound: internal/hal/hwmon/backend_reassert_test.go:TestReassertIfReverted_NoEnableFileIsSkipped
+
 ## RULE-HWMON-EBUSY-RATE-OBSERVABILITY: Backend tracks per-channel EBUSY rate in a 60s rolling window and emits escalating log levels at 5/min (WARN-storm) and 20/min (ERROR-escalation); EBUSYRates() exposes the snapshot for future doctor wiring.
 
 The observability ladder on top of RULE-HWMON-MODE-REACQUIRE: the
