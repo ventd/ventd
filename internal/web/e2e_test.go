@@ -236,6 +236,42 @@ func TestE2E_DashboardRendersAtLeastOneSection(t *testing.T) {
 	page.Timeout(3 * time.Second).MustElement(".section-hdr")
 }
 
+// TestE2E_SmartPageScriptExecutes is the smoke gate for smart.js (the
+// smart-mode page had no browser-level coverage before #1254's MVP
+// finish). smart.js is one big IIFE, so a syntax error anywhere in the
+// file — including the prettyState label map (MVP-1) and the daemon-
+// uptime clock (MVP-3) this PR touches — prevents the whole script from
+// running, leaving #sm-content empty. With the bare harness config smart
+// mode is disabled, so a clean run renders the `.sm-empty` "not active"
+// card; asserting it appears proves the embedded script parsed and
+// executed under CSP. A console error fails the test via the recorder.
+func TestE2E_SmartPageScriptExecutes(t *testing.T) {
+	h := newHarness(t)
+	defer h.cleanup()
+
+	page := h.browser.MustPage("")
+	defer page.MustClose()
+
+	page.MustNavigate(h.server.URL + "/login").MustWaitStable()
+	res, err := page.Eval(`async (pw) => {
+		const body = new URLSearchParams();
+		body.append('password', pw);
+		const r = await fetch('/login', { method: 'POST', body });
+		return r.status;
+	}`, h.password)
+	if err != nil {
+		t.Fatalf("login fetch: %v", err)
+	}
+	if st := res.Value.Int(); st != 200 {
+		t.Fatalf("login POST status=%d want 200", st)
+	}
+
+	page.MustNavigate(h.server.URL + "/smart").MustWaitStable()
+	// smart.js polls then render()s; the disabled-mode path produces a
+	// .sm-empty card. Its presence is proof the IIFE parsed and ran.
+	page.Timeout(5 * time.Second).MustElement(".sm-empty")
+}
+
 // TestE2E_AuthStateProbeDoesNotLockOut exercises the end-to-end path
 // for audit finding S2 at the browser layer. The old login page would
 // POST an empty password to detect first-boot mode; after the fix the
