@@ -41,6 +41,7 @@ var denylist = []string{
 	"_history",   // shell history files (.bash_history, .zsh_history)
 	".pem",       // TLS private keys
 	".key",       // TLS private keys
+	"auth.json",  // ventd admin credential store (bcrypt hash) — never bundle
 	"id_rsa",     // SSH private keys
 	"id_ed25519", // SSH private keys
 	"id_ecdsa",   // SSH private keys

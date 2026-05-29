@@ -261,6 +261,56 @@ if [[ -z "$BINARY" ]]; then
         exit 1
     fi
 
+    # Cryptographic signature verification (cosign keyless, sigstore).
+    #
+    # The SHA-256 check above only proves the archive matches the
+    # checksums.txt fetched alongside it — an attacker able to alter the
+    # release assets (or the transport) can swap both together. The release
+    # pipeline also publishes a cosign keyless signature bundle
+    # (<artifact>.bundle, see .goreleaser.yml `signs:`) tied to the ventd
+    # GitHub Actions OIDC identity, which an attacker cannot forge.
+    #
+    # Policy:
+    #   - cosign present + bundle verifies         -> proceed (authentic)
+    #   - cosign present + verification FAILS       -> abort (tampering)
+    #   - cosign present + no bundle on the release -> warn, proceed on checksum
+    #     (pre-signing releases); VENTD_REQUIRE_SIGNATURE=1 makes this fatal
+    #   - cosign absent                             -> warn, proceed on checksum;
+    #     VENTD_REQUIRE_SIGNATURE=1 makes this fatal
+    SIG_IDENTITY_RE="^https://github\\.com/${VENTD_REPO}/\\.github/workflows/.+@refs/tags/"
+    SIG_ISSUER="https://token.actions.githubusercontent.com"
+    if command -v cosign >/dev/null 2>&1; then
+        if curl -sSfL -o "${TMPDIR_CLEANUP}/${ARCHIVE}.bundle" "${BASE_URL}/${ARCHIVE}.bundle" 2>/dev/null; then
+            echo "Verifying signature (cosign keyless)..."
+            if cosign verify-blob \
+                --bundle "${TMPDIR_CLEANUP}/${ARCHIVE}.bundle" \
+                --certificate-identity-regexp "$SIG_IDENTITY_RE" \
+                --certificate-oidc-issuer "$SIG_ISSUER" \
+                "${TMPDIR_CLEANUP}/${ARCHIVE}" >/dev/null 2>&1; then
+                echo "  signature OK — release is authentic"
+            else
+                echo "error: cosign signature verification FAILED for ${ARCHIVE}" >&2
+                echo "  The download matched its checksum but the signature does not" >&2
+                echo "  verify against the ventd release identity. This can mean the" >&2
+                echo "  release assets were tampered with. Aborting." >&2
+                exit 1
+            fi
+        else
+            echo "warning: no signature bundle published for ${VENTD_VERSION}; verified by checksum only" >&2
+            if [[ "${VENTD_REQUIRE_SIGNATURE:-0}" == "1" ]]; then
+                echo "error: VENTD_REQUIRE_SIGNATURE=1 but no signature available" >&2
+                exit 1
+            fi
+        fi
+    else
+        echo "note: cosign not installed — verified by checksum only." >&2
+        echo "      Install cosign for cryptographic signature verification." >&2
+        if [[ "${VENTD_REQUIRE_SIGNATURE:-0}" == "1" ]]; then
+            echo "error: VENTD_REQUIRE_SIGNATURE=1 but cosign is not installed" >&2
+            exit 1
+        fi
+    fi
+
     echo "Extracting..."
     tar -xzf "${TMPDIR_CLEANUP}/${ARCHIVE}" -C "$TMPDIR_CLEANUP"
 
@@ -1525,6 +1575,16 @@ if [[ "$VENTD_TEST_MODE" != "1" && -r "$CERT_PATH" ]] && command -v openssl >/de
     done
 fi
 
+# First-boot enrolment token (H1). The daemon writes this root-only file
+# when no admin password exists yet; enrolment from a non-loopback address
+# must present it, so surface it here for operators setting up over the LAN.
+# Absent once a password is set (or on a re-install over an enrolled daemon).
+SETUP_TOKEN=""
+SETUP_TOKEN_FILE="/run/ventd/setup-token"
+if [[ "$VENTD_TEST_MODE" != "1" && -r "$SETUP_TOKEN_FILE" ]]; then
+    SETUP_TOKEN="$(tr -d '[:space:]' < "$SETUP_TOKEN_FILE" 2>/dev/null || true)"
+fi
+
 # Visually distinct completion block. Box-drawn so the URL + fingerprint
 # don't disappear into the scrollback of a noisy apt-get / dnf / pacman
 # run. The characters below are Unicode box-drawing; they render correctly
@@ -1559,6 +1619,26 @@ cat <<'EOF'
 ║    Set a password on first visit — that's it. No more terminal     ║
 ║    work required.                                                  ║
 ║                                                                    ║
+EOF
+if [[ -n "$SETUP_TOKEN" ]]; then
+    cat <<'EOF'
+╠════════════════════════════════════════════════════════════════════╣
+║  Setting up over the network?                                      ║
+╠════════════════════════════════════════════════════════════════════╣
+║                                                                    ║
+║    Enrolling from another machine (not localhost) requires this    ║
+║    one-time setup token, so nobody else on your network can claim  ║
+║    the daemon first. Paste it into the setup page when asked:      ║
+║                                                                    ║
+EOF
+    pad_box_line "      ${SETUP_TOKEN}"
+    cat <<'EOF'
+║                                                                    ║
+║    (Opening the URL on this machine itself needs no token.)        ║
+║                                                                    ║
+EOF
+fi
+cat <<'EOF'
 ╠════════════════════════════════════════════════════════════════════╣
 ║  About the security warning                                        ║
 ╠════════════════════════════════════════════════════════════════════╣
