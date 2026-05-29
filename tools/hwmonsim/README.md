@@ -43,10 +43,26 @@ VENTD_HWMON_ROOT=/tmp/vsim ./ventd --config /path/to/config.yaml
 # Variants:
 go run ./tools/hwmonsim --out /tmp/vsim --fans 7 --chip nct6687 --model spinup
 go run ./tools/hwmonsim --out /tmp/vsim --once          # static tree, no model
+
+# Seed the chip name(s) + controller topology from a real catalog board:
+go run ./tools/hwmonsim --board list                    # list catalog board ids
+go run ./tools/hwmonsim --out /tmp/vsim --board asrock-b650m-pg-lightning
 ```
 
-Flags: `--out` (required), `--fans`, `--temps`, `--chip`, `--max-rpm`,
-`--min-rpm`, `--stop-pwm`, `--start-pwm`, `--model`, `--tick`, `--once`.
+Flags: `--out` (required unless `--board list`), `--board`, `--fans`, `--temps`,
+`--chip`, `--max-rpm`, `--min-rpm`, `--stop-pwm`, `--start-pwm`, `--model`,
+`--tick`, `--once`.
+
+### `--board`
+
+`--board <id>` looks the id up in ventd's hardware catalog
+(`internal/hwdb/catalog/boards`, via the same `hwdb.LoadBoardCatalog` loader the
+daemon uses) and seeds the device `name`(s) and controller topology from it: one
+`hwmonN` per controller chip (primary + additional), using the real chip names —
+so the daemon's hwdb chip-family / tier-3 matching runs against a real board's
+chips. Controllers with no controllable hwmon presence (`unknown` / fanless) are
+skipped. Fan counts and RPM ranges come from the flags (the catalog doesn't
+carry them). `--board list` prints every id with its chip(s).
 
 ## Scope
 

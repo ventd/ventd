@@ -1,4 +1,4 @@
-// hwmonsim materializes a faithful, *live* synthetic hwmon tree so ventd can be
+// hwmonsim materialises a faithful, *live* synthetic hwmon tree so ventd can be
 // run end-to-end against fake hardware. Point the daemon at it with
 // VENTD_HWMON_ROOT=<dir> (see internal/hwmon.RootOverrideEnv) and the whole
 // stack — enumeration, the control loop, calibration sweeps, the polarity
@@ -6,10 +6,10 @@
 //
 // It is two things in one process:
 //
-//  1. A materialiser: writes one hwmonN directory with `name`, and per fan a
-//     pwmN / pwmN_enable / fanN_input triple plus a couple of tempN_input
-//     sensors — exactly the shape internal/hwmon.classifyDevice recognises as a
-//     controllable (ClassPrimary) device.
+//  1. A materialiser: writes one hwmonN directory per controller with `name`,
+//     and per fan a pwmN / pwmN_enable / fanN_input triple plus a couple of
+//     tempN_input sensors — exactly the shape internal/hwmon.classifyDevice
+//     recognises as a controllable (ClassPrimary) device.
 //
 //  2. A live model: every tick it reads back the pwmN / pwmN_enable files the
 //     daemon writes and recomputes fanN_input (RPM) and tempN_input from a
@@ -19,14 +19,21 @@
 //     (--once) only exercises enumeration and the UI; the live loop is what
 //     makes control/calibration meaningful.
 //
+// --board <id> seeds the chip name(s) and controller topology from a real
+// entry in ventd's hardware catalog (internal/hwdb/catalog/boards), so the
+// daemon's chip-family / hwdb matching runs against a real board's chips.
+// --board list prints the available ids.
+//
 // This is dev tooling, not production code — no RULE bindings.
 //
 // Usage:
 //
-//	go run ./tools/hwmonsim --out /tmp/vsim          # 3 fans, live, nct6687
+//	go run ./tools/hwmonsim --out /tmp/vsim                  # 3 fans, live, nct6687
 //	go run ./tools/hwmonsim --out /tmp/vsim --fans 5 --model spinup
-//	go run ./tools/hwmonsim --out /tmp/vsim --once    # materialise and exit
-//	VENTD_HWMON_ROOT=/tmp/vsim ./ventd --config ...   # drive it
+//	go run ./tools/hwmonsim --board list                     # list catalog board ids
+//	go run ./tools/hwmonsim --out /tmp/vsim --board msi-pro-z690-a-ddr4
+//	go run ./tools/hwmonsim --out /tmp/vsim --once           # materialise and exit
+//	VENTD_HWMON_ROOT=/tmp/vsim ./ventd --config ...          # drive it
 package main
 
 import (
@@ -35,14 +42,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/ventd/ventd/internal/hwdb"
 )
 
 type config struct {
 	out      string
+	board    string
 	fans     int
 	temps    int
 	chip     string
@@ -55,12 +66,21 @@ type config struct {
 	once     bool
 }
 
+// device is one materialised hwmonN directory.
+type device struct {
+	dir   string
+	chip  string
+	fans  int
+	temps int
+}
+
 func main() {
 	cfg := config{}
 	flag.StringVar(&cfg.out, "out", "", "directory to materialise the synthetic hwmon tree in (required)")
-	flag.IntVar(&cfg.fans, "fans", 3, "number of controllable pwm fans")
-	flag.IntVar(&cfg.temps, "temps", 2, "number of temperature sensors")
-	flag.StringVar(&cfg.chip, "chip", "nct6687", "hwmon `name` value (must not be \"nvidia\")")
+	flag.StringVar(&cfg.board, "board", "", "seed chip name(s) from a catalog board id (or \"list\" to list ids)")
+	flag.IntVar(&cfg.fans, "fans", 3, "number of controllable pwm fans per device")
+	flag.IntVar(&cfg.temps, "temps", 2, "number of temperature sensors per device")
+	flag.StringVar(&cfg.chip, "chip", "nct6687", "hwmon `name` value when --board is not used (must not be \"nvidia\")")
 	flag.IntVar(&cfg.maxRPM, "max-rpm", 2200, "RPM at full duty")
 	flag.IntVar(&cfg.minRPM, "min-rpm", 500, "RPM the instant the fan spins")
 	flag.IntVar(&cfg.stopPWM, "stop-pwm", 25, "duty at/below which the fan stalls (0-255)")
@@ -70,25 +90,31 @@ func main() {
 	flag.BoolVar(&cfg.once, "once", false, "materialise the tree and exit (no live loop)")
 	flag.Parse()
 
+	if cfg.board == "list" {
+		listBoards()
+		return
+	}
 	if cfg.out == "" {
 		fmt.Fprintln(os.Stderr, "hwmonsim: --out is required")
 		flag.Usage()
-		os.Exit(2)
-	}
-	if cfg.chip == "nvidia" {
-		fmt.Fprintln(os.Stderr, "hwmonsim: --chip nvidia would be skipped by the enumerator; pick another name")
 		os.Exit(2)
 	}
 	if cfg.fans < 1 {
 		cfg.fans = 1
 	}
 
-	dev := filepath.Join(cfg.out, "hwmon0")
-	if err := materialise(dev, cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "hwmonsim: materialise:", err)
-		os.Exit(1)
+	devices, err := buildDevices(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hwmonsim:", err)
+		os.Exit(2)
 	}
-	fmt.Printf("hwmonsim: materialised %d-fan %q device at %s\n", cfg.fans, cfg.chip, dev)
+	for _, d := range devices {
+		if err := materialise(d.dir, d.chip, d.fans, d.temps); err != nil {
+			fmt.Fprintln(os.Stderr, "hwmonsim: materialise:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("hwmonsim: materialised %d-fan %q device at %s\n", d.fans, d.chip, d.dir)
+	}
 	fmt.Printf("hwmonsim: drive it with:  VENTD_HWMON_ROOT=%s ./ventd ...\n", cfg.out)
 	if cfg.once {
 		return
@@ -97,42 +123,132 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	fmt.Printf("hwmonsim: live model running (model=%s, tick=%s) — Ctrl-C to stop\n", cfg.model, cfg.tick)
-	run(dev, cfg, stop)
+	run(devices, cfg, stop)
 }
 
-// materialise writes the faithful directory. pwm starts at 0 (off), enable at 1
-// (manual) so the device classifies as controllable immediately; the live loop
-// takes over from there.
-func materialise(dev string, cfg config) error {
-	if err := os.MkdirAll(dev, 0o755); err != nil {
+// buildDevices resolves the device list: one nct6687 (or --chip) device by
+// default, or one device per controller chip of the named catalog board.
+func buildDevices(cfg config) ([]device, error) {
+	if cfg.board == "" {
+		if cfg.chip == "nvidia" {
+			return nil, fmt.Errorf("--chip nvidia would be skipped by the enumerator; pick another name")
+		}
+		return []device{{dir: filepath.Join(cfg.out, "hwmon0"), chip: cfg.chip, fans: cfg.fans, temps: cfg.temps}}, nil
+	}
+
+	entry, err := findBoard(cfg.board)
+	if err != nil {
+		return nil, err
+	}
+	// Primary + additional controllers, in order, skipping chips with no
+	// real controllable hwmon presence ("unknown" / empty / nvidia).
+	chips := []string{entry.PrimaryController.Chip}
+	for _, c := range entry.AdditionalControllers {
+		chips = append(chips, c.Chip)
+	}
+	var devices []device
+	for _, chip := range chips {
+		chip = strings.TrimSpace(chip)
+		if chip == "" || chip == "unknown" || chip == "nvidia" {
+			continue
+		}
+		devices = append(devices, device{
+			dir:   filepath.Join(cfg.out, fmt.Sprintf("hwmon%d", len(devices))),
+			chip:  chip,
+			fans:  cfg.fans,
+			temps: cfg.temps,
+		})
+	}
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("board %q has no controllable controller chip to simulate (all unknown/fanless)", cfg.board)
+	}
+	fmt.Printf("hwmonsim: seeded from board %q — %d controller(s): %s\n",
+		entry.ID, len(devices), chipList(devices))
+	return devices, nil
+}
+
+func chipList(devices []device) string {
+	names := make([]string, len(devices))
+	for i, d := range devices {
+		names[i] = d.chip
+	}
+	return strings.Join(names, ", ")
+}
+
+func findBoard(id string) (*hwdb.BoardCatalogEntry, error) {
+	entries, err := hwdb.LoadBoardCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("load board catalog: %w", err)
+	}
+	for _, e := range entries {
+		if e.ID == id {
+			return e, nil
+		}
+	}
+	return nil, fmt.Errorf("no board id %q in the catalog (try --board list)", id)
+}
+
+func listBoards() {
+	entries, err := hwdb.LoadBoardCatalog()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "hwmonsim: load board catalog:", err)
+		os.Exit(1)
+	}
+	ids := make([]string, 0, len(entries))
+	byID := map[string]*hwdb.BoardCatalogEntry{}
+	for _, e := range entries {
+		ids = append(ids, e.ID)
+		byID[e.ID] = e
+	}
+	sort.Strings(ids)
+	fmt.Printf("hwmonsim: %d board profiles in the catalog:\n", len(ids))
+	for _, id := range ids {
+		e := byID[id]
+		chip := e.PrimaryController.Chip
+		if n := len(e.AdditionalControllers); n > 0 {
+			chip = fmt.Sprintf("%s +%d", chip, n)
+		}
+		fmt.Printf("  %-48s %s\n", id, chip)
+	}
+}
+
+// materialise writes one faithful device directory. pwm starts at 0 (off),
+// enable at 1 (manual) so the device classifies as controllable immediately;
+// the live loop takes over from there.
+func materialise(dir, chip string, fans, temps int) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if err := writeVal(filepath.Join(dev, "name"), cfg.chip); err != nil {
+	if err := writeVal(filepath.Join(dir, "name"), chip); err != nil {
 		return err
 	}
-	for i := 1; i <= cfg.fans; i++ {
-		if err := writeVal(filepath.Join(dev, fmt.Sprintf("pwm%d", i)), "0"); err != nil {
+	for i := 1; i <= fans; i++ {
+		if err := writeVal(filepath.Join(dir, fmt.Sprintf("pwm%d", i)), "0"); err != nil {
 			return err
 		}
-		if err := writeVal(filepath.Join(dev, fmt.Sprintf("pwm%d_enable", i)), "1"); err != nil {
+		if err := writeVal(filepath.Join(dir, fmt.Sprintf("pwm%d_enable", i)), "1"); err != nil {
 			return err
 		}
-		if err := writeVal(filepath.Join(dev, fmt.Sprintf("fan%d_input", i)), "0"); err != nil {
+		if err := writeVal(filepath.Join(dir, fmt.Sprintf("fan%d_input", i)), "0"); err != nil {
 			return err
 		}
 	}
-	for i := 1; i <= cfg.temps; i++ {
-		if err := writeVal(filepath.Join(dev, fmt.Sprintf("temp%d_input", i)), "40000"); err != nil {
+	for i := 1; i <= temps; i++ {
+		if err := writeVal(filepath.Join(dir, fmt.Sprintf("temp%d_input", i)), "40000"); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// run is the live model loop: read the daemon's pwm/enable writes, recompute
-// rpm + temperature, write them back, until a stop signal arrives.
-func run(dev string, cfg config, stop <-chan os.Signal) {
-	spinning := make([]bool, cfg.fans+1) // 1-indexed; hysteresis state per fan
+// run is the live model loop across every device: read the daemon's pwm/enable
+// writes, recompute rpm + temperature, write them back, until a stop signal.
+func run(devices []device, cfg config, stop <-chan os.Signal) {
+	// Per-device spin-up hysteresis state, 1-indexed by fan.
+	spinning := make([][]bool, len(devices))
+	for i, d := range devices {
+		spinning[i] = make([]bool, d.fans+1)
+	}
 	ticker := time.NewTicker(cfg.tick)
 	defer ticker.Stop()
 	for {
@@ -141,20 +257,20 @@ func run(dev string, cfg config, stop <-chan os.Signal) {
 			fmt.Println("\nhwmonsim: stopped (tree left in place)")
 			return
 		case <-ticker.C:
-			totalDuty := 0.0
-			for i := 1; i <= cfg.fans; i++ {
-				pwm := readInt(filepath.Join(dev, fmt.Sprintf("pwm%d", i)), 0)
-				enable := readInt(filepath.Join(dev, fmt.Sprintf("pwm%d_enable", i)), 1)
-				rpm := rpmFor(clampByte(pwm), enable, cfg, &spinning[i])
-				_ = writeVal(filepath.Join(dev, fmt.Sprintf("fan%d_input", i)), strconv.Itoa(rpm))
-				totalDuty += float64(rpm) / float64(cfg.maxRPM)
-			}
-			// Temperature: more average airflow → cooler. Monotonic and
-			// bounded so a sweep produces a clean temp-vs-pwm curve.
-			avgDuty := totalDuty / float64(cfg.fans)
-			milliC := tempMilliC(avgDuty)
-			for i := 1; i <= cfg.temps; i++ {
-				_ = writeVal(filepath.Join(dev, fmt.Sprintf("temp%d_input", i)), strconv.Itoa(milliC))
+			for di, d := range devices {
+				totalDuty := 0.0
+				for i := 1; i <= d.fans; i++ {
+					pwm := readInt(filepath.Join(d.dir, fmt.Sprintf("pwm%d", i)), 0)
+					enable := readInt(filepath.Join(d.dir, fmt.Sprintf("pwm%d_enable", i)), 1)
+					rpm := rpmFor(clampByte(pwm), enable, cfg, &spinning[di][i])
+					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("fan%d_input", i)), strconv.Itoa(rpm))
+					totalDuty += float64(rpm) / float64(cfg.maxRPM)
+				}
+				avgDuty := totalDuty / float64(d.fans)
+				milliC := tempMilliC(avgDuty)
+				for i := 1; i <= d.temps; i++ {
+					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("temp%d_input", i)), strconv.Itoa(milliC))
+				}
 			}
 		}
 	}
