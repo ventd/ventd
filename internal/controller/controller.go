@@ -229,6 +229,14 @@ type Controller struct {
 	// isn't spammed at controller poll-rate while the operator
 	// investigates the wizard's classification.
 	polarityHandedBack bool
+
+	// shadowAnnounced records that this controller has already logged a
+	// single operator-visible INFO that it's suppressing writes in shadow
+	// mode (#1346). The first suppressed write announces; subsequent
+	// suppressions log at debug so journald isn't spammed at poll-rate.
+	// Not reset on hot-reload: a fresh controller starts false again, and
+	// shadow mode is a startup-time decision so it never toggles mid-run.
+	shadowAnnounced bool
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -358,6 +366,24 @@ func WithPolarityChannel(ch *probe.ControllableChannel) Option {
 // log line; the controller treats it as a successful skip so the tick
 // loop continues. A genuine backend write error is propagated.
 func (c *Controller) writePWMViaPolarity(ch hal.Channel, pwm uint8) error {
+	// Shadow mode (#1346): suppress every hardware write. The decision
+	// and its observation record were already emitted upstream (the
+	// recent-decisions feed shows what ventd WOULD do), so returning nil
+	// here keeps the full pipeline running while leaving the operator's
+	// existing controller in charge of the fans. No backend.Write means
+	// pwm_enable is never flipped to manual either, so the channel is
+	// never owned and the watchdog restore is a natural no-op.
+	if c.cfg.Load().ShadowMode() {
+		if !c.shadowAnnounced {
+			c.logger.Info("shadow: suppressing fan write (no hardware change); recent-decisions feed shows what ventd would do",
+				"event", "shadow_write_suppressed", "pwm_path", c.pwmPath, "would_write", pwm)
+			c.shadowAnnounced = true
+		} else {
+			c.logger.Debug("shadow: suppressed fan write",
+				"event", "shadow_write_suppressed", "pwm_path", c.pwmPath, "would_write", pwm)
+		}
+		return nil
+	}
 	if c.polarityCh == nil {
 		return c.backend.Write(ch, pwm)
 	}

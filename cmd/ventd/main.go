@@ -190,6 +190,7 @@ func run() error {
 	micOut := flag.String("mic-out", "", "with --setup --mic: write the calibration JSON to this path; empty = print summary only")
 	showVersion := flag.Bool("version", false, "print version information and exit")
 	versionJSON := flag.Bool("json", false, "with --version: emit JSON instead of plain text")
+	shadowMode := flag.Bool("shadow", false, "shadow mode: run the full smart-mode + reactive pipeline (calibration learning, decisions, recent-decisions feed) but issue NO hardware writes — every PWM/platform_profile write is logged as a would-write instead. Migration on-ramp for evaluating ventd alongside an existing controller. Equivalent to apply.shadow: true in config.yaml")
 	flag.Parse()
 
 	// --version must short-circuit before any logging or subsystem init so it
@@ -294,6 +295,22 @@ func run() error {
 		if err := calibrate.VerifyAllowStopGate(cfg, calibrate.DefaultCalibrationPath); err != nil {
 			return fmt.Errorf("startup safety: %w", err)
 		}
+	}
+
+	// Shadow mode: CLI --shadow forces it on regardless of config; the
+	// config knob (apply.shadow) holds otherwise. Overlay onto the loaded
+	// config so every live-config reader (controllers, web server,
+	// platform_profile controller) sees one source of truth. Log loudly —
+	// an operator who forgot they're in shadow mode and wonders why their
+	// fans aren't responding should find the answer in journald.
+	if *shadowMode {
+		cfg.Apply.Shadow = true
+	}
+	if cfg.Apply.Shadow {
+		logger.Warn("shadow mode active: ventd will NOT write any fan PWM or platform_profile values; "+
+			"the full pipeline runs and the recent-decisions feed shows what ventd WOULD do. "+
+			"Calibration is disabled. Remove --shadow / apply.shadow and restart to take over fan control.",
+			"event", "shadow_mode_active")
 	}
 
 	// Resolve active experimental flags: CLI > config > default (all-false).
@@ -1306,7 +1323,7 @@ func runDaemonInternal(
 	// draw). Per feedback-ventd-zero-config-smart this is on by default;
 	// the only way to disable is to remove the platform_profile sysfs
 	// interface (or use an OS that doesn't expose one).
-	startPlatformProfileController(ctx, &wg, logger)
+	startPlatformProfileController(ctx, &wg, logger, liveCfg.Load().ShadowMode())
 
 	// Start the web status server. It reads from &liveCfg on every request so
 	// it always reflects the current configuration without restart.

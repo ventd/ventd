@@ -106,6 +106,19 @@
         <a href="/login" class="dash-demo-banner-action">Re-authenticate</a>
       </div>
 
+      <!-- Shadow-mode banner (#1346) — surfaces whenever the daemon is
+           running in shadow mode (apply.shadow / --shadow). ventd runs
+           its full pipeline and the duty values below show what it WOULD
+           command, but no hardware write is issued — the operator's
+           existing controller stays in charge. Driven by
+           /api/v1/status.shadow_mode; shadow mode is a startup-time
+           decision so this never flips mid-session. -->
+      <div class="dash-shadow-banner" id="dash-shadow-banner" hidden role="status" aria-live="polite">
+        <span class="dash-shadow-banner-dot"></span>
+        Shadow mode — ventd is observing only. No fan writes are issued; the duty values below show what ventd would do if it were in charge.
+        <a href="/smart" class="dash-shadow-banner-action">View decisions</a>
+      </div>
+
       <!-- Stuck-fan banner — surfaces a warning whenever the doctor's
            `stuck_fan_diagnosis` detector returns at least one Fact
            (#757). One or more fans are not spinning at a duty cycle

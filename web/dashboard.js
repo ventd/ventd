@@ -372,6 +372,12 @@
     renderHero(data.sensors || [], data.fans || []);
     renderSensorTiles(data.sensors || []);
     renderFanTiles(data.fans || []);
+    // Shadow-mode banner (#1346): the daemon reports shadow_mode on every
+    // status poll. Toggle the "observing only" banner so the operator
+    // can't mistake the live duty readings for values ventd is actually
+    // driving. Hidden in demo mode (synthetic data has no real daemon).
+    var shadowBanner = document.getElementById('dash-shadow-banner');
+    if (shadowBanner) shadowBanner.hidden = !data.shadow_mode;
     setLive(true);
   }
   function applyProfile(p) {

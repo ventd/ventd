@@ -137,6 +137,38 @@
 }
 .dash-stuck-fan-banner-action:hover { color: var(--fg1); }
 
+/* Shadow-mode banner (#1346) — same shape as the demo / stuck-fan
+ * banners but a blue "informational" tone: shadow mode is a deliberate
+ * operator choice (evaluating ventd before handing over fan control),
+ * not a fault, so it reads as a steady-state notice rather than an
+ * amber warning. Surfaces whenever /api/v1/status reports shadow_mode;
+ * because shadow mode is decided at daemon start it never toggles
+ * within a session. */
+.dash-shadow-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: var(--blue-bg);
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  color: var(--blue);
+  font-size: 0.82rem;
+  margin-bottom: 16px;
+}
+.dash-shadow-banner-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.dash-shadow-banner-action {
+  margin-left: auto;
+  color: var(--blue);
+  text-decoration: underline;
+  font-weight: 500;
+}
+.dash-shadow-banner-action:hover { color: var(--fg1); }
+
 /* ── section heads ────────────────────────────────────────── */
 .dash-section { display: flex; flex-direction: column; gap: 12px; }
 .dash-section-head {

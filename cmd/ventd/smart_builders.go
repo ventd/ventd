@@ -662,7 +662,7 @@ func startHwmonSwapMonitor(
 // configuration knob. The kernel-side "echo $profile > .../profile"
 // remains available as the escape hatch — the controller observes
 // external writes and backs off for 10 minutes after one.
-func startPlatformProfileController(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger) {
+func startPlatformProfileController(ctx context.Context, wg *sync.WaitGroup, logger *slog.Logger, shadow bool) {
 	snap, err := platformprofile.Read()
 	if err != nil {
 		logger.Warn("platform_profile: sysfs read failed; auto-control disabled", "err", err.Error())
@@ -687,6 +687,18 @@ func startPlatformProfileController(ctx context.Context, wg *sync.WaitGroup, log
 	}
 
 	store := platformprofile.NewLearningStore("/var/lib/ventd/platform_profile.json")
+	// Shadow mode (#1346): the platform_profile selector is a fan-shaping
+	// write surface, so it must stay silent too. Swap in a WriteFn that
+	// logs the would-write instead of touching the kernel; the selector
+	// still computes its choice every tick so the decision is observable.
+	var writeFn func(string) error
+	if shadow {
+		writeFn = func(profile string) error {
+			logger.Info("shadow: suppressed platform_profile write",
+				"event", "shadow_platform_profile_suppressed", "would_set", profile)
+			return nil
+		}
+	}
 	ctrl := platformprofile.NewController(platformprofile.ControllerOptions{
 		Logger:      logger,
 		Selector:    sel,
@@ -696,6 +708,7 @@ func startPlatformProfileController(ctx context.Context, wg *sync.WaitGroup, log
 		RPMReader:   platformprofile.FanMaxRPMReader(),
 		LoadReader:  platformprofile.DefaultLoadReader(),
 		PowerReader: platformprofile.DefaultPowerReader(),
+		WriteFn:     writeFn,
 	})
 
 	wg.Add(1)
