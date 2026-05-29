@@ -164,6 +164,50 @@ takes precedence over every other limit.
 
 Bound: internal/controller/safety_test.go:clamp/pump_floor_beats_curve
 
+## RULE-CTRL-OVERTEMP-FAILSAFE: a curve-independent over-temperature backstop forces full speed near the critical limit
+
+The curve, smart-mode blend, schedule, and operator `max_pwm` are all
+trusted to keep a chip cool — but a mis-set curve, a sensor that under-reads,
+a smart-mode under-cool, or a wrong schedule can leave a chip overheating with
+the daemon happily holding a low PWM. There must be a backstop that does not
+depend on any of those being correct.
+
+After `computePWM` (so it overrides curve **and** smart blend **and** the
+`max_pwm` clamp), the controller checks the control sensor against a
+**curve-independent** engage temperature and, when crossed, forces `pwm=255`
+(true full speed, bypassing the operator's `max_pwm` cap — at a genuine
+thermal emergency, hardware survival beats the noise budget).
+
+The engage temperature is resolved **once per control sensor** (cached) by
+`resolveEmergencyEngageC`, from a source independent of the curve:
+
+1. hwmon `tempN_crit` (the chip's throttle point), if a plausible value
+   (`emergencyMinPlausibleC`..`emergencyMaxPlausibleC`) — rejects garbage
+   registers (nct6687 thermistors reading 0 / −128 / 16);
+2. else, for a **CPU-labelled** sensor with no crit (common on super-I/O CPU
+   temps — the NCT6687D HIL host has no `coretemp`, so its CPU sensor exposes
+   no crit), the **CPU-model Tjmax** (`sysclass.TjmaxFromCPUInfo`).
+
+Engage temp = that base limit **+ `emergencyMarginC`**, capped at the chip's
+`tempN_emergency` (shutdown line) when present. The margin above the throttle
+point is what stops a **thermally-limited chip that operates at Tjmax by
+design** (e.g. a power-limited desktop CPU that throttles to hold Tjmax under
+load) from false-firing on every heavy workload — the failsafe engages only
+when cooling has actually failed and temp climbs *past* the throttle point.
+
+When no plausible threshold can be resolved the failsafe stays **disabled**
+(returns 0) rather than inventing a low absolute that would false-fire — so on
+hardware where neither crit nor a CPU-model Tjmax is available the behaviour is
+exactly as before, never worse.
+
+Engage and release are debounced by `emergencyDebounce` (reject transient
+single-tick spikes) and separated by `emergencyReleaseC` hysteresis (no
+flapping at the boundary). v1 covers single-sensor curves
+(`curveCfg.Sensor != ""`); manual-mode and mix-curve fans are a follow-up.
+
+Bound: internal/controller/overtemp_test.go:TestOvertempForce_DebounceAndHysteresis
+Bound: internal/controller/overtemp_test.go:TestResolveEmergencyEngageC_TjmaxFallbackForCPULabel
+
 ## RULE-HWMON-CAL-INTERRUPTIBLE: calibration restores original PWM on abort
 
 The calibration sweep drives fans to fixed duty cycles to measure RPM
