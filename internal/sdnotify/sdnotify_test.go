@@ -147,7 +147,7 @@ func TestWatchdogInterval_NonNumericReturnsZero(t *testing.T) {
 
 func TestStartHeartbeat_NoIntervalReturnsNoOpStop(t *testing.T) {
 	t.Setenv("WATCHDOG_USEC", "")
-	stop := StartHeartbeat()
+	stop := StartHeartbeat(nil)
 	stop() // must not panic, must not block
 	stop() // must be safe to call twice in real defer chains? — single-call contract documented; one call is sufficient
 }
@@ -162,7 +162,7 @@ func TestStartHeartbeat_PingsAtHalfInterval(t *testing.T) {
 	// 200ms WATCHDOG_USEC (200000 microseconds) → 100ms heartbeat.
 	t.Setenv("WATCHDOG_USEC", "200000")
 
-	stop := StartHeartbeat()
+	stop := StartHeartbeat(nil)
 	defer stop()
 
 	// Expect at least 2 WATCHDOG=1 datagrams in 350ms (3+ ticks).
@@ -181,6 +181,29 @@ func TestStartHeartbeat_PingsAtHalfInterval(t *testing.T) {
 	}
 }
 
+// TestStartHeartbeat_WithholdsPingWhenNotAlive is the mechanism half of
+// RULE-WD-HEARTBEAT-LIVENESS: when the liveness gate reports the control loop
+// stalled (alive()==false), the heartbeat must withhold every WATCHDOG=1 ping
+// so systemd's WatchdogSec elapses and restarts the daemon.
+func TestStartHeartbeat_WithholdsPingWhenNotAlive(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "notify")
+	out, cleanup := receiveOne(t, sock)
+	defer cleanup()
+
+	t.Setenv(envSocket, sock)
+	t.Setenv("WATCHDOG_USEC", "100000") // 100ms → 50ms heartbeat
+
+	stop := StartHeartbeat(func() bool { return false })
+	defer stop()
+
+	select {
+	case got := <-out:
+		t.Errorf("heartbeat pinged despite alive()=false: %q — a stalled control loop must withhold the ping", got)
+	case <-time.After(300 * time.Millisecond): // ~6 heartbeat intervals, all withheld
+	}
+}
+
 func TestStartHeartbeat_StopHaltsGoroutine(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "notify")
@@ -190,7 +213,7 @@ func TestStartHeartbeat_StopHaltsGoroutine(t *testing.T) {
 	t.Setenv(envSocket, sock)
 	t.Setenv("WATCHDOG_USEC", "100000") // 100ms → 50ms heartbeat
 
-	stop := StartHeartbeat()
+	stop := StartHeartbeat(nil)
 
 	// Drain at least one heartbeat to confirm the goroutine ran.
 	select {

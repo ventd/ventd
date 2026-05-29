@@ -116,6 +116,42 @@ Bound: internal/watchdog/safety_test.go:wd_restore_completes_within_budget
 Bound: internal/watchdog/safety_test.go:wd_restore_budget_exceeded_logs_abandoned_continues_others
 Bound: internal/watchdog/safety_test.go:wd_restore_pre_cancelled_ctx_skips_backend
 
+## RULE-WD-HEARTBEAT-LIVENESS: the systemd watchdog ping is gated on control-loop progress, not free-running
+
+`WatchdogSec=2s` is only a backstop if the heartbeat actually *stops* when the
+daemon stops doing its job. A free-running `sdnotify.StartHeartbeat` pings
+`WATCHDOG=1` unconditionally, so systemd sees a healthy daemon even if every
+controller goroutine has wedged (e.g. a logic deadlock, or all controllers
+blocked) — the fans sit at their last PWM forever and the SIGKILL backstop
+never fires. This is the failure mode RULE-WD-RESTORE-BUDGET's per-channel
+parallelism mitigates for a *single* hung sysfs write; this rule covers a
+*total* control-loop stall.
+
+`StartHeartbeat` takes an `alive func() bool` and pings only when it returns
+true (nil ⇒ always ping, for tests / callers with no loop to gate on). The
+daemon wires `alive` to `controlLoopAlive(readyState.LastSensorRead(), now,
+livenessWindow, …)`:
+
+- **`LastSensorRead().IsZero()` ⇒ alive.** Only the control tick calls
+  `MarkSensorRead`, so a zero timestamp means monitor-only mode (no
+  controllers) or pre-first-tick startup — neither has a control loop that can
+  stall, and a startup hang is covered by systemd's start timeout, not the
+  watchdog. The daemon must keep pinging in these states or it would be killed
+  for having nothing to do.
+- **a controller ticked within `livenessWindow` ⇒ alive.**
+- **otherwise the loop has stalled ⇒ not alive:** the ping is withheld, so
+  `WatchdogSec` elapses → SIGKILL → `OnFailure=ventd-recover` hands fans back
+  to firmware (and, with the recover binary's `{2,99,0}` handback, to the BIOS
+  curve rather than manual mode).
+
+`livenessWindow = max(5 × PollInterval, watchdogStallFloor)` so a fast poll
+interval can't make the watchdog trigger-happy on one slow tick, and a long
+poll interval scales the window up. The window bounds the worst-case
+stall-to-restart latency rather than leaving it unbounded.
+
+Bound: internal/sdnotify/sdnotify_test.go:TestStartHeartbeat_WithholdsPingWhenNotAlive
+Bound: cmd/ventd/watchdog_liveness_test.go:TestControlLoopAlive
+
 ## RULE-WD-REGISTER-IDEMPOTENT: startup origEnable survives re-registration
 
 A Register call stacks on top of the startup registration for the same
