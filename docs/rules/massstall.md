@@ -18,6 +18,7 @@ failure. `Snapshot` reports the count + sorted IDs of currently-stalled
 channels for the doctor/API surface.
 
 Bound: internal/massstall/massstall_test.go:TestMassStall_TripsAtThreshold
+Bound: internal/controller/multi_fan_test.go:TestMultiFan_MassStallTripsAtThresholdEndToEnd
 
 ## RULE-MASSTALL-FLOOR-01: a stall requires commandedPWM >= StallPWMFloor AND observedRPM == 0; a tach-less read (-1) never counts.
 
