@@ -26,6 +26,36 @@ needed real hardware. `hwmonsim` + `VENTD_HWMON_ROOT` close that gap.
   - `--model linear`: RPM proportional to duty.
   - Temperature falls as average airflow rises, so smart mode sees cooling.
 
+### Fault models
+
+The pathological hardware real machines throw at ventd — the cases that
+surface bugs the monotonic happy-path can't. Each is a `--model` value:
+
+- `phantom` — tach always reads 0 (unconnected header / dead tach).
+- `stuck` — tach frozen at a fixed RPM that never tracks duty (seized sensor).
+- `inverted` — RPM falls as duty rises (DC-mode / inverted header); the
+  polarity probe must classify this `inverted`.
+- `sentinel` — a spinning fan reports the `0xFFFF` (65535) driver sentinel
+  instead of a real RPM.
+- `sentinelhigh` — real RPM at low duty, sentinel above ~50% duty (an
+  intermittent tach glitch): a consumer that trusts raw tach computes a wildly
+  false delta. Surfaced the polarity sentinel-guard gap.
+- `noisy` — spin-up plus deterministic ±300 RPM tach jitter (unstable signal).
+- `disconnect` — spins normally until `--fault-after` ticks, then the tach
+  drops to 0 (cable yank / sudden stall) while duty stays high.
+
+`--temp-model runaway` makes temperature climb 1 °C/tick to 105 °C regardless
+of airflow, to exercise the over-temperature failsafe / critical-temp paths the
+default cooling model can't reach.
+
+The `*_test.go` scenario harness drives the **real** production code
+(`internal/polarity.HwmonProber`, the `hal/hwmon` backend) against these models
+and asserts ventd's verdict — fake-HIL bug-hunting with no hardware.
+
+Value files are written atomically (temp + rename), so a concurrent reader —
+the control loop, the polarity probe — never catches a file mid-write and parses
+an empty/torn value, matching real `/sys` read semantics.
+
 `VENTD_HWMON_ROOT` only steers **enumeration**; because every discovered channel
 carries an absolute path rooted there, reads and writes follow automatically.
 The hwmon backend logs a loud one-time WARN when the override is active so a

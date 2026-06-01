@@ -52,19 +52,21 @@ import (
 )
 
 type config struct {
-	out      string
-	board    string
-	preset   string
-	fans     int
-	temps    int
-	chip     string
-	maxRPM   int
-	minRPM   int // RPM the moment the fan is spinning at all (just past stop)
-	stopPWM  int // at/below this duty the fan stalls (spin-down threshold)
-	startPWM int // a stalled fan needs at least this duty to start spinning
-	model    string
-	tick     time.Duration
-	once     bool
+	out        string
+	board      string
+	preset     string
+	fans       int
+	temps      int
+	chip       string
+	maxRPM     int
+	minRPM     int // RPM the moment the fan is spinning at all (just past stop)
+	stopPWM    int // at/below this duty the fan stalls (spin-down threshold)
+	startPWM   int // a stalled fan needs at least this duty to start spinning
+	model      string
+	tempModel  string // "cooling" (default) | "runaway" — see tempMilliC / tempRunaway
+	faultAfter int    // for time-dependent fault models (disconnect): tick index at which the fault engages
+	tick       time.Duration
+	once       bool
 }
 
 // device is one materialised hwmonN directory.
@@ -87,7 +89,9 @@ func main() {
 	flag.IntVar(&cfg.minRPM, "min-rpm", 500, "RPM the instant the fan spins")
 	flag.IntVar(&cfg.stopPWM, "stop-pwm", 25, "duty at/below which the fan stalls (0-255)")
 	flag.IntVar(&cfg.startPWM, "start-pwm", 40, "duty a stalled fan needs to start (0-255)")
-	flag.StringVar(&cfg.model, "model", "spinup", "rpm model: linear | spinup")
+	flag.StringVar(&cfg.model, "model", "spinup", "rpm model: linear | spinup | phantom | stuck | inverted | sentinel | noisy | disconnect")
+	flag.StringVar(&cfg.tempModel, "temp-model", "cooling", "temperature model: cooling (falls with airflow) | runaway (climbs regardless — overtemp failsafe test)")
+	flag.IntVar(&cfg.faultAfter, "fault-after", 50, "with --model disconnect: tick index at which the fan's tach drops to 0 (cable yank / stall)")
 	flag.DurationVar(&cfg.tick, "tick", 200*time.Millisecond, "model update cadence")
 	flag.BoolVar(&cfg.once, "once", false, "materialise the tree and exit (no live loop)")
 	flag.Parse()
@@ -350,12 +354,14 @@ func run(devices []device, cfg config, stop <-chan os.Signal) {
 	}
 	ticker := time.NewTicker(cfg.tick)
 	defer ticker.Stop()
+	tick := 0
 	for {
 		select {
 		case <-stop:
 			fmt.Println("\nhwmonsim: stopped (tree left in place)")
 			return
 		case <-ticker.C:
+			tick++
 			for di, d := range devices {
 				if d.fans == 0 {
 					// Temp-only device (NVMe / ACPI zone): no fans to model;
@@ -366,12 +372,17 @@ func run(devices []device, cfg config, stop <-chan os.Signal) {
 				for i := 1; i <= d.fans; i++ {
 					pwm := readInt(filepath.Join(d.dir, fmt.Sprintf("pwm%d", i)), 0)
 					enable := readInt(filepath.Join(d.dir, fmt.Sprintf("pwm%d_enable", i)), 1)
-					rpm := rpmFor(clampByte(pwm), enable, cfg, &spinning[di][i])
+					rpm := rpmFor(clampByte(pwm), enable, cfg, &spinning[di][i], tick)
 					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("fan%d_input", i)), strconv.Itoa(rpm))
 					totalDuty += float64(rpm) / float64(cfg.maxRPM)
 				}
 				avgDuty := totalDuty / float64(d.fans)
-				milliC := tempMilliC(avgDuty)
+				var milliC int
+				if cfg.tempModel == "runaway" {
+					milliC = tempRunaway(tick)
+				} else {
+					milliC = tempMilliC(avgDuty)
+				}
 				for i := 1; i <= d.temps; i++ {
 					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("temp%d_input", i)), strconv.Itoa(milliC))
 				}
@@ -384,7 +395,21 @@ func run(devices []device, cfg config, stop <-chan os.Signal) {
 // (only manual mode == 1 follows the duty; firmware/auto holds a baseline) and
 // spin-up hysteresis (a stalled fan needs startPWM to begin, then stalls again
 // only below stopPWM).
-func rpmFor(pwm uint8, enable int, cfg config, spinning *bool) int {
+func rpmFor(pwm uint8, enable int, cfg config, spinning *bool, tick int) int {
+	// Fault models that ignore pwm_enable entirely — a dead tach reads 0 and a
+	// stuck tach reads its frozen value whether the BIOS or ventd owns the
+	// channel. These come first so the enable!=1 firmware baseline below can't
+	// mask the fault.
+	switch cfg.model {
+	case "phantom":
+		// Unconnected header or dead tach: RPM is always 0 regardless of duty.
+		*spinning = false
+		return 0
+	case "stuck":
+		// Seized/stuck tachometer: reports a fixed RPM that never tracks duty.
+		*spinning = true
+		return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)/2
+	}
 	if enable != 1 {
 		// Firmware/auto mode: a fixed baseline, independent of the duty
 		// byte — mirrors a BIOS curve the daemon hasn't taken over.
@@ -400,29 +425,96 @@ func rpmFor(pwm uint8, enable int, cfg config, spinning *bool) int {
 		}
 		*spinning = true
 		return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)*p/255
+	case "inverted":
+		// DC-mode / inverted header: RPM falls as duty rises. The polarity
+		// prober must read rpm(high duty) < rpm(low duty) → PolarityInverted.
+		*spinning = true
+		return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)*(255-p)/255
+	case "sentinel":
+		// Driver glitch: a spinning fan reports the 65535 RPM sentinel
+		// (hal/hwmon.SentinelRPMRaw) instead of a real tach value.
+		if p <= 0 {
+			*spinning = false
+			return 0
+		}
+		*spinning = true
+		return 65535
+	case "sentinelhigh":
+		// Intermittent tach glitch: a real, controllable fan whose tach reads
+		// a plausible RPM at low duty but emits the 65535 sentinel above ~50%
+		// duty. A consumer that trusts raw tach computes a wildly false delta.
+		base := rpmForSpinup(p, cfg, spinning)
+		if base > 0 && p > 128 {
+			return 65535
+		}
+		return base
+	case "noisy":
+		// Spin-up model plus deterministic tach jitter (±~300 RPM) so the
+		// control loop and calibration see an unstable, non-monotonic signal.
+		base := rpmForSpinup(p, cfg, spinning)
+		if base == 0 {
+			return 0
+		}
+		jitter := ((tick % 7) - 3) * 100 // -300..+300, deterministic per tick
+		r := base + jitter
+		if r < 0 {
+			r = 0
+		}
+		return r
+	case "disconnect":
+		// Fan spins normally until faultAfter ticks, then the tach drops to 0
+		// (cable yank / sudden stall) while duty stays high — exercises the
+		// runtime stall / low-temp-disconnect detection.
+		if tick >= cfg.faultAfter {
+			*spinning = false
+			return 0
+		}
+		return rpmForSpinup(p, cfg, spinning)
 	default: // "spinup"
-		if *spinning {
-			if p <= cfg.stopPWM {
-				*spinning = false
-				return 0
-			}
-		} else {
-			if p < cfg.startPWM {
-				return 0
-			}
-			*spinning = true
-		}
-		// Spinning: interpolate from minRPM at stopPWM to maxRPM at 255.
-		span := 255 - cfg.stopPWM
-		if span <= 0 {
-			span = 1
-		}
-		over := p - cfg.stopPWM
-		if over < 0 {
-			over = 0
-		}
-		return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)*over/span
+		return rpmForSpinup(p, cfg, spinning)
 	}
+}
+
+// rpmForSpinup is the canonical spin-up model: a real stall threshold
+// (cfg.stopPWM) and start hysteresis (cfg.startPWM), interpolating from
+// minRPM just past the stall point to maxRPM at full duty. Shared by the
+// "spinup" model and the fault models that layer on top of it (noisy,
+// disconnect).
+func rpmForSpinup(p int, cfg config, spinning *bool) int {
+	if *spinning {
+		if p <= cfg.stopPWM {
+			*spinning = false
+			return 0
+		}
+	} else {
+		if p < cfg.startPWM {
+			return 0
+		}
+		*spinning = true
+	}
+	// Spinning: interpolate from minRPM at stopPWM to maxRPM at 255.
+	span := 255 - cfg.stopPWM
+	if span <= 0 {
+		span = 1
+	}
+	over := p - cfg.stopPWM
+	if over < 0 {
+		over = 0
+	}
+	return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)*over/span
+}
+
+// tempRunaway models a thermal runaway: temperature climbs from 40 °C and
+// keeps rising with the tick count regardless of airflow, saturating at
+// 105 °C. Exercises the overtemp failsafe / critical-temp paths that the
+// cooling model (which always falls toward 35 °C under airflow) can't reach.
+func tempRunaway(tick int) int {
+	const start, ceiling = 40.0, 105.0
+	c := start + float64(tick) // 1 °C per tick
+	if c > ceiling {
+		c = ceiling
+	}
+	return int(c * 1000)
 }
 
 // tempMilliC maps average airflow fraction (0..1) to a temperature in
@@ -449,8 +541,20 @@ func clampByte(n int) uint8 {
 	return uint8(n)
 }
 
+// writeVal writes a sysfs-style value file atomically: a real /sys read never
+// observes a torn or empty file, but os.WriteFile truncates-then-writes, so a
+// concurrent reader (the daemon's control loop, the polarity probe) can catch
+// the file mid-write and parse an empty string. Write to a temp file in the
+// same directory and rename over the target — rename is atomic on Linux, so
+// every reader sees either the previous complete value or the new one, matching
+// real sysfs read semantics. The live model is the sole writer per file, so a
+// fixed ".tmp" sibling needs no per-write uniqueness.
 func writeVal(path, val string) error {
-	return os.WriteFile(path, []byte(val+"\n"), 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(val+"\n"), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func readInt(path string, dflt int) int {

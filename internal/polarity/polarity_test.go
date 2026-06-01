@@ -725,6 +725,7 @@ func TestPolarityRules(t *testing.T) {
 			polarity.PhantomReasonProfileOnly,
 			polarity.PhantomReasonDriverTooOld,
 			polarity.PhantomReasonWriteFailed,
+			polarity.PhantomReasonImplausibleTach,
 		}
 		for _, reason := range phantomReasons {
 			reason := reason
@@ -792,4 +793,80 @@ func (s *seqFakeNVML) SetFanControlPolicy(_ uint, _ int, policy int) (bool, erro
 func (s *seqFakeNVML) SetFanSpeed(_ uint, _ int, pct uint8) error {
 	s.setCalls = append(s.setCalls, pct)
 	return nil
+}
+
+// RULE-POLARITY-14: a probe pulse whose tach window holds no plausible sample
+// (every reading a 0xFFFF sentinel / above the plausibility ceiling) means the
+// tach can't be trusted; the probe MUST refuse to resolve direction and mark
+// the channel phantom with PhantomReasonImplausibleTach, never read the
+// sentinel as a real RPM and fabricate a normal/inverted verdict. A genuine 0
+// RPM (stopped fan) stays a plausible reading and classifies as before.
+func TestHwmonProber_ImplausibleTach(t *testing.T) {
+	// pwm-aware fake: real RPM at low duty, the 65535 sentinel above ~50% duty
+	// (the "sentinelhigh" hardware fault). Read-count-independent, so it does
+	// not depend on how many tach reads readRPMMean does per window.
+	newProber := func(sentinelAbovePWM int) (*polarity.HwmonProber, *int) {
+		pwm := 64
+		read := func(path string) ([]byte, error) {
+			if strings.HasSuffix(path, "fan1_input") {
+				if pwm > sentinelAbovePWM {
+					return []byte("65535\n"), nil // driver sentinel
+				}
+				// Clean, duty-proportional spin-up: 51→808, 204→2032 RPM, so a
+				// healthy fan shows a clear positive delta → normal.
+				return []byte(strconv.Itoa(400+pwm*8) + "\n"), nil
+			}
+			return []byte(strconv.Itoa(pwm) + "\n"), nil
+		}
+		write := func(path string, data []byte, _ os.FileMode) error {
+			if strings.HasSuffix(path, "pwm1") {
+				pwm, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+			}
+			return nil
+		}
+		base := time.Now()
+		calls := 0
+		return &polarity.HwmonProber{
+			Clock:     func(time.Duration) {},
+			ReadFile:  read,
+			WriteFile: write,
+			Now: func() time.Time {
+				calls++
+				return base.Add(time.Duration(calls-1) * 400 * time.Millisecond)
+			},
+		}, &pwm
+	}
+
+	t.Run("RULE-POLARITY-14_implausible_tach_phantom", func(t *testing.T) {
+		// Sentinel at the high pulse only: a raw-tach reader would compute
+		// delta = 65535 - 700 and call this "normal".
+		p, _ := newProber(128)
+		ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+		res, err := p.ProbeChannel(context.Background(), ch)
+		if err != nil {
+			t.Fatalf("ProbeChannel: %v", err)
+		}
+		if res.Polarity != polarity.PolarityPhantom {
+			t.Errorf("Polarity = %q (delta=%.0f low=%.0f high=%.0f); want phantom — sentinel tach must not classify as a real direction",
+				res.Polarity, res.Delta, res.Baseline, res.Observed)
+		}
+		if res.PhantomReason != polarity.PhantomReasonImplausibleTach {
+			t.Errorf("PhantomReason = %q, want %q", res.PhantomReason, polarity.PhantomReasonImplausibleTach)
+		}
+	})
+
+	t.Run("plausible_tach_still_classifies_normal", func(t *testing.T) {
+		// Guard against over-rejection: a clean fan (no sentinel at any duty)
+		// must still classify normal.
+		p, _ := newProber(1000) // never emits the sentinel
+		ch := makeChannel("/sys/pwm1", "/sys/fan1_input")
+		res, err := p.ProbeChannel(context.Background(), ch)
+		if err != nil {
+			t.Fatalf("ProbeChannel: %v", err)
+		}
+		if res.Polarity != polarity.PolarityNormal {
+			t.Errorf("Polarity = %q, want normal (delta=%.0f low=%.0f high=%.0f)",
+				res.Polarity, res.Delta, res.Baseline, res.Observed)
+		}
+	})
 }

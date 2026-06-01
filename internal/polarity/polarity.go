@@ -36,6 +36,19 @@ const (
 	PhantomReasonDriverTooOld   = "driver_too_old"
 	PhantomReasonWriteFailed    = "write_failed"
 
+	// PhantomReasonImplausibleTach is recorded when a probe pulse yields no
+	// plausible tach samples — every reading in the window was a driver
+	// sentinel (0xFFFF) or above the plausibility ceiling
+	// (hal/hwmon.IsSentinelRPM). The channel may well accept PWM writes, but
+	// its tach can't be trusted, so direction can't be resolved and the
+	// bipolar delta would be garbage (e.g. a 65535 sample at the high pulse
+	// reads as a +64000 RPM "normal" verdict). The conservative, correct
+	// outcome is phantom (monitor-only) rather than a fabricated direction.
+	// Calibration already rejects sentinel samples (calibrate.go); this keeps
+	// the polarity probe — which runs first and gates controllability —
+	// consistent with that guard.
+	PhantomReasonImplausibleTach = "implausible_tach"
+
 	// PhantomReasonColdECSuspected is the reason recorded when a no-
 	// response probe outcome hit a backend whose EC is known to veto
 	// manual writes under a thermal floor (BackendCaps.EcCanThermalVeto).

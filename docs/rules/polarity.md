@@ -236,11 +236,12 @@ Bound: internal/polarity/polarity_test.go:RULE-POLARITY-09_reset_wipes_calibrati
 
 Every defined `PhantomReason*` constant (`no_tach`,
 `no_response`, `firmware_locked`, `profile_only`,
-`driver_too_old`, `write_failed`) represents a permanent
+`driver_too_old`, `write_failed`, `implausible_tach`)
+represents a permanent
 non-controllable state. A `ControllableChannel` with
 `Polarity="phantom"` and any `PhantomReason` value MUST cause
 `WritePWM` to return `ErrChannelNotControllable` without calling
-`fn`. This is verified exhaustively for all six reason codes so
+`fn`. This is verified exhaustively for all reason codes so
 that adding a new reason code without updating the write path
 cannot silently enable writes to an uncontrollable channel. The
 reason code itself is advisory (shown in the setup wizard and
@@ -375,3 +376,35 @@ restore contract.
 Bound: internal/polarity/polarity_test.go:RULE-POLARITY-13_bipolar_baseline_invariant
 Bound: internal/polarity/polarity_test.go:hwmon_normal_fan_high_baseline_classifies_normal
 Bound: internal/polarity/polarity_test.go:hwmon_inverted_fan_low_baseline_classifies_inverted
+
+## RULE-POLARITY-14: A probe pulse with no plausible tach sample classifies the channel phantom; a driver sentinel is never read as a real RPM.
+
+`HwmonProber.readRPMMean` MUST drop tach samples that are driver
+sentinels or above the plausibility ceiling
+(`hal/hwmon.IsSentinelRPM` — `0xFFFF` / `> 25000` RPM) rather than
+averaging them into the window mean, and MUST report whether the
+window produced any plausible sample. When either bipolar pulse
+yields no plausible sample (the tach was unreadable, or every
+reading was a sentinel) the channel's tach cannot be trusted:
+`ProbeChannel` MUST classify it `phantom` with
+`PhantomReasonImplausibleTach` and MUST NOT derive a direction
+from the corrupted delta.
+
+Without the guard a fan whose tach reports the `0xFFFF` sentinel
+at one probe point — an intermittent glitch common on super-I/O
+chips at high RPM — produces `delta = 65535 − RPM_low ≈ +64000`
+and is misclassified `normal` (or, with the sentinel at only one
+pulse, sign-flipped to `inverted`), with the implausible 65535
+RPM stored on the result and carried into calibration and the UI.
+Because the polarity probe runs first during setup and gates
+controllability, this admitted an untrustworthy channel under a
+fabricated verdict. The guard mirrors the calibration sweep's
+existing `IsSentinelRPM` rejection (`internal/calibrate`) and the
+runtime `hal/hwmon` read path, so all three tach consumers agree.
+
+A genuine `0` RPM (a stopped fan) is a plausible reading and is
+NOT dropped: a phantom fan still classifies via the
+RULE-POLARITY-03 zero-delta path with `PhantomReasonNoResponse`,
+distinct from `implausible_tach`.
+
+Bound: internal/polarity/polarity_test.go:RULE-POLARITY-14_implausible_tach_phantom
