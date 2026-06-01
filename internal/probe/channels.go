@@ -28,11 +28,11 @@ func (p *prober) enumerateChannels(_ context.Context) ([]ControllableChannel, []
 	var channels []ControllableChannel
 	var diags []Diagnostic
 
-	if p.cfg.SysFS == nil {
+	if p.cfg.HwmonClassFS == nil {
 		return channels, diags
 	}
 
-	hwmonEntries, err := fs.ReadDir(p.cfg.SysFS, "class/hwmon")
+	hwmonEntries, err := fs.ReadDir(p.cfg.HwmonClassFS, ".")
 	if err != nil {
 		return channels, diags
 	}
@@ -56,10 +56,13 @@ func (p *prober) enumerateChannels(_ context.Context) ([]ControllableChannel, []
 // enumerateHwmonChannels finds all pwmN files within one hwmonN directory and
 // checks each for controllability.
 func (p *prober) enumerateHwmonChannels(hwmonName string) ([]ControllableChannel, []Diagnostic) {
-	base := path.Join("class/hwmon", hwmonName)
-	driver, _ := readTrimmed(p.cfg.SysFS, path.Join(base, "name"))
+	// base is relative to HwmonClassFS (the hwmon class dir); the hwmonN entry
+	// sits directly under it. Stored channel paths are stamped from
+	// HwmonClassDir so they survive the VENTD_HWMON_ROOT override.
+	base := hwmonName
+	driver, _ := readTrimmed(p.cfg.HwmonClassFS, path.Join(base, "name"))
 
-	entries, err := fs.ReadDir(p.cfg.SysFS, base)
+	entries, err := fs.ReadDir(p.cfg.HwmonClassFS, base)
 	if err != nil {
 		return nil, nil
 	}
@@ -77,14 +80,16 @@ func (p *prober) enumerateHwmonChannels(hwmonName string) ([]ControllableChannel
 
 		// pwmN_enable must exist for this to be a controllable channel.
 		enableFile := fname + "_enable"
-		if _, err := fs.Stat(p.cfg.SysFS, path.Join(base, enableFile)); err != nil {
+		if _, err := fs.Stat(p.cfg.HwmonClassFS, path.Join(base, enableFile)); err != nil {
 			continue
 		}
 
-		// Writability check (no actual write, RULE-PROBE-01).
+		// Writability check (no actual write, RULE-PROBE-01). The absolute
+		// path is stamped from HwmonClassDir, so under VENTD_HWMON_ROOT the
+		// check (and every later write) targets the synthetic fan, not /sys.
 		// In production, defaultWriteCheck opens the real /sys path O_WRONLY.
 		// In tests, an injected stub is used.
-		sysPWMPath := "/sys/" + path.Join(base, fname)
+		sysPWMPath := path.Join(p.cfg.HwmonClassDir, base, fname)
 		if !p.cfg.WriteCheck(sysPWMPath) {
 			diags = append(diags, Diagnostic{
 				Severity: "info",
@@ -102,7 +107,7 @@ func (p *prober) enumerateHwmonChannels(hwmonName string) ([]ControllableChannel
 		}
 
 		// Read initial PWM value.
-		if raw, err := readTrimmed(p.cfg.SysFS, path.Join(base, fname)); err == nil {
+		if raw, err := readTrimmed(p.cfg.HwmonClassFS, path.Join(base, fname)); err == nil {
 			if v, err := strconv.Atoi(raw); err == nil {
 				ch.InitialPWM = v
 			}
@@ -110,9 +115,9 @@ func (p *prober) enumerateHwmonChannels(hwmonName string) ([]ControllableChannel
 
 		// Look for companion fan*_input (tach — optional).
 		tachFile := "fan" + idx + "_input"
-		if _, err := fs.Stat(p.cfg.SysFS, path.Join(base, tachFile)); err == nil {
-			ch.TachPath = "/sys/" + path.Join(base, tachFile)
-			if raw, err := readTrimmed(p.cfg.SysFS, path.Join(base, tachFile)); err == nil {
+		if _, err := fs.Stat(p.cfg.HwmonClassFS, path.Join(base, tachFile)); err == nil {
+			ch.TachPath = path.Join(p.cfg.HwmonClassDir, base, tachFile)
+			if raw, err := readTrimmed(p.cfg.HwmonClassFS, path.Join(base, tachFile)); err == nil {
 				if v, err := strconv.Atoi(raw); err == nil {
 					ch.InitialRPM = v
 				}

@@ -7,6 +7,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/ventd/ventd/internal/hwmon"
 )
 
 // enumerateThermal discovers thermal sources from hwmon and thermal_zone sysfs
@@ -15,17 +17,18 @@ func (p *prober) enumerateThermal(_ context.Context) ([]ThermalSource, []Diagnos
 	var sources []ThermalSource
 	var diags []Diagnostic
 
-	if p.cfg.SysFS == nil {
+	if p.cfg.HwmonClassFS == nil {
 		return sources, diags
 	}
 
-	// hwmon entries: /sys/class/hwmon/hwmon*/
-	hwmonEntries, err := fs.ReadDir(p.cfg.SysFS, "class/hwmon")
+	// hwmon entries: the hwmon class dir (HwmonClassFS — /sys/class/hwmon, or
+	// the VENTD_HWMON_ROOT override tree).
+	hwmonEntries, err := fs.ReadDir(p.cfg.HwmonClassFS, ".")
 	if err != nil {
 		diags = append(diags, Diagnostic{
 			Severity: "warning",
 			Code:     "PROBE-THERMAL-HWMON-UNAVAIL",
-			Message:  "cannot read /sys/class/hwmon: " + err.Error(),
+			Message:  "cannot read hwmon class dir: " + err.Error(),
 		})
 	}
 	for _, entry := range hwmonEntries {
@@ -43,9 +46,14 @@ func (p *prober) enumerateThermal(_ context.Context) ([]ThermalSource, []Diagnos
 		diags = append(diags, srcDiags...)
 	}
 
-	// thermal_zone entries: /sys/class/thermal/thermal_zone*/
+	// thermal_zone entries: /sys/class/thermal/thermal_zone*/ — read through the
+	// real SysFS, not the hwmon override. When VENTD_HWMON_ROOT redirects hwmon
+	// to a synthetic tree, skip thermal zones entirely: the sim models its
+	// temperatures as hwmon temp*_input (already enumerated above), so reading
+	// the host's real ACPI zones would leak real sensors into an otherwise
+	// hardware-free sim run.
 	thermalEntries, err := fs.ReadDir(p.cfg.SysFS, "class/thermal")
-	if err == nil {
+	if err == nil && !hwmon.RootIsOverridden() {
 		for _, entry := range thermalEntries {
 			name := entry.Name()
 			if !strings.HasPrefix(name, "thermal_zone") {
@@ -64,12 +72,14 @@ func (p *prober) enumerateThermal(_ context.Context) ([]ThermalSource, []Diagnos
 
 // enumerateHwmonThermal reads temp*_input files from one hwmonN directory.
 func (p *prober) enumerateHwmonThermal(hwmonName string) (ThermalSource, []Diagnostic) {
-	base := path.Join("class/hwmon", hwmonName)
-	driver, _ := readTrimmed(p.cfg.SysFS, path.Join(base, "name"))
+	// base is relative to HwmonClassFS; stored sensor paths are stamped from
+	// HwmonClassDir so they follow the VENTD_HWMON_ROOT override.
+	base := hwmonName
+	driver, _ := readTrimmed(p.cfg.HwmonClassFS, path.Join(base, "name"))
 	src := ThermalSource{SourceID: hwmonName, Driver: driver}
 
 	var diags []Diagnostic
-	entries, err := fs.ReadDir(p.cfg.SysFS, base)
+	entries, err := fs.ReadDir(p.cfg.HwmonClassFS, base)
 	if err != nil {
 		diags = append(diags, Diagnostic{
 			Severity: "warning",
@@ -87,13 +97,13 @@ func (p *prober) enumerateHwmonThermal(hwmonName string) (ThermalSource, []Diagn
 		// e.g. "temp1_input" → index prefix "temp1"
 		prefix := strings.TrimSuffix(fname, "_input")
 		labelPath := path.Join(base, prefix+"_label")
-		label, _ := readTrimmed(p.cfg.SysFS, labelPath)
+		label, _ := readTrimmed(p.cfg.HwmonClassFS, labelPath)
 
 		valPath := path.Join(base, fname)
-		rawVal, readErr := readTrimmed(p.cfg.SysFS, valPath)
+		rawVal, readErr := readTrimmed(p.cfg.HwmonClassFS, valPath)
 		ch := SensorChannel{
 			Name:  fname,
-			Path:  "/sys/" + valPath,
+			Path:  path.Join(p.cfg.HwmonClassDir, valPath),
 			Label: label,
 		}
 		if readErr != nil {

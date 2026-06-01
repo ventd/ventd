@@ -1140,3 +1140,41 @@ func TestCurveHysteresisSmoothingRejectNegative(t *testing.T) {
 		t.Fatalf("negative hysteresis: err = %v", err)
 	}
 }
+
+// TestResolveHwmonPathsHonorsHwmonRootOverride proves the hwmon path resolver
+// scans the VENTD_HWMON_ROOT sim tree, not the host's real /sys, when the
+// override is active — so a sim config's stable hwmonN is matched against the
+// sim and never "re-anchored" onto a real /sys index under the override root.
+// Uses a chip name that cannot exist on the host: it resolves ONLY if the sim
+// tree is the one being scanned.
+func TestResolveHwmonPathsHonorsHwmonRootOverride(t *testing.T) {
+	t.Run("RULE-CONFIG-HWMON-ROOT-OVERRIDE_resolves_against_sim_tree", func(t *testing.T) {
+		simRoot := t.TempDir()
+		dev := filepath.Join(simRoot, "hwmon0")
+		if err := os.MkdirAll(dev, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dev, "name"), []byte("ventdsimchip\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dev, "pwm1"), []byte("0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Clear any explicit test FS override so the env-driven resolution runs.
+		prev := SetHwmonRootFS(nil)
+		t.Cleanup(func() { SetHwmonRootFS(prev) })
+		t.Setenv("VENTD_HWMON_ROOT", simRoot)
+
+		simPWM := filepath.Join(simRoot, "hwmon0", "pwm1")
+		cfg := &Config{
+			Fans: []Fan{{Name: "f", Type: "hwmon", PWMPath: simPWM, ChipName: "ventdsimchip"}},
+		}
+		if err := ResolveHwmonPaths(cfg, resolveHwmonRootFS()); err != nil {
+			t.Fatalf("resolve under override: %v — the override scan must find the sim chip, not the host's /sys", err)
+		}
+		if cfg.Fans[0].PWMPath != simPWM {
+			t.Errorf("PWMPath=%q, want %q (sim path must not be remapped to a real /sys index)", cfg.Fans[0].PWMPath, simPWM)
+		}
+	})
+}
