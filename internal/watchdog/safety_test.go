@@ -21,6 +21,7 @@ package watchdog
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -448,15 +450,16 @@ func TestWDSafety_Invariants(t *testing.T) {
 			}
 		}
 
+		// The happy path is proven deterministically by the two checks
+		// below — every channel restored to BIOS auto (2) AND no
+		// abandoned-channels WARN, which together prove the deadline-
+		// exceeded branch did not fire. The earlier wall-clock upper-
+		// bound assertion (elapsed < 400 ms) raced scheduler jitter
+		// under -race on shared GHA runners and added nothing the
+		// no-WARN check doesn't already guarantee (#1361).
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
-		start := time.Now()
 		w.RestoreCtx(ctx)
-		elapsed := time.Since(start)
-
-		if elapsed > 400*time.Millisecond {
-			t.Errorf("RestoreCtx took %v on the happy path; deadline-exceeded branch should not have fired", elapsed)
-		}
 		for _, p := range paths {
 			if got := readTrimmed(t, p+"_enable"); got != "2" {
 				t.Errorf("%s_enable after RestoreCtx = %q, want %q", p, got, "2")
@@ -524,14 +527,27 @@ func TestWDSafety_Invariants(t *testing.T) {
 			}
 		}
 
+		// The hung channel's goroutine blocks until t.Cleanup closes
+		// `stop`, so RestoreCtx returning AT ALL — while that peer is
+		// still in-flight — deterministically proves the budget branch
+		// unblocked the caller (otherwise RestoreCtx would block on the
+		// hung goroutine indefinitely). Synchronise on a done channel
+		// rather than asserting a wall-clock upper bound, which raced
+		// scheduler jitter under -race on shared runners (#1361). The
+		// 5 s safety timeout never false-fires on a correct impl (which
+		// returns within the 100 ms budget) and a genuine leak hangs it
+		// to a clear failure.
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		start := time.Now()
-		w.RestoreCtx(ctx)
-		elapsed := time.Since(start)
-
-		if elapsed > 300*time.Millisecond {
-			t.Errorf("RestoreCtx returned after %v despite a 100 ms budget; the deadline-exceeded branch did not unblock the caller", elapsed)
+		done := make(chan struct{})
+		go func() {
+			w.RestoreCtx(ctx)
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("RestoreCtx did not unblock within 5s despite the 100ms budget; the deadline-exceeded branch failed to unblock the caller while a peer was hung")
 		}
 		for _, p := range fastPaths {
 			if got := readTrimmed(t, p+"_enable"); got != "2" {
@@ -626,27 +642,59 @@ func TestWDSafety_Invariants(t *testing.T) {
 	})
 
 	t.Run("wd_per_syscall_deadline_write_does_not_leak_past_parent", func(t *testing.T) {
-		// writeWithDeadline returns when ctx fires regardless of
-		// whether the underlying os.WriteFile has completed. Target
-		// a path under a directory that doesn't exist so the write
-		// fails fast — combined with a ctx that fires after a tight
-		// deadline, the contract is "the helper returns within a
-		// bounded wall-clock budget". On most runs we'll observe
-		// either the ENOENT path (write completed first) or the
-		// abandonment path (ctx fired first); both prove the helper
-		// doesn't leak past the parent. The load-bearing assertion
-		// is the wall-clock bound.
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-		defer cancel()
-		tmp := filepath.Join(t.TempDir(), "nonexistent-subdir", "wd-deadline.test")
-		start := time.Now()
-		err := writeWithDeadline(ctx, tmp, []byte("hello\n"), 0o600)
-		elapsed := time.Since(start)
-		if err == nil {
-			t.Fatalf("writeWithDeadline to a nonexistent dir returned nil err (write should have failed fast)")
+		// writeWithDeadline must return when ctx fires even if the
+		// underlying os.WriteFile is STILL blocked inside the kernel.
+		// A FIFO with no reader makes os.WriteFile block on open(2)
+		// indefinitely, so the `done` channel never fires and the
+		// ctx-abandonment branch deterministically wins — no wall-clock
+		// bound to race scheduler jitter under -race on shared runners
+		// (#1361). The previous version wrote to a nonexistent dir
+		// (which fails fast, so the abandonment path was rarely even
+		// exercised) and asserted a 250 ms upper bound that flaked.
+		fifo := filepath.Join(t.TempDir(), "wd-deadline.fifo")
+		if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+			t.Skipf("mkfifo unsupported on this platform/fs: %v", err)
 		}
-		if elapsed > 250*time.Millisecond {
-			t.Errorf("writeWithDeadline elapsed %v despite a 20 ms ctx; helper leaked past parent budget", elapsed)
+		// Hold the read end open (but never read) so the writer's
+		// os.WriteFile opens successfully and then BLOCKS once it fills
+		// the pipe buffer with a payload larger than the buffer. Blocking
+		// on write(2) — rather than on open(2) for a readerless FIFO —
+		// keeps the FIFO present for the whole test, so the abandoned
+		// goroutine never re-creates a file under the TempDir and cleanup
+		// is race-free.
+		reader, err := os.OpenFile(fifo, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			t.Fatalf("open fifo read end: %v", err)
+		}
+		t.Cleanup(func() {
+			// Draining the buffer lets the abandoned writer finish and
+			// close, so it doesn't linger; EOF arrives once it does.
+			_, _ = io.Copy(io.Discard, reader)
+			_ = reader.Close()
+		})
+		// 1 MiB dwarfs the 64 KiB default pipe capacity, so the write
+		// blocks well before completing.
+		payload := make([]byte, 1<<20)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- writeWithDeadline(ctx, fifo, payload, 0o600) }()
+
+		// Fire the deadline. The write goroutine is blocked filling the
+		// FIFO buffer, so writeWithDeadline must return via the
+		// ctx-abandonment branch — proving it does not leak past the
+		// parent's deadline.
+		cancel()
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("writeWithDeadline returned nil err while the FIFO write was blocked; abandonment path expected")
+			}
+			if !strings.Contains(err.Error(), "abandoned") {
+				t.Errorf("expected 'abandoned' in err, got %q", err.Error())
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("writeWithDeadline leaked past parent: did not return within 5s of ctx cancel while the FIFO write was blocked")
 		}
 	})
 
