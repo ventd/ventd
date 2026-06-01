@@ -230,6 +230,37 @@ func TestValidateRejectsBadRPMPath(t *testing.T) {
 	}
 }
 
+// #759: pwm_mode is a closed set — "", "dc", "pwm" accepted, anything
+// else rejected so a hand-edited typo can't silently no-op the runtime
+// mode re-assertion the self-heal depends on.
+func TestValidate_PWMModeClosedSet(t *testing.T) {
+	for _, mode := range []string{"", "dc", "pwm"} {
+		cfg := &Config{
+			Version: CurrentVersion,
+			Fans: []Fan{
+				{Name: "f", Type: "hwmon", PWMPath: "/sys/class/hwmon/hwmon0/pwm1", MinPWM: 10, MaxPWM: 255, PWMMode: mode},
+			},
+		}
+		if err := validate(cfg); err != nil {
+			t.Errorf("pwm_mode=%q should be accepted, got %v", mode, err)
+		}
+	}
+
+	cfg := &Config{
+		Version: CurrentVersion,
+		Fans: []Fan{
+			{Name: "f", Type: "hwmon", PWMPath: "/sys/class/hwmon/hwmon0/pwm1", MinPWM: 10, MaxPWM: 255, PWMMode: "voltage"},
+		},
+	}
+	err := validate(cfg)
+	if err == nil {
+		t.Fatal("expected rejection for an out-of-set pwm_mode")
+	}
+	if !strings.Contains(err.Error(), "pwm_mode") {
+		t.Fatalf("error %q should mention pwm_mode", err.Error())
+	}
+}
+
 // regresses #293
 func TestValidate_RejectsSensorFanNameCollision(t *testing.T) {
 	cfg := &Config{

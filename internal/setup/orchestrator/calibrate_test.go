@@ -90,6 +90,14 @@ type fakeCalibrator struct {
 	results  map[string]calibrate.Result
 	errors   map[string]error
 	attempts []string
+
+	// healResults / healErrors drive HealModeMismatch per pwm_path.
+	// A pwm_path present in healResults heals successfully (returns that
+	// Result, true); one in healErrors returns the error; otherwise the
+	// heal reports "tried, didn't help" (Result{}, false, nil). #759.
+	healResults  map[string]calibrate.Result
+	healErrors   map[string]error
+	healAttempts []string
 }
 
 func (f *fakeCalibrator) Calibrate(_ context.Context, fan *config.Fan) (calibrate.Result, error) {
@@ -101,6 +109,17 @@ func (f *fakeCalibrator) Calibrate(_ context.Context, fan *config.Fan) (calibrat
 		return r, nil
 	}
 	return calibrate.Result{StartPWM: 80, MaxRPM: 1500}, nil
+}
+
+func (f *fakeCalibrator) HealModeMismatch(_ context.Context, fan *config.Fan) (calibrate.Result, bool, error) {
+	f.healAttempts = append(f.healAttempts, fan.PWMPath)
+	if err, ok := f.healErrors[fan.PWMPath]; ok {
+		return calibrate.Result{}, false, err
+	}
+	if r, ok := f.healResults[fan.PWMPath]; ok {
+		return r, true, nil
+	}
+	return calibrate.Result{}, false, nil
 }
 
 func TestCalibratePhase_Name(t *testing.T) {
@@ -116,6 +135,10 @@ type recordingCalibrator struct{ got []*config.Fan }
 func (r *recordingCalibrator) Calibrate(_ context.Context, fan *config.Fan) (calibrate.Result, error) {
 	r.got = append(r.got, fan)
 	return calibrate.Result{StartPWM: 80, MaxRPM: 1500}, nil
+}
+
+func (r *recordingCalibrator) HealModeMismatch(_ context.Context, _ *config.Fan) (calibrate.Result, bool, error) {
+	return calibrate.Result{}, false, nil
 }
 
 // TestCalibratePhase_HALFanGetsBackendTypeAndOverlaidTach pins the
@@ -401,6 +424,10 @@ func (b *barrierCalibrator) Calibrate(ctx context.Context, _ *config.Fan) (calib
 	b.live--
 	b.mu.Unlock()
 	return calibrate.Result{StartPWM: 80, MaxRPM: 1500}, nil
+}
+
+func (b *barrierCalibrator) HealModeMismatch(_ context.Context, _ *config.Fan) (calibrate.Result, bool, error) {
+	return calibrate.Result{}, false, nil
 }
 
 func (b *barrierCalibrator) peakInFlight() int {

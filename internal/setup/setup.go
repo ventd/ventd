@@ -427,6 +427,7 @@ type CalibrationBackend interface {
 	AllStatus() []calibrate.Status
 	DetectRPMSensor(fan *config.Fan) (calibrate.DetectResult, error)
 	RunSync(ctx context.Context, fan *config.Fan) (calibrate.Result, error)
+	HealModeMismatch(ctx context.Context, fan *config.Fan) (calibrate.Result, bool, error)
 }
 
 func New(cal CalibrationBackend, logger *slog.Logger) *Manager {

@@ -1514,12 +1514,30 @@ func (c *Controller) channelFor(fan config.Fan) (hal.Channel, error) {
 		Role: hal.RoleUnknown,
 		Caps: caps,
 		Opaque: halhwmon.State{
-			PWMPath:    c.pwmPath,
-			RPMTarget:  rpmTarget,
-			MaxRPM:     c.maxRPM,
-			OrigEnable: -1,
+			PWMPath:      c.pwmPath,
+			RPMTarget:    rpmTarget,
+			MaxRPM:       c.maxRPM,
+			OrigEnable:   -1,
+			ResolvedMode: resolvedMode(fan.PWMMode),
 		},
 	}, nil
+}
+
+// resolvedMode maps a config.Fan.PWMMode string to the hwmon
+// State.ResolvedMode pointer the backend re-asserts on acquire (#759).
+// Empty (the common case) → nil → the backend never touches pwm*_mode.
+// Validate already rejects any value outside {"", "dc", "pwm"}.
+func resolvedMode(pwmMode string) *int {
+	switch pwmMode {
+	case "dc":
+		m := hal.ModeDC
+		return &m
+	case "pwm":
+		m := hal.ModePWM
+		return &m
+	default:
+		return nil
+	}
 }
 
 // clampDT converts a tick-to-tick duration to a bounded float64 dt in seconds.

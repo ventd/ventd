@@ -99,6 +99,69 @@ func WritePWMEnable(pwmPath string, value int) error {
 	return nil
 }
 
+// PWM mode constants for the optional pwm*_mode sysfs attribute (kernel
+// hwmon ABI, Documentation/ABI/testing/sysfs-class-hwmon): the chip's
+// output drive type for a channel. Only a subset of Super-I/O drivers
+// expose a *writable* mode (nct6775 family); it87 and most laptop EC
+// drivers expose no mode file at all.
+const (
+	// PWMModeDC drives the header with a variable DC voltage — correct
+	// for 3-pin fans. nct6775 ABI value 0.
+	PWMModeDC = 0
+	// PWMModePWM drives the header with a fixed-amplitude PWM pulse —
+	// correct for 4-pin fans. nct6775 ABI value 1. A 3-pin fan on a
+	// PWM-mode header converts the pulse to a constant DC drive and
+	// never changes speed (the flat-RPM signature detectModeMismatch
+	// keys off — #759).
+	PWMModePWM = 1
+)
+
+// ReadPWMMode reads the current pwm*_mode value for a PWM path
+// (PWMModeDC / PWMModePWM). Returns a wrapped fs.ErrNotExist when the
+// driver does not expose a pwm*_mode file (it87, dell-smm, most laptop
+// EC drivers) so callers can distinguish "mode not a concept here" from
+// a genuine read error.
+func ReadPWMMode(pwmPath string) (int, error) {
+	p := modePath(pwmPath)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return 0, fmt.Errorf("hwmon: pwm_mode not supported at %s: %w", p, fs.ErrNotExist)
+		}
+		return 0, fmt.Errorf("hwmon: read pwm_mode %s: %w", p, err)
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0, fmt.Errorf("hwmon: parse pwm_mode %s: %w", p, err)
+	}
+	return v, nil
+}
+
+// WritePWMMode sets the pwm*_mode value for a PWM path. Used by the
+// calibrate mode-mismatch self-heal (#759) to switch a header from PWM
+// to DC drive, and by the hwmon HAL backend to re-assert a resolved
+// mode on every acquire (BIOS resets header mode on each cold boot).
+//
+// Returns a wrapped fs.ErrNotExist when the pwm*_mode file is absent —
+// callers must gate the write on a driver that the catalogue marks
+// PWMModeWritable before reaching here, but a missing file is still
+// handled gracefully rather than surfacing as a raw EACCES.
+func WritePWMMode(pwmPath string, value int) error {
+	p := modePath(pwmPath)
+	// Stat first for the same reason WritePWMEnable does: sysfs returns
+	// EACCES (not ENOENT) on O_CREATE of a missing file, which would
+	// hide "file absent" behind "permission denied".
+	if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("hwmon: pwm_mode not supported at %s: %w", p, fs.ErrNotExist)
+	}
+	data := strconv.AppendInt(nil, int64(value), 10)
+	data = append(data, '\n')
+	if err := os.WriteFile(p, data, 0); err != nil {
+		return fmt.Errorf("hwmon: write pwm_mode %s=%d: %w", p, value, err)
+	}
+	return nil
+}
+
 // ReadPWM reads the current PWM duty cycle (0–255) from a hwmon pwm* file.
 func ReadPWM(path string) (uint8, error) {
 	data, err := os.ReadFile(path)
@@ -135,6 +198,27 @@ func ReadRPMPath(path string) (int, error) {
 // e.g. /sys/class/hwmon/hwmon6/pwm1 → /sys/class/hwmon/hwmon6/pwm1_enable
 func enablePath(pwmPath string) string {
 	return filepath.Join(filepath.Dir(pwmPath), filepath.Base(pwmPath)+"_enable")
+}
+
+// modePath derives the pwm*_mode path from a pwm* path.
+// e.g. /sys/class/hwmon/hwmon6/pwm1 → /sys/class/hwmon/hwmon6/pwm1_mode
+func modePath(pwmPath string) string {
+	return filepath.Join(filepath.Dir(pwmPath), filepath.Base(pwmPath)+"_mode")
+}
+
+// ModeAttrWritable reports whether the pwm*_mode attribute for pwmPath
+// exists AND is writable on this host (owner-write bit set — kernel
+// hwmon exposes writable attrs as 0644, read-only ones as 0444). Used
+// by the hwmon HAL backend's ModeHealer to confirm a host can actually
+// flip a header's drive mode before the calibrate self-heal commits to
+// the attempt (#759). A missing file or a read-only mode attr both
+// return false.
+func ModeAttrWritable(pwmPath string) bool {
+	info, err := os.Stat(modePath(pwmPath))
+	if err != nil {
+		return false
+	}
+	return info.Mode().Perm()&0o200 != 0
 }
 
 // rpmPath derives the fan*_input path from a pwm* path.

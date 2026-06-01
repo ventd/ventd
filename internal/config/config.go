@@ -749,6 +749,15 @@ type Fan struct {
 	// Rule: NEVER write PWM=0 unless MinPWM=0 AND AllowStop=true. Absent
 	// (zero value) means the controller will refuse PWM=0 even if MinPWM=0.
 	AllowStop bool `yaml:"allow_stop,omitempty" json:"allow_stop,omitempty"`
+	// PWMMode, when set, is the chip output-drive mode the calibrate
+	// mode-mismatch self-heal resolved for this header (#759). Empty (the
+	// default for every fan the wizard did not heal) means "do not touch
+	// pwm*_mode — leave the header at whatever the BIOS configured".
+	// "dc" tells the hwmon controller to re-assert pwm*_mode=0 (DC drive)
+	// on every acquire, recovering a 3-pin fan whose header the BIOS
+	// boots into PWM mode; "pwm" re-asserts pwm*_mode=1. Only hwmon fans
+	// on drivers the catalogue marks PWMModeWritable ever carry this.
+	PWMMode string `yaml:"pwm_mode,omitempty" json:"pwm_mode,omitempty"`
 	// Position is the operator-supplied normalised (x,y) coordinate
 	// inside the case heatmap, both in [0,1]. Optional; nil omits the
 	// fan from the heatmap view. Independent of any control logic.
