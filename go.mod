@@ -4,11 +4,11 @@ go 1.25.10
 
 require (
 	github.com/dchest/siphash v1.2.3
-	github.com/ebitengine/purego v0.10.0
+	github.com/ebitengine/purego v0.10.1
 	github.com/go-rod/rod v0.116.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	golang.org/x/crypto v0.51.0
-	golang.org/x/sys v0.44.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/sys v0.45.0
 	gonum.org/v1/gonum v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
 )
