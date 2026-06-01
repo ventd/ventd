@@ -274,6 +274,31 @@ Bound: internal/state/state_test.go:RULE-STATE-12_delete_refuses_before_in_memor
 Bound: internal/state/state_test.go:RULE-STATE-12_with_transaction_refuses_before_calling_fn
 Bound: internal/state/state_test.go:RULE-STATE-12_seam_restored_after_test_lets_subsequent_writes_pass
 
+## RULE-STATE-13: The state directory is resolved through `EffectiveDir()`, which honours the `VENTD_STATE_DIR` override; every daemon entry point uses it so the pidfile and all stores follow one override together.
+
+`state.DefaultDir` (`/var/lib/ventd`) is the production default,
+but the daemon never hardcodes it at the call site: `AcquirePID`,
+`Open`, the last-fatal sentinel (`cmd/ventd`), and the diag
+observation export all resolve the directory through
+`state.EffectiveDir()`. `EffectiveDir()` returns the trimmed
+`VENTD_STATE_DIR` value when set, else `DefaultDir`; a single
+override therefore redirects the pidfile **and** the KV, blob,
+and log stores consistently, so the RULE-STATE-06 collision
+check operates on the chosen directory rather than splitting
+state across two locations.
+
+The override is a **dev/test seam**, not a production knob — its
+purpose is to let a second daemon run against a synthetic hwmon
+tree (`VENTD_HWMON_ROOT`, `tools/hwmonsim`) without contending on
+the production daemon's pidfile and stores. It mirrors
+`hwmon.RootOverrideEnv`. When the override is active the daemon
+logs a loud one-time WARN (`DirIsOverridden()`), so a stray
+setting in production can't silently fragment state; in a real
+deployment the systemd unit's `ReadWritePaths` / AppArmor profile
+also confine writes to `DefaultDir`, blocking an override there.
+
+Bound: internal/state/state_test.go:RULE-STATE-13_effective_dir_resolves_override
+
 ## RULE-STATE-MIGRATION-V1-V2-NOOP: A registered no-op v1→v2 migrator preserves caller state across the version bump and exercises the migration mechanism end-to-end.
 
 `migrations[[2]int{1, 2}]` MUST be a registered, callable no-op
