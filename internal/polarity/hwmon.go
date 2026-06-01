@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
 	"github.com/ventd/ventd/internal/probe"
 )
 
@@ -153,7 +154,7 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		return res, ctx.Err()
 	default:
 	}
-	rpmLow := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
+	rpmLow, okLow := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
 	res.Baseline = rpmLow // Reused field: RPM observed at the LOW pulse.
 
 	// Bipolar HIGH pulse (RULE-POLARITY-13).
@@ -173,13 +174,26 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 		return res, ctx.Err()
 	default:
 	}
-	rpmHigh := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
+	rpmHigh, okHigh := p.readRPMMean(ch.TachPath, BipolarSampleWindow)
 	res.Observed = rpmHigh
 
 	// Restore baseline before classifying.
 	_ = p.writeFile(ch.PWMPath, []byte(strconv.Itoa(baselinePWM)+"\n"))
 	p.clock()(RestoreDelay)
 	restored = true
+
+	// A pulse with no plausible tach samples (all sentinels / unreadable) means
+	// the tach can't be trusted. Classifying direction from such a window would
+	// fabricate a verdict — a 65535 sample at the high pulse reads as a huge
+	// positive delta ("normal"), a sentinel at only one pulse flips the sign
+	// ("inverted"). Refuse to resolve direction and mark the channel phantom so
+	// the control loop treats it as monitor-only, matching the calibration
+	// sweep's sentinel guard. RULE-POLARITY-14.
+	if !okLow || !okHigh {
+		res.Polarity = PolarityPhantom
+		res.PhantomReason = PhantomReasonImplausibleTach
+		return res, nil
+	}
 
 	// Classify on the bipolar delta — baseline-PWM-invariant.
 	delta := rpmHigh - rpmLow
@@ -210,9 +224,15 @@ func (p *HwmonProber) ProbeChannel(ctx context.Context, ch *probe.ControllableCh
 	return res, nil
 }
 
-// readRPMMean reads the tach file repeatedly over window and returns the mean.
-// On read failure it returns 0.
-func (p *HwmonProber) readRPMMean(tachPath string, window time.Duration) float64 {
+// readRPMMean reads the tach file repeatedly over window and returns the mean
+// of the plausible samples plus an ok flag. Driver sentinels (0xFFFF) and
+// values above the plausibility ceiling (hal/hwmon.IsSentinelRPM) are dropped
+// so a single garbage sample can't pollute the mean; ok is false when the
+// window produced no plausible samples at all — either the tach was unreadable
+// or every reading was a sentinel. A genuine 0 RPM (stopped fan) is plausible
+// and returns (0, true). Callers treat ok=false as "tach can't be trusted",
+// distinct from a trustworthy reading of a still fan.
+func (p *HwmonProber) readRPMMean(tachPath string, window time.Duration) (mean float64, ok bool) {
 	deadline := p.now().Add(window)
 	var sum float64
 	var count int
@@ -225,14 +245,19 @@ func (p *HwmonProber) readRPMMean(tachPath string, window time.Duration) float64
 		if err != nil {
 			break
 		}
-		sum += v
-		count++
+		// Drop driver sentinels / implausible spikes rather than averaging
+		// them in — consistent with the calibration sweep's guard. A sample
+		// of 65535 is "tach unreadable", not "fan spinning at 65535 RPM".
+		if v >= 0 && !halhwmon.IsSentinelRPM(int(v)) {
+			sum += v
+			count++
+		}
 		p.clock()(50 * time.Millisecond)
 	}
 	if count == 0 {
-		return 0
+		return 0, false
 	}
-	return sum / float64(count)
+	return sum / float64(count), true
 }
 
 // ProbeAll runs ProbeChannel on every hwmon/EC channel in channels sequentially.

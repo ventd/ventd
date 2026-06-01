@@ -38,16 +38,16 @@ func TestRpmFor_Linear(t *testing.T) {
 	cfg := baseCfg()
 	cfg.model = "linear"
 	var sp bool
-	if r := rpmFor(0, 1, cfg, &sp); r != 0 {
+	if r := rpmFor(0, 1, cfg, &sp, 0); r != 0 {
 		t.Errorf("pwm=0 linear: rpm=%d, want 0", r)
 	}
-	if r := rpmFor(255, 1, cfg, &sp); r != cfg.maxRPM {
+	if r := rpmFor(255, 1, cfg, &sp, 0); r != cfg.maxRPM {
 		t.Errorf("pwm=255 linear: rpm=%d, want %d", r, cfg.maxRPM)
 	}
 	// Monotonic non-decreasing.
 	prev := -1
 	for p := 0; p <= 255; p++ {
-		r := rpmFor(uint8(p), 1, cfg, &sp)
+		r := rpmFor(uint8(p), 1, cfg, &sp, 0)
 		if r < prev {
 			t.Fatalf("linear not monotonic at pwm=%d: %d < %d", p, r, prev)
 		}
@@ -59,22 +59,22 @@ func TestRpmFor_SpinupHysteresis(t *testing.T) {
 	cfg := baseCfg()
 	var sp bool // starts stalled
 	// Below startPWM while stalled → stays stalled.
-	if r := rpmFor(30, 1, cfg, &sp); r != 0 || sp {
+	if r := rpmFor(30, 1, cfg, &sp, 0); r != 0 || sp {
 		t.Errorf("stalled fan at pwm=30 (< startPWM=40): rpm=%d spinning=%v, want 0/false", r, sp)
 	}
 	// At/above startPWM → spins.
-	if r := rpmFor(40, 1, cfg, &sp); r <= 0 || !sp {
+	if r := rpmFor(40, 1, cfg, &sp, 0); r <= 0 || !sp {
 		t.Errorf("pwm=40 (== startPWM): rpm=%d spinning=%v, want >0/true", r, sp)
 	}
 	// Now spinning: drop to between stop and start → keeps spinning (hysteresis).
-	if r := rpmFor(30, 1, cfg, &sp); r <= 0 || !sp {
+	if r := rpmFor(30, 1, cfg, &sp, 0); r <= 0 || !sp {
 		t.Errorf("spinning fan at pwm=30 (> stopPWM=25): rpm=%d spinning=%v, want >0/true", r, sp)
 	}
 	// Drop to/below stopPWM → stalls.
-	if r := rpmFor(25, 1, cfg, &sp); r != 0 || sp {
+	if r := rpmFor(25, 1, cfg, &sp, 0); r != 0 || sp {
 		t.Errorf("spinning fan at pwm=25 (== stopPWM): rpm=%d spinning=%v, want 0/false", r, sp)
 	}
-	if r := rpmFor(255, 1, cfg, &sp); r != cfg.maxRPM {
+	if r := rpmFor(255, 1, cfg, &sp, 0); r != cfg.maxRPM {
 		t.Errorf("pwm=255 spinup: rpm=%d, want %d", r, cfg.maxRPM)
 	}
 }
@@ -83,8 +83,8 @@ func TestRpmFor_AutoModeIgnoresDuty(t *testing.T) {
 	cfg := baseCfg()
 	var sp bool
 	// enable != 1 (firmware/auto): a baseline regardless of duty byte.
-	r0 := rpmFor(0, 2, cfg, &sp)
-	r255 := rpmFor(255, 2, cfg, &sp)
+	r0 := rpmFor(0, 2, cfg, &sp, 0)
+	r255 := rpmFor(255, 2, cfg, &sp, 0)
 	if r0 == 0 || r0 != r255 {
 		t.Errorf("auto-mode rpm should be a nonzero constant: r0=%d r255=%d", r0, r255)
 	}
