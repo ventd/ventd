@@ -216,3 +216,46 @@ type PowerProfileBackend interface {
 	// error otherwise so callers can't accidentally substitute.
 	WritePowerProfile(ch Channel, profile string) error
 }
+
+// PWM output-drive modes for ModeHealer. Mirror the hwmon pwm*_mode ABI
+// (0 = DC, 1 = PWM) so backends can pass the value straight through.
+const (
+	// ModeDC drives the header with a variable DC voltage (3-pin fans).
+	ModeDC = 0
+	// ModePWM drives the header with a fixed-amplitude PWM pulse (4-pin
+	// fans). A 3-pin fan on a ModePWM header never changes speed.
+	ModePWM = 1
+)
+
+// ModeHealer is an OPTIONAL capability bolted onto a FanBackend for
+// channels that expose a writable output-drive mode attribute (hwmon
+// pwm*_mode on the nct6775 family). The calibrate package type-asserts
+// for it to self-heal a chip-mode mismatch — a 3-pin fan on a header the
+// BIOS left in PWM mode produces a flat PWM→RPM curve, and flipping the
+// header to DC mode recovers control (#759).
+//
+// Backends with no mode concept (nvml, msiec, thinkpad, ipmi, …) simply
+// don't implement this interface; the caller falls back to surfacing
+// BIOS guidance. The hwmon backend implements it but ModeWritable still
+// returns false unless the resolved channel actually exposes a writable
+// pwm*_mode file on this host — the catalogue-level "is this driver
+// family mode-writable" policy gate is the CALLER's responsibility
+// (calibrate is told whether to attempt a heal; it never decides policy
+// from the driver name itself).
+//
+// Implementations MUST be safe to call from multiple goroutines.
+type ModeHealer interface {
+	// ModeWritable reports whether ch exposes a pwm*_mode attribute that
+	// is present and writable on THIS host. A true result is necessary
+	// but NOT sufficient to flip the mode — the caller still gates on
+	// the driver being catalogued mode-writable.
+	ModeWritable(ch Channel) bool
+
+	// Mode reads the channel's current output-drive mode (ModeDC /
+	// ModePWM).
+	Mode(ch Channel) (int, error)
+
+	// SetMode writes the channel's output-drive mode. The value MUST be
+	// ModeDC or ModePWM.
+	SetMode(ch Channel, mode int) error
+}

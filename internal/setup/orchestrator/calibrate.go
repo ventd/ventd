@@ -27,6 +27,17 @@ type Calibrator interface {
 	// in production. Honours ctx cancellation; an aborted sweep
 	// returns a partial Result with Aborted: true.
 	Calibrate(ctx context.Context, fan *config.Fan) (calibrate.Result, error)
+
+	// HealModeMismatch attempts to recover a fan whose sweep came back
+	// ModeMismatchSuspected by switching its chip header from PWM mode
+	// to DC mode and re-sweeping (#759). Returns (healedResult, true,
+	// nil) when DC mode produced a responsive curve (header left in DC
+	// mode); (Result{}, false, nil) when it didn't help or there was
+	// nothing to heal; (Result{}, false, err) on a hardware error. The
+	// caller MUST gate this on the driver being catalogued
+	// PWMModeWritable — calibrate confirms the host-level writability
+	// and responsiveness but never decides policy from the driver name.
+	HealModeMismatch(ctx context.Context, fan *config.Fan) (calibrate.Result, bool, error)
 }
 
 // CalibrateFanResult is one entry in the CalibrateArtifact. Mirrors
@@ -92,6 +103,18 @@ type CalibrateFanResult struct {
 	// internal/hwdb.ChannelCalibration.ModeMismatchEvidence for the
 	// full token vocabulary.
 	ModeMismatchEvidence string `json:"mode_mismatch_evidence,omitempty"`
+
+	// ModeHealed is true when a ModeMismatchSuspected sweep was
+	// recovered by HealModeMismatch (switching the header to DC mode
+	// and re-sweeping). When true, ModeMismatchSuspected is false (the
+	// fields above reflect the DC-mode sweep) and ResolvedPWMMode names
+	// the mode ApplyPhase must persist into config.Fan.PWMMode. (#759.)
+	ModeHealed bool `json:"mode_healed,omitempty"`
+
+	// ResolvedPWMMode is "dc" when ModeHealed is true, empty otherwise.
+	// ApplyPhase copies it into config.Fan.PWMMode so the hwmon
+	// controller re-asserts pwm*_mode on every acquire. (#759.)
+	ResolvedPWMMode string `json:"resolved_pwm_mode,omitempty"`
 
 	// SustainedRPMs is the sample slice from the post-sweep
 	// sustained-spin check. Empty when the check was skipped (no
@@ -213,10 +236,28 @@ type CalibratePhase struct {
 	// hwdb.IsChipCalibrateWithinChipParallel against the loaded catalog;
 	// tests inject a stub returning the desired flag.
 	WithinChipParallel func(chipName string) bool
+
+	// ModeWritableDriver reports whether the driver behind a given chip
+	// name is catalogued as exposing a writable pwm*_mode attribute
+	// (PWMModeWritable: true — the nct6775 family). It is the policy
+	// gate for the mode-mismatch self-heal (#759): only when it returns
+	// true does sweepOne ask the Calibrator to flip a flat-curve
+	// header to DC mode and re-sweep. nil → no self-heal (every
+	// ModeMismatchSuspected fan is surfaced for BIOS action, the
+	// pre-#759 behaviour). Production wires this to an hwdb catalog
+	// lookup; tests inject a stub.
+	ModeWritableDriver func(chipName string) bool
 }
 
 // Name identifies this phase in the checkpoint store and the wizard UI.
 func (CalibratePhase) Name() string { return "calibrate" }
+
+// modeHealAllowed reports whether the mode-mismatch self-heal may run
+// for a fan on the given chip — true only when ModeWritableDriver is
+// wired and reports the driver catalogued as PWMModeWritable (#759).
+func (p CalibratePhase) modeHealAllowed(chipName string) bool {
+	return p.ModeWritableDriver != nil && p.ModeWritableDriver(chipName)
+}
 
 // Execute reads ProbeArtifact + PolarityArtifact and runs Calibrator
 // against every non-phantom fan. Per-fan failures land in
@@ -331,7 +372,7 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 					if ctx.Err() != nil {
 						return
 					}
-					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath], p.modeHealAllowed(j.fan.ChipName))
 				}
 				return
 			}
@@ -343,7 +384,7 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 				inner.Add(1)
 				go func(j job) {
 					defer inner.Done()
-					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath])
+					results[j.idx] = sweepOne(ctx, p.Calibrator, rc, j.fan, polByPath[j.fan.PWMPath], p.modeHealAllowed(j.fan.ChipName))
 				}(j)
 			}
 			inner.Wait()
@@ -397,6 +438,31 @@ func (p CalibratePhase) Execute(ctx context.Context, rc *RunContext) Outcome {
 	return Outcome{Status: StatusSuccess, Artifact: raw}
 }
 
+// fillEntryFromResult copies the calibrate.Result fields ApplyPhase
+// needs into a CalibrateFanResult. Shared by the initial sweep and the
+// post-heal re-population so the two paths can't drift (#759).
+func fillEntryFromResult(entry *CalibrateFanResult, result calibrate.Result) {
+	entry.StartPWM = result.StartPWM
+	entry.StopPWM = result.StopPWM
+	entry.MaxRPM = result.MaxRPM
+	entry.MinRPM = result.MinRPM
+	entry.IsPump = result.FanType == "pump"
+	entry.Aborted = result.Aborted
+	entry.SweepMode = result.SweepMode
+	entry.ModeMismatchSuspected = result.ModeMismatchSuspected
+	entry.ModeMismatchEvidence = result.ModeMismatchEvidence
+	entry.ModeHealed = result.ModeHealed
+	entry.ResolvedPWMMode = result.ResolvedPWMMode
+	if len(result.Curve) > 0 {
+		entry.Curve = make([]CalibrateCurvePoint, len(result.Curve))
+		for i, p := range result.Curve {
+			entry.Curve[i] = CalibrateCurvePoint{PWM: p.PWM, RPM: p.RPM}
+		}
+	} else {
+		entry.Curve = nil
+	}
+}
+
 // sweepOne calibrates a single fan and returns the populated result
 // entry. Extracted so the per-chip goroutines in Execute can call it
 // without duplicating the polarity-skip / error-wrap / log shape.
@@ -408,6 +474,7 @@ func sweepOne(
 	rc *RunContext,
 	fan ProbedFan,
 	polarity string,
+	allowModeHeal bool,
 ) CalibrateFanResult {
 	entry := CalibrateFanResult{PWMPath: fan.PWMPath}
 
@@ -439,19 +506,33 @@ func sweepOne(
 		return entry
 	}
 
-	entry.StartPWM = result.StartPWM
-	entry.StopPWM = result.StopPWM
-	entry.MaxRPM = result.MaxRPM
-	entry.MinRPM = result.MinRPM
-	entry.IsPump = result.FanType == "pump"
-	entry.Aborted = result.Aborted
-	entry.SweepMode = result.SweepMode
-	entry.ModeMismatchSuspected = result.ModeMismatchSuspected
-	entry.ModeMismatchEvidence = result.ModeMismatchEvidence
-	if len(result.Curve) > 0 {
-		entry.Curve = make([]CalibrateCurvePoint, len(result.Curve))
-		for i, p := range result.Curve {
-			entry.Curve[i] = CalibrateCurvePoint{PWM: p.PWM, RPM: p.RPM}
+	fillEntryFromResult(&entry, result)
+
+	// #759 mode-mismatch self-heal. A flat PWM→RPM curve on a driver
+	// the catalogue marks PWMModeWritable (nct6775 family) is most
+	// often a 3-pin fan on a header the BIOS left in PWM mode. Ask the
+	// Calibrator to flip the header to DC mode and re-sweep; on success
+	// the entry is rebuilt from the responsive DC-mode curve and carries
+	// ResolvedPWMMode so ApplyPhase persists it. On failure the original
+	// flat verdict stands and ApplyPhase surfaces BIOS guidance.
+	if result.ModeMismatchSuspected && allowModeHeal {
+		rc.Sink().Emit("info", "calibrate",
+			fmt.Sprintf("%s looks like a 3-pin fan on a PWM-mode header — trying DC mode…", fan.LabelHint))
+		healed, ok, hErr := cal.HealModeMismatch(ctx, cfgFan)
+		switch {
+		case hErr != nil:
+			rc.Log().Warn("calibrate: mode-mismatch self-heal errored; leaving channel for BIOS action",
+				"fan", fan.LabelHint, "pwm_path", fan.PWMPath, "err", hErr)
+		case ok:
+			result = healed
+			fillEntryFromResult(&entry, result)
+			rc.Log().Info("calibrate: mode-mismatch self-heal succeeded",
+				"fan", fan.LabelHint, "pwm_path", fan.PWMPath, "max_rpm", result.MaxRPM)
+			rc.Sink().Emit("info", "calibrate",
+				fmt.Sprintf("recovered %s by switching its header to DC mode", fan.LabelHint))
+		default:
+			rc.Log().Info("calibrate: DC mode did not recover the fan; leaving for BIOS action",
+				"fan", fan.LabelHint, "pwm_path", fan.PWMPath)
 		}
 	}
 
@@ -715,6 +796,13 @@ func (c *realCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (calibr
 		return calibrate.Result{}, errors.New("realCalibrator: nil calibrate.Manager")
 	}
 	return c.mgr.RunSync(ctx, fan)
+}
+
+func (c *realCalibrator) HealModeMismatch(ctx context.Context, fan *config.Fan) (calibrate.Result, bool, error) {
+	if c.mgr == nil {
+		return calibrate.Result{}, false, errors.New("realCalibrator: nil calibrate.Manager")
+	}
+	return c.mgr.HealModeMismatch(ctx, fan)
 }
 
 // loadCalibrateArtifact reads the CalibratePhase's checkpoint. Returns

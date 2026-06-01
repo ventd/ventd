@@ -125,6 +125,13 @@ func (c managerCalibrator) Calibrate(ctx context.Context, fan *config.Fan) (cali
 	return c.m.cal.RunSync(ctx, fan)
 }
 
+func (c managerCalibrator) HealModeMismatch(ctx context.Context, fan *config.Fan) (calibrate.Result, bool, error) {
+	if c.m == nil || c.m.cal == nil {
+		return calibrate.Result{}, false, fmt.Errorf("orchestrator: no CalibrationBackend wired on Manager")
+	}
+	return c.m.cal.HealModeMismatch(ctx, fan)
+}
+
 // managerRPMDetector adapts the Manager's CalibrationBackend (which
 // implements DetectRPMSensor) to the orchestrator's narrower
 // RPMDetector interface.
@@ -286,6 +293,13 @@ func (m *Manager) runOrchestrator(ctx context.Context) {
 			Calibrator: managerCalibrator{m: m},
 			WithinChipParallel: func(chipName string) bool {
 				return hwdb.IsChipCalibrateWithinChipParallel(cat, chipName)
+			},
+			// #759: gate the mode-mismatch self-heal on the driver being
+			// catalogued PWMModeWritable. A nil catalog (load failed
+			// above) → unconditionally false → every flat-curve fan is
+			// surfaced for BIOS action rather than self-healed.
+			ModeWritableDriver: func(chipName string) bool {
+				return hwdb.IsChipPWMModeWritable(cat, chipName)
 			},
 		},
 		orchestrator.ApplyPhase{ConfigPath: m.applyConfigPathOverride},

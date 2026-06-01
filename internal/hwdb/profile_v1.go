@@ -389,6 +389,31 @@ func IsChipCalibrateWithinChipParallel(cat *Catalog, chipName string) bool {
 	return cp.CalibrateWithinChipParallel
 }
 
+// IsChipPWMModeWritable reports whether the driver named by chipName
+// is catalogued PWMModeWritable: true — the policy gate for the
+// calibrate mode-mismatch self-heal (#759). chipName is the hwmon
+// `name` attribute, which equals the kernel module name for the
+// Super-I/O families that expose a writable pwm*_mode (nct6775,
+// nct6776, nct6779, nct6798, w83627ehf, …); the catalog's Drivers map
+// is keyed by that module name.
+//
+// A nil catalog, an unknown driver, or a driver whose PWMModeWritable
+// is nil (unknown) or false returns false. The self-heal therefore
+// runs ONLY on families explicitly confirmed writable; every other
+// case — including drivers like it87 that expose no mode attribute and
+// drivers we simply haven't characterised — falls back to surfacing
+// BIOS guidance, the conservative direction.
+func IsChipPWMModeWritable(cat *Catalog, chipName string) bool {
+	if cat == nil || chipName == "" {
+		return false
+	}
+	dp := cat.Drivers[chipName]
+	if dp == nil || dp.PWMModeWritable == nil {
+		return false
+	}
+	return *dp.PWMModeWritable
+}
+
 // ErrCatalog is the sentinel for catalog validation failures.
 var ErrCatalog = fmt.Errorf("hwdb catalog")
 

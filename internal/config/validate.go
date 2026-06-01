@@ -250,6 +250,14 @@ func validate(cfg *Config) error {
 		if f.MinPWM == 0 && !f.AllowStop {
 			return fmt.Errorf("config: fan %q: min_pwm is 0 but allow_stop is false — add allow_stop: true if you really want the fan to stop, or raise min_pwm above 0", f.Name)
 		}
+		// pwm_mode is a closed set: empty (untouched), "dc", or "pwm".
+		// A hand-edited typo here would silently no-op the mode
+		// re-assertion the self-heal depends on (#759), so reject it.
+		switch f.PWMMode {
+		case "", "dc", "pwm":
+		default:
+			return fmt.Errorf("config: fan %q: pwm_mode %q is invalid — use \"dc\", \"pwm\", or omit it", f.Name, f.PWMMode)
+		}
 		fans[f.Name] = f
 	}
 

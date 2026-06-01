@@ -341,6 +341,17 @@ func (p ApplyPhase) Execute(_ context.Context, rc *RunContext) Outcome {
 			"label", u.Label,
 			"chip", u.ChipName,
 			"reason", u.Reason)
+		// A mode-mismatch exclusion has a correlated tach — it's just
+		// flat — so the generic "no correlated tach" tail is wrong and
+		// the fix is operator-actionable. Give clear BIOS guidance
+		// instead (#759; the user chose generic-but-clear guidance over
+		// a per-board BIOS-menu-path catalog).
+		if strings.HasPrefix(u.Reason, "mode_mismatch") {
+			rc.Sink().Emit("warn", "apply",
+				fmt.Sprintf("excluded %s (%s): its header looks like a 3-pin/DC fan stuck on a PWM-mode header — ventd can't switch this chip's mode, so set this fan header to \"DC\" or \"Voltage\" mode in your BIOS fan-control menu, then re-run setup",
+					u.Label, u.ChipName))
+			continue
+		}
 		rc.Sink().Emit("warn", "apply",
 			fmt.Sprintf("excluded %s (%s): %s — daemon cannot drive a fan without a correlated tach",
 				u.Label, u.ChipName, u.Reason))
@@ -545,6 +556,18 @@ func buildConfig(
 			hwmonDevice = ""
 		}
 
+		// #759: when the calibrate mode-mismatch self-heal recovered this
+		// channel by switching the chip header to DC mode, persist the
+		// resolved mode so the hwmon controller re-asserts pwm*_mode on
+		// every acquire (the BIOS resets header mode each cold boot). Only
+		// hwmon fans carry a mode; non-hwmon HAL backends never heal.
+		pwmMode := ""
+		if fanType == "hwmon" {
+			if cal, ok := calByPath[fan.PWMPath]; ok && cal.ModeHealed {
+				pwmMode = cal.ResolvedPWMMode
+			}
+		}
+
 		cfg.Fans = append(cfg.Fans, config.Fan{
 			Name:        fan.LabelHint,
 			Type:        fanType,
@@ -556,6 +579,7 @@ func buildConfig(
 			MaxPWM:      255,
 			IsPump:      isPump,
 			PumpMinimum: pumpMinimum,
+			PWMMode:     pwmMode,
 		})
 	}
 

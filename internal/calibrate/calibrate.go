@@ -168,6 +168,21 @@ type Result struct {
 	// detector used. See ChannelCalibration.ModeMismatchEvidence for
 	// the token vocabulary; the field round-trips verbatim.
 	ModeMismatchEvidence string `json:"mode_mismatch_evidence,omitempty"`
+
+	// ModeHealed is set by HealModeMismatch when a flat-curve channel
+	// was recovered by switching the chip header from PWM mode to DC
+	// mode and the re-sweep then showed a responsive curve. When true,
+	// ModeMismatchSuspected is false (the result reflects the DC-mode
+	// sweep, not the original flat one) and ResolvedPWMMode names the
+	// mode that must be re-asserted at runtime. (#759.)
+	ModeHealed bool `json:"mode_healed,omitempty"`
+
+	// ResolvedPWMMode is the output-drive mode the self-heal settled
+	// on — "dc" when ModeHealed is true. Empty otherwise. ApplyPhase
+	// copies it into config.Fan.PWMMode so the hwmon controller
+	// re-asserts pwm*_mode on every acquire (the BIOS resets header
+	// mode each cold boot). (#759.)
+	ResolvedPWMMode string `json:"resolved_pwm_mode,omitempty"`
 }
 
 // detectModeMismatch inspects an up-ramp PWM→RPM curve for the flat-
@@ -611,6 +626,95 @@ func (m *Manager) RunSync(ctx context.Context, fan *config.Fan) (Result, error) 
 	return result, nil
 }
 
+// HealModeMismatch attempts to recover a fan that RunSync flagged
+// ModeMismatchSuspected by switching its chip header from PWM mode to DC
+// mode and re-sweeping (#759). The caller — the orchestrator's calibrate
+// phase — gates this on the resolved driver being catalogued
+// PWMModeWritable; calibrate itself only confirms the host actually
+// exposes a writable pwm*_mode (via hal.ModeHealer) and that flipping it
+// makes the fan responsive. It never decides policy from the driver name.
+//
+// Returns:
+//   - (healedResult, true, nil)  — DC mode recovered the fan. The result
+//     reflects the DC-mode sweep with ModeHealed=true / ResolvedPWMMode
+//     ="dc"; the header is LEFT in DC mode (the hwmon controller
+//     re-asserts it on every acquire).
+//   - (Result{}, false, nil)     — tried, didn't help (or nothing to
+//     try): the backend has no writable mode, the header was already
+//     DC-driven, or the re-sweep was still flat. The original mode is
+//     restored in the still-flat case.
+//   - (Result{}, false, err)     — the resolve / mode-write / re-sweep
+//     errored; the original mode is restored best-effort.
+func (m *Manager) HealModeMismatch(ctx context.Context, fan *config.Fan) (Result, bool, error) {
+	if m.resolver == nil {
+		return Result{}, false, fmt.Errorf("calibrate: no channel resolver set for %s", fan.PWMPath)
+	}
+	b, ch, rerr := m.resolver(ctx, fan)
+	if rerr != nil {
+		return Result{}, false, fmt.Errorf("calibrate: resolve %s for mode-heal: %w", fan.PWMPath, rerr)
+	}
+	healer, ok := b.(hal.ModeHealer)
+	if !ok || !healer.ModeWritable(ch) {
+		// Backend exposes no mode surface, or this host has no writable
+		// pwm*_mode for the channel — nothing to heal.
+		return Result{}, false, nil
+	}
+	orig, merr := healer.Mode(ch)
+	if merr != nil {
+		return Result{}, false, fmt.Errorf("calibrate: read pwm_mode for %s: %w", fan.PWMPath, merr)
+	}
+	if orig == hal.ModeDC {
+		// Already DC-driven; a flat curve here is not a PWM-mode
+		// mismatch (dead fan / stiction / cabling) — leave the mode be.
+		return Result{}, false, nil
+	}
+	if serr := healer.SetMode(ch, hal.ModeDC); serr != nil {
+		return Result{}, false, fmt.Errorf("calibrate: switch %s to DC mode: %w", fan.PWMPath, serr)
+	}
+	m.logger.Info("calibrate: switched header to DC mode, re-sweeping to verify mode-mismatch self-heal",
+		"pwm_path", fan.PWMPath)
+
+	res, srErr := m.RunSync(ctx, fan)
+	if srErr != nil {
+		if rb := healer.SetMode(ch, orig); rb != nil {
+			m.logger.Warn("calibrate: mode-heal re-sweep failed and mode restore also failed",
+				"pwm_path", fan.PWMPath, "restore_err", rb)
+		}
+		return Result{}, false, fmt.Errorf("calibrate: re-sweep %s in DC mode: %w", fan.PWMPath, srErr)
+	}
+	if res.ModeMismatchSuspected {
+		// Still flat in DC mode — the mode was not the cause (dead fan,
+		// stiction, disconnected tach). Revert so the operator's header
+		// mode isn't changed by a heal that didn't take.
+		if rb := healer.SetMode(ch, orig); rb != nil {
+			m.logger.Warn("calibrate: mode-heal did not recover the fan; mode restore failed",
+				"pwm_path", fan.PWMPath, "restore_err", rb)
+		}
+		m.logger.Info("calibrate: DC mode did not recover the fan; restored original mode",
+			"pwm_path", fan.PWMPath)
+		return Result{}, false, nil
+	}
+
+	res.ModeHealed = true
+	res.ResolvedPWMMode = "dc"
+	res.ModeMismatchEvidence = "self_healed_dc_mode"
+	m.logger.Info("calibrate: recovered fan by switching header to DC mode (mode-mismatch self-heal)",
+		"pwm_path", fan.PWMPath, "max_rpm", res.MaxRPM)
+
+	// Stamp the healed flags onto the persisted result too — RunSync
+	// stored the DC-mode sweep without them (they're set above), and a
+	// daemon that reads m.results later should see the resolved mode.
+	m.mu.Lock()
+	stored := m.results[fan.PWMPath]
+	stored.ModeHealed = true
+	stored.ResolvedPWMMode = "dc"
+	m.results[fan.PWMPath] = stored
+	m.mu.Unlock()
+	m.save()
+
+	return res, true, nil
+}
+
 // runSync is the core calibration implementation shared by run (goroutine) and
 // RunSync (blocking). It sets rs.running, does the ramp, and clears rs.running.
 // Dispatches on sweep mode: RPM-target fans (pre-RDNA AMD) use runSyncRPM; the
@@ -621,6 +725,17 @@ func (m *Manager) runSync(ctx context.Context, fan *config.Fan, rs *runState) (R
 	}
 	return m.runSyncPWM(ctx, fan, rs)
 }
+
+// pwmUpStepSettle / pwmDownStepSettle are the per-step hold durations
+// in the PWM up-ramp / down-ramp — how long the sweep waits for the fan
+// to respond after each duty write. Declared var (not const) so tests
+// can shrink them to keep wall-clock manageable (mirrors
+// sustainedSpinSettle in the orchestrator); production callers never
+// override them.
+var (
+	pwmUpStepSettle   = 2 * time.Second
+	pwmDownStepSettle = 1500 * time.Millisecond
+)
 
 // runSyncPWM is the original PWM-duty-cycle calibration path.
 func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState) (Result, error) {
@@ -806,7 +921,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 		}
 
 		// Wait for the fan to respond (fans are slow to spin up).
-		if ctxSleep(2 * time.Second) {
+		if ctxSleep(pwmUpStepSettle) {
 			return snapshot(0, step), ctx.Err()
 		}
 
@@ -882,7 +997,7 @@ func (m *Manager) runSyncPWM(ctx context.Context, fan *config.Fan, rs *runState)
 			if err := b.Write(ch, uint8(p)); err != nil {
 				break
 			}
-			if ctxSleep(1500 * time.Millisecond) {
+			if ctxSleep(pwmDownStepSettle) {
 				return snapshot(uint8(p), steps+1), ctx.Err()
 			}
 			// Sentinel-guarded read: a sentinel during down-ramp would falsely

@@ -107,6 +107,17 @@ type State struct {
 	// OnEINVALRecovery is the watchdog-side persistence callback fired
 	// once the EINVAL walker lands on an accepted value. Nil-safe.
 	OnEINVALRecovery func(int)
+
+	// ResolvedMode, when non-nil, is the output-drive mode (hal.ModeDC /
+	// hal.ModePWM) that the calibrate mode-mismatch self-heal resolved
+	// for this channel (#759). The controller carries it from
+	// config.Fan.PWMMode so ensureManualMode re-asserts pwm*_mode on
+	// every acquire — the BIOS resets header mode to its default on each
+	// cold boot, so a fan recovered by switching to DC mode would revert
+	// to a flat PWM-mode curve on the next reboot without this. nil (the
+	// default for every channel the wizard didn't heal) means "never
+	// touch pwm*_mode".
+	ResolvedMode *int
 }
 
 // Backend is the hwmon implementation of hal.FanBackend. Construct
@@ -158,6 +169,13 @@ type Backend struct {
 	// readPWMEnablePath is the fan*_target (RPM-target) read seam.
 	// nil → hwmon.ReadPWMEnablePath.
 	readPWMEnablePath func(path string) (int, error)
+
+	// readPWMMode / writePWMMode are the pwm*_mode seams used by the
+	// ModeHealer surface and the ResolvedMode re-assertion in
+	// ensureManualMode (#759). nil → hwmon.ReadPWMMode / hwmon.WritePWMMode.
+	// Overridden in tests via export_test.go.
+	readPWMMode  func(pwmPath string) (int, error)
+	writePWMMode func(pwmPath string, mode int) error
 }
 
 // NewBackend constructs a Backend that logs through the given slog
@@ -662,12 +680,14 @@ func (b *Backend) ensureManualMode(st State) error {
 		} else {
 			b.logger.Info("controller: manual PWM control acquired", "pwm_path", st.PWMPath)
 		}
+		b.assertResolvedMode(st)
 		return nil
 	}
 	if errors.Is(writeErr, fs.ErrNotExist) {
 		b.acquired.Store(st.PWMPath, struct{}{})
 		b.logger.Info("controller: pwm_enable not supported by driver, writing PWM values directly",
 			"pwm_path", st.PWMPath)
+		b.assertResolvedMode(st)
 		return nil
 	}
 	if errors.Is(writeErr, os.ErrPermission) {
@@ -695,6 +715,13 @@ func (b *Backend) reassertIfReverted(st State) {
 		}
 	}
 	b.reassertChecks.Store(st.PWMPath, now)
+
+	// Re-assert a resolved drive mode independently of pwm_enable: a
+	// resume-from-suspend can reset pwm*_mode back to the BIOS default
+	// without touching pwm_enable, which would silently revert a
+	// DC-mode-healed channel to a flat PWM-mode curve. assertResolvedMode
+	// is a no-op unless ResolvedMode is set and the chip drifted (#759).
+	b.assertResolvedMode(st)
 
 	readEnable := b.readPWMEnable
 	if readEnable == nil {
@@ -741,6 +768,85 @@ func (b *Backend) reassertIfReverted(st State) {
 	}
 	b.logger.Info("hwmon: re-asserted manual mode after silent pwm_enable revert (resume / BIOS reassertion)",
 		"pwm_path", st.PWMPath, "observed_enable", cur)
+}
+
+// assertResolvedMode re-asserts a channel's resolved pwm*_mode (the
+// value the calibrate self-heal chose, carried in State.ResolvedMode).
+// It reads the current mode first and writes only on a mismatch, so it
+// is cheap to call on every acquire / reassert tick and never fights a
+// chip that's already in the right mode. A nil ResolvedMode (every
+// channel the wizard didn't heal) is a no-op. RPM-target channels have
+// no pwm*_mode attribute and are skipped. Errors are logged, not
+// returned — a chip that won't take the mode write still gets duty
+// bytes; the worst case is the pre-heal flat-curve behaviour, which the
+// wizard already surfaced. (#759.)
+func (b *Backend) assertResolvedMode(st State) {
+	if st.ResolvedMode == nil || st.RPMTarget {
+		return
+	}
+	want := *st.ResolvedMode
+	readMode := b.readPWMMode
+	if readMode == nil {
+		readMode = hwmon.ReadPWMMode
+	}
+	writeMode := b.writePWMMode
+	if writeMode == nil {
+		writeMode = hwmon.WritePWMMode
+	}
+	if cur, err := readMode(st.PWMPath); err == nil && cur == want {
+		return // already in the resolved mode — nothing to do
+	}
+	if err := writeMode(st.PWMPath, want); err != nil {
+		b.logger.Warn("hwmon: could not assert resolved pwm_mode",
+			"pwm_path", st.PWMPath, "want_mode", want, "err", err)
+		return
+	}
+	b.logger.Info("hwmon: asserted resolved pwm_mode",
+		"pwm_path", st.PWMPath, "mode", want)
+}
+
+// ModeWritable implements hal.ModeHealer. It reports whether ch exposes
+// a pwm*_mode attribute that is present and writable on this host.
+// RPM-target channels (fan*_target) have no mode attribute and always
+// return false. The catalogue-level "is this driver family
+// mode-writable" policy gate is the caller's responsibility (#759).
+func (b *Backend) ModeWritable(ch hal.Channel) bool {
+	st, err := stateFrom(ch)
+	if err != nil || st.RPMTarget {
+		return false
+	}
+	return hwmon.ModeAttrWritable(st.PWMPath)
+}
+
+// Mode implements hal.ModeHealer: reads the channel's current
+// output-drive mode (hal.ModeDC / hal.ModePWM).
+func (b *Backend) Mode(ch hal.Channel) (int, error) {
+	st, err := stateFrom(ch)
+	if err != nil {
+		return 0, err
+	}
+	readMode := b.readPWMMode
+	if readMode == nil {
+		readMode = hwmon.ReadPWMMode
+	}
+	return readMode(st.PWMPath)
+}
+
+// SetMode implements hal.ModeHealer: writes the channel's output-drive
+// mode. mode MUST be hal.ModeDC or hal.ModePWM.
+func (b *Backend) SetMode(ch hal.Channel, mode int) error {
+	if mode != hal.ModeDC && mode != hal.ModePWM {
+		return fmt.Errorf("hal/hwmon: invalid pwm_mode %d (want %d=DC or %d=PWM)", mode, hal.ModeDC, hal.ModePWM)
+	}
+	st, err := stateFrom(ch)
+	if err != nil {
+		return err
+	}
+	writeMode := b.writePWMMode
+	if writeMode == nil {
+		writeMode = hwmon.WritePWMMode
+	}
+	return writeMode(st.PWMPath, mode)
 }
 
 // ClearAcquired forgets that a channel's manual-mode flag was set.

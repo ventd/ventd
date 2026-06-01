@@ -1002,3 +1002,31 @@ func TestRuleHwdbPR2_17(t *testing.T) {
 		}
 	})
 }
+
+// TestIsChipPWMModeWritable_PolicyGate pins the #759 self-heal policy
+// gate against the real catalog: nct6775-family drivers are writable,
+// it87 is explicitly not, and unknown/uncatalogued drivers default to
+// false (conservative — no speculative mode writes).
+func TestIsChipPWMModeWritable_PolicyGate(t *testing.T) {
+	cat, err := LoadCatalog()
+	if err != nil {
+		t.Fatalf("LoadCatalog: %v", err)
+	}
+	cases := []struct {
+		chip string
+		want bool
+	}{
+		{"nct6775", true},
+		{"it87", false},                // exposes no writable pwm*_mode
+		{"definitely-not-real", false}, // unknown driver
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := IsChipPWMModeWritable(cat, tc.chip); got != tc.want {
+			t.Errorf("IsChipPWMModeWritable(%q) = %v, want %v", tc.chip, got, tc.want)
+		}
+	}
+	if IsChipPWMModeWritable(nil, "nct6775") {
+		t.Error("nil catalog must return false")
+	}
+}

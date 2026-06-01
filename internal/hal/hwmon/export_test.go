@@ -53,6 +53,40 @@ func (b *Backend) SetClockForTest(nowFn func() time.Time) {
 	b.nowFn = nowFn
 }
 
+// NewBackendForModeTest constructs a Backend with the pwm_enable /
+// duty writes stubbed to no-ops and the pwm*_mode read/write seams
+// injected, so a test can observe assertResolvedMode + ModeHealer
+// behaviour without real sysfs. (#759.)
+func NewBackendForModeTest(
+	logger *slog.Logger,
+	readMode func(pwmPath string) (int, error),
+	writeMode func(pwmPath string, mode int) error,
+) *Backend {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Backend{
+		logger:         logger,
+		writePWMEnable: func(string, int) error { return nil },
+		writeDutyFn:    func(State, uint8) error { return nil },
+		readPWMMode:    readMode,
+		writePWMMode:   writeMode,
+	}
+}
+
+// MakeTestChannelWithMode is MakeTestChannel with a ResolvedMode set on
+// the opaque State so ensureManualMode's mode re-assertion fires. (#759.)
+func MakeTestChannelWithMode(pwmPath string, resolvedMode *int) hal.Channel {
+	ch := MakeTestChannel(pwmPath, false)
+	st := ch.Opaque.(State)
+	st.ResolvedMode = resolvedMode
+	ch.Opaque = st
+	return ch
+}
+
+// ModePtr returns a pointer to m for building ResolvedMode in tests.
+func ModePtr(m int) *int { return &m }
+
 // MakeTestChannel constructs a hal.Channel with the hwmon State opaque for
 // use in unit tests that exercise Write / ensureManualMode without real sysfs.
 func MakeTestChannel(pwmPath string, rpmTarget bool) hal.Channel {
