@@ -198,3 +198,34 @@ behaviour* on the outcome). RULE-PROBE-08 governs the wizard;
 RULE-PROBE-11 governs the daemon.
 
 Bound: internal/probe/persist_test.go:TestRULE_PROBE_11_RefuseDoesNotBlockStartup
+
+## RULE-PROBE-12: Hwmon enumeration honours VENTD_HWMON_ROOT — under the override the probe reads the synthetic tree and stamps channel/sensor paths under it, never the host's real /sys.
+
+The probe discovers controllable fan channels and thermal
+sensors from the hwmon class directory. That directory is the
+injectable `Config.HwmonClassFS` (reads) plus `Config.HwmonClassDir`
+(the absolute prefix stamped onto `ControllableChannel.PWMPath` /
+`TachPath` and `SensorChannel.Path`). When `VENTD_HWMON_ROOT`
+(`hwmon.RootIsOverridden`) redirects hwmon to a synthetic tree
+(`tools/hwmonsim`), `New` points BOTH at `hwmon.EffectiveRoot()`
+so enumeration reads the sim and every stamped path resolves
+under it; otherwise they default to `fs.Sub(SysFS, "class/hwmon")`
+and `/sys/class/hwmon`, the production behaviour, unchanged.
+
+This is a safety contract, not a convenience: the polarity
+auto-probe (`cmd/ventd`) runs on the enumerated channels and
+WRITES PWM (bipolar pulses) — un-gated by shadow mode. Were
+enumeration to keep reading real `/sys` while the operator
+intended a hardware-free sim run (the flow the `VENTD_HWMON_ROOT`
++ `tools/hwmonsim` tooling advertises), ventd would discover and
+write to the host's real fans, fighting whatever controls them.
+With the override the probe, the polarity auto-probe, the
+watchdog registration, and the startup `DiagnoseHwmon` all target
+the synthetic tree, and real hardware is never touched.
+
+`thermal_zone` enumeration (a separate `/sys/class/thermal`
+subsystem the override does not model) is skipped entirely while
+the override is active, so a sim run cannot leak the host's real
+ACPI thermal zones into the result.
+
+Bound: internal/probe/probe_test.go:RULE-PROBE-HWMON-ROOT-OVERRIDE_enumerates_override_tree

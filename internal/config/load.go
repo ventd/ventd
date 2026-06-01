@@ -5,27 +5,42 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/ventd/ventd/internal/hwmon"
 	"gopkg.in/yaml.v3"
 )
 
-// hwmonRootFS is the fs.FS used by Load to re-anchor hwmon paths via
-// ResolveHwmonPaths. Defaults to the live /sys/class/hwmon class
-// directory; tests override via SetHwmonRootFS so the resolver can be
-// driven from a fstest.MapFS fixture without touching real sysfs.
-var hwmonRootFS fs.FS = os.DirFS("/sys/class/hwmon")
+// hwmonRootFS, when non-nil, is an explicit test override of the fs.FS Load
+// passes to ResolveHwmonPaths. nil (the default) means "resolve at use time"
+// via resolveHwmonRootFS, so a VENTD_HWMON_ROOT sim tree is honoured at
+// runtime. Tests set a fstest.MapFS fixture so the resolver runs without
+// touching real sysfs.
+var hwmonRootFS fs.FS
 
-// SetHwmonRootFS overrides the fs.FS that Load passes to
-// ResolveHwmonPaths. Tests use it to drive the resolver from a fixture.
-// Pass nil to restore the default. Returns the previous root so tests
-// can restore it via t.Cleanup.
+// SetHwmonRootFS overrides the fs.FS that Load passes to ResolveHwmonPaths.
+// Tests use it to drive the resolver from a fixture. Pass nil to restore the
+// resolve-at-use-time default. Returns the previous value so tests can restore
+// it via t.Cleanup.
 func SetHwmonRootFS(fsys fs.FS) fs.FS {
 	prev := hwmonRootFS
-	if fsys == nil {
-		hwmonRootFS = os.DirFS("/sys/class/hwmon")
-	} else {
-		hwmonRootFS = fsys
-	}
+	hwmonRootFS = fsys
 	return prev
+}
+
+// resolveHwmonRootFS returns the fs.FS to anchor hwmon paths against. An
+// explicit test override (SetHwmonRootFS) always wins. Otherwise, when
+// VENTD_HWMON_ROOT redirects hwmon to a synthetic tree (tools/hwmonsim), the
+// resolver scans THAT tree — so a sim's stable hwmonN is matched against the
+// sim, not "corrected" to the host's real /sys index (which would re-anchor a
+// sim config onto a non-existent hwmonN under the override root). Production
+// (no override) scans /sys/class/hwmon as before. RULE-CONFIG-HWMON-ROOT-OVERRIDE.
+func resolveHwmonRootFS() fs.FS {
+	if hwmonRootFS != nil {
+		return hwmonRootFS
+	}
+	if hwmon.RootIsOverridden() {
+		return os.DirFS(hwmon.EffectiveRoot())
+	}
+	return os.DirFS(hwmon.DefaultHwmonRoot)
 }
 
 // Empty returns a minimal valid config with no fans, sensors, or controls.
@@ -83,7 +98,7 @@ func Load(path string) (*Config, error) {
 	// happen, the read fails silently and the resolver call below
 	// will surface the misconfiguration loudly.
 	EnrichChipName(cfg)
-	if err := ResolveHwmonPaths(cfg, hwmonRootFS); err != nil {
+	if err := ResolveHwmonPaths(cfg, resolveHwmonRootFS()); err != nil {
 		return nil, fmt.Errorf("resolve hwmon paths in %s: %w", path, err)
 	}
 	return cfg, nil

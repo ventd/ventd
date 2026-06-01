@@ -12,11 +12,6 @@ import (
 	"github.com/ventd/ventd/internal/hal"
 )
 
-// DefaultHwmonRoot is the production root for hwmon class enumeration.
-// Re-declared here as a string constant so the diagnose path does not
-// have to import enumerate.go's typed value into a different file.
-const diagHwmonRoot = "/sys/class/hwmon"
-
 // DiagnoseHwmon enumerates the live hwmon class directory and logs a
 // summary of writable PWM channels. Strictly read-only — never
 // modprobes, never writes.
@@ -26,7 +21,11 @@ const diagHwmonRoot = "/sys/class/hwmon"
 // surfaces any PWM at all, whether group-write was applied by the
 // shipped udev rule, and which chips are present.
 func DiagnoseHwmon(logger *slog.Logger) {
-	DiagnoseHwmonAt(logger, diagHwmonRoot)
+	// Honour VENTD_HWMON_ROOT: under the override the daemon controls the
+	// synthetic tree, so the startup diagnostic must describe that, not the
+	// host's real /sys (which the daemon is deliberately ignoring). EffectiveRoot
+	// is the hwmon class dir — DefaultHwmonRoot by default.
+	DiagnoseHwmonAt(logger, EffectiveRoot())
 }
 
 // DiagnoseHwmonAt is the test-friendly form: drive enumeration from

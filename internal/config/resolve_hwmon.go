@@ -220,7 +220,7 @@ func CheckResolvable(cfg *Config) error {
 		return fmt.Errorf("check resolvable: unmarshal clone: %w", err)
 	}
 	EnrichChipName(clone)
-	return ResolveHwmonPaths(clone, hwmonRootFS)
+	return ResolveHwmonPaths(clone, resolveHwmonRootFS())
 }
 
 // buildChipMap walks fsys's top level for hwmonN directories and returns a

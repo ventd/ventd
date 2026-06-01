@@ -15,6 +15,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/ventd/ventd/internal/hwmon"
 )
 
 // SchemaVersion is the version tag stored in the probe KV namespace.
@@ -137,6 +139,19 @@ type Config struct {
 	ProcFS fs.FS
 	// RootFS is the filesystem root "/". Used for /.dockerenv. Defaults to os.DirFS("/").
 	RootFS fs.FS
+	// HwmonClassFS is the hwmon class directory — the directory that holds the
+	// hwmonN entries directly (the equivalent of /sys/class/hwmon). hwmon and
+	// fan-channel enumeration read through it, NOT through SysFS+"class/hwmon",
+	// so a VENTD_HWMON_ROOT override redirects them to a synthetic tree. When
+	// unset, New derives it: the override root when active (RULE-PROBE-HWMON-
+	// ROOT-OVERRIDE), else fs.Sub(SysFS, "class/hwmon").
+	HwmonClassFS fs.FS
+	// HwmonClassDir is the absolute path prefix stamped onto enumerated
+	// channel/sensor paths (PWMPath, TachPath, sensor Path). Defaults to the
+	// VENTD_HWMON_ROOT override when active, else /sys/class/hwmon. The control
+	// loop and polarity probe later write to these paths, so under the override
+	// they target the synthetic fans and never real hardware.
+	HwmonClassDir string
 	// ExecFn runs external commands (systemd-detect-virt). Defaults to defaultExec.
 	ExecFn ExecFn
 	// WriteCheck tests whether a sysfs PWM path is writable. Defaults to defaultWriteCheck.
@@ -160,6 +175,26 @@ func New(cfg Config) Prober {
 	}
 	if cfg.RootFS == nil {
 		cfg.RootFS = os.DirFS("/")
+	}
+	// Resolve the hwmon class directory. When VENTD_HWMON_ROOT redirects hwmon
+	// to a synthetic tree (tools/hwmonsim), enumeration must read it and stamp
+	// channel paths under it — otherwise the probe discovers, and the polarity
+	// auto-probe WRITES to, the real fans even on a "hardware-free" sim run.
+	// An explicitly-injected value (tests) is always honoured.
+	override := hwmon.RootIsOverridden()
+	if cfg.HwmonClassDir == "" {
+		if override {
+			cfg.HwmonClassDir = hwmon.EffectiveRoot()
+		} else {
+			cfg.HwmonClassDir = hwmon.DefaultHwmonRoot
+		}
+	}
+	if cfg.HwmonClassFS == nil {
+		if override {
+			cfg.HwmonClassFS = os.DirFS(hwmon.EffectiveRoot())
+		} else if sub, err := fs.Sub(cfg.SysFS, "class/hwmon"); err == nil {
+			cfg.HwmonClassFS = sub
+		}
 	}
 	if cfg.ExecFn == nil {
 		cfg.ExecFn = defaultExec

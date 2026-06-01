@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -551,6 +552,93 @@ func TestProbe_Rules(t *testing.T) {
 		bad := filepath.Join(root, "internal", "hwdb", "bios_known_bad.go")
 		if _, err := os.Stat(bad); err == nil {
 			t.Errorf("internal/hwdb/bios_known_bad.go must not exist (RULE-PROBE-10)")
+		}
+	})
+}
+
+// TestRULE_PROBE_HWMON_ROOT_OVERRIDE verifies that when VENTD_HWMON_ROOT
+// redirects hwmon to a synthetic tree (tools/hwmonsim), the probe enumerates
+// THAT tree and stamps every channel/sensor path under it — never the host's
+// real /sys. This is the safety contract: the polarity auto-probe that runs on
+// these channels WRITES PWM, so a sim run must not discover real fans.
+func TestRULE_PROBE_HWMON_ROOT_OVERRIDE(t *testing.T) {
+	t.Run("RULE-PROBE-HWMON-ROOT-OVERRIDE_enumerates_override_tree", func(t *testing.T) {
+		// Materialise a minimal hwmonsim-shaped tree: one controllable fan.
+		simRoot := t.TempDir()
+		dev := filepath.Join(simRoot, "hwmon0")
+		if err := os.MkdirAll(dev, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for name, val := range map[string]string{
+			"name":        "nct6687\n",
+			"pwm1":        "0\n",
+			"pwm1_enable": "1\n",
+			"fan1_input":  "1000\n",
+			"temp1_input": "45000\n",
+		} {
+			if err := os.WriteFile(filepath.Join(dev, name), []byte(val), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		t.Setenv("VENTD_HWMON_ROOT", simRoot)
+
+		var checked []string
+		// SysFS is left to default (real /sys); the override must steer hwmon
+		// enumeration regardless. Clean bare-metal env so Probe doesn't
+		// short-circuit on virt/container detection.
+		p := probe.New(probe.Config{
+			ProcFS:     fixtures.ProcForBareMetal(),
+			RootFS:     fixtures.BareMetalRoot(),
+			ExecFn:     makeExecFn("none", "none"),
+			WriteCheck: stubWriteCheck(true, &checked),
+		})
+		r, err := p.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe: %v", err)
+		}
+
+		if len(r.ControllableChannels) != 1 {
+			t.Fatalf("got %d controllable channels, want 1 (from the sim tree)", len(r.ControllableChannels))
+		}
+		ch := r.ControllableChannels[0]
+		wantPWM := filepath.Join(simRoot, "hwmon0", "pwm1")
+		if ch.PWMPath != wantPWM {
+			t.Errorf("PWMPath=%q, want %q (under the override root, NOT /sys)", ch.PWMPath, wantPWM)
+		}
+		if strings.HasPrefix(ch.PWMPath, "/sys/") {
+			t.Errorf("PWMPath=%q is under real /sys — the override leaked to real hardware", ch.PWMPath)
+		}
+		wantTach := filepath.Join(simRoot, "hwmon0", "fan1_input")
+		if ch.TachPath != wantTach {
+			t.Errorf("TachPath=%q, want %q", ch.TachPath, wantTach)
+		}
+
+		// The writability check (and hence every later PWM write) must target
+		// the sim file, never a real /sys path.
+		if len(checked) == 0 {
+			t.Fatal("WriteCheck never called")
+		}
+		for _, c := range checked {
+			if strings.HasPrefix(c, "/sys/") {
+				t.Errorf("WriteCheck targeted real sysfs path %q under the override", c)
+			}
+		}
+
+		// Sensor paths follow the override too, and no real thermal_zone leaks in.
+		var sawSimSensor bool
+		for _, src := range r.ThermalSources {
+			for _, s := range src.Sensors {
+				if strings.HasPrefix(s.Path, "/sys/") {
+					t.Errorf("sensor Path=%q under real /sys during a sim run", s.Path)
+				}
+				if strings.HasPrefix(s.Path, simRoot) {
+					sawSimSensor = true
+				}
+			}
+		}
+		if !sawSimSensor {
+			t.Error("no sim sensor enumerated from the override tree")
 		}
 	})
 }
