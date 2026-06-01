@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -19,6 +20,35 @@ const (
 	dirMode    = 0o755
 	fileMode   = 0o640
 )
+
+// DirOverrideEnv redirects the state directory away from the production
+// DefaultDir to an alternate on-disk path. Empty/unset means production. This
+// is a dev/test seam — primarily so a second daemon can run against a synthetic
+// hwmon tree (VENTD_HWMON_ROOT, tools/hwmonsim) without colliding on the
+// production pidfile, KV, blob, and log stores — NOT a production knob. In a
+// real deployment the systemd unit's ReadWritePaths / AppArmor profile confine
+// writes to DefaultDir, so an override there is blocked by the sandbox; setting
+// it requires the same privilege as editing the unit. Mirrors
+// hwmon.RootOverrideEnv (VENTD_HWMON_ROOT).
+const DirOverrideEnv = "VENTD_STATE_DIR"
+
+// EffectiveDir returns the state directory to use: the trimmed value of the
+// VENTD_STATE_DIR override when set, else DefaultDir. All daemon entry points
+// resolve the state dir through this so a single override redirects the pidfile
+// and every store consistently.
+func EffectiveDir() string {
+	if d := strings.TrimSpace(os.Getenv(DirOverrideEnv)); d != "" {
+		return d
+	}
+	return DefaultDir
+}
+
+// DirIsOverridden reports whether VENTD_STATE_DIR is redirecting state away from
+// the production DefaultDir. Callers log a loud warning so a stray override in
+// production can't silently fragment state.
+func DirIsOverridden() bool {
+	return EffectiveDir() != DefaultDir
+}
 
 // State bundles the three storage primitives.
 type State struct {

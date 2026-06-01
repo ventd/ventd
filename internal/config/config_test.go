@@ -58,6 +58,33 @@ func TestValidateAcceptsRealHwmonPWMPaths(t *testing.T) {
 	}
 }
 
+func TestValidatePWMPathHonorsHwmonRootOverride(t *testing.T) {
+	// Without the override, a path outside /sys is rejected (the production
+	// security guard). With VENTD_HWMON_ROOT set, paths under the synthetic
+	// tree are accepted so a config can drive tools/hwmonsim's simulated fans;
+	// paths still outside the override root stay rejected.
+	simRoot := t.TempDir()
+	simPWM := filepath.Join(simRoot, "hwmon0", "pwm1")
+
+	// Override unset → sim path rejected.
+	if err := validateHwmonPWMPath(simPWM); err == nil {
+		t.Fatalf("override unset: sim path %q should be rejected", simPWM)
+	}
+
+	// Override set → sim path accepted, but an unrelated path is not.
+	t.Setenv("VENTD_HWMON_ROOT", simRoot)
+	if err := validateHwmonPWMPath(simPWM); err != nil {
+		t.Errorf("override set: sim path %q rejected: %v", simPWM, err)
+	}
+	if err := validateHwmonPWMPath("/tmp/elsewhere/pwm1"); err == nil {
+		t.Errorf("override set: path outside the override root should still be rejected")
+	}
+	// A real /sys path is still accepted regardless.
+	if err := validateHwmonPWMPath("/sys/class/hwmon/hwmon0/pwm1"); err != nil {
+		t.Errorf("override set: real /sys path rejected: %v", err)
+	}
+}
+
 func TestValidateLeavesNvidiaFanAlone(t *testing.T) {
 	// nvidia fans use PWMPath as a GPU index, not a sysfs path.
 	cfg := &Config{

@@ -110,11 +110,11 @@ func runSetup(configPath string, logger *slog.Logger, acousticOpts acousticOptio
 	// + audibly stuck fans). PID-locked because state.yaml's KV is
 	// already daemon-serialised; the lock surfaces "daemon is running"
 	// cleanly rather than corrupting telemetry.
-	if releasePID, pidErr := state.AcquirePID(state.DefaultDir); pidErr != nil {
+	if releasePID, pidErr := state.AcquirePID(state.EffectiveDir()); pidErr != nil {
 		logger.Warn("setup: cannot acquire state lock (is ventd.service running?); polarity will not persist — re-run wizard from web UI after start", "err", pidErr)
 	} else {
 		defer releasePID()
-		if st, stErr := state.Open(state.DefaultDir, logger); stErr != nil {
+		if st, stErr := state.Open(state.EffectiveDir(), logger); stErr != nil {
 			logger.Warn("setup: state.Open failed; polarity will not persist", "err", stErr)
 		} else {
 			defer func() {

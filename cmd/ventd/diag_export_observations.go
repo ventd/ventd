@@ -35,7 +35,7 @@ func runDiagExportObservations(args []string, logger *slog.Logger) error {
 		outPath  string
 		since    time.Time
 		useGzip  bool
-		stateDir = state.DefaultDir
+		stateDir = state.EffectiveDir()
 	)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

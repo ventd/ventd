@@ -81,7 +81,7 @@ func main() {
 		// can name what went wrong. Without this, restart-looping
 		// daemons hit systemd's "Start request repeated too quickly"
 		// with no surface other than `journalctl -u ventd`.
-		lastfatal.Write(lastfatal.DefaultDir, version, err)
+		lastfatal.Write(state.EffectiveDir(), version, err)
 		os.Exit(1)
 	}
 }
@@ -506,12 +506,19 @@ func run() error {
 	// Persistent state (KV, blob, log stores). AcquirePID prevents two
 	// daemon instances from racing over the same files (RULE-STATE-06).
 	// Open bootstraps the directory hierarchy on first boot (RULE-STATE-10).
-	releasePID, pidErr := state.AcquirePID(state.DefaultDir)
+	// The dir is resolved via EffectiveDir so VENTD_STATE_DIR redirects the
+	// pidfile and every store together (RULE-STATE-11).
+	stateDir := state.EffectiveDir()
+	if state.DirIsOverridden() {
+		logger.Warn("state: VENTD_STATE_DIR override active — using a non-default state directory, NOT "+state.DefaultDir,
+			"dir", stateDir, "env", state.DirOverrideEnv)
+	}
+	releasePID, pidErr := state.AcquirePID(stateDir)
 	if pidErr != nil {
 		return fmt.Errorf("acquire pid: %w", pidErr)
 	}
 	defer releasePID()
-	st, stErr := state.Open(state.DefaultDir, logger)
+	st, stErr := state.Open(stateDir, logger)
 	if stErr != nil {
 		// Issue #1090: branch on the documented state sentinels so the
 		// operator-facing diagnostic names the actual remediation,
@@ -543,7 +550,7 @@ func run() error {
 	// Issue #1165: startup has progressed past the modes the last-
 	// fatal sentinel covers (config load, state.Open). Any sentinel
 	// from a prior boot would lie if it survived — clear it.
-	lastfatal.Clear(lastfatal.DefaultDir)
+	lastfatal.Clear(state.EffectiveDir())
 	// Run the catalog-less hardware probe on first boot. Subsequent starts
 	// consult the persisted wizard outcome directly (RULE-PROBE-08).
 	if _, ok, _ := probe.LoadWizardOutcome(st.KV); !ok {

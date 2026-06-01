@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ventd/ventd/internal/hal/msiec"
+	"github.com/ventd/ventd/internal/hwmon"
 )
 
 // validateHwmonPWMPath restricts hwmon pwm_path values to real sysfs
@@ -28,11 +29,33 @@ func validateHwmonSysfsPath(p, basePrefix, baseSuffix string) error {
 		rootClass  = "/sys/class/hwmon/"
 		rootDevice = "/sys/devices/"
 	)
-	if !strings.HasPrefix(p, rootClass) && !strings.HasPrefix(p, rootDevice) {
+	// When VENTD_HWMON_ROOT redirects hwmon to a synthetic tree (dev/test,
+	// tools/hwmonsim), enumerated channels carry paths rooted under that
+	// override, not /sys — so a config that drives the simulated fans must be
+	// allowed to reference them. Widen the allow-list to the override root ONLY
+	// when it is active; production (env unset) keeps the strict /sys-only rule,
+	// preserving the "can't point calibration writes at an arbitrary file"
+	// guarantee. Setting the override already requires service-level privilege
+	// and is logged loudly, so it grants no capability an attacker lacks.
+	allowedRoots := []string{rootClass, rootDevice}
+	if hwmon.RootIsOverridden() {
+		if root := strings.TrimRight(hwmon.EffectiveRoot(), "/"); root != "" {
+			allowedRoots = append(allowedRoots, root+"/")
+		}
+	}
+	hasAllowedRoot := func(s string) bool {
+		for _, r := range allowedRoots {
+			if strings.HasPrefix(s, r) {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasAllowedRoot(p) {
 		return fmt.Errorf("pwm_path %q must start with %s or %s", p, rootClass, rootDevice)
 	}
 	cleaned := filepath.Clean(p)
-	if !strings.HasPrefix(cleaned, rootClass) && !strings.HasPrefix(cleaned, rootDevice) {
+	if !hasAllowedRoot(cleaned) {
 		return fmt.Errorf("pwm_path %q escapes sysfs after cleaning (got %q)", p, cleaned)
 	}
 	base := filepath.Base(cleaned)

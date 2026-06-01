@@ -1171,3 +1171,58 @@ func TestKV_Load_CorruptYAMLReturnsErrCorruptState(t *testing.T) {
 		}
 	})
 }
+
+// TestRULE_STATE_13_StateDirOverride verifies that VENTD_STATE_DIR redirects
+// the resolved state directory, and that the pidfile and stores follow the
+// override together — so a second daemon (e.g. one driving tools/hwmonsim via
+// VENTD_HWMON_ROOT) can run without colliding on the production state.
+func TestRULE_STATE_13_StateDirOverride(t *testing.T) {
+	t.Run("RULE-STATE-13_effective_dir_resolves_override", func(t *testing.T) {
+		// Unset → DefaultDir.
+		t.Setenv(DirOverrideEnv, "")
+		if got := EffectiveDir(); got != DefaultDir {
+			t.Errorf("unset: EffectiveDir()=%q, want DefaultDir %q", got, DefaultDir)
+		}
+		if DirIsOverridden() {
+			t.Errorf("unset: DirIsOverridden()=true, want false")
+		}
+
+		// Set (with surrounding whitespace) → trimmed override.
+		dir := t.TempDir()
+		t.Setenv(DirOverrideEnv, "  "+dir+"  ")
+		if got := EffectiveDir(); got != dir {
+			t.Errorf("set: EffectiveDir()=%q, want %q (trimmed)", got, dir)
+		}
+		if !DirIsOverridden() {
+			t.Errorf("set: DirIsOverridden()=false, want true")
+		}
+	})
+
+	t.Run("pidfile_and_stores_follow_override", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv(DirOverrideEnv, dir)
+
+		release, err := AcquirePID(EffectiveDir())
+		if err != nil {
+			t.Fatalf("AcquirePID(EffectiveDir()): %v", err)
+		}
+		defer release()
+		if _, err := os.Stat(filepath.Join(dir, "ventd.pid")); err != nil {
+			t.Errorf("pidfile not created under override dir: %v", err)
+		}
+
+		st, err := Open(EffectiveDir(), slog.Default())
+		if err != nil {
+			t.Fatalf("Open(EffectiveDir()): %v", err)
+		}
+		defer func() { _ = st.Close() }()
+		if st.Dir != dir {
+			t.Errorf("State.Dir=%q, want override dir %q", st.Dir, dir)
+		}
+		// initDirs (RULE-STATE-10) bootstraps the store hierarchy under the
+		// resolved dir — proving the stores follow the override, not DefaultDir.
+		if _, err := os.Stat(filepath.Join(dir, "logs")); err != nil {
+			t.Errorf("logs/ not created under override dir: %v", err)
+		}
+	})
+}
