@@ -179,6 +179,7 @@ a separate, harder problem (variance/correlation detection, false-positive
 prone) and are out of scope here.
 
 Bound: internal/controller/lowtemp_disconnect_test.go:TestReadAllSensors_LowTempDisconnectedFlaggedAsSentinel
+Bound: internal/controller/lowtemp_disconnect_e2e_test.go:TestTick_LowTempDisconnectCarriesForwardThenHandsBack
 
 ## RULE-CTRL-RECONCILE-STRANDED: on startup, hand back to firmware any fan left in manual mode that the current config no longer controls
 

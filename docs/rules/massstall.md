@@ -49,3 +49,4 @@ already-warned channel keeps reporting its current RPM. A controller
 without a reporter completes ticks unchanged (pre-R11 behaviour).
 
 Bound: internal/controller/controller_test.go:TestController_StallReporterFires
+Bound: internal/controller/stall_detection_e2e_test.go:TestTick_StallDetectedThroughRealBackendFlipsMassStall
