@@ -287,6 +287,7 @@ Bound: internal/controller/safety_test.go:polarity_inverted_sentinel_carry_forwa
 Bound: internal/controller/safety_test.go:polarity_normal_passes_value_through
 Bound: internal/controller/safety_test.go:polarity_unknown_refused_no_backend_write
 Bound: internal/controller/safety_test.go:nil_polarity_channel_falls_through_unchanged
+Bound: internal/controller/overtemp_test.go:TestTick_InvertedPolarityClosedLoopWritesFlippedByte
 
 ## RULE-POLARITY-12: On the first polarity refusal per channel lifetime, the controller MUST hand the channel back to BIOS auto via watchdog.RestoreOne; subsequent refusals are silent.
 

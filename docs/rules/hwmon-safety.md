@@ -271,6 +271,8 @@ flapping at the boundary). v1 covers single-sensor curves
 
 Bound: internal/controller/overtemp_test.go:TestOvertempForce_DebounceAndHysteresis
 Bound: internal/controller/overtemp_test.go:TestResolveEmergencyEngageC_TjmaxFallbackForCPULabel
+Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeEndToEnd
+Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint
 
 ## RULE-HWMON-CAL-INTERRUPTIBLE: calibration restores original PWM on abort
 
