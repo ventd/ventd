@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ventd/ventd/internal/probe"
 )
 
 func writeTempAttr(t *testing.T, dir, name, content string) {
@@ -100,5 +102,126 @@ func TestOvertempForce_DebounceAndHysteresis(t *testing.T) {
 	}
 	if step(97, 10*time.Second) {
 		t.Fatal("97 °C @10s: below release temp for the debounce dwell — must release")
+	}
+}
+
+// TestTick_OvertempFailsafeEndToEnd drives the REAL control tick against a
+// fake hwmon fan and asserts the full over-temperature failsafe chain
+// (RULE-CTRL-OVERTEMP-FAILSAFE): the debounce holds off a false-fire on the
+// first over-temp tick, then once the over-temp dwell exceeds emergencyDebounce
+// the failsafe forces PWM=255 — overriding the operator max_pwm cap — and on
+// cool-down releases back to curve control. Unlike the resolveEmergencyEngageC
+// unit tests (threshold math only) and computePWM (stubbed over-temp fn), this
+// exercises tick() → overtempForce → the post-clamp 255 override end to end,
+// the actual byte written to the fan.
+func TestTick_OvertempFailsafeEndToEnd(t *testing.T) {
+	ff := newFakeFan(t)
+	chipDir := filepath.Dir(ff.tempPath)
+	// crit 90 °C → engage 90 + emergencyMarginC. No Tjmax fallback.
+	writeTempAttr(t, chipDir, "temp1_crit", "90000")
+	const cap = 200 // operator max_pwm cap the failsafe must bypass
+	engageC := 90.0 + emergencyMarginC
+
+	cfg := makeLinearCurveCfg(ff, "cpu", "cpu_curve", 40, cap)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu", "cpu_curve")
+	c.tjmaxFn = func() float64 { return 0 } // crit is the only threshold source
+
+	// 1) Below engage: normal curve control, capped at max_pwm. Arms the failsafe.
+	writeTempAttr(t, chipDir, "temp1_input", "60000")
+	c.tick()
+	if got := readPWMByte(t, ff.pwmPath); got == 255 {
+		t.Fatalf("PWM=255 at 60 °C — failsafe must not arm-fire below engage")
+	}
+
+	// 2) Spike above engage, single tick: debounce must hold, so the write is
+	// still the capped curve value (255 curve clamped to max_pwm=200), NOT 255.
+	writeTempAttr(t, chipDir, "temp1_input", "95000") // > engageC, curve wants 255
+	c.tick()
+	if got := readPWMByte(t, ff.pwmPath); got != cap {
+		t.Errorf("first over-temp tick: PWM=%d, want %d (cap; debounce must hold off the failsafe)", got, cap)
+	}
+
+	// 3) Backdate the over-temp dwell past emergencyDebounce, tick again:
+	// failsafe engages and forces full speed, bypassing the max_pwm cap.
+	c.overTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.tick()
+	if got := readPWMByte(t, ff.pwmPath); got != 255 {
+		t.Errorf("engaged failsafe: PWM=%d, want 255 (forced full speed bypassing max_pwm=%d)", got, cap)
+	}
+	if !c.emergencyEngaged {
+		t.Error("emergencyEngaged=false after engagement")
+	}
+	_ = engageC
+
+	// 4) Cool below the release margin, backdate the under-temp dwell, tick:
+	// failsafe releases and returns to capped curve control.
+	writeTempAttr(t, chipDir, "temp1_input", "60000") // well below engage − release
+	c.tick()                                          // observes cool, starts underTempSince
+	c.underTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.tick()
+	if c.emergencyEngaged {
+		t.Error("failsafe still engaged after cool-down + dwell; expected release")
+	}
+	if got := readPWMByte(t, ff.pwmPath); got == 255 {
+		t.Errorf("after release: PWM=255, want curve/cap control (≤ %d)", cap)
+	}
+}
+
+// TestTick_InvertedPolarityClosedLoopWritesFlippedByte drives a full control
+// tick against a fake hwmon fan through the REAL hwmon backend with an
+// inverted-polarity channel, and asserts the byte that actually lands on the
+// fan file is flipped (255 − curve). RULE-POLARITY-11 is pinned at the
+// writeWithRetry boundary with a fake backend; this closes the loop end to end
+// — sensor → curve → polarity.WritePWM → real backend → sysfs byte — because a
+// wrong-direction write is the most dangerous control bug (full speed when it
+// should idle, or idle when it should cool).
+func TestTick_InvertedPolarityClosedLoopWritesFlippedByte(t *testing.T) {
+	ff := newFakeFan(t)
+	// 60 °C on a linear 40→80 / 0→255 curve → 128 logical PWM.
+	writeTempAttr(t, filepath.Dir(ff.tempPath), "temp1_input", "60000")
+	cfg := makeLinearCurveCfg(ff, "cpu fan", "cpu_curve", 0, 255)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu fan", "cpu_curve")
+	// Inverted channel — the real backend must receive 255 − logical.
+	c.polarityCh = &probe.ControllableChannel{PWMPath: ff.pwmPath, Polarity: "inverted"}
+
+	c.tick()
+
+	got := readPWMByte(t, ff.pwmPath)
+	// linear(60,40,80,0,255)=127.5→128 logical; inverted → 255-128 = 127.
+	if got != 127 {
+		t.Errorf("inverted closed-loop write = %d, want 127 (255 − 128); a raw write would land 128", got)
+	}
+}
+
+// TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint pins the other half of
+// RULE-CTRL-OVERTEMP-FAILSAFE: a chip that operates AT its crit/throttle point
+// by design (common — CPUs throttle at Tjmax under sustained load) must NEVER
+// trip the failsafe, because engage = crit + emergencyMarginC. Even with the
+// over-temp dwell backdated far past the debounce, a temp at-or-below the
+// throttle point (but below engage) must keep curve control, not scream the
+// fans to full speed forever. A regression here is a noise/usability disaster
+// that looks like a "stuck at 100%" bug.
+func TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint(t *testing.T) {
+	ff := newFakeFan(t)
+	chipDir := filepath.Dir(ff.tempPath)
+	writeTempAttr(t, chipDir, "temp1_crit", "90000") // throttle 90 °C → engage 94 °C
+	cfg := makeLinearCurveCfg(ff, "cpu", "cpu_curve", 40, 200)
+	c := newTestController(t, ff, cfg, &stubCal{}, "cpu", "cpu_curve")
+	c.tjmaxFn = func() float64 { return 0 }
+
+	// Sit at 92 °C — above the 90 °C throttle point, but below the 94 °C engage.
+	writeTempAttr(t, chipDir, "temp1_input", "92000")
+	c.tick()
+	// Even if the dwell somehow accrued, the temp never reaches engage, so the
+	// failsafe must stay disengaged. Backdate to prove it's the threshold, not
+	// the debounce, holding it off.
+	c.overTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.tick()
+
+	if c.emergencyEngaged {
+		t.Error("failsafe engaged at 92 °C (throttle 90, engage 94) — must not fire on a chip hot by design")
+	}
+	if got := readPWMByte(t, ff.pwmPath); got == 255 {
+		t.Errorf("PWM=255 at 92 °C below engage — false over-temp fire (fans stuck at full speed)")
 	}
 }
