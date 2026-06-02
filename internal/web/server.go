@@ -44,6 +44,7 @@ import (
 	"github.com/ventd/ventd/internal/nvidia"
 	"github.com/ventd/ventd/internal/probe"
 	"github.com/ventd/ventd/internal/probe/opportunistic"
+	"github.com/ventd/ventd/internal/sensorfreeze"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/web/authpersist"
 	webstatic "github.com/ventd/ventd/web"
@@ -109,6 +110,10 @@ type Server struct {
 	// backends push into; the doctor's ebusy_storm detector reads its
 	// currently-active storms. nil in monitor-only mode; nil-safe.
 	ebusy *ebusy.Collector
+	// stuckSensors is the shared freeze tracker every controller's sensor
+	// read feeds; the doctor's stuck_sensor detector reads its current
+	// verdict. nil in monitor-only mode; nil-safe.
+	stuckSensors *sensorfreeze.Tracker
 	// drift is the R16 per-layer drift detector (R11). The
 	// /api/v1/confidence/status handler reads its per-channel snapshot
 	// for the per-layer drift evidence. nil in monitor-only mode; nil-safe.
@@ -1772,6 +1777,14 @@ func (s *Server) SetGate(g *gate.Evaluator) {
 // (monitor-only mode skips wiring; the detector then reports nothing).
 func (s *Server) SetEBUSYCollector(c *ebusy.Collector) {
 	s.ebusy = c
+}
+
+// SetStuckSensorTracker wires the shared sensor-freeze tracker so the doctor's
+// stuck_sensor detector surfaces a temperature sensor frozen at a plausible
+// value while the box is thermally active. nil-safe (monitor-only mode skips
+// wiring; the detector then reports nothing).
+func (s *Server) SetStuckSensorTracker(t *sensorfreeze.Tracker) {
+	s.stuckSensors = t
 }
 
 // SetDriftDetector wires the R16 per-layer drift detector so

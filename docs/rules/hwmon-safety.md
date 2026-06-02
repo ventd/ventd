@@ -182,8 +182,11 @@ bogus low value. The check is gated to temp paths (`strings.Contains(path,
 to hwmon types (nvidia/msiec self-validate and are not disconnected-pin prone).
 
 Stuck-but-plausible sensors (a temp frozen mid-range while the chip heats) are
-a separate, harder problem (variance/correlation detection, false-positive
-prone) and are out of scope here.
+a separate, harder problem — they pass every per-sample check, so they can only
+be caught across time and across sensors (variance/correlation detection,
+false-positive prone). That is handled out-of-band, observability-only, by the
+`stuck_sensor` doctor detector: see RULE-DOCTOR-DETECTOR-STUCK-SENSOR in
+docs/rules/doctor.md.
 
 Bound: internal/controller/lowtemp_disconnect_test.go:TestReadAllSensors_LowTempDisconnectedFlaggedAsSentinel
 Bound: internal/controller/lowtemp_disconnect_e2e_test.go:TestTick_LowTempDisconnectCarriesForwardThenHandsBack

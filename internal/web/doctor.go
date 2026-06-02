@@ -106,6 +106,24 @@ func (s *Server) doctorRunner() *doctor.Runner {
 			}
 			return out
 		}),
+		// Surfaces RULE-DOCTOR-DETECTOR-STUCK-SENSOR: a temperature
+		// sensor frozen at a plausible value while another sensor on
+		// the box clearly moved — the one failure the per-sample
+		// sentinel / low-temp filters cannot catch. The closure adapts
+		// the shared freeze tracker's current verdict; a nil tracker
+		// (monitor-only) reports nothing.
+		detectors.NewStuckSensorDetector(func() []detectors.StuckSensor {
+			var out []detectors.StuckSensor
+			for _, ss := range s.stuckSensors.Stuck(time.Now()) {
+				out = append(out, detectors.StuckSensor{
+					Name:           ss.Name,
+					ValueC:         ss.ValueC,
+					FrozenSeconds:  ss.FrozenSeconds,
+					ReferenceRiseC: ss.ReferenceRiseC,
+				})
+			}
+			return out
+		}),
 	}
 	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
 	return s.doctorCache.runner

@@ -142,6 +142,13 @@ type Controller struct {
 	// /readyz probe reflects whether the control loop is still ticking.
 	onSensorRead func()
 
+	// sensorObserver, if non-nil, receives every plausible hwmon temp reading
+	// this controller takes (name, value °C, read time) so a shared
+	// sensorfreeze.Tracker can flag a sensor that has gone stuck — frozen at a
+	// plausible value while the box is thermally active. Observability-only:
+	// the controller never acts on it. RULE-DOCTOR-DETECTOR-STUCK-SENSOR.
+	sensorObserver func(name string, valueC float64, now time.Time)
+
 	// Per-curve hysteresis + smoothing state. Reset in initCurveStateIfNeeded
 	// when the bound curve name changes on hot-reload so switching between
 	// curves doesn't leak stale EMA values or ramp-down thresholds.
@@ -427,6 +434,17 @@ func WithStallReporter(channelID string, fn StallReporter) Option {
 		c.stallChannelID = channelID
 		c.stallReport = fn
 	}
+}
+
+// WithSensorObserver wires a callback fired for every plausible hwmon temp
+// reading this controller takes. The daemon points it at a shared
+// sensorfreeze.Tracker so the doctor's stuck_sensor detector can flag a sensor
+// frozen at a plausible value while the rest of the box is thermally active —
+// the one failure the per-sample sentinel / low-temp filters cannot catch. The
+// callback must be cheap and non-blocking; it runs on the control hot path.
+// nil-safe (no observation when unwired — e.g. monitor-only).
+func WithSensorObserver(fn func(name string, valueC float64, now time.Time)) Option {
+	return func(c *Controller) { c.sensorObserver = fn }
 }
 
 // WithEBUSYObserver wires a callback fired whenever this controller's hwmon
@@ -843,7 +861,7 @@ func (c *Controller) tick() {
 	// sentinelBuf receives names of sensors that returned sentinel/implausible
 	// values — distinct from ENOENT/EIO failures so the two failure modes get
 	// different treatment below.
-	readAllSensors(c.logger, live.Sensors, c.rawSensorsBuf, c.sentinelBuf)
+	readAllSensors(c.logger, live.Sensors, c.rawSensorsBuf, c.sentinelBuf, c.sensorObserver, now)
 
 	// Apply EMA smoothing to each sensor before curve evaluation. With
 	// Smoothing=0 (the default), α=1 → passthrough; a zero-smoothing
@@ -1362,7 +1380,15 @@ var readNvidiaMetric = nvidia.ReadMetric
 // sentinel or implausible value (distinct from I/O errors). Callers that need
 // to carry forward the last good PWM — rather than fall back to the loud
 // MaxPWM path used for ENOENT/EIO — consult this set after the call.
-func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string]float64, sentinelDst map[string]bool) {
+//
+// observer, if non-nil, is called with (name, value °C, now) for every
+// hwmon temp reading that passes the per-sample plausibility filters and lands
+// in dst — the inputs the stuck-sensor freeze tracker correlates over time.
+// Sentinel/low/errored reads are deliberately not observed: those failures are
+// already surfaced elsewhere, and a stuck sensor is one whose value is
+// plausible. now is the tick's read time, threaded so the tracker's freeze
+// timing is testable.
+func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string]float64, sentinelDst map[string]bool, observer func(name string, valueC float64, now time.Time), now time.Time) {
 	clear(dst)
 	if sentinelDst != nil {
 		clear(sentinelDst)
@@ -1429,6 +1455,13 @@ func readAllSensors(logger *slog.Logger, sensors []config.Sensor, dst map[string
 				sentinelDst[s.Name] = true
 			}
 			continue
+		}
+		// Feed the stuck-sensor freeze tracker the plausible hwmon temp
+		// readings — the only kind a stuck-but-plausible value can hide in
+		// (nvidia/msiec self-validate; non-temp paths are out of scope). The
+		// reading has already cleared the sentinel and low-temp filters above.
+		if observer != nil && s.Type != "nvidia" && s.Type != "msiec" && strings.Contains(s.Path, "temp") {
+			observer(s.Name, val, now)
 		}
 		dst[s.Name] = val
 	}

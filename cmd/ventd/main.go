@@ -47,6 +47,7 @@ import (
 	"github.com/ventd/ventd/internal/probe/opportunistic"
 	"github.com/ventd/ventd/internal/proc"
 	"github.com/ventd/ventd/internal/sdnotify"
+	"github.com/ventd/ventd/internal/sensorfreeze"
 	setupmgr "github.com/ventd/ventd/internal/setup"
 	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/state"
@@ -1618,23 +1619,32 @@ func runDaemonInternal(
 	ebusyCollector := ebusy.New()
 	webSrv.SetEBUSYCollector(ebusyCollector)
 
+	// Shared sensor-freeze tracker: every controller feeds its per-tick hwmon
+	// temp readings here (RULE-DOCTOR-DETECTOR-STUCK-SENSOR) so the doctor's
+	// stuck_sensor detector can flag a sensor frozen at a plausible value while
+	// the rest of the box is thermally active — the stuck-but-plausible failure
+	// the per-sample sentinel / low-temp filters cannot catch.
+	stuckSensorTracker := sensorfreeze.New()
+	webSrv.SetStuckSensorTracker(stuckSensorTracker)
+
 	// sp owns the controller wiring shared by the startup loop below and the
 	// SIGHUP/restart reload loop. Constructing it once means both paths build
 	// identical controller.Options by construction (see controllerSpawner) —
 	// the bug class behind #1240 and #1037 can no longer recur.
 	sp := &controllerSpawner{
-		ctx:        ctx,
-		wg:         &wg,
-		errCh:      errCh,
-		liveCfg:    &liveCfg,
-		wd:         wd,
-		cal:        cal,
-		readyState: readyState,
-		panicCheck: webSrv,
-		smartMode:  smartMode,
-		sigLib:     sigLib,
-		logger:     logger,
-		ebusy:      ebusyCollector,
+		ctx:          ctx,
+		wg:           &wg,
+		errCh:        errCh,
+		liveCfg:      &liveCfg,
+		wd:           wd,
+		cal:          cal,
+		readyState:   readyState,
+		panicCheck:   webSrv,
+		smartMode:    smartMode,
+		sigLib:       sigLib,
+		logger:       logger,
+		ebusy:        ebusyCollector,
+		stuckSensors: stuckSensorTracker,
 	}
 
 	// Only start controllers if there are controls defined (not first-boot).
