@@ -167,8 +167,12 @@ Bound: internal/doctor/detectors/battery_transition_d_test.go:TestBatteryTransit
 Three drift cases: appeared-since-start (operator attached), disappeared
 (parser reload didn't preserve attach), mode-flipped (enforce↔complain).
 Empty ExpectedMode = no baseline = no-op. AppArmor-absent gracefully
-degrades.
+degrades. The daemon snapshots the baseline mode at startup
+(`detectors.ReadAppArmorMode`) and threads it through
+`Server.SetDoctorBaselines`; the web doctor wires this detector (and
+`dmi_fingerprint`) only when that baseline is present.
 
+Bound: internal/web/baseline_detectors_wiring_test.go:TestDoctorDetectors_BaselineGating
 Bound: internal/doctor/detectors/apparmor_profile_drift_d_test.go:TestRULE_DOCTOR_DETECTOR_AppArmorProfileDrift_AppearedSinceStart
 Bound: internal/doctor/detectors/apparmor_profile_drift_d_test.go:TestRULE_DOCTOR_DETECTOR_AppArmorProfileDrift_DisappearedSinceStart
 Bound: internal/doctor/detectors/apparmor_profile_drift_d_test.go:TestRULE_DOCTOR_DETECTOR_AppArmorProfileDrift_ModeChanged

@@ -16,10 +16,12 @@
 //   - permissions          — RULE-DOCTOR-DETECTOR-PERMISSIONS
 //   - experimental_flags   — RULE-DOCTOR-DETECTOR-EXPERIMENTALFLAGS
 //
-// Baseline-requiring detectors (kernel_update, hwmon_swap,
-// apparmor_profile_drift, dmi_fingerprint, calibration_freshness)
-// land in a follow-up that captures their baselines at daemon start
-// and threads them through the runner constructor.
+// Baseline-requiring detectors compare the live system against a snapshot
+// captured at daemon start (threaded in via SetDoctorBaselines /
+// SetStuckSensorTracker / etc.). apparmor_profile_drift and dmi_fingerprint
+// are wired below off the startup baselines. kernel_update, hwmon_swap, and
+// calibration_freshness still await wiring (each needs its own baseline source
+// — a persisted last-kernel, a boot-time chip→dir map, a calibration loader).
 package web
 
 import (
@@ -59,6 +61,15 @@ func (s *Server) doctorRunner() *doctor.Runner {
 	if s.doctorCache.runner != nil {
 		return s.doctorCache.runner
 	}
+	s.doctorCache.runner = doctor.NewRunner(s.doctorDetectors(), nil, nil, nil)
+	return s.doctorCache.runner
+}
+
+// doctorDetectors builds the detector set for this Server. Extracted from
+// doctorRunner so the baseline-gated wiring (apparmor_profile_drift,
+// dmi_fingerprint) is unit-testable by detector name without depending on the
+// live /sys surfaces those detectors probe.
+func (s *Server) doctorDetectors() []doctor.Detector {
 	det := []doctor.Detector{
 		detectors.NewContainerPostbootDetector(nil),
 		detectors.NewDKMSStatusDetector(nil),
@@ -125,8 +136,18 @@ func (s *Server) doctorRunner() *doctor.Runner {
 			return out
 		}),
 	}
-	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
-	return s.doctorCache.runner
+	// Baseline-requiring detectors (RULE-DOCTOR-DETECTOR-APPARMORDRIFT,
+	// RULE-DOCTOR-05): wired only when the daemon captured a startup baseline
+	// (SetDoctorBaselines). They compare the live system against that snapshot,
+	// so they belong on the long-running daemon's doctor surface, not the
+	// out-of-process `ventd doctor` CLI (which has no daemon-start baseline).
+	if b := s.doctorBaselines; b.AppArmorMode != "" {
+		det = append(det, detectors.NewAppArmorProfileDriftDetector("ventd", b.AppArmorMode, nil))
+	}
+	if s.doctorBaselines.HasDMI {
+		det = append(det, detectors.NewDMIFingerprintDetector(nil, s.doctorBaselines.DMIMatched, s.doctorBaselines.DMIBoardName))
+	}
+	return det
 }
 
 // handleDoctorReport GET /api/v1/doctor — runs the doctor runner (or

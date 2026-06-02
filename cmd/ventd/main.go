@@ -29,6 +29,7 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/coupling/signguard"
+	"github.com/ventd/ventd/internal/doctor/detectors"
 	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
@@ -1626,6 +1627,31 @@ func runDaemonInternal(
 	// the per-sample sentinel / low-temp filters cannot catch.
 	stuckSensorTracker := sensorfreeze.New()
 	webSrv.SetStuckSensorTracker(stuckSensorTracker)
+
+	// Daemon-start baselines for the doctor's baseline-requiring detectors
+	// (apparmor_profile_drift, dmi_fingerprint): snapshot the AppArmor attach
+	// mode and the resolved board-catalog match ONCE here, so the detectors can
+	// later compare the live system against the state ventd started with. These
+	// are cheap read-only probes; the detectors themselves still run lazily on
+	// the first /api/v1/doctor GET.
+	baselines := web.DoctorBaselines{AppArmorMode: detectors.ReadAppArmorMode("ventd")}
+	if bdmi, bErr := hwdb.ReadDMI(os.DirFS("/")); bErr == nil {
+		baselines.HasDMI = true
+		if bcat, cErr := hwdb.LoadCatalog(); cErr == nil && bcat != nil {
+			dmiFP := hwdb.DMIFingerprint{
+				SysVendor:    bdmi.SysVendor,
+				ProductName:  bdmi.ProductName,
+				BoardVendor:  bdmi.BoardVendor,
+				BoardName:    bdmi.BoardName,
+				BoardVersion: bdmi.BoardVersion,
+			}
+			if entry := findMatchingBoardEntry(bcat, dmiFP); entry != nil {
+				baselines.DMIMatched = true
+				baselines.DMIBoardName = entry.ID
+			}
+		}
+	}
+	webSrv.SetDoctorBaselines(baselines)
 
 	// sp owns the controller wiring shared by the startup loop below and the
 	// SIGHUP/restart reload loop. Constructing it once means both paths build
