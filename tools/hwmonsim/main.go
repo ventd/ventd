@@ -90,7 +90,7 @@ func main() {
 	flag.IntVar(&cfg.stopPWM, "stop-pwm", 25, "duty at/below which the fan stalls (0-255)")
 	flag.IntVar(&cfg.startPWM, "start-pwm", 40, "duty a stalled fan needs to start (0-255)")
 	flag.StringVar(&cfg.model, "model", "spinup", "rpm model: linear | spinup | phantom | stuck | inverted | sentinel | noisy | disconnect")
-	flag.StringVar(&cfg.tempModel, "temp-model", "cooling", "temperature model: cooling (falls with airflow) | runaway (climbs regardless — overtemp failsafe test)")
+	flag.StringVar(&cfg.tempModel, "temp-model", "cooling", "temperature model: cooling (falls with airflow) | runaway (climbs regardless — overtemp failsafe test) | stuck (temp1 frozen at a plausible value while the others run away — stuck-sensor detector test; needs >=2 temps)")
 	flag.IntVar(&cfg.faultAfter, "fault-after", 50, "with --model disconnect: tick index at which the fan's tach drops to 0 (cable yank / stall)")
 	flag.DurationVar(&cfg.tick, "tick", 200*time.Millisecond, "model update cadence")
 	flag.BoolVar(&cfg.once, "once", false, "materialise the tree and exit (no live loop)")
@@ -378,13 +378,26 @@ func run(devices []device, cfg config, stop <-chan os.Signal) {
 				}
 				avgDuty := totalDuty / float64(d.fans)
 				var milliC int
-				if cfg.tempModel == "runaway" {
+				switch cfg.tempModel {
+				case "runaway", "stuck":
+					// "stuck" reuses the runaway climb for the live sensors so
+					// there is unambiguous cross-sensor activity; temp1 is then
+					// frozen below.
 					milliC = tempRunaway(tick)
-				} else {
+				default:
 					milliC = tempMilliC(avgDuty)
 				}
 				for i := 1; i <= d.temps; i++ {
-					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("temp%d_input", i)), strconv.Itoa(milliC))
+					v := milliC
+					// stuck model: pin temp1 at a plausible mid value while the
+					// rest climb. The frozen sensor passes every per-sample
+					// check, so only the freeze tracker's over-time + cross-
+					// sensor correlation catches it (RULE-DOCTOR-DETECTOR-STUCK-
+					// SENSOR). Needs >=2 temps to leave a moving reference.
+					if cfg.tempModel == "stuck" && i == 1 {
+						v = tempStuckFrozenMilliC
+					}
+					_ = writeVal(filepath.Join(d.dir, fmt.Sprintf("temp%d_input", i)), strconv.Itoa(v))
 				}
 			}
 		}
@@ -503,6 +516,11 @@ func rpmForSpinup(p int, cfg config, spinning *bool) int {
 	}
 	return cfg.minRPM + (cfg.maxRPM-cfg.minRPM)*over/span
 }
+
+// tempStuckFrozenMilliC is the plausible mid-range value temp1 is pinned at
+// under the "stuck" model — a value that never trips the sentinel or low-temp
+// filters, so only the stuck-sensor freeze tracker can catch it.
+const tempStuckFrozenMilliC = 45000 // 45.0 °C
 
 // tempRunaway models a thermal runaway: temperature climbs from 40 °C and
 // keeps rising with the tick count regardless of airflow, saturating at

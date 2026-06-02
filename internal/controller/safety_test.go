@@ -52,7 +52,7 @@ func TestRegression_Issue460_SentinelRejection(t *testing.T) {
 		sensors := []config.Sensor{{Name: "cpu", Type: "hwmon", Path: tempPath}}
 		dst := make(map[string]float64)
 		sentinels := make(map[string]bool)
-		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels)
+		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels, nil, time.Time{})
 		if _, ok := dst["cpu"]; ok {
 			t.Errorf("sentinel temp landed in sensor map; want omitted")
 		}
@@ -71,7 +71,7 @@ func TestRegression_Issue460_SentinelRejection(t *testing.T) {
 		sensors := []config.Sensor{{Name: "cpu", Type: "hwmon", Path: tempPath}}
 		dst := make(map[string]float64)
 		sentinels := make(map[string]bool)
-		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels)
+		readAllSensors(slog.New(slog.NewTextHandler(io.Discard, nil)), sensors, dst, sentinels, nil, time.Time{})
 		if v, ok := dst["cpu"]; !ok || v != 45.0 {
 			t.Errorf("valid temp: dst[%q]=%v present=%v, want 45.0 present", "cpu", v, ok)
 		}

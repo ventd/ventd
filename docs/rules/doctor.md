@@ -449,3 +449,46 @@ nil status fn (monitor-only / no hwmon backend) emits zero facts.
 Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector
 Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector_DetailAndEntityHash
 Bound: internal/web/ebusy_doctor_test.go:TestDoctorReport_SurfacesActiveEBUSYStorm
+
+## RULE-DOCTOR-DETECTOR-STUCK-SENSOR: Surfaces a temperature sensor frozen at a plausible value while the box is thermally active — one Warning per stuck sensor, silent on an idle all-flat box. Observability-only; never a control action.
+
+A stuck-but-plausible temperature sensor — a reading frozen mid-range while the
+chip it watches actually heats and cools — is the one sensor failure the
+per-sample filters cannot catch. The sentinel guard rejects 0xFFFF and the
+low-temp filter rejects sub-ambient readings (RULE-CTRL-LOWTEMP-DISCONNECT), but
+a sensor pinned at, say, 45 °C is in a wholly plausible range: nothing about a
+single sample is wrong. It can only be caught across *time* (the value never
+moves) and across *sensors* (something else in the box clearly is moving). A
+frozen control sensor is dangerous in slow motion — the curve it feeds stops
+responding to real heat, so the fan never ramps as the chip climbs.
+
+The `stuck_sensor` detector reads the verdict of the shared
+`internal/sensorfreeze.Tracker` every controller feeds its per-tick hwmon temp
+readings into (gated to hwmon temp paths — nvidia/msiec self-validate; non-temp
+leaves are out of scope), through a `StuckSensorStatusFn` seam (tests inject a
+stub), keeping the detectors package free of imports on the tracker and the
+daemon wiring. The tracker flags a sensor only when it has held one value
+(within a small epsilon) for at least `StuckMinDuration` (5 min) **and** some
+*other* freshly-reporting sensor shows a recent swing of at least
+`RiseThresholdC` (10 °C). The cross-sensor activity gate is what keeps a
+genuinely idle, steady-state machine — where every sensor legitimately sits flat
+— from tripping a false positive; a frozen sensor never vouches for its own
+surroundings (it is excluded from being its own activity reference).
+
+This is **observability-only** by design. Stuck detection is inherently
+heuristic and false-positive prone, so — exactly like the EBUSY-storm and
+hwmon-swap surfaces — it emits a `SeverityWarning` doctor card asking the
+operator to check / reseat the sensor and consider repointing the affected
+curve, and it **never changes cooling**: ventd has no second source of truth for
+that channel, so a wrong guess must do nothing worse than show a card. The
+`EntityHash` keys on the sensor name so suppressing one sensor's card doesn't
+suppress another's. A nil status fn (monitor-only / no tracker wired) emits zero
+facts. For manual fake-HIL, `tools/hwmonsim --temp-model stuck` pins temp1 at a
+plausible value while the other temps run away.
+
+Bound: internal/sensorfreeze/tracker_test.go:TestStuck_FrozenSensorWhileSiblingRises_Flagged
+Bound: internal/sensorfreeze/tracker_test.go:TestStuck_AllFlatIdle_NotFlagged
+Bound: internal/controller/stuck_observer_test.go:TestReadAllSensors_ObserverReceivesPlausibleTempReadings
+Bound: internal/doctor/detectors/stuck_sensor_d_test.go:TestStuckSensorDetector
+Bound: internal/web/stuck_sensor_doctor_test.go:TestDoctorReport_SurfacesStuckSensor
+Bound: internal/web/stuck_sensor_doctor_test.go:TestDoctorReport_NoStuckSensorWhenQuiet

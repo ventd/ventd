@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ventd/ventd/internal/config"
 )
@@ -35,7 +36,7 @@ func TestReadAllSensors_LowTempDisconnectedFlaggedAsSentinel(t *testing.T) {
 	}
 	dst := map[string]float64{}
 	sentinel := map[string]bool{}
-	readAllSensors(slog.Default(), sensors, dst, sentinel)
+	readAllSensors(slog.Default(), sensors, dst, sentinel, nil, time.Time{})
 
 	if !sentinel["cpu_disconnected"] {
 		t.Error("disconnected temp sensor (8.5°C) must be flagged as data-loss, not trusted as a cold chip")

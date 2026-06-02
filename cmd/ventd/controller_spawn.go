@@ -12,6 +12,7 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/hwdb"
+	"github.com/ventd/ventd/internal/sensorfreeze"
 	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/smartblend"
 	"github.com/ventd/ventd/internal/sysclass"
@@ -43,6 +44,10 @@ type controllerSpawner struct {
 	// ebusy is the shared collector each controller's hwmon backend reports
 	// EBUSY storms into, for the doctor's ebusy_storm detector. nil-safe.
 	ebusy *ebusy.Collector
+	// stuckSensors is the shared freeze tracker each controller feeds its
+	// per-tick hwmon temp readings, for the doctor's stuck_sensor detector.
+	// nil-safe.
+	stuckSensors *sensorfreeze.Tracker
 }
 
 // labelFn returns the signature-label reader threaded into the observation and
@@ -112,6 +117,11 @@ func (s *controllerSpawner) options(
 	// collector the ebusy_storm detector reads. No-op for non-hwmon backends;
 	// s.ebusy.Observe is nil-safe. RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
 	opts = append(opts, controller.WithEBUSYObserver(s.ebusy.Observe))
+	// Feed every plausible hwmon temp reading to the shared freeze tracker so
+	// the doctor's stuck_sensor detector can flag a sensor frozen at a
+	// plausible value while the box is thermally active. s.stuckSensors.Observe
+	// is nil-safe. RULE-DOCTOR-DETECTOR-STUCK-SENSOR.
+	opts = append(opts, controller.WithSensorObserver(s.stuckSensors.Observe))
 	// v0.5.9: install the confidence-gated blend hook when the smart-mode
 	// bundle has a BlendedController. The closure pulls the per-channel
 	// Snapshots from the upstream runtimes, computes w_pred via the
