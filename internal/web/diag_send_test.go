@@ -1,16 +1,35 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/ventd/ventd/internal/config"
+	"github.com/ventd/ventd/internal/diag"
 )
+
+// stubDiagBundle makes the diag handlers return a fixed, hermetic bundle file
+// instead of walking the live system via diag.Generate. The real walk hits
+// hwmon / /proc / NVML — non-deterministic, several seconds, and intermittently
+// failing (→ HTTP 500) on cloud-VM CI runners that lack /sys, which is the
+// upload-path tests' flake (issue #623). The bundle content is irrelevant to
+// what these tests assert (the ingest request / response handling).
+func stubDiagBundle(t *testing.T, srv *Server) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ventd-diag-stub.tar.gz")
+	if err := os.WriteFile(path, []byte("stub-bundle"), 0o600); err != nil {
+		t.Fatalf("write stub bundle: %v", err)
+	}
+	srv.diagGenerate = func(context.Context, diag.Options) (string, error) { return path, nil }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // v0.5.12 #64: outbound diag ingest endpoint.
@@ -89,11 +108,9 @@ func TestHandleDiagSend_NonHTTPSURL_Refuses(t *testing.T) {
 // (hwmon, /proc, NVML) which doesn't exist in CI containers + takes
 // several seconds. HIL-only.
 func TestHandleDiagSend_HappyPath_SendsToStubIngest(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test: requires live hwmon / state for diag.Generate")
-	}
 	srv, _, cancel := newHandlerHarness(t)
 	defer cancel()
+	stubDiagBundle(t, srv)
 
 	var (
 		gotAuth        atomic.Value
@@ -166,11 +183,9 @@ func TestHandleDiagSend_HappyPath_SendsToStubIngest(t *testing.T) {
 }
 
 func TestHandleDiagSend_IngestRejects_Returns502(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test: requires live hwmon / state for diag.Generate")
-	}
 	srv, _, cancel := newHandlerHarness(t)
 	defer cancel()
+	stubDiagBundle(t, srv)
 
 	stub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)

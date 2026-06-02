@@ -13,6 +13,15 @@ import (
 	"github.com/ventd/ventd/internal/experimental"
 )
 
+// controllerFirstTickWait bounds the "poll until the daemon's first controller
+// tick writes the expected PWM" loops below. It is deliberately generous: the
+// loops early-break the instant the value appears, so a fast runner finishes in
+// well under a second and only a slow lane (the QEMU-emulated arm64 -race lane,
+// a contended shared GHA runner) ever approaches it. The old 2–3 s deadlines
+// false-failed there even though the daemon was healthy — issue #623. A bigger
+// timeout right-sizes the async wait without weakening what the test asserts.
+const controllerFirstTickWait = 20 * time.Second
+
 // TestRegression_Issue466_FirstBootReloadStartsControllers covers branch 3 of
 // the in-process reload path from PR #478: oldCfg.Controls == 0 →
 // newCfg.Controls > 0 (first-boot → post-wizard transition).
@@ -100,7 +109,7 @@ func TestRegression_Issue466_FirstBootReloadStartsControllers(t *testing.T) {
 	restartCh <- struct{}{}
 
 	// 2. Post-reload: controller starts and writes the fixed-curve value to PWM.
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(controllerFirstTickWait)
 	for time.Now().Before(deadline) {
 		if b, _ := os.ReadFile(pwmPath); strings.TrimSpace(string(b)) == "128" {
 			break
@@ -181,7 +190,7 @@ func TestRegression_Issue466_NoSelfRestart(t *testing.T) {
 	}()
 
 	// Wait for at least one controller tick so we know the daemon is live.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(controllerFirstTickWait)
 	for time.Now().Before(deadline) {
 		if b, _ := os.ReadFile(pwmPath); strings.TrimSpace(string(b)) == "128" {
 			break
@@ -263,7 +272,7 @@ func TestRegression_Issue466_ReloadFailureIsNonFatal(t *testing.T) {
 	}()
 
 	// Wait for the controller to start (daemon is running normally).
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(controllerFirstTickWait)
 	for time.Now().Before(deadline) {
 		if b, _ := os.ReadFile(pwmPath); strings.TrimSpace(string(b)) == "64" {
 			break
