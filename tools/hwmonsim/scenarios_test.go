@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -15,12 +16,12 @@ import (
 	"github.com/ventd/ventd/internal/probe"
 )
 
-// fakeClock compresses the polarity prober's multi-second settle waits so a
-// full bipolar probe runs against the live sim in well under a second. The
-// prober's Clock seam does the *real* sleeping (capped, so the sim's real
-// ticker advances and the model re-settles to the new duty) while Now advances
-// by the full requested amount so readRPMMean's window deadline is reached in
-// a bounded number of iterations.
+// fakeClock collapses the polarity prober's multi-second settle waits to
+// nothing: sleep() advances fake time without blocking, and now() reports it.
+// The polarity scenario recomputes the fan's RPM synchronously on each pwm
+// write (see TestScenario_PolarityClassification), so the prober never has to
+// wait for a model to settle — the only thing the clock must do is let
+// readRPMMean's window deadline elapse over a bounded number of iterations.
 type fakeClock struct {
 	mu sync.Mutex
 	t  time.Time
@@ -33,14 +34,13 @@ func (c *fakeClock) now() time.Time {
 }
 
 func (c *fakeClock) sleep(d time.Duration) {
-	// The sim has no rotational inertia — RPM is recomputed from the current
-	// duty each tick — so a handful of real ticks is enough to settle. Cap the
-	// real sleep so the 6 s bipolar holds don't actually take 6 s.
-	real := d
-	if real > 30*time.Millisecond {
-		real = 30 * time.Millisecond
-	}
-	time.Sleep(real)
+	// Advance fake time only — no real sleep. The polarity scenario drives the
+	// fan model SYNCHRONOUSLY (RPM is recomputed on each pwm write, before the
+	// prober reads the tach), so there is nothing to wait for. Advancing time
+	// lets readRPMMean's window deadline be reached in a bounded number of
+	// iterations. This makes the probe deterministic and race-free — the prior
+	// real-sleep-against-a-background-ticker version flaked under -race on slow
+	// runners when a tach read landed before the ticker recomputed RPM.
 	c.mu.Lock()
 	c.t = c.t.Add(d)
 	c.mu.Unlock()
@@ -99,22 +99,44 @@ func TestScenario_PolarityClassification(t *testing.T) {
 			cfg := baseCfg()
 			cfg.fans = 1
 			cfg.model = tc.model
-			cfg.tick = 5 * time.Millisecond
-			dev, stop := startSim(t, cfg)
-			defer stop()
-			// Let the model run a few ticks so the materialised zeros are
-			// replaced by modelled values before the probe starts.
-			time.Sleep(40 * time.Millisecond)
+			// Materialise the tree, but drive the model SYNCHRONOUSLY rather
+			// than from a background ticker: recompute fan1_input from the
+			// current duty on every pwm write the prober makes. The prober's
+			// next tach read therefore always observes the settled RPM for the
+			// duty it just wrote — deterministic, with no real sleeps and no
+			// goroutine to race under -race.
+			root := t.TempDir()
+			dev := filepath.Join(root, "hwmon0")
+			if err := materialise(dev, cfg.chip, cfg.fans, cfg.temps); err != nil {
+				t.Fatal(err)
+			}
+			pwmPath := filepath.Join(dev, "pwm1")
+			tachPath := filepath.Join(dev, "fan1_input")
+			var spinning bool
+			recompute := func() {
+				rpm := rpmFor(clampByte(readInt(pwmPath, 0)), 1, cfg, &spinning, 0)
+				_ = writeVal(tachPath, strconv.Itoa(rpm))
+			}
+			recompute() // seed the tach from the materialised duty (0)
 
 			clk := &fakeClock{t: time.Now()}
 			pr := &polarity.HwmonProber{
 				Clock: clk.sleep,
 				Now:   clk.now,
+				WriteFile: func(path string, data []byte, mode os.FileMode) error {
+					if err := os.WriteFile(path, data, mode); err != nil {
+						return err
+					}
+					if filepath.Base(path) == "pwm1" {
+						recompute()
+					}
+					return nil
+				},
 			}
 			ch := &probe.ControllableChannel{
 				SourceID: "hwmon0",
-				PWMPath:  filepath.Join(dev, "pwm1"),
-				TachPath: filepath.Join(dev, "fan1_input"),
+				PWMPath:  pwmPath,
+				TachPath: tachPath,
 				Driver:   "nct6687",
 			}
 			res, err := pr.ProbeChannel(context.Background(), ch)

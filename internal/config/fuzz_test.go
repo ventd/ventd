@@ -68,6 +68,22 @@ func FuzzParseConfig(f *testing.F) {
 	f.Add([]byte("a: &a [1,2,3]\nb: *a\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		// Bound the input to a realistic config size. This fuzzer exists to
+		// find correctness defects in Parse/validate (panics, nil-handling,
+		// dropped invariants) — those surface on small inputs. It is NOT a
+		// performance benchmark of the underlying YAML decoder, which is
+		// super-linear on large flat inputs (a 64 KiB flow-map / duplicate-key
+		// stream takes ~18 s in yaml.v3). ventd only ever Parses a trusted
+		// local file (/etc/ventd/config.yaml, root/wizard-written), so that
+		// large-input cost is not a threat-model concern — but left unbounded
+		// the fuzzer wanders into multi-second execs (a 32 KiB flow-map is
+		// ~4.5 s, 64 KiB ~18 s) that blow the -fuzztime budget on a contended
+		// CI runner ("context deadline exceeded"). 8 KiB is far larger than any
+		// real config yet keeps every exec well under a second even on a slow
+		// shared runner.
+		if len(data) > 8*1024 {
+			return
+		}
 		// Catch panics explicitly; the fuzzer will report them, but
 		// recover() here lets us enrich the failure with the input.
 		defer func() {
