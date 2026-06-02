@@ -31,6 +31,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
+	diagpkg "github.com/ventd/ventd/internal/diag"
 	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/grub"
 	"github.com/ventd/ventd/internal/hal"
@@ -127,6 +128,14 @@ type Server struct {
 	restartCh chan<- struct{}
 	sessions  *sessionStore
 	diag      *hwdiag.Store
+	// diagGenerate builds a diagnostic bundle and returns its path. nil →
+	// diag.Generate (the real system walk). A test seam: diag.Generate walks
+	// live hwmon / /proc / NVML, which is non-deterministic and unavailable on
+	// cloud-VM CI runners (it intermittently errors → the /api/diag handlers
+	// return 500), so the diag-handler tests inject a stub bundle to exercise
+	// the upload / response paths hermetically. Resolved lazily in the handlers
+	// (not New, where `diag` names the hwdiag store).
+	diagGenerate func(context.Context, diagpkg.Options) (string, error)
 	// startedAt is the wall-clock at which the Server (and therefore
 	// the daemon process) finished initialising. Captured in New and
 	// surfaced via statusResponse.StartedAt so the dashboard's uptime

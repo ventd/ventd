@@ -18,86 +18,20 @@
 #     issue: https://github.com/ventd/ventd/issues/623
 #     reason: timer scheduling jitter on shared GHA runners
 #     since: 2026-04-15
+#
+# The list is currently empty: every prior entry's root cause has been fixed,
+# so no test needs a retry to be trustworthy. Each "removed once the fix lands"
+# entry was retired when its fix landed (issue #623 / #883):
+#   - the profile-schedule /sys-dependency tests now stub the hwmon root
+#     (web stubHwmonRoot); the scheduler-override test uses the injected clock
+#     (SetNowFn) — no real timers.
+#   - the regression_466 controller-tick tests poll with a generous timeout
+#     (controllerFirstTickWait) instead of a 2-3s deadline that under-sized the
+#     async wait on -race / emulated-arm64 lanes.
+#   - the diag/send upload tests inject a stub bundle via the new Server
+#     diagGenerate seam instead of walking the live system with diag.Generate.
+#   - TestCalibrate_CtxCancelStopsRunSync no longer exists.
+# Keep this ratchet honest: re-add an entry (with its fix on the roadmap) only
+# if a genuinely new flake appears, and retire it the moment the fix lands.
 
-flaky:
-  - test: github.com/ventd/ventd/internal/web:TestScheduler_ManualOverrideStaysUntilTransition
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: timer scheduling jitter on shared GitHub Actions runners
-    since: 2026-04-15
-    # Path corrected from ./internal/scheduler in PR #811 — the test
-    # actually lives at internal/web/schedule_test.go:195. retry-flaky's
-    # python parser keys on the full Go module path (the JSON stream's
-    # Package field), so the registry entry must match exactly. With the
-    # old `./internal/scheduler:` path, retries never fired and the
-    # test has been failing CI without retry for weeks.
-  - test: github.com/ventd/ventd/internal/web:TestHandleProfileSchedule_UpdatesAndPersists
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: depends on /sys/class/hwmon being readable; cloud-VM
-            ubuntu runners occasionally hit "open .: no such file or
-            directory" from the package-level os.DirFS hwmonRootFS.
-            Container lanes (Arch/Alpine/Fedora) inherit /sys from
-            the host kernel and pass deterministically.
-    since: 2026-05-02
-  - test: github.com/ventd/ventd/internal/web:TestConfig_ProfileScheduleRoundTrip
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: same /sys/class/hwmon dependency as
-            TestHandleProfileSchedule_UpdatesAndPersists.
-    since: 2026-05-02
-  - test: github.com/ventd/ventd/cmd/ventd:TestRegression_Issue466_ReloadFailureIsNonFatal
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: 2-second polling deadline for the controller-tick handshake
-            fires too tight on arm64 GHA runners under -race; the
-            QEMU-emulated arm64 lane occasionally takes longer than 2s
-            to reach the first PWM=64 write. Roadmap fix is clock
-            injection (Stage 1.5 PR-8), at which point this entry can
-            be removed.
-    since: 2026-05-03
-  - test: github.com/ventd/ventd/internal/web:TestHandleDiagSend_IngestRejects_Returns502
-    issue: https://github.com/ventd/ventd/issues/883
-    reason: integration test calls real diag.Generate (walks live hwmon /
-            proc / NVML), then expects 502 from the stubbed ingest.
-            On GHA runners the test occasionally returns 500 in 0.00s
-            instead of reaching the stub — the bundle generation step
-            short-circuits before the upload path can map ingest 403
-            to BadGateway. Passes consistently locally (~90s per run).
-            Roadmap fix is to inject diag.Generate via a Server field
-            so the test mocks bundle generation instead of running it,
-            at which point this entry can be removed.
-    since: 2026-05-04
-  - test: github.com/ventd/ventd/cmd/ventd:TestRegression_Issue466_FirstBootReloadStartsControllers
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: 3-second polling deadline (regression_466_test.go:103) for the
-            controller-tick handshake fires too tight on ubuntu-22-04 GHA
-            runners under -race + CGO_ENABLED=1; the cgo lane occasionally
-            takes longer than 3s to reach the first PWM=64 write through
-            the watchdog-Register → controllers-started transition. Same
-            timing class as the registered sibling Issue466_ReloadFailureIsNonFatal.
-            Roadmap fix is clock injection (Stage 1.5 PR-8); registry entry
-            is removed once that lands.
-    since: 2026-05-11
-  - test: github.com/ventd/ventd/cmd/ventd:TestRegression_Issue466_NoSelfRestart
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: 2-second polling deadline (regression_466_test.go:184) for the
-            controller-tick handshake fires too tight on the QEMU-emulated
-            arm64 GHA runner under -race; same timing class as the
-            already-registered Issue466_ReloadFailureIsNonFatal and
-            Issue466_FirstBootReloadStartsControllers siblings. Roadmap
-            fix is clock injection (Stage 1.5 PR-8); registry entry is
-            removed once that lands.
-    since: 2026-05-21
-  - test: github.com/ventd/ventd/internal/setup:TestCalibrate_CtxCancelStopsRunSync
-    issue: https://github.com/ventd/ventd/issues/623
-    reason: 100ms sleep at calibration_backend_test.go:211 before Abort()
-            races against the wizard reaching the calibration phase on
-            shared GHA Ubuntu runners. Test passes on alpine/arch/debian/
-            fedora and ubuntu-22.04 in PR #1160; fails on ubuntu-latest
-            and ubuntu-arm64 ~30% of runs. RunSync never enters its
-            ctx.Done() wait if the wizard's earlier phases (hwmon scan,
-            HAL enumerate added in #1158, RPM detect) take longer than
-            100ms to complete, so the test asserts gotCtxErr=true on a
-            ctx that RunSync never received. Same timing class as the
-            other ubuntu-runner-only flakes above. Roadmap fix is
-            clock injection (Stage 1.5 PR-8) + a started-signal channel
-            instead of the 100ms sleep heuristic; registry entry
-            is removed once either lands.
-    since: 2026-05-17
+flaky: []

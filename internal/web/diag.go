@@ -42,7 +42,11 @@ func (s *Server) handleDiagBundle(w http.ResponseWriter, r *http.Request) {
 		RedactorCfg:  redactor.DefaultConfig(),
 		VentdVersion: s.version.Version,
 	}
-	path, err := diag.Generate(r.Context(), opts)
+	gen := s.diagGenerate
+	if gen == nil {
+		gen = diag.Generate
+	}
+	path, err := gen(r.Context(), opts)
 	if err != nil {
 		s.logger.Warn("web: diag.Generate failed", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -191,7 +195,11 @@ func (s *Server) handleDiagSend(w http.ResponseWriter, r *http.Request) {
 		RedactorCfg:  redactor.DefaultConfig(),
 		VentdVersion: s.version.Version,
 	}
-	bundlePath, err := diag.Generate(r.Context(), opts)
+	gen := s.diagGenerate
+	if gen == nil {
+		gen = diag.Generate
+	}
+	bundlePath, err := gen(r.Context(), opts)
 	if err != nil {
 		s.logger.Warn("diag/send: bundle generate failed", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
