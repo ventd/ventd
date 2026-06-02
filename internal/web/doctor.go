@@ -18,10 +18,11 @@
 //
 // Baseline-requiring detectors compare the live system against a snapshot
 // captured at daemon start (threaded in via SetDoctorBaselines /
-// SetStuckSensorTracker / etc.). apparmor_profile_drift and dmi_fingerprint
-// are wired below off the startup baselines. kernel_update, hwmon_swap, and
-// calibration_freshness still await wiring (each needs its own baseline source
-// — a persisted last-kernel, a boot-time chip→dir map, a calibration loader).
+// SetStuckSensorTracker / etc.). apparmor_profile_drift, dmi_fingerprint, and
+// kernel_update are wired below off the startup baselines (kernel_update's is
+// persisted in the state KV by run() and read back on the next start).
+// hwmon_swap and calibration_freshness still await wiring (each needs its own
+// baseline source — a boot-time chip→dir map, a calibration loader).
 package web
 
 import (
@@ -137,15 +138,19 @@ func (s *Server) doctorDetectors() []doctor.Detector {
 		}),
 	}
 	// Baseline-requiring detectors (RULE-DOCTOR-DETECTOR-APPARMORDRIFT,
-	// RULE-DOCTOR-05): wired only when the daemon captured a startup baseline
-	// (SetDoctorBaselines). They compare the live system against that snapshot,
-	// so they belong on the long-running daemon's doctor surface, not the
-	// out-of-process `ventd doctor` CLI (which has no daemon-start baseline).
+	// RULE-DOCTOR-05, RULE-DOCTOR-DETECTOR-KERNELUPDATE): wired only when the
+	// daemon captured a startup baseline (SetDoctorBaselines). They compare the
+	// live system against that snapshot, so they belong on the long-running
+	// daemon's doctor surface, not the out-of-process `ventd doctor` CLI (which
+	// has no daemon-start baseline).
 	if b := s.doctorBaselines; b.AppArmorMode != "" {
 		det = append(det, detectors.NewAppArmorProfileDriftDetector("ventd", b.AppArmorMode, nil))
 	}
 	if s.doctorBaselines.HasDMI {
 		det = append(det, detectors.NewDMIFingerprintDetector(nil, s.doctorBaselines.DMIMatched, s.doctorBaselines.DMIBoardName))
+	}
+	if s.doctorBaselines.LastKernel != "" {
+		det = append(det, detectors.NewKernelUpdateDetector(s.doctorBaselines.LastKernel, nil))
 	}
 	return det
 }

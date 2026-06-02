@@ -33,9 +33,12 @@ func TestDoctorDetectors_BaselineGating(t *testing.T) {
 		if names["dmi_fingerprint"] {
 			t.Error("dmi_fingerprint wired without a DMI baseline")
 		}
+		if names["kernel_update"] {
+			t.Error("kernel_update wired without a kernel baseline")
+		}
 	})
 
-	t.Run("baselines set: both present", func(t *testing.T) {
+	t.Run("baselines set: all present", func(t *testing.T) {
 		srv, _, cancel := newHandlerHarness(t)
 		defer cancel()
 		srv.SetDoctorBaselines(DoctorBaselines{
@@ -43,6 +46,7 @@ func TestDoctorDetectors_BaselineGating(t *testing.T) {
 			HasDMI:       true,
 			DMIMatched:   true,
 			DMIBoardName: "asus-rog-strix-z790-e",
+			LastKernel:   "6.8.0-49-generic",
 		})
 		names := detectorNames(srv.doctorDetectors())
 		if !names["apparmor_profile_drift"] {
@@ -50,6 +54,9 @@ func TestDoctorDetectors_BaselineGating(t *testing.T) {
 		}
 		if !names["dmi_fingerprint"] {
 			t.Error("dmi_fingerprint not wired despite a DMI baseline")
+		}
+		if !names["kernel_update"] {
+			t.Error("kernel_update not wired despite a kernel baseline")
 		}
 	})
 

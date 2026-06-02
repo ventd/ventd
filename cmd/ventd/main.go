@@ -93,6 +93,13 @@ func main() {
 // RULE-INSTALL-03 (no plaintext bind on 0.0.0.0).
 const defaultLoopbackListen = "127.0.0.1:9999"
 
+// KV location of the kernel_update detector's baseline — the kernel release
+// ventd last started under, written each start and read on the next.
+const (
+	kvNamespaceDoctor = "doctor"
+	kvKeyLastKernel   = "last_kernel"
+)
+
 // promoteLoopbackDefaultToWildcard rebinds the loopback default to the LAN
 // wildcard so the URL install.sh prints is reachable from other machines. It
 // promotes ONLY the loopback default (an operator-provisioned bind is left
@@ -778,7 +785,24 @@ func run() error {
 			smartMode.Coupling, smartMode.Marginal, smartMode.LayerA)
 	}
 
-	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
+	// kernel_update doctor baseline: record the kernel ventd is starting under,
+	// reading the PREVIOUS value first so the kernel_update detector can warn on
+	// a change since the last run (a reboot into a new kernel → DKMS rebuilt the
+	// OOT module, so recent control-loop behaviour is on a freshly-loaded one).
+	// Read-then-write, so the detector compares against the prior value rather
+	// than the one just stored. Persistence lives here in run() because it owns
+	// the state KV; the prior value is threaded down to the web doctor wiring.
+	lastKernel := ""
+	if prev, ok, _ := st.KV.Get(kvNamespaceDoctor, kvKeyLastKernel); ok {
+		lastKernel, _ = prev.(string)
+	}
+	if cur := detectors.CurrentKernelRelease(); cur != "" {
+		if err := st.KV.Set(kvNamespaceDoctor, kvKeyLastKernel, cur); err != nil {
+			logger.Warn("doctor: could not persist kernel baseline for kernel_update detector", "err", err)
+		}
+	}
+
+	return runDaemon(context.Background(), cfg, *configPath, authPath, logger, sigCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode, lastKernel)
 }
 
 // polarityProber is the seam HwmonProber satisfies. Tests substitute a
@@ -973,9 +997,10 @@ func runDaemon(
 	calibrationWiper func() error,
 	oppFactory OpportunisticFactory,
 	smartMode *SmartModeBundle,
+	lastKernel string,
 ) error {
 	restartCh := make(chan struct{}, 1)
-	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode)
+	return runDaemonInternal(parentCtx, cfg, configPath, authPath, logger, sigCh, restartCh, wd, expFlags, kvWiper, calibrationWiper, oppFactory, smartMode, lastKernel)
 }
 
 // OpportunisticFactory constructs the v0.5.5 opportunistic-probe
@@ -1111,6 +1136,7 @@ func runDaemonInternal(
 	calibrationWiper func() error,
 	oppFactory OpportunisticFactory,
 	smartMode *SmartModeBundle,
+	lastKernel string,
 ) error {
 	// liveCfg is swapped atomically on SIGHUP. Controllers read it on every tick.
 	var liveCfg atomic.Pointer[config.Config]
@@ -1659,6 +1685,10 @@ func runDaemonInternal(
 			}
 		}
 	}
+	// kernel_update baseline: the kernel ventd last started under, read+persisted
+	// by run() (which owns the state KV) and threaded in here. The detector warns
+	// when the running kernel differs from it. Empty = first run / monitor-only.
+	baselines.LastKernel = lastKernel
 	webSrv.SetDoctorBaselines(baselines)
 
 	// sp owns the controller wiring shared by the startup loop below and the

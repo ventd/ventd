@@ -27,6 +27,12 @@ func liveKernelRelease() string {
 	return strings.TrimSpace(string(data))
 }
 
+// CurrentKernelRelease returns the running kernel release for the wiring layer
+// to persist as the next run's baseline. It reads the same source the detector
+// compares against (so the stored value and a later comparison agree); "" on a
+// sandboxed host with no /proc.
+func CurrentKernelRelease() string { return liveKernelRelease() }
+
 // KernelUpdateDetector compares the running kernel release against
 // a baseline persisted by the wiring layer at last successful
 // daemon-state-load. A mismatch means the host rebooted into a
