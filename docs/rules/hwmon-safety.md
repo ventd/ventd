@@ -294,6 +294,7 @@ Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeEndToEnd
 Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint
 Bound: internal/controller/overtemp_mix_test.go:TestFailsafeSensorNames
 Bound: internal/controller/overtemp_mix_test.go:TestTick_OvertempFailsafeFiresOnMixCurveLeafSensor
+Bound: internal/controller/overtemp_shadow_test.go:TestTick_OvertempFailsafeObservedButSuppressedInShadowMode
 
 ## RULE-HWMON-CAL-INTERRUPTIBLE: calibration restores original PWM on abort
 

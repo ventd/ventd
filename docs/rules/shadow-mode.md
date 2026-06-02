@@ -38,6 +38,7 @@ has no live daemon caller, so there is no third surface to gate today.)
 
 Bound: internal/controller/shadow_test.go:shadow_mode_suppresses_backend_write
 Bound: internal/controller/shadow_test.go:shadow_off_writes_through
+Bound: internal/controller/overtemp_shadow_test.go:TestTick_OvertempFailsafeObservedButSuppressedInShadowMode
 
 ## RULE-APPLY-SHADOW-02: Calibration is refused (423 Locked) while shadow mode is on.
 
