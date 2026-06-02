@@ -57,6 +57,24 @@ func AcquirePID(dir string) (release func(), err error) {
 	return func() { _ = os.Remove(path) }, nil
 }
 
+// RunningPID reports the PID of a live ventd process owning dir's PID file,
+// if any. It is the read-only counterpart to AcquirePID: it never creates,
+// rewrites, or removes the file, so a health probe can run alongside a live
+// daemon without disturbing its pidfile. Returns (0, false) when the file is
+// absent, unparseable, or names a process that is no longer alive (a stale
+// file — RunningPID does not clean it up; the next AcquirePID does).
+func RunningPID(dir string) (pid int, running bool) {
+	data, err := os.ReadFile(filepath.Join(dir, pidFileName))
+	if err != nil {
+		return 0, false
+	}
+	p, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if parseErr != nil || p <= 0 || !isProcessAlive(p) {
+		return 0, false
+	}
+	return p, true
+}
+
 // isProcessAlive returns true if the process with the given PID exists and is
 // running. Uses kill(pid, 0) which succeeds for any alive process the caller
 // can signal, and fails with ESRCH when the process is not found.

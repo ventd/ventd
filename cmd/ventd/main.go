@@ -148,6 +148,14 @@ func run() error {
 		os.Exit(exitCode)
 	}
 
+	// `ventd health` is an out-of-process probe for the last-startup-fatal
+	// sentinel (#1165): when the daemon can't start, its HTTP surface never
+	// binds, so this separate process reads the sentinel + pidfile and prints
+	// why. Reads only; safe to run alongside a live daemon.
+	if len(os.Args) >= 2 && os.Args[1] == "health" {
+		os.Exit(runHealth(state.EffectiveDir(), os.Stdout))
+	}
+
 	// `ventd preflight` runs the install-time orchestrator. Args
 	// after `preflight` are passed through; the subcommand owns its
 	// own flag parsing because the global flag set has unrelated
