@@ -1343,10 +1343,10 @@ func runDaemonInternal(
 	// liveCfg so ResolveHwmonPaths picks the correct hwmonN for the
 	// (now-present) configured chip.
 	//
-	// Gated on cfg.Hwmon.DynamicRebind (default false) so the v0.2.x
-	// "diagnostic-only" behaviour is preserved until an operator opts in.
-	// When the flag is unset the watcher still emits hardware-change
-	// diagnostics; only the reload path is disabled.
+	// Gated on cfg.Hwmon.DynamicRebind (default true since #1265 — see
+	// DynamicRebindEnabled). An explicit dynamic_rebind=false reverts to the
+	// older diagnostic-only behaviour: the watcher still emits hardware-change
+	// diagnostics, but the reload/rebind path is disabled.
 	var watcherOpts []hwmon.Option
 	if os.Getenv("VENTD_DISABLE_UEVENT") == "1" {
 		watcherOpts = append(watcherOpts, hwmon.WithoutUevents())
@@ -1632,8 +1632,6 @@ func runDaemonInternal(
 	// identical controller.Options by construction (see controllerSpawner) —
 	// the bug class behind #1240 and #1037 can no longer recur.
 	sp := &controllerSpawner{
-		ctx:          ctx,
-		wg:           &wg,
 		errCh:        errCh,
 		liveCfg:      &liveCfg,
 		wd:           wd,
@@ -1646,8 +1644,22 @@ func runDaemonInternal(
 		ebusy:        ebusyCollector,
 		stuckSensors: stuckSensorTracker,
 	}
+	// Controller cohort: the fan controllers run under their own context +
+	// waitgroup (sp.ctx/sp.cancel/sp.wg), derived from the daemon ctx but
+	// cancellable on their own, so a runtime hwmon renumber can drain and
+	// respawn just the controllers at their new sysfs paths without disturbing
+	// the web server, hwmon watcher, swap monitor, or scheduler (all on the
+	// daemon ctx/wg). Because the cohort derives from ctx, SIGTERM/cancel()
+	// stops it transitively; the explicit sp.drainCohort() at each exit path
+	// (and the deferred backstop) Wait on the cohort so controller goroutines
+	// can't outlive the daemon. RULE-CTRL-REBIND-FOLLOW.
+	sp.newCohort(ctx)
+	defer sp.drainCohort()
 
 	// Only start controllers if there are controls defined (not first-boot).
+	// Startup keeps its resolve-control fatality (a malformed control at boot is
+	// a hard error), so it can't use the lenient reconcile() the reload paths
+	// share; the option wiring still funnels through sp.spawn/sp.options.
 	if len(cfg.Controls) > 0 {
 		calMap := loadCalibrationByChannel(logger)
 		resolvePWMUnitMax := makePWMUnitMaxResolver(logger)
@@ -1658,6 +1670,7 @@ func runDaemonInternal(
 				// Shut the web server down before returning so its goroutine exits.
 				cancel()
 				webSrv.Shutdown()
+				sp.drainCohort()
 				wg.Wait()
 				return fmt.Errorf("resolve control: %w", err)
 			}
@@ -1682,6 +1695,7 @@ func runDaemonInternal(
 			// shutdown — same as SIGTERM.
 			logger.Info("context cancelled, shutting down")
 			webSrv.Shutdown()
+			sp.drainCohort()
 			wg.Wait()
 			return nil
 
@@ -1704,6 +1718,7 @@ func runDaemonInternal(
 				logger.Info("shutdown signal received", "signal", sig)
 				cancel()
 				webSrv.Shutdown()
+				sp.drainCohort()
 				wg.Wait()
 				// wd.Restore() runs via defer.
 				return nil
@@ -1715,6 +1730,7 @@ func runDaemonInternal(
 			logger.Error("controller failure, initiating emergency shutdown", "err", ctrlErr)
 			cancel()
 			webSrv.Shutdown()
+			sp.drainCohort()
 			wg.Wait()
 			// Drain any additional errors that other goroutines sent before
 			// (or during) shutdown — otherwise concurrent failures are silent.
@@ -1743,57 +1759,128 @@ func runDaemonInternal(
 				logConfigReloadFailure(logger, reloadErr)
 				continue
 			}
-			resolveHwmonPaths(newCfg, cal, logger)
+			moves := resolveHwmonPaths(newCfg, cal, logger)
 			oldCfg := liveCfg.Load()
 			liveCfg.Store(newCfg)
 			logger.Info("config reloaded",
 				"poll_interval", newCfg.PollInterval.Duration,
 				"controls", len(newCfg.Controls),
 			)
-			// First-boot → configured transition: start controllers for the new config.
-			// On a running system (oldCfg already has controls) existing controllers
-			// pick up new curve parameters from liveCfg on their next tick.
-			if len(oldCfg.Controls) == 0 && len(newCfg.Controls) > 0 {
+			poll := newCfg.PollInterval.Duration
+			switch {
+			case len(oldCfg.Controls) == 0 && len(newCfg.Controls) > 0:
+				// First-boot → configured transition: register the now-configured
+				// fans (startup had none) and start controllers for the new config.
 				for _, fan := range newCfg.Fans {
 					wd.Register(fan.PWMPath, fan.Type)
 				}
-				reloadCalMap := loadCalibrationByChannel(logger)
-				reloadPWMUnitMax := makePWMUnitMaxResolver(logger)
-				for _, ctrl := range newCfg.Controls {
-					fanCfg, err := resolveControl(newCfg, ctrl)
-					if err != nil {
-						logger.Error("resolve control after config reload",
-							"fan", ctrl.Fan, "err", err)
-						continue
-					}
-					sp.spawn(ctrl, fanCfg, sp.options(ctrl, fanCfg, reloadCalMap, reloadPWMUnitMax), newCfg.PollInterval.Duration)
-				}
+				sp.reconcile(newCfg, poll)
 				logger.Info("controllers started after first-boot config reload",
 					"count", len(newCfg.Controls))
+
+			case anyControlledFanPWMChanged(moves, newCfg):
+				// RULE-CTRL-REBIND-FOLLOW: a controlled fan's hwmon path moved at
+				// runtime (renumber). A running controller binds its fan by an
+				// immutable pwmPath, so it cannot follow on its own — it would hit
+				// the reconcile-stranded handback and go inert. Drain the cohort
+				// (each controller restores its fan to firmware on the way out),
+				// drop the stale watchdog entries + abort any in-flight calibration
+				// keyed by the old paths, then respawn every controller against the
+				// new config under a fresh cohort. Drain-before-respawn is the race
+				// guard: the old controller has fully exited before the new one
+				// starts, so they can never both write the channel.
+				logger.Warn("hwmon renumber affects a controlled fan; respawning controllers at new paths",
+					"moves", len(moves))
+				sp.drainCohort()
+				if ctx.Err() != nil {
+					// Daemon shutdown began while draining; don't respawn into a
+					// dying process. The deferred wd.Restore() handles cleanup.
+					return nil
+				}
+				for _, m := range moves {
+					if m.Kind != "fan" || m.OldPWM == m.NewPWM {
+						continue
+					}
+					// Swap the watchdog entry from the vanished path to the new
+					// one. The drained controller's defer already restored the old
+					// path (a harmless error now that it's gone); Register(new)
+					// captures the renumbered chip's current (firmware-default)
+					// pwm_enable as the restore baseline. Abort any in-flight
+					// calibration keyed by the old path. Unmoved fans keep their
+					// startup entry untouched.
+					wd.Deregister(m.OldPWM)
+					wd.Register(m.NewPWM, "hwmon")
+					if m.OldRPM != "" && m.OldRPM != m.NewRPM {
+						wd.Deregister(m.OldRPM)
+					}
+					cal.Abort(m.OldPWM)
+				}
+				sp.newCohort(ctx)
+				sp.reconcile(newCfg, poll)
+				logger.Info("controllers respawned after hwmon renumber",
+					"count", len(newCfg.Controls))
+
+			default:
+				// Running system, no controlled fan moved: existing controllers
+				// pick up new curve parameters from liveCfg on their next tick.
 			}
 		}
 	}
 }
 
+// pathMove records one hwmon sysfs path that resolveHwmonPaths rebased during a
+// reload. Kind is "fan" or "sensor". For a fan, OldPWM/NewPWM are the pwm path
+// and OldRPM/NewRPM the tach path (equal when that one didn't move); for a
+// sensor, the moved path is in OldPWM/NewPWM. The restartCh handler consults
+// these to decide whether a *controlled* fan moved and so the controllers must
+// be respawned at their new paths (RULE-CTRL-REBIND-FOLLOW).
+type pathMove struct {
+	Kind   string
+	Name   string
+	OldPWM string
+	NewPWM string
+	OldRPM string
+	NewRPM string
+}
+
 // resolveHwmonPaths fixes up any hwmon sysfs paths that have moved due to
-// hwmonX renumbering across reboots. Uses the HwmonDevice field (stable
-// /sys/devices/... path) stored in the config to find the current hwmonX dir.
-// Remaps calibration cache keys so stored results survive the renumber.
-func resolveHwmonPaths(cfg *config.Config, cal *calibrate.Manager, logger *slog.Logger) {
+// hwmonX renumbering (across reboots, or at runtime via rmmod+modprobe / DKMS
+// upgrade / hotplug). Uses the HwmonDevice field (stable /sys/devices/... path)
+// stored in the config to find the current hwmonX dir. Remaps calibration cache
+// keys so stored results survive the renumber, and returns the set of moves so
+// the caller can respawn controllers bound to a moved path.
+func resolveHwmonPaths(cfg *config.Config, cal *calibrate.Manager, logger *slog.Logger) []pathMove {
+	var moves []pathMove
 	for i := range cfg.Fans {
 		f := &cfg.Fans[i]
-		if f.Type != "hwmon" || f.HwmonDevice == "" {
+		if f.Type != "hwmon" {
 			continue
 		}
+		if f.HwmonDevice == "" {
+			// No stable anchor to rebase against. If the path has vanished, a
+			// renumber happened that we can't follow — warn so the operator
+			// re-runs setup; the controller will hand the fan back to firmware.
+			if _, err := os.Stat(f.PWMPath); err != nil {
+				logger.Warn("hwmon: fan path missing and no stable device anchor; cannot follow a renumber — re-run setup",
+					"fan", f.Name, "path", f.PWMPath)
+			}
+			continue
+		}
+		m := pathMove{Kind: "fan", Name: f.Name, OldPWM: f.PWMPath, NewPWM: f.PWMPath, OldRPM: f.RPMPath, NewRPM: f.RPMPath}
 		if resolved, changed := hwmon.ResolvePath(f.PWMPath, f.HwmonDevice); changed {
 			logger.Info("hwmon path moved, updating", "fan", f.Name, "old", f.PWMPath, "new", resolved)
 			cal.RemapKey(f.PWMPath, resolved)
+			m.NewPWM = resolved
 			f.PWMPath = resolved
 		}
 		if f.RPMPath != "" {
 			if resolved, changed := hwmon.ResolvePath(f.RPMPath, f.HwmonDevice); changed {
+				m.NewRPM = resolved
 				f.RPMPath = resolved
 			}
+		}
+		if m.OldPWM != m.NewPWM || m.OldRPM != m.NewRPM {
+			moves = append(moves, m)
 		}
 	}
 	for i := range cfg.Sensors {
@@ -1803,9 +1890,29 @@ func resolveHwmonPaths(cfg *config.Config, cal *calibrate.Manager, logger *slog.
 		}
 		if resolved, changed := hwmon.ResolvePath(s.Path, s.HwmonDevice); changed {
 			logger.Info("hwmon path moved, updating", "sensor", s.Name, "old", s.Path, "new", resolved)
+			moves = append(moves, pathMove{Kind: "sensor", Name: s.Name, OldPWM: s.Path, NewPWM: resolved})
 			s.Path = resolved
 		}
 	}
+	return moves
+}
+
+// anyControlledFanPWMChanged reports whether any move is a fan whose pwm path
+// changed and that fan is bound to a control — the precise condition under
+// which a running controller (which binds its fan by an immutable pwmPath)
+// can't follow on its own and must be respawned. RULE-CTRL-REBIND-FOLLOW.
+func anyControlledFanPWMChanged(moves []pathMove, cfg *config.Config) bool {
+	for _, m := range moves {
+		if m.Kind != "fan" || m.OldPWM == m.NewPWM {
+			continue
+		}
+		for _, ctrl := range cfg.Controls {
+			if ctrl.Fan == m.Name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // migrateAuthToFile moves the password hash from config.yaml to auth.json on

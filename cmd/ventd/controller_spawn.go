@@ -30,7 +30,14 @@ import (
 // telemetry silently empty) and #1037 (reload path missing the polarity
 // channel → inverted-polarity fans driven the wrong way after SIGHUP).
 type controllerSpawner struct {
+	// ctx/cancel/wg are the CONTROLLER COHORT handles: a context derived from
+	// the daemon ctx but cancellable on its own, plus a cohort-scoped
+	// waitgroup. newCohort (re)creates them; drainCohort tears the cohort down.
+	// Keeping the cancel func in a field (rather than a local var) is also what
+	// keeps `go vet`'s lostcancel quiet across the renumber respawn, which
+	// re-derives the cohort. RULE-CTRL-REBIND-FOLLOW.
 	ctx        context.Context
+	cancel     context.CancelFunc
 	wg         *sync.WaitGroup
 	errCh      chan<- error
 	liveCfg    *atomic.Pointer[config.Config]
@@ -184,6 +191,59 @@ func hwmonSensorPathForCurve(cfg *config.Config, curveName string) string {
 		}
 	}
 	return ""
+}
+
+// newCohort (re)creates the controller-cohort context + waitgroup as fields,
+// derived from parent. Controllers spawned afterwards run under this cohort and
+// can be torn down independently of the daemon's web/watcher/scheduler
+// goroutines. Assigning context.WithCancel straight into the fields (no local
+// cancel var) keeps go vet's lostcancel analyzer satisfied across the renumber
+// respawn that re-derives the cohort. The cohort is released by drainCohort and,
+// as a backstop, transitively by the daemon ctx's own cancel (parent of every
+// cohort).
+func (s *controllerSpawner) newCohort(parent context.Context) {
+	s.ctx, s.cancel = context.WithCancel(parent)
+	s.wg = &sync.WaitGroup{}
+}
+
+// drainCohort cancels the current cohort and waits for every controller
+// goroutine to return — each runs c.wd.Restore() in its defer, so the fans are
+// handed back to firmware before the cohort is gone. Safe to call before any
+// cohort exists (no-op) and idempotent.
+func (s *controllerSpawner) drainCohort() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.wg != nil {
+		s.wg.Wait()
+	}
+}
+
+// reconcile spawns a controller for every control in cfg, under the spawner's
+// current cohort ctx/wg. It is the single shared path used by both the
+// first-boot config reload and the renumber respawn (RULE-CTRL-REBIND-FOLLOW),
+// so neither can drift from the other's option wiring — the same anti-drift
+// guarantee spawn/options give the startup vs reload paths (#1240/#1037). A
+// control that fails to resolve is logged and skipped (lenient, unlike startup
+// which is fatal).
+//
+// Watchdog registration is deliberately NOT done here. It is a separate concern
+// the callers own, because the registration delta differs by path: first-boot
+// registers the newly-configured fans, while the renumber path Deregisters the
+// old path and Registers the new one for moved fans only — re-Registering an
+// unmoved fan would stack a duplicate entry on its startup entry (the watchdog
+// uses LIFO duplicate entries for the calibration sweep lifecycle).
+func (s *controllerSpawner) reconcile(cfg *config.Config, pollInterval time.Duration) {
+	calMap := loadCalibrationByChannel(s.logger)
+	resolvePWMUnitMax := makePWMUnitMaxResolver(s.logger)
+	for _, ctrl := range cfg.Controls {
+		fanCfg, err := resolveControl(cfg, ctrl)
+		if err != nil {
+			s.logger.Error("resolve control during reconcile", "fan", ctrl.Fan, "err", err)
+			continue
+		}
+		s.spawn(ctrl, fanCfg, s.options(ctrl, fanCfg, calMap, resolvePWMUnitMax), pollInterval)
+	}
 }
 
 // spawn constructs one controller and launches its goroutine under the shared

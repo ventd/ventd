@@ -91,21 +91,31 @@ negligible while bounding worst-case detection latency to a real-time
 remediation window. Operators that need tighter detection can pass a
 shorter interval to MonitorSwap directly.
 
-### v0.5.41 ships observability-only
+### Remap dispatch (RULE-CTRL-REBIND-FOLLOW)
 
-The `SwapHandler` is nil in production. Detections surface via WARN log
-lines but no remap dispatch happens. The actual remap (calling
-`Manager.RemapKey`, updating controller caches, updating watchdog
-entries) requires a coordinated refactor across the controller,
-watchdog, and calibration manager that needs separate design. The seam
-(onSwap callback) is in place so the follow-up PR only wires the
-dispatch, not the detection.
+The `SwapHandler` is wired in production (default-on via
+`cfg.Hwmon.DynamicRebindEnabled()`, #1265). It does not surgically mutate
+controller caches in place — that would mean racing live ticks while
+rewriting `pwmPath`, the watchdog entry, the polarity channel, and the
+calibration key under a running goroutine. Instead it reuses the existing
+in-process reload: a detection signals `restartCh` (the same channel the
+uevent-driven `rebindTrigger` uses), and the reload handler **respawns the
+affected controllers** at the rebased paths.
 
-The risk is **operator awareness lag** — the WARN line tells operators
-something is wrong but the daemon continues writing to the stale path
-until restart. The v0.5.x release-notes call this out so operators on
-hot-plug-prone setups know to restart the daemon on receipt of a swap
-WARN.
+The controllers run as a cohort under their own context + waitgroup
+(derived from the daemon ctx, cancellable on their own). When a controlled
+fan's PWM path moved, the handler drains the cohort (each controller
+restores its fan to firmware on exit — so the old controller is gone before
+the new one starts, the race guard), swaps the moved fans' watchdog entries
+(`Deregister` old + `Register` new) and aborts any in-flight calibration on
+the old path, then respawns every controller under a fresh cohort against
+the rebased config. `Manager.RemapKey` (called by `resolveHwmonPaths`) moves
+the stored calibration results across the same rename.
+
+Earlier (v0.5.41) the handler was nil and the daemon kept writing to the
+stale path until a manual restart — operator awareness lag. That gap is
+closed: the only residual stranded case is a fan with no `HwmonDevice`
+anchor, which can't be rebased; it gets a WARN to re-run setup.
 
 ### Daemon-side wiring (`startHwmonSwapMonitor`)
 
