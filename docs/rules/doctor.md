@@ -448,3 +448,4 @@ nil status fn (monitor-only / no hwmon backend) emits zero facts.
 
 Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector
 Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector_DetailAndEntityHash
+Bound: internal/web/ebusy_doctor_test.go:TestDoctorReport_SurfacesActiveEBUSYStorm
