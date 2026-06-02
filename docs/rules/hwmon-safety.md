@@ -274,13 +274,26 @@ exactly as before, never worse.
 
 Engage and release are debounced by `emergencyDebounce` (reject transient
 single-tick spikes) and separated by `emergencyReleaseC` hysteresis (no
-flapping at the boundary). v1 covers single-sensor curves
-(`curveCfg.Sensor != ""`); manual-mode and mix-curve fans are a follow-up.
+flapping at the boundary), tracked **per sensor** (`emergencyState`) so each
+sensor a fan watches keeps its own engage/release state.
+
+The failsafe watches **every control sensor the bound curve reads**
+(`failsafeSensorNames`): a single-sensor curve watches its one sensor; a **mix**
+curve watches the union of the leaf sensors reachable through its sources
+(recursively, deduped, cycle-guarded). The fan is forced to full speed while
+**any** of those sensors is engaged — so a case fan on `max(cpu, gpu)` is forced
+to full speed if **either** the CPU or the GPU crits, where before mix-curve
+fans got no failsafe at all (#1442 follow-up). A sensorless, sourceless curve (a
+fixed/manual-mode fan) watches no sensors and stays outside the failsafe by
+design; a non-hwmon sensor (e.g. an NVML GPU temp) resolves no threshold and is
+silently disabled there — neither path ever worse than before.
 
 Bound: internal/controller/overtemp_test.go:TestOvertempForce_DebounceAndHysteresis
 Bound: internal/controller/overtemp_test.go:TestResolveEmergencyEngageC_TjmaxFallbackForCPULabel
 Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeEndToEnd
 Bound: internal/controller/overtemp_test.go:TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint
+Bound: internal/controller/overtemp_mix_test.go:TestFailsafeSensorNames
+Bound: internal/controller/overtemp_mix_test.go:TestTick_OvertempFailsafeFiresOnMixCurveLeafSensor
 
 ## RULE-HWMON-CAL-INTERRUPTIBLE: calibration restores original PWM on abort
 
