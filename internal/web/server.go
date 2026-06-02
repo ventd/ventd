@@ -114,6 +114,11 @@ type Server struct {
 	// read feeds; the doctor's stuck_sensor detector reads its current
 	// verdict. nil in monitor-only mode; nil-safe.
 	stuckSensors *sensorfreeze.Tracker
+	// doctorBaselines are the daemon-start snapshots the baseline-requiring
+	// doctor detectors compare the live system against (the AppArmor attach
+	// mode and the resolved board-catalog match). Captured once at startup and
+	// set via SetDoctorBaselines; the zero value disables those detectors.
+	doctorBaselines DoctorBaselines
 	// drift is the R16 per-layer drift detector (R11). The
 	// /api/v1/confidence/status handler reads its per-channel snapshot
 	// for the per-layer drift evidence. nil in monitor-only mode; nil-safe.
@@ -1785,6 +1790,33 @@ func (s *Server) SetEBUSYCollector(c *ebusy.Collector) {
 // wiring; the detector then reports nothing).
 func (s *Server) SetStuckSensorTracker(t *sensorfreeze.Tracker) {
 	s.stuckSensors = t
+}
+
+// DoctorBaselines carries the daemon-start snapshots the baseline-requiring
+// doctor detectors need (they compare the live system against the state
+// captured when the daemon started). Empty fields disable the corresponding
+// detector — e.g. an empty AppArmorMode means "no baseline pinned".
+type DoctorBaselines struct {
+	// AppArmorMode is the ventd profile's attach mode read at daemon start
+	// ("absent"/"enforce"/"complain"); the apparmor_profile_drift detector
+	// flags a change from this.
+	AppArmorMode string
+	// DMIMatched / DMIBoardName record whether the running hardware resolved
+	// to a specific board-catalog entry at startup, for the dmi_fingerprint
+	// detector's match status.
+	DMIMatched   bool
+	DMIBoardName string
+	// HasDMI is true once the daemon attempted DMI/board resolution at
+	// startup, so the detector is wired even when DMIMatched is false
+	// (board-not-in-catalog is a real, reportable Warning).
+	HasDMI bool
+}
+
+// SetDoctorBaselines wires the daemon-start baselines so the
+// apparmor_profile_drift and dmi_fingerprint doctor detectors run. Called once
+// at startup; the zero value (monitor-only / CLI paths) leaves them disabled.
+func (s *Server) SetDoctorBaselines(b DoctorBaselines) {
+	s.doctorBaselines = b
 }
 
 // SetDriftDetector wires the R16 per-layer drift detector so

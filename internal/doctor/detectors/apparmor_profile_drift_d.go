@@ -52,6 +52,26 @@ type AppArmorProfileDriftDetector struct {
 	File AppArmorProfilesFile
 }
 
+// ReadAppArmorMode reads the current attach mode of the named profile from the
+// live kernel surface, for the wiring layer to snapshot at daemon start and
+// pass back as the detector's ExpectedMode baseline. Returns "absent" when
+// AppArmor is not loaded, the file is unreadable, or the profile is not
+// attached; otherwise the mode string ("enforce"/"complain"/...). Centralising
+// the snapshot here keeps it on the same parse the detector compares against.
+func ReadAppArmorMode(profileName string) string {
+	if profileName == "" {
+		profileName = "ventd"
+	}
+	raw, err := liveAppArmorProfiles{}.ReadAll()
+	if err != nil {
+		return "absent"
+	}
+	if mode, present := lookupAppArmorProfile(string(raw), profileName); present {
+		return mode
+	}
+	return "absent"
+}
+
 // NewAppArmorProfileDriftDetector constructs a detector for the
 // given profile + expected-mode pair. file nil → live kernel read.
 func NewAppArmorProfileDriftDetector(profileName, expectedMode string, file AppArmorProfilesFile) *AppArmorProfileDriftDetector {
