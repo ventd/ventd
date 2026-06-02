@@ -344,16 +344,17 @@ is `startHwmonSwapMonitor(ctx, wg, channels, logger)` in
 or empty `StableDevice` (NVML / IPMI / virtual). Zero eligible
 channels = clean no-op, no goroutine registered.
 
-**v0.5.41 ships observability-only**: `SwapHandler` is nil in
-production. Detections surface via WARN; the actual remap (touching
-controller caches, watchdog entries, calibration Manager.RemapKey)
-requires a coordinated refactor in a follow-up PR. Operator awareness
-lag is acknowledged; release notes call out the restart-on-WARN
-mitigation.
+The `SwapHandler` is wired in production (default-on via
+`cfg.Hwmon.DynamicRebindEnabled()`, #1265): a detection signals an
+in-process reload (`restartCh`) — the same path the uevent-driven
+`rebindTrigger` uses — which re-resolves the config paths and respawns
+the affected controllers at their new sysfs path (RULE-CTRL-REBIND-FOLLOW).
+`SwapHandler` stays nil only when `dynamic_rebind=false` is set
+explicitly, reverting to WARN-only observability.
 
 See `docs/rules-rationale/hwmon-runtime-monitors.md` for the audit-M21
 motivation, the interval-choice trade-offs, and the remap-dispatch
-follow-up scope.
+design.
 
 Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_NoSwapReportsUnchanged
 Bound: internal/hwmon/swap_monitor_test.go:TestReResolveAll_SwapDetectedAndRebased
@@ -365,6 +366,44 @@ Bound: internal/hwmon/swap_monitor_test.go:TestMonitorSwap_NilHandlerStillLogs
 Bound: internal/hwmon/swap_monitor_test.go:TestDefaultSwapMonitorInterval_Is10Min
 Bound: cmd/ventd/main_hwmon_swap_monitor_test.go:TestStartHwmonSwapMonitor_SkipsWhenNoEligibleChannels
 Bound: cmd/ventd/main_hwmon_swap_monitor_test.go:TestStartHwmonSwapMonitor_RegistersGoroutineForEligibleChannel
+
+## RULE-CTRL-REBIND-FOLLOW: when a controlled fan's hwmon path moves at runtime, the daemon respawns its controllers at the new path instead of stranding the fan.
+
+A running controller binds its fan by an immutable `pwmPath` captured at
+construction (`findFanByPath(live, c.pwmPath, c.fanType)`). So when a renumber
+rebases the config's `Fan.PWMPath` (RULE-HWMON-SWAP-MONITOR /
+RULE-HWMON-INDEX-UNSTABLE), the live controller's `pwmPath` no longer matches any
+fan — without intervention it would hit the RULE-CTRL-RECONCILE-STRANDED handback
+and go inert, leaving the renumbered fan on the BIOS curve until a daemon restart.
+
+The controllers run as a **cohort** under a context + waitgroup
+(`controllerSpawner.ctx/cancel/wg`) derived from the daemon context but
+cancellable on their own, so the web server, hwmon watcher, swap monitor, and
+scheduler (on the daemon ctx/wg) are undisturbed. On a reload where
+`anyControlledFanPWMChanged` reports a controlled fan's PWM path moved, the
+`restartCh` handler:
+
+1. drains the cohort (`drainCohort`: cancel + wait) — each controller runs
+   `wd.Restore()` in its defer, so its fan is handed back to firmware before the
+   controller is gone, and the old controller has fully exited before any
+   respawn (the race guard: old and new never both write the channel);
+2. for each moved fan, `wd.Deregister(oldPWM)` + `wd.Register(newPWM)` swaps the
+   watchdog entry to the live path, and `cal.Abort(oldPWM)` cancels any in-flight
+   calibration keyed by the vanished path (unmoved fans keep their startup
+   entry — re-registering would stack a duplicate, since the watchdog uses LIFO
+   duplicate entries for the calibration sweep lifecycle);
+3. creates a fresh cohort (`newCohort`) and respawns every controller against the
+   rebased config (`reconcile`).
+
+A SIGTERM arriving mid-drain short-circuits the respawn (`ctx.Err()` guard); the
+deferred `drainCohort` and the daemon's own `wd.Restore()` cover shutdown. A fan
+with no `HwmonDevice` anchor can't be rebased: no respawn happens and a WARN tells
+the operator to re-run setup (the residual RULE-CTRL-RECONCILE-STRANDED case).
+
+Bound: cmd/ventd/rebind_follow_test.go:TestAnyControlledFanPWMChanged
+Bound: cmd/ventd/rebind_follow_test.go:TestResolveHwmonPaths_ReportsFanRenumber
+Bound: cmd/ventd/rebind_follow_test.go:TestResolveHwmonPaths_NoAnchorWarnsCannotFollow
+Bound: cmd/ventd/rebind_follow_test.go:TestRebindFollow_ControllerFollowsRenumber
 
 ## RULE-HWMON-SENTINEL-TEMP: temperature sentinel rejected at the backend read boundary
 
