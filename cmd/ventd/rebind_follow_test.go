@@ -168,7 +168,7 @@ func TestRebindFollow_ControllerFollowsRenumber(t *testing.T) {
 	restartCh := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- runDaemonInternal(ctx, mkCfg(pwm9), cfgPath, "", logger, nil, restartCh, nil, experimental.Flags{}, func() error { return nil }, func() error { return nil }, nil, nil)
+		done <- runDaemonInternal(ctx, mkCfg(pwm9), cfgPath, "", logger, nil, restartCh, nil, experimental.Flags{}, func() error { return nil }, func() error { return nil }, nil, nil, "")
 	}()
 
 	// Controller drives the fan at hwmon9 (fixed curve → pwm=128, manual mode).

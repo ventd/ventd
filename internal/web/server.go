@@ -1810,11 +1810,17 @@ type DoctorBaselines struct {
 	// startup, so the detector is wired even when DMIMatched is false
 	// (board-not-in-catalog is a real, reportable Warning).
 	HasDMI bool
+	// LastKernel is the kernel release recorded by the PREVIOUS daemon run
+	// (read from the state KV at startup, before the current release is
+	// written back); the kernel_update detector warns when the running kernel
+	// differs from it. Empty = first run / no persisted baseline = no-op.
+	LastKernel string
 }
 
 // SetDoctorBaselines wires the daemon-start baselines so the
-// apparmor_profile_drift and dmi_fingerprint doctor detectors run. Called once
-// at startup; the zero value (monitor-only / CLI paths) leaves them disabled.
+// apparmor_profile_drift, dmi_fingerprint, and kernel_update doctor detectors
+// run. Called once at startup; the zero value (monitor-only / CLI paths) leaves
+// them disabled.
 func (s *Server) SetDoctorBaselines(b DoctorBaselines) {
 	s.doctorBaselines = b
 }
