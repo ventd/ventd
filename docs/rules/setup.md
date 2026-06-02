@@ -48,10 +48,13 @@ lie on read (NCT6687D — see #1249) for a simpler one-shot write; the
 watchdog now carries the EINVAL fallback for its own restore path.
 
 The apply-side regression test drives `ApplyPhase.Execute` with one probed
-fan that classifies normal (admitted) and one phantom (excluded), both
-captured at `InitialEnable=2` over fixture `pwm_enable` files seeded to the
-calibrate-time manual `1`, and asserts the excluded channel is restored to
-`2` while the admitted channel is left untouched at `1` for the daemon to
-acquire.
+fan that classifies phantom (excluded) over a fixture `pwm_enable` file
+seeded to the calibrate-time manual `1`, captured at `InitialEnable=2`, and
+asserts the excluded channel is restored to `2`. It asserts only the
+excluded-channel guarantee because that holds in both apply outcomes (an
+excluded channel is restored in control mode; every channel is restored
+under a monitor-only demotion), whereas an admitted channel's fate is
+mode-dependent and the mode turns on whether a CPU sensor was discovered
+from the host `/sys`.
 
 Bound: internal/setup/orchestrator/apply_restore_test.go:TestApplyPhase_RestoresExcludedChannelEnableToProbeValue
