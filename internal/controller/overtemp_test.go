@@ -76,7 +76,11 @@ func TestResolveEmergencyEngageC_CappedAtEmergency(t *testing.T) {
 // a release margin below the engage temp for the debounce dwell.
 func TestOvertempForce_DebounceAndHysteresis(t *testing.T) {
 	// engage=104 (e.g. Tjmax 100 + 4); release band floor = 104-6 = 98.
-	c := &Controller{logger: slog.Default(), emergencyEngageC: 104, emergencyResolvedFor: "cpu"}
+	// Pre-seed the "cpu" sensor's resolved threshold so overtempForce skips the
+	// sysfs resolve (sensorPath is "").
+	c := &Controller{logger: slog.Default(), emergency: map[string]*emergencyState{
+		"cpu": {engageC: 104, resolved: true},
+	}}
 	t0 := time.Unix(1_000_000, 0)
 	step := func(temp float64, dt time.Duration) bool {
 		return c.overtempForce("cpu", "", temp, t0.Add(dt))
@@ -143,12 +147,12 @@ func TestTick_OvertempFailsafeEndToEnd(t *testing.T) {
 
 	// 3) Backdate the over-temp dwell past emergencyDebounce, tick again:
 	// failsafe engages and forces full speed, bypassing the max_pwm cap.
-	c.overTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.emergency["cpu"].overSince = time.Now().Add(-emergencyDebounce - time.Second)
 	c.tick()
 	if got := readPWMByte(t, ff.pwmPath); got != 255 {
 		t.Errorf("engaged failsafe: PWM=%d, want 255 (forced full speed bypassing max_pwm=%d)", got, cap)
 	}
-	if !c.emergencyEngaged {
+	if !c.emergency["cpu"].engaged {
 		t.Error("emergencyEngaged=false after engagement")
 	}
 	_ = engageC
@@ -157,9 +161,9 @@ func TestTick_OvertempFailsafeEndToEnd(t *testing.T) {
 	// failsafe releases and returns to capped curve control.
 	writeTempAttr(t, chipDir, "temp1_input", "60000") // well below engage − release
 	c.tick()                                          // observes cool, starts underTempSince
-	c.underTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.emergency["cpu"].underSince = time.Now().Add(-emergencyDebounce - time.Second)
 	c.tick()
-	if c.emergencyEngaged {
+	if c.emergency["cpu"].engaged {
 		t.Error("failsafe still engaged after cool-down + dwell; expected release")
 	}
 	if got := readPWMByte(t, ff.pwmPath); got == 255 {
@@ -215,10 +219,10 @@ func TestTick_OvertempFailsafeNoFalseFireAtThrottlePoint(t *testing.T) {
 	// Even if the dwell somehow accrued, the temp never reaches engage, so the
 	// failsafe must stay disengaged. Backdate to prove it's the threshold, not
 	// the debounce, holding it off.
-	c.overTempSince = time.Now().Add(-emergencyDebounce - time.Second)
+	c.emergency["cpu"].overSince = time.Now().Add(-emergencyDebounce - time.Second)
 	c.tick()
 
-	if c.emergencyEngaged {
+	if c.emergency["cpu"].engaged {
 		t.Error("failsafe engaged at 92 °C (throttle 90, engage 94) — must not fire on a chip hot by design")
 	}
 	if got := readPWMByte(t, ff.pwmPath); got == 255 {

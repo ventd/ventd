@@ -297,18 +297,26 @@ type Controller struct {
 	hasProgrammedCurve bool
 
 	// Over-temperature failsafe state (RULE-CTRL-OVERTEMP-FAILSAFE). A
-	// curve-independent backstop: when the control sensor crosses the chip's
+	// curve-independent backstop: when a control sensor crosses the chip's
 	// emergency threshold (hwmon _crit/_emergency, or the CPU-model Tjmax for
 	// CPU sensors that expose no crit), force full speed regardless of curve,
 	// smart blend, schedule, hysteresis, or the operator's max_pwm cap. The
-	// threshold is resolved once per control sensor and cached; engage and
-	// release are debounced to reject transient spikes.
-	tjmaxFn              func() float64 // CPU-model Tjmax source; default sysclass.TjmaxFromCPUInfo
-	emergencyEngageC     float64        // resolved engage temp °C; 0 = no failsafe for this sensor
-	emergencyResolvedFor string         // sensor name the threshold was resolved for (recompute on change)
-	emergencyEngaged     bool           // currently forcing full speed
-	overTempSince        time.Time      // first tick at/above engage temp (debounce); zero = not over
-	underTempSince       time.Time      // first tick below release temp while engaged (debounce); zero = not under
+	// threshold is resolved once per sensor and cached; engage and release are
+	// debounced to reject transient spikes. Keyed per sensor so a fan bound to a
+	// mix curve gets the failsafe across EVERY leaf sensor it reads (a case fan
+	// on max(cpu,gpu) is forced full speed if either the CPU or the GPU crits) —
+	// the fan is forced while ANY of its sensors is engaged.
+	tjmaxFn   func() float64             // CPU-model Tjmax source; default sysclass.TjmaxFromCPUInfo
+	emergency map[string]*emergencyState // per control-sensor failsafe state
+}
+
+// emergencyState is the over-temperature failsafe state for ONE control sensor.
+type emergencyState struct {
+	engageC    float64   // resolved engage temp °C; 0 = no failsafe for this sensor
+	resolved   bool      // engageC has been computed for this sensor
+	engaged    bool      // currently forcing full speed
+	overSince  time.Time // first tick at/above engage (debounce); zero = not over
+	underSince time.Time // first tick below release while engaged (debounce); zero = not under
 }
 
 // Option configures a Controller. Functional options keep New's positional
@@ -551,6 +559,7 @@ func New(
 		sentinelBuf:        make(map[string]bool),    // Opt-1 (sentinel tracking)
 		sensorInvalidSince: make(map[string]time.Time),
 		piState:            make(map[string]curve.PIState),
+		emergency:          make(map[string]*emergencyState),
 		fatalErr:           make(chan error, 1),
 		tjmaxFn:            sysclass.TjmaxFromCPUInfo,
 	}
@@ -940,11 +949,18 @@ func (c *Controller) tick() {
 	// max_pwm cap — at a genuine thermal emergency, hardware survival beats the
 	// noise budget. Debounced + hysteresis-gated inside overtempForce so a
 	// thermally-limited chip running at its throttle point never trips.
-	if curveCfg.Sensor != "" {
-		if t, ok := sensors[curveCfg.Sensor]; ok {
-			if c.overtempForce(curveCfg.Sensor, sensorPathByName(live, curveCfg.Sensor), t, now) {
-				pwm = 255
-			}
+	// Watch every sensor the bound curve reads: one for a single-sensor curve,
+	// the leaf sensors of every source for a mix curve. Force full speed if ANY
+	// is over-temp — and run the check for ALL of them each tick so each
+	// sensor's engage/release debounce stays current. (#1442 follow-up: mix and
+	// manual curves were previously skipped.)
+	for _, sn := range c.failsafeSensorNames(live, curveCfg) {
+		t, ok := sensors[sn]
+		if !ok {
+			continue
+		}
+		if c.overtempForce(sn, sensorPathByName(live, sn), t, now) {
+			pwm = 255
 		}
 	}
 
@@ -1076,59 +1092,106 @@ func computePWM(
 // plausible threshold can be resolved — better silent than false-firing on a
 // guessed absolute. RULE-CTRL-OVERTEMP-FAILSAFE.
 func (c *Controller) overtempForce(sensorName, sensorPath string, tempC float64, now time.Time) bool {
-	if c.emergencyResolvedFor != sensorName {
-		c.emergencyEngageC = c.resolveEmergencyEngageC(sensorPath)
-		c.emergencyResolvedFor = sensorName
-		c.emergencyEngaged = false
-		c.overTempSince = time.Time{}
-		c.underTempSince = time.Time{}
-		if c.emergencyEngageC == 0 {
+	st := c.emergency[sensorName]
+	if st == nil {
+		st = &emergencyState{}
+		c.emergency[sensorName] = st
+	}
+	if !st.resolved {
+		st.engageC = c.resolveEmergencyEngageC(sensorPath)
+		st.resolved = true
+		if st.engageC == 0 {
 			c.logger.Info("controller: over-temperature failsafe disabled — no critical threshold for sensor",
 				"sensor", sensorName, "pwm_path", c.pwmPath)
 		} else {
 			c.logger.Info("controller: over-temperature failsafe armed",
-				"sensor", sensorName, "engage_c", c.emergencyEngageC, "pwm_path", c.pwmPath)
+				"sensor", sensorName, "engage_c", st.engageC, "pwm_path", c.pwmPath)
 		}
 	}
-	if c.emergencyEngageC == 0 {
+	if st.engageC == 0 {
 		return false
 	}
 
-	if !c.emergencyEngaged {
-		if tempC >= c.emergencyEngageC {
-			if c.overTempSince.IsZero() {
-				c.overTempSince = now
+	if !st.engaged {
+		if tempC >= st.engageC {
+			if st.overSince.IsZero() {
+				st.overSince = now
 			}
-			if now.Sub(c.overTempSince) >= emergencyDebounce {
-				c.emergencyEngaged = true
-				c.underTempSince = time.Time{}
+			if now.Sub(st.overSince) >= emergencyDebounce {
+				st.engaged = true
+				st.underSince = time.Time{}
 				c.logger.Error("controller: OVER-TEMPERATURE FAILSAFE engaged — forcing full speed",
-					"sensor", sensorName, "temp_c", tempC, "engage_c", c.emergencyEngageC,
+					"sensor", sensorName, "temp_c", tempC, "engage_c", st.engageC,
 					"pwm_path", c.pwmPath)
 			}
 		} else {
-			c.overTempSince = time.Time{}
+			st.overSince = time.Time{}
 		}
-		return c.emergencyEngaged
+		return st.engaged
 	}
 
 	// Engaged: hold full speed until the sensor falls a release margin below
 	// the engage temp for the debounce dwell.
-	if tempC < c.emergencyEngageC-emergencyReleaseC {
-		if c.underTempSince.IsZero() {
-			c.underTempSince = now
+	if tempC < st.engageC-emergencyReleaseC {
+		if st.underSince.IsZero() {
+			st.underSince = now
 		}
-		if now.Sub(c.underTempSince) >= emergencyDebounce {
-			c.emergencyEngaged = false
-			c.overTempSince = time.Time{}
+		if now.Sub(st.underSince) >= emergencyDebounce {
+			st.engaged = false
+			st.overSince = time.Time{}
 			c.logger.Warn("controller: over-temperature failsafe released — returning to curve control",
-				"sensor", sensorName, "temp_c", tempC, "engage_c", c.emergencyEngageC,
+				"sensor", sensorName, "temp_c", tempC, "engage_c", st.engageC,
 				"pwm_path", c.pwmPath)
 		}
 	} else {
-		c.underTempSince = time.Time{}
+		st.underSince = time.Time{}
 	}
-	return c.emergencyEngaged
+	return st.engaged
+}
+
+// failsafeSensorNames returns the control sensors the over-temperature failsafe
+// must watch for a fan bound to curveCfg: the curve's own sensor for a
+// single-sensor curve, or the union of the leaf sensors reachable through a mix
+// curve's sources (recursively, cycle-guarded). This is what extends the
+// failsafe to mix curves — a case fan on max(cpu, gpu) is forced to full speed
+// if EITHER the CPU or the GPU sensor crits, where before mix-curve fans got no
+// failsafe at all. A sensorless, sourceless curve (a fixed/manual fan) returns
+// none, so manual-mode fans remain outside the failsafe by design. Non-hwmon
+// sensors (e.g. an NVML GPU temp) are returned by name; resolveEmergencyEngageC
+// simply yields no threshold for them and the failsafe stays disabled there,
+// matching the single-sensor behaviour. RULE-CTRL-OVERTEMP-FAILSAFE.
+func (c *Controller) failsafeSensorNames(live *config.Config, curveCfg config.CurveConfig) []string {
+	if curveCfg.Sensor != "" {
+		return []string{curveCfg.Sensor}
+	}
+	seenCurve := map[string]bool{}
+	seenSensor := map[string]bool{}
+	var out []string
+	var walk func(name string)
+	walk = func(name string) {
+		if seenCurve[name] {
+			return
+		}
+		seenCurve[name] = true
+		cv, ok := findCurve(live, name)
+		if !ok {
+			return
+		}
+		if cv.Sensor != "" {
+			if !seenSensor[cv.Sensor] {
+				seenSensor[cv.Sensor] = true
+				out = append(out, cv.Sensor)
+			}
+			return
+		}
+		for _, s := range cv.Sources {
+			walk(s)
+		}
+	}
+	for _, s := range curveCfg.Sources {
+		walk(s)
+	}
+	return out
 }
 
 // resolveEmergencyEngageC computes the failsafe engage temperature (°C) for a
