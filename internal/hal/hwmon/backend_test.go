@@ -387,3 +387,42 @@ func mapKeys(m map[string]hwmon.EBUSYRate) []string {
 	}
 	return out
 }
+
+// TestEBUSYObserver_NotifiedOnEachEvent pins SetEBUSYObserver: the wired
+// callback fires on every recorded EBUSY event with the current rolling-window
+// snapshot (matching EBUSYRates), so a shared collector can aggregate
+// per-backend storms for the doctor's ebusy_storm detector.
+// RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+func TestEBUSYObserver_NotifiedOnEachEvent(t *testing.T) {
+	const pwmPath = "/sys/class/hwmon/hwmon0/pwm1"
+	enableFn := func(string, int) error { return nil }
+	dutyFn := func(st hwmon.State, pwm uint8) error {
+		return fmt.Errorf("hwmon: write pwm %s=%d: %w", st.PWMPath, pwm, syscall.EBUSY)
+	}
+	b := hwmon.NewBackendForTestWithDuty(slog.Default(), enableFn, dutyFn)
+	t0 := time.Unix(2_000_000, 0)
+	b.SetClockForTest(func() time.Time { return t0 })
+
+	var seen []hwmon.EBUSYRate
+	b.SetEBUSYObserver(func(r hwmon.EBUSYRate) { seen = append(seen, r) })
+
+	ch := hwmon.MakeTestChannel(pwmPath, false)
+	for i := 0; i < 3; i++ {
+		_ = b.Write(ch, 100)
+	}
+
+	if len(seen) != 3 {
+		t.Fatalf("observer fired %d times, want 3 (one per EBUSY event)", len(seen))
+	}
+	for i, r := range seen {
+		if r.PWMPath != pwmPath {
+			t.Errorf("event %d PWMPath=%q, want %q", i, r.PWMPath, pwmPath)
+		}
+		if r.EventCount != i+1 {
+			t.Errorf("event %d EventCount=%d, want %d (running window count)", i, r.EventCount, i+1)
+		}
+		if r.WindowStart != t0.Unix() {
+			t.Errorf("event %d WindowStart=%d, want %d", i, r.WindowStart, t0.Unix())
+		}
+	}
+}

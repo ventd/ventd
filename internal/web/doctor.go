@@ -90,6 +90,22 @@ func (s *Server) doctorRunner() *doctor.Runner {
 			}
 			return snap.Open, string(snap.Reason), snap.Detail, true
 		}),
+		// Surfaces RULE-HWMON-EBUSY-RATE-OBSERVABILITY: a BIOS
+		// fan-control feature (Q-Fan / Smart Fan) contesting manual
+		// mode storms a channel with EBUSY. The closure adapts the
+		// shared collector's currently-active storms; a nil collector
+		// (monitor-only / no hwmon backend) reports nothing.
+		detectors.NewEBUSYStormDetector(func() []detectors.EBUSYStorm {
+			var out []detectors.EBUSYStorm
+			for _, r := range s.ebusy.ActiveStorms(time.Now()) {
+				out = append(out, detectors.EBUSYStorm{
+					ChannelPath:   r.PWMPath,
+					EventCount:    r.EventCount,
+					WindowSeconds: r.WindowSeconds,
+				})
+			}
+			return out
+		}),
 	}
 	s.doctorCache.runner = doctor.NewRunner(det, nil, nil, nil)
 	return s.doctorCache.runner

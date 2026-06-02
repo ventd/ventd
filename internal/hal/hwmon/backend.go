@@ -137,6 +137,15 @@ type Backend struct {
 	// per-channel stats under the ebusyStats.mu lock.
 	ebusyRates sync.Map
 
+	// ebusyObserver, when non-nil, is notified with the current rolling-window
+	// snapshot every time an EBUSY event is recorded — the seam that carries
+	// per-backend storm telemetry out to a shared collector so the doctor's
+	// ebusy_storm detector can surface it. Each controller constructs its own
+	// Backend, so without this push the per-channel stats are otherwise
+	// unreachable from the aggregate doctor surface. Nil-safe; set via
+	// SetEBUSYObserver. RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+	ebusyObserver func(EBUSYRate)
+
 	// nowFn is the clock seam for ebusy rate tracking. nil → time.Now.
 	// Tests override via export_test.go to drive the rolling window
 	// deterministically.
@@ -373,10 +382,9 @@ func (b *Backend) Write(ch hal.Channel, pwm uint8) error {
 //     (preserves existing operator-facing log for one-off events).
 //   - count == EBUSYWarnThreshold     → WARN escalation, "storm
 //     detected" — tells operators this isn't a transient.
-//   - count == EBUSYEscalateThreshold → ERROR escalation. A future
-//     doctor detector reads EBUSYRates() to surface the storm as a
-//     recovery card; v0.5.40 ships the log line + the accessor seam,
-//     the detector wires up in a follow-up PR.
+//   - count == EBUSYEscalateThreshold → ERROR escalation. The
+//     doctor's ebusy_storm detector consumes the snapshot pushed via
+//     SetEBUSYObserver to surface the storm as a recovery card.
 //   - count > EBUSYEscalateThreshold  → silent (debounced). The
 //     operator already has the ERROR; no value in spamming.
 func (b *Backend) recordEBUSY(pwmPath string, writeErr error) {
@@ -414,13 +422,35 @@ func (b *Backend) recordEBUSY(pwmPath string, writeErr error) {
 			"hint", "BIOS fan-control feature (Q-Fan / Smart Fan) likely needs disabling")
 		st.lastWarnedCount = EBUSYEscalateThreshold
 	}
+
+	// Push the current snapshot to the shared collector (if wired) so the
+	// doctor's ebusy_storm detector sees per-backend storms aggregated. Built
+	// under st.mu — the observer touches only the collector's own state, no
+	// reverse path into this backend, so there is no lock-ordering hazard.
+	if b.ebusyObserver != nil {
+		b.ebusyObserver(EBUSYRate{
+			PWMPath:       pwmPath,
+			EventCount:    st.count,
+			WindowStart:   st.firstEventUnix,
+			WindowSeconds: int(EBUSYWindow.Seconds()),
+		})
+	}
+}
+
+// SetEBUSYObserver wires a callback notified with the current rolling-window
+// snapshot on every recorded EBUSY event. Used by the daemon to push
+// per-backend storm telemetry into a shared collector for the doctor's
+// ebusy_storm detector (each controller owns a separate Backend, so the stats
+// are otherwise unreachable from the aggregate doctor surface). Nil-safe; pass
+// nil to detach. RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+func (b *Backend) SetEBUSYObserver(fn func(EBUSYRate)) {
+	b.ebusyObserver = fn
 }
 
 // EBUSYRate is the per-channel rolling-window snapshot returned by
-// EBUSYRates. RULE-HWMON-EBUSY-RATE-OBSERVABILITY exposes this as
-// the seam for a future doctor detector — the v0.5.40 ship is the
-// accessor + the escalating log lines; the detector PR consumes
-// this map to emit recovery cards.
+// EBUSYRates and pushed to the SetEBUSYObserver callback.
+// RULE-HWMON-EBUSY-RATE-OBSERVABILITY: the doctor's ebusy_storm detector
+// consumes these to emit a recovery card when a BIOS is contesting manual mode.
 type EBUSYRate struct {
 	// PWMPath is the channel identifier (matches hal.Channel.ID).
 	PWMPath string

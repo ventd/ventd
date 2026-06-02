@@ -29,6 +29,7 @@ import (
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
 	"github.com/ventd/ventd/internal/coupling/signguard"
+	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/envelope"
 	"github.com/ventd/ventd/internal/experimental"
 	"github.com/ventd/ventd/internal/hal"
@@ -1610,6 +1611,13 @@ func runDaemonInternal(
 		}()
 	}
 
+	// Shared EBUSY-storm collector: every controller's hwmon backend pushes its
+	// per-channel rolling-window snapshots here (RULE-HWMON-EBUSY-RATE-
+	// OBSERVABILITY), so the doctor's ebusy_storm detector can surface a BIOS
+	// contesting manual mode across all controllers' separate backends.
+	ebusyCollector := ebusy.New()
+	webSrv.SetEBUSYCollector(ebusyCollector)
+
 	// sp owns the controller wiring shared by the startup loop below and the
 	// SIGHUP/restart reload loop. Constructing it once means both paths build
 	// identical controller.Options by construction (see controllerSpawner) —
@@ -1626,6 +1634,7 @@ func runDaemonInternal(
 		smartMode:  smartMode,
 		sigLib:     sigLib,
 		logger:     logger,
+		ebusy:      ebusyCollector,
 	}
 
 	// Only start controllers if there are controls defined (not first-boot).
