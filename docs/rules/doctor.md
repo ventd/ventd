@@ -423,3 +423,28 @@ status fn emit zero facts. The `EntityHash` keys on the failing reason so
 suppressing one reason doesn't suppress another.
 
 Bound: internal/doctor/detectors/wpred_gate_d_test.go:TestWPredGateDetector
+
+## RULE-DOCTOR-DETECTOR-EBUSY-STORM: Surfaces a BIOS contesting manual mode — one Warning per channel storming past the EBUSY threshold, silent for benign one-off re-acquires and when no storm is active.
+
+The `ebusy_storm` detector completes RULE-HWMON-EBUSY-RATE-OBSERVABILITY:
+when a motherboard fan-control feature (Q-Fan / Smart Fan) periodically
+reasserts `pwm_enable`, every ventd duty write returns EBUSY and the
+backend silently re-acquires manual mode (RULE-HWMON-MODE-REACQUIRE) — the
+daemon self-heals, so nothing fails outright, which is exactly why the
+*rate* needs surfacing. It reads the currently-active storms through an
+`EBUSYStormStatusFn` seam (production adapts the shared
+`internal/ebusy.Collector` the controllers' backends push into; tests inject
+a stub), keeping the detectors package free of imports on
+`internal/hal/hwmon` and the daemon wiring.
+
+Severity policy: a channel whose EBUSY count in the rolling window has
+reached `ebusyStormWarnEvents` (5, mirroring `hwmon.EBUSYWarnThreshold`)
+emits one `SeverityWarning` fact telling the operator to disable the BIOS
+feature; a one-off re-acquire below the threshold is a benign self-heal and
+stays silent. Window staleness is decided in the collector (where the clock
+lives), so a storm that stopped no longer surfaces. The `EntityHash` keys on
+the channel path so suppressing one fan's card doesn't suppress another's. A
+nil status fn (monitor-only / no hwmon backend) emits zero facts.
+
+Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector
+Bound: internal/doctor/detectors/ebusy_storm_d_test.go:TestEBUSYStormDetector_DetailAndEntityHash

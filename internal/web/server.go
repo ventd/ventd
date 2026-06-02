@@ -31,6 +31,7 @@ import (
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
 	"github.com/ventd/ventd/internal/coupling"
+	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/grub"
 	"github.com/ventd/ventd/internal/hal"
 	halhwmon "github.com/ventd/ventd/internal/hal/hwmon"
@@ -103,6 +104,10 @@ type Server struct {
 	// gate's open/closed verdict + failing reason. nil in monitor-only
 	// mode; nil-safe.
 	gate *gate.Evaluator
+	// ebusy is the shared EBUSY-storm collector the controllers' hwmon
+	// backends push into; the doctor's ebusy_storm detector reads its
+	// currently-active storms. nil in monitor-only mode; nil-safe.
+	ebusy *ebusy.Collector
 	// drift is the R16 per-layer drift detector (R11). The
 	// /api/v1/confidence/status handler reads its per-channel snapshot
 	// for the per-layer drift evidence. nil in monitor-only mode; nil-safe.
@@ -1751,6 +1756,13 @@ func (s *Server) SetDecisions(d *controller.DecisionCache) {
 // refusal reason. nil-safe (monitor-only mode skips wiring).
 func (s *Server) SetGate(g *gate.Evaluator) {
 	s.gate = g
+}
+
+// SetEBUSYCollector wires the shared EBUSY-storm collector so the doctor's
+// ebusy_storm detector surfaces channels a BIOS is contesting. nil-safe
+// (monitor-only mode skips wiring; the detector then reports nothing).
+func (s *Server) SetEBUSYCollector(c *ebusy.Collector) {
+	s.ebusy = c
 }
 
 // SetDriftDetector wires the R16 per-layer drift detector so

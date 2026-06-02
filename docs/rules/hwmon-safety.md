@@ -92,7 +92,7 @@ EBUSY, and external `echo > pwm_enable` interference alike.
 Bound: internal/hal/hwmon/backend_reassert_test.go:TestReassertIfReverted_SilentRevertReacquiresManualMode
 Bound: internal/hal/hwmon/backend_reassert_test.go:TestReassertIfReverted_NoEnableFileIsSkipped
 
-## RULE-HWMON-EBUSY-RATE-OBSERVABILITY: Backend tracks per-channel EBUSY rate in a 60s rolling window and emits escalating log levels at 5/min (WARN-storm) and 20/min (ERROR-escalation); EBUSYRates() exposes the snapshot for future doctor wiring.
+## RULE-HWMON-EBUSY-RATE-OBSERVABILITY: Backend tracks per-channel EBUSY rate in a 60s rolling window and emits escalating log levels at 5/min (WARN-storm) and 20/min (ERROR-escalation); EBUSYRates() exposes the snapshot and SetEBUSYObserver pushes each event to the doctor's ebusy_storm detector.
 
 The observability ladder on top of RULE-HWMON-MODE-REACQUIRE: the
 per-event re-acquire succeeds invisibly during a BIOS-reassertion
@@ -116,19 +116,26 @@ emits exactly one log line per window. Per-channel isolation via
 must not pollute another's counter. A clock seam
 (`Backend.SetClockForTest`) drives tests deterministically.
 
-`Backend.EBUSYRates()` returns a per-channel snapshot for a future
-doctor detector (currently-storming / recently-stormed / never-stormed
-classification).
+`Backend.EBUSYRates()` returns a per-channel snapshot, and
+`Backend.SetEBUSYObserver(fn)` pushes the current snapshot to `fn` on every
+recorded event. Because each controller constructs its own `Backend`, the
+per-backend stats are unreachable from the aggregate doctor surface; the
+daemon points every controller's observer at a single `internal/ebusy.Collector`
+(via `controller.WithEBUSYObserver`), and the doctor's `ebusy_storm` detector
+reads the collector's currently-active storms (RULE-DOCTOR-DETECTOR-EBUSY-STORM).
+The collector ages out a channel once its rolling window closes, so a storm that
+stopped no longer surfaces.
 
 See `docs/rules-rationale/hwmon-runtime-monitors.md` for the audit-M17
-recommendation, the deferred 100/min auto-fallback, and the doctor-
-detector consumption design.
+recommendation and the deferred 100/min auto-fallback.
 
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_TracksWithinWindow
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_WindowResetAfterExpiry
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_NoEventsReturnsEmpty
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_PerChannelIsolation
 Bound: internal/hal/hwmon/backend_test.go:TestEBUSYRate_ThresholdConstantsLocked
+Bound: internal/hal/hwmon/backend_test.go:TestEBUSYObserver_NotifiedOnEachEvent
+Bound: internal/ebusy/collector_test.go:TestCollector_ActiveStormsFiltersStaleAndSorts
 
 ## RULE-HWMON-RESTORE-EXIT: Watchdog.Restore() fires on every documented exit path
 

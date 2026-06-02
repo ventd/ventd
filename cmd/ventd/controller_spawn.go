@@ -10,6 +10,7 @@ import (
 	"github.com/ventd/ventd/internal/calibrate"
 	"github.com/ventd/ventd/internal/config"
 	"github.com/ventd/ventd/internal/controller"
+	"github.com/ventd/ventd/internal/ebusy"
 	"github.com/ventd/ventd/internal/hwdb"
 	"github.com/ventd/ventd/internal/signature"
 	"github.com/ventd/ventd/internal/smartblend"
@@ -39,6 +40,9 @@ type controllerSpawner struct {
 	smartMode  *SmartModeBundle
 	sigLib     *signature.Library
 	logger     *slog.Logger
+	// ebusy is the shared collector each controller's hwmon backend reports
+	// EBUSY storms into, for the doctor's ebusy_storm detector. nil-safe.
+	ebusy *ebusy.Collector
 }
 
 // labelFn returns the signature-label reader threaded into the observation and
@@ -103,6 +107,11 @@ func (s *controllerSpawner) options(
 				tracker.Report(chID, pwm, rpm, now)
 			}))
 	}
+	// Surface a BIOS contesting manual mode to the doctor: the controller's
+	// hwmon backend pushes per-channel EBUSY-storm telemetry into the shared
+	// collector the ebusy_storm detector reads. No-op for non-hwmon backends;
+	// s.ebusy.Observe is nil-safe. RULE-HWMON-EBUSY-RATE-OBSERVABILITY.
+	opts = append(opts, controller.WithEBUSYObserver(s.ebusy.Observe))
 	// v0.5.9: install the confidence-gated blend hook when the smart-mode
 	// bundle has a BlendedController. The closure pulls the per-channel
 	// Snapshots from the upstream runtimes, computes w_pred via the

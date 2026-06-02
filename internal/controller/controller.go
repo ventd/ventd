@@ -421,6 +421,23 @@ func WithStallReporter(channelID string, fn StallReporter) Option {
 	}
 }
 
+// WithEBUSYObserver wires a callback fired whenever this controller's hwmon
+// backend records an EBUSY event (a BIOS contesting manual mode, per
+// RULE-HWMON-MODE-REACQUIRE). The daemon points it at a shared collector so the
+// doctor's ebusy_storm detector can aggregate storms across every controller's
+// separate backend instance. No-op for non-hwmon backends — only hwmon
+// contends pwm_enable and tracks EBUSY — and nil-safe.
+func WithEBUSYObserver(fn func(halhwmon.EBUSYRate)) Option {
+	return func(c *Controller) {
+		if fn == nil {
+			return
+		}
+		if hb, ok := c.backend.(*halhwmon.Backend); ok {
+			hb.SetEBUSYObserver(fn)
+		}
+	}
+}
+
 // WithPolarityChannel wires the live probe.ControllableChannel into
 // the controller's hot PWM-write path so every backend.Write goes
 // through polarity.WritePWM (RULE-POLARITY-05). On inverted-polarity
