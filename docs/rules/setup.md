@@ -15,8 +15,6 @@ matching subtest or `tools/rulelint` blocks the merge.
 
 ## RULE-SETUP-NO-ORPHANED-CHANNELS: Every probed hwmon channel that does NOT make it into the generated config MUST have `pwm_enable` restored to its probe-time captured value before the wizard returns.
 
-<!-- rulelint:allow-orphan -->
-
 The orchestrator's `ApplyPhase` (`internal/setup/orchestrator/apply.go`
 lines 200-232) walks every fan in the ProbeArtifact. For each channel
 that's NOT in the applied config (phantom-classified, calibrate-
@@ -47,5 +45,13 @@ and ran a probe-based EINVAL fallback chain via `handbackExcludedChannel`
 probe-time captured value, which by construction is what the chip
 returned at read time. This trades the EINVAL recovery on chips that
 lie on read (NCT6687D — see #1249) for a simpler one-shot write; the
-watchdog now carries the EINVAL fallback for its own restore path. A
-direct apply-side regression test is TODO (allow-orphan until then).
+watchdog now carries the EINVAL fallback for its own restore path.
+
+The apply-side regression test drives `ApplyPhase.Execute` with one probed
+fan that classifies normal (admitted) and one phantom (excluded), both
+captured at `InitialEnable=2` over fixture `pwm_enable` files seeded to the
+calibrate-time manual `1`, and asserts the excluded channel is restored to
+`2` while the admitted channel is left untouched at `1` for the daemon to
+acquire.
+
+Bound: internal/setup/orchestrator/apply_restore_test.go:TestApplyPhase_RestoresExcludedChannelEnableToProbeValue
