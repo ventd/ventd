@@ -163,6 +163,14 @@ func run() error {
 		os.Exit(runHealth(state.EffectiveDir(), os.Stdout))
 	}
 
+	// `ventd setup --reset` is the lost-password recovery the login screen
+	// advertises (RULE-CLI-SETUP-RESET). Dispatched before flag.Parse so the
+	// positional `setup` can never fall through to daemon startup; the
+	// subcommand owns its own flag parsing.
+	if len(os.Args) >= 2 && os.Args[1] == "setup" {
+		os.Exit(runSetupResetCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// `ventd preflight` runs the install-time orchestrator. Args
 	// after `preflight` are passed through; the subcommand owns its
 	// own flag parsing because the global flag set has unrelated

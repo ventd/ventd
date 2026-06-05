@@ -40,6 +40,7 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration.md | Calibration validity-probe rules (PR-2b) |
 | ci-action-pinning.md | CI Action Pinning Invariants |
 | cli-health.md | CLI: health probe |
+| cli-setup-reset.md | CLI: lost-password reset |
 | confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
 | confidence-drift.md | Per-layer drift detection rules — R16 / R11 PR-2 |
 | confidence-gate.md | w_pred_system global gate rules — v0.5.9 / R11 |
