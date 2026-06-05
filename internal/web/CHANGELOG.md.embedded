@@ -9,6 +9,8 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+## [v1.4.0] - 2026-06-05
+
 ### Added
 
 - **The Doctor now tells you when the kernel changed under ventd — a built-but-unwired detector, now live.** The `kernel_update` detector compares the running kernel against the one ventd last started under and raises a **Warning** on a change (a reboot into a new kernel means DKMS should have rebuilt the out-of-tree module — `dkms_status` fires a Blocker if that rebuild failed — and the control loop is now on a freshly-loaded module with cold-start confidence). It shipped complete-with-tests but was constructed nowhere because nothing persisted the baseline. The daemon now records the kernel release in the state KV on every start (read-then-write, so the detector compares against the *previous* run's value) and threads it into the web Doctor. First run / monitor-only paths have no baseline and stay silent. Wired alongside the existing `apparmor_profile_drift` + `dmi_fingerprint` baseline detectors; `hwmon_swap` and `calibration_freshness` remain the last two unwired ones.
