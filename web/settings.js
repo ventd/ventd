@@ -663,8 +663,43 @@
       });
   });
 
-  $('set-bundle').addEventListener('click', function () {
-    alert('Diagnostic bundle is generated via the CLI:\n\n  ventd diag bundle\n\nA web-side trigger is on the roadmap; for now run that on the host.');
+  // Diagnostic bundle — same POST + anchor-click download flow as the
+  // calibration recovery surface (calibration.js); the endpoint redacts
+  // hostnames/serials server-side and returns {filename, download_url}.
+  // Was an alert() telling the operator to run the CLI (issue 1502).
+  var bundleBtn = $('set-bundle');
+  var bundleSub = $('set-bundle-sub');
+  function setBundleSub(text, isError) {
+    if (!bundleSub) return;
+    bundleSub.textContent = text;
+    bundleSub.classList.toggle('is-error', !!isError);
+  }
+  bundleBtn.addEventListener('click', function () {
+    bundleBtn.disabled = true;
+    var oldLabel = bundleBtn.textContent;
+    bundleBtn.textContent = 'Generating…';
+    setBundleSub('Collecting logs and redacting hostnames…', false);
+    fetch('/api/v1/diag/bundle', { method: 'POST', credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        return r.json();
+      })
+      .then(function (j) {
+        var a = document.createElement('a');
+        a.href = j.download_url;
+        a.download = j.filename || '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setBundleSub('Bundle ready: ' + j.filename + ' (downloading).', false);
+      })
+      .catch(function (err) {
+        setBundleSub('Could not generate bundle: ' + (err && err.message || 'network error'), true);
+      })
+      .then(function () {
+        bundleBtn.disabled = false;
+        bundleBtn.textContent = oldLabel;
+      });
   });
 
   $('set-reboot').addEventListener('click', function () {

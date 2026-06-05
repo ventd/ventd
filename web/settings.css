@@ -84,6 +84,9 @@
 .set-row:first-of-type { border-top: 0; padding-top: 4px; }
 .set-row-title  { font-size: 0.88rem; color: var(--fg1); font-weight: 500; }
 .set-row-sub    { font-size: 0.74rem; color: var(--fg3); margin-top: 2px; line-height: 1.45; }
+/* Diag-bundle status reuses the row sub line; turns red on failure
+ * (settings.js setBundleSub, issue 1502). */
+.set-row-sub.is-error { color: var(--red); }
 .set-row-readout {
   font-size: 0.78rem; color: var(--fg2);
   background: var(--bg3); padding: 4px 10px; border-radius: 6px;
