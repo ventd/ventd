@@ -39,10 +39,12 @@ Regenerate with: `go run ./tools/rule-index`
 | calibration-safety.md | Calibration Safety Rules |
 | calibration.md | Calibration validity-probe rules (PR-2b) |
 | ci-action-pinning.md | CI Action Pinning Invariants |
+| cli-health.md | CLI: health probe |
 | confidence-aggregator.md | Confidence aggregator rules — v0.5.9 PR-A.2 |
 | confidence-drift.md | Per-layer drift detection rules — R16 / R11 PR-2 |
 | confidence-gate.md | w_pred_system global gate rules — v0.5.9 / R11 |
 | confidence-layer-a.md | Layer-A confidence (`conf_A`) rules — v0.5.9 PR-A sub-component |
+| config-hwmon-resolve.md | Config hwmon path resolution rules |
 | coupling.md | Layer-B thermal coupling rules (v0.5.7) |
 | diag.md | Diagnostic-bundle rules (PR-2c) |
 | doctor.md | Doctor rules — v0.5.10 |
