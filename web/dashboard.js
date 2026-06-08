@@ -707,7 +707,14 @@
         } else {
           var conv = s.converged || 0;
           var n = s.channels;
-          label = 'smart · ' + conv + '/' + n + ' stable';
+          // conv === 0 means the controllers are running but none have
+          // converged yet — the normal cold-start / post-calibration
+          // state. "0/N stable" read to a first-time operator as "smart
+          // mode is broken"; "learning" says the system is healthy and
+          // still warming up. (#1228.)
+          label = (conv === 0)
+            ? 'smart · learning'
+            : 'smart · ' + conv + '/' + n + ' stable';
           title = 'preset=' + (s.preset || '?') +
             ' · state=' + prettyState(s.global_state || '?') +
             ' · ' + conv + '/' + n + ' channels stable' +
@@ -1873,13 +1880,16 @@
       var y = spacedY(i, curves.length);
       aliveDrawNode(svg, SVG_NS, midX, y, c.name || c.id || ('curve ' + i), '', 'is-curve');
     });
-    // Fan nodes (right column)
+    // Fan nodes (right column). Curves bind to a fan by its sysfs pwm
+    // path (e.g. /sys/class/hwmon/hwmon9/pwm4); rendering that raw path
+    // — truncated to "/sys/cl…" — told a first-time operator nothing.
+    // Resolve it to the same friendly name the fan tiles show. (#1228.)
     fanList.forEach(function (fid, i) {
       var y = spacedY(i, fanList.length);
       var duty = aliveLookupFanDuty(String(fid));
       var sub = (duty != null) ? Math.round(duty) + '%' : '';
       var on = (duty != null && duty > 30);
-      aliveDrawNode(svg, SVG_NS, rightX, y, fid, sub, 'is-fan' + (on ? ' is-on' : ''));
+      aliveDrawNode(svg, SVG_NS, rightX, y, aliveResolveFanName(String(fid)), sub, 'is-fan' + (on ? ' is-on' : ''));
     });
 
     if (meta) meta.textContent = sensorList.length + ' sensors · ' + curves.length + ' curves · ' + fanList.length + ' fans';
@@ -1900,7 +1910,16 @@
     t.setAttribute('x', String(x));
     t.setAttribute('y', (y + 2).toFixed(1));
     t.setAttribute('text-anchor', 'middle');
-    t.textContent = aliveTrim(label, 8);
+    var full = String(label || '');
+    var shown = aliveTrim(full, 8);
+    t.textContent = shown;
+    // Labels are trimmed to 8 chars to fit the node; expose the full
+    // name on hover so a truncated "Nct6687…" is still recoverable.
+    if (shown !== full) {
+      var ttl = document.createElementNS(SVG_NS, 'title');
+      ttl.textContent = full;
+      t.appendChild(ttl);
+    }
     svg.appendChild(t);
     if (sub) {
       var s = document.createElementNS(SVG_NS, 'text');
@@ -1927,6 +1946,42 @@
       if (ids.indexOf(fid) >= 0) return aliveState.lastFanDuty[keys[i]];
     }
     return null;
+  }
+  // aliveResolveFanName maps a curve's fan-binding id to the friendly
+  // fan label the rest of the dashboard shows. Curves bind by sysfs pwm
+  // path (".../pwm4"); the status fans carry no path, but the hardware
+  // inventory exposes a fan sensor (".../fan4_input") with a friendly
+  // label ("CPU Fan", "System Fan #1") under the same chip. We map
+  // pwm<N> → fan<N>_input on the same chip dir, the standard hwmon
+  // index convention, and fall back to the raw id when there's no match
+  // so a non-conventional board still renders something honest. (#1228.)
+  function aliveResolveFanName(fid) {
+    // 1. Direct hit against the live fan cache (covers backends that do
+    //    expose a path-shaped id on the status fan object).
+    var direct = aliveState.lastFans[fid];
+    if (direct) return direct.label || direct.name || fid;
+    var keys = Object.keys(aliveState.lastFans);
+    for (var i = 0; i < keys.length; i++) {
+      var f = aliveState.lastFans[keys[i]];
+      if (aliveCandidateFanIds(f).indexOf(fid) >= 0) return f.label || f.name || fid;
+    }
+    // 2. sysfs pwm path → matching inventory fan sensor label.
+    var inv = aliveState.inventory;
+    if (inv && Array.isArray(inv.chips)) {
+      var m = /^(.*)\/pwm(\d+)$/.exec(String(fid));
+      var wantFanId = m ? m[1] + '/fan' + m[2] + '_input' : null;
+      for (var k = 0; k < inv.chips.length; k++) {
+        var ss = inv.chips[k].sensors || [];
+        for (var j = 0; j < ss.length; j++) {
+          if (ss[j].kind !== 'fan') continue;
+          var sid = String(ss[j].id);
+          if (sid === fid || (wantFanId && sid === wantFanId)) {
+            return ss[j].label || ss[j].alias || fid;
+          }
+        }
+      }
+    }
+    return fid;
   }
   function aliveResolveSensorAlias(sid) {
     if (!aliveState.inventory) return '';
@@ -2000,9 +2055,22 @@
     brief.hidden = false;
 
     // Workload signature — modal across channels (most common label).
-    var workloadLabel = aliveModeWorkloadLabel();
     var workloadEl = $('dash-brief-workload');
-    if (workloadEl) workloadEl.textContent = workloadLabel || '—';
+    if (workloadEl) {
+      var rawWorkload = aliveModeWorkloadMode();
+      workloadEl.textContent = prettySignatureLabel(rawWorkload) || '—';
+      // A hash like "0cc22caaf13437e4|dafe73e1…" reads as gibberish to a
+      // first-time operator. Keep it visible (operators recognise their
+      // own recurring loads) but pair it with a plain-English hover that
+      // says what it is. (#1228 — "keep the hash but pair the friendly
+      // label".)
+      if (isSignatureHash(rawWorkload)) {
+        workloadEl.title = 'Auto-learned workload fingerprint — ventd recognises ' +
+          'this recurring load pattern and reuses what it learned about it.';
+      } else {
+        workloadEl.removeAttribute('title');
+      }
+    }
 
     // Thermal headroom — TJ_MAX − max(cpu_temp, gpu_temp). We don't
     // have direct access to the live status payload here so we read
@@ -2040,11 +2108,12 @@
       }
     }
 
-    // Policy — preset name + " · alive" when smart is on, else
-    // "manual · curves only".
+    // Policy — preset name + " · active" when smart is on, else
+    // "manual · curves only". ("alive" was the internal name for this
+    // overlay; "active" is what an operator actually reads it as. #1228.)
     var policyEl = $('dash-brief-policy');
     if (policyEl) {
-      policyEl.textContent = (smart.preset || 'balanced') + ' · alive';
+      policyEl.textContent = (smart.preset || 'balanced') + ' · active';
       policyEl.className = 'dash-brief-stat-val mono is-good';
     }
 
@@ -2068,7 +2137,10 @@
       briefMeta.textContent = oppRunning ? 'live · probe in flight' : 'live';
     }
   }
-  function aliveModeWorkloadLabel() {
+  // aliveModeWorkloadMode returns the raw modal signature_label across
+  // channels (most common label). The caller decides how to present it
+  // so it can pair a learned-fingerprint hash with an explanatory hover.
+  function aliveModeWorkloadMode() {
     // /api/v1/smart/channels returns a bare array; the previous
     // .channels.channels access silently dropped every label.
     var ch = aliveState.channels;
@@ -2081,8 +2153,7 @@
       counts[lab] = (counts[lab] || 0) + 1;
       if (counts[lab] > max) { max = counts[lab]; mode = lab; }
     });
-    if (!mode) return '';
-    return prettySignatureLabel(mode);
+    return mode;
   }
   // prettySignatureLabel translates the signature library's internal
   // fallback names into plain English for the dashboard's "workload"
@@ -2097,12 +2168,24 @@
   // vocabulary. Translation is display-only at the main-dashboard
   // pill so existing diag tooling and the wire format under
   // `/api/v1/smart/channels` are unchanged.
+  // isSignatureHash reports whether a workload label is one or more
+  // hex fingerprints (optionally pipe-joined, e.g. "0cc22caa…|dafe73e1…")
+  // rather than a friendly fallback name. Shared by the workload pill and
+  // its explanatory hover so both agree on what counts as a hash. (#1228.)
+  function isSignatureHash(raw) {
+    return /^[0-9a-f]{6,}(\|[0-9a-f]+)*$/i.test(String(raw || ''));
+  }
   function prettySignatureLabel(raw) {
+    if (!raw) return '';
     if (raw === 'fallback/idle') return 'no signature yet';
     if (raw === 'fallback/disabled') return 'signature learning off';
-    // Eight-hex-char promoted signatures are operator-meaningful
-    // (operators recognise their own workloads); truncate longer
-    // labels to keep the pill compact.
+    // Promoted signatures are one or more 16-hex fingerprints, pipe-
+    // joined. They're operator-meaningful (operators recognise their own
+    // recurring loads) so we keep the leading fingerprint, but prefix it
+    // with "#" so it reads as an identifier rather than a stray hex
+    // string, and pair it with an explanatory hover at the call site.
+    // (#1228.)
+    if (isSignatureHash(raw)) return '#' + String(raw).split('|')[0].slice(0, 8);
     return raw.length > 8 ? raw.slice(0, 8) : raw;
   }
   // prettyState maps the daemon's internal global_state / ui_state

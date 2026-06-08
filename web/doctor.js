@@ -186,7 +186,7 @@
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn--primary doc-rem-btn';
-        btn.textContent = rem.kind === 'modal_instr' ? 'Show steps' : 'Apply fix';
+        btn.textContent = remButtonLabel(rem);
         btn.addEventListener('click', function () { handleDoctorFix(btn, result, rem); });
         actions.appendChild(btn);
       }
@@ -204,6 +204,19 @@
       wrap.appendChild(row);
     });
     card.appendChild(wrap);
+  }
+
+  // remButtonLabel picks an action verb that matches what the button
+  // actually does. The diag-bundle remediation attaches to *every* fact
+  // as a "need help?" affordance — including all-clear OK/info facts — so
+  // a blanket "Apply fix" made healthy cards read as if something were
+  // broken. Recovery actions that target a real failure class keep
+  // "Apply fix"; the bundle action and step-by-step instructions get
+  // their own honest verbs. (#1228.)
+  function remButtonLabel(rem) {
+    if (rem.kind === 'modal_instr') return 'Show steps';
+    if (rem.action_url && /\/diag\/bundle/.test(rem.action_url)) return 'Send bundle';
+    return 'Apply fix';
   }
 
   // handleDoctorFix POSTs to a remediation's action endpoint. The shared
