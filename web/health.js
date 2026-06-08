@@ -76,7 +76,11 @@
     head.className = 'hl-card-row';
     var name = document.createElement('span');
     name.className = 'hl-card-name';
-    name.textContent = sensor.name || '(unnamed)';
+    // The inventory endpoint carries the channel label in `label`
+    // (e.g. "temp1", "Composite", "Sensor 1") — `name` is always null
+    // here, which previously rendered every card as "(unnamed)" and is
+    // the same field the Sensors/Hardware pages read. (#1228.)
+    name.textContent = sensor.label || sensor.name || '(unnamed)';
     head.appendChild(name);
     var val = document.createElement('span');
     val.className = 'hl-card-value mono';
@@ -151,7 +155,8 @@
           chipNames[kind].push(chip.name || '');
           if (kind === 'temp' && typeof s.value === 'number' && s.value > hottestVal) {
             hottestVal = s.value;
-            hottestName = (chip.name || '') + ' · ' + s.name;
+            var sLabel = s.label || s.name || 'temp';
+            hottestName = (chip.name ? chip.name + ' · ' : '') + sLabel;
           }
           if (kind === 'fan' && typeof s.value === 'number') {
             fanTotal++;

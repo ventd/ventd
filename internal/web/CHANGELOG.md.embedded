@@ -9,6 +9,16 @@ Releases predating v0.5.0 are archived in
 
 ## [Unreleased]
 
+### Fixed
+
+- **New-user web UI readability — a first-time-user audit pass that translates leftover internal jargon and fixes two broken labels (#1228).** Driving the live daemon through every operator-facing surface as someone who has never read a spec turned up gaps the earlier #1228 children (#1260/#1261/#1262/#1264) didn't reach:
+  - **Health page rendered every sensor as `(unnamed)`** and the hottest-sensor card as a literal `NVMe Drive · undefined` — the page read the always-`null` `sensor.name` field instead of `sensor.label` (the field the Sensors/Hardware pages already use). It now shows real labels (`Core 0`, `Package id 0`, `CPU Vcore`, `+12V`, `Pump Fan`, `System Fan #1`) — this was the single worst first-time surface.
+  - **The Doctor showed an "Apply fix" button on all-clear OK cards** (`Catalog match`, `Predictive control engaged`). That button belongs to the generic *"Send diagnostic bundle to maintainers"* help-affordance the daemon appends to **every** fact, so a healthy card read as if something were broken. The button is now labelled by what it does — `Send bundle` for the diag-bundle action; real failure-class remediations keep `Apply fix`.
+  - **The dashboard "AI brief" showed the raw workload signature hash** (`0cc22caaf13437e4|dafe73e1…`) as gibberish. It now renders as a `#`-prefixed short identifier with a plain-English hover ("Auto-learned workload fingerprint — ventd recognises this recurring load pattern…"), keeping the operator-recognisable hash but pairing it with the friendly label.
+  - **The dashboard coupling map showed raw sysfs pwm paths** (`/sys/class/hwmon/hwmon9/pwm4`, truncated to `/sys/cl…`) for its fan nodes. They now resolve to the friendly inventory fan label (`CPU Fan`, `System Fan #2`) via the standard `pwm<N>`→`fan<N>_input` mapping, with the full name on hover and an honest fall-back to the path when no fan sensor exists for that channel.
+  - **The smart-mode pill read `0/7 stable`** — alarming to a newcomer — when the controllers are running but simply haven't converged yet after a fresh calibration. The zero-converged case now reads `smart · learning`; `N/7 stable` still shows once channels converge.
+  - **The "policy" stat leaked the internal overlay name `· alive`**; it now reads `· active`.
+
 ## [v1.4.0] - 2026-06-05
 
 ### Added
