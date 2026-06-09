@@ -182,8 +182,12 @@
     var fanCount = $('hl-fan-count');
     if (fanCount) fanCount.textContent = fanTotal === 0 ? '—' : (spinning + ' / ' + fanTotal);
     var fanSub = $('hl-fan-sub');
+    // This counts every enumerated hwmon fan channel, including phantom /
+    // unconnected headers (e.g. an unused pump header reading 0 RPM), so the
+    // denominator can exceed the dashboard's controlled-fan count. The
+    // qualifier reconciles the two surfaces for a first-time operator (#1509).
     if (fanSub) fanSub.textContent = fanTotal === 0 ? 'no fans enumerated' :
-      (spinning === 0 ? 'all stopped' : 'spinning at >60 RPM');
+      (spinning === 0 ? 'all stopped' : 'spinning at >60 RPM') + ' · all enumerated, incl. unconnected';
 
     var ssCount = $('hl-sensor-count');
     if (ssCount) ssCount.textContent = String(totalSensors);

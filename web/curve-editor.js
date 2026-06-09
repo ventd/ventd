@@ -44,6 +44,14 @@
   var selected = null; // curve index
   var dirty = false;
 
+  // prettyCurve renders an auto-generated curve id as a friendly label for
+  // DISPLAY only — c.name remains the binding identity everywhere else
+  // (e.g. ctl.curve === c.name). (#1508)
+  function prettyCurve(name) {
+    var pretty = window.ventdPrettyCurveName ? window.ventdPrettyCurveName(name) : name;
+    return pretty || 'unnamed';
+  }
+
   // helper: derive PWM% from a curve at a given temperature
   function evalCurve(c, temp) {
     if (!c) return 0;
@@ -137,7 +145,7 @@
         path += (i === 0 ? 'M ' : ' L ') + x.toFixed(1) + ' ' + y.toFixed(1);
       }
       html += '<div class="ce-list-item' + sel + '" data-idx="' + idx + '">'
-            +   '<div class="ce-list-item-name">' + escapeHTML(c.name || 'unnamed') + '</div>'
+            +   '<div class="ce-list-item-name">' + escapeHTML(prettyCurve(c.name)) + '</div>'
             +   '<span class="ce-list-item-tag mono">' + escapeHTML(c.type || '?') + '</span>'
             +   '<svg class="ce-list-item-mini" viewBox="0 0 100 24" preserveAspectRatio="none"><path d="' + path + '"/></svg>'
             + '</div>';
@@ -160,7 +168,7 @@
     var c = (config && config.curves) ? config.curves[selected] : null;
     var nameEl = $('ce-curve-name'), typeEl = $('ce-curve-type');
     if (!c) { if (nameEl) nameEl.textContent = 'Select a curve'; if (typeEl) typeEl.textContent = '—'; return; }
-    if (nameEl) nameEl.textContent = c.name || 'unnamed';
+    if (nameEl) nameEl.textContent = prettyCurve(c.name);
     if (typeEl) typeEl.textContent = c.type || '';
 
     // Build a fine line across the temp range using evalCurve.
