@@ -117,6 +117,26 @@
     });
   }
 
+  // ---------------------------------------------------------------
+  // ventdPrettyCurveName — friendly DISPLAY label for an auto-generated
+  // curve id, while every caller keeps the raw id as the config identity
+  // (binding + save paths must use the unmodified id). The wizard names
+  // per-fan curves `fan-<normalized fan label>` (perFanCurveName in the
+  // daemon); that `fan-` prefix is the daemon's documented marker for
+  // "auto-generated, not operator-authored", so it's the safe trigger.
+  // Operator-named curves (no `fan-` prefix) are returned unchanged. (#1508)
+  //   fan-nct6687-fan-4  ->  "Nct6687 Fan 4"
+  // ---------------------------------------------------------------
+  window.ventdPrettyCurveName = function (id) {
+    var s = String(id == null ? '' : id);
+    if (s.indexOf('fan-') !== 0) return s;
+    var rest = s.slice(4).replace(/-+/g, ' ').trim();
+    if (!rest) return s;
+    return rest.replace(/\S+/g, function (w) {
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    });
+  };
+
   function init() {
     paint();
     paintActiveNav();

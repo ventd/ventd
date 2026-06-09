@@ -284,6 +284,15 @@
       if (cpu == null && looksLikeCPU(sensors[i].name)) cpu = sensors[i].value;
       if (gpu == null && looksLikeGPU(sensors[i].name)) gpu = sensors[i].value;
     }
+    // The status payload only carries CONFIGURED sensors, so a GPU that's
+    // enumerated but not curve-bound (visible on /health and /hardware) never
+    // appears above and the hero read "—" as if ventd couldn't see the GPU.
+    // Fall back to any enumerated GPU temperature in the hardware inventory
+    // (#1507). Generic across nvml and hwmon-backed GPUs (e.g. amdgpu).
+    if (gpu == null) {
+      var gt = findInventoryGPUTemp();
+      if (gt != null) gpu = gt;
+    }
     if (cpu != null) pushArr(heroCpuHistory, Number(cpu));
     if (gpu != null) pushArr(heroGpuHistory, Number(gpu));
 
@@ -1878,7 +1887,12 @@
     // Curve nodes (middle column)
     curves.forEach(function (c, i) {
       var y = spacedY(i, curves.length);
-      aliveDrawNode(svg, SVG_NS, midX, y, c.name || c.id || ('curve ' + i), '', 'is-curve');
+      // Prettify the auto-generated curve id (fan-nct6687-fan-4 → "Nct6687
+      // Fan 4") for the node label; the binding edges key off the raw id,
+      // not this text, so display-only is safe (#1508).
+      var rawCurveId = c.name || c.id || ('curve ' + i);
+      var curveLabel = window.ventdPrettyCurveName ? window.ventdPrettyCurveName(rawCurveId) : rawCurveId;
+      aliveDrawNode(svg, SVG_NS, midX, y, curveLabel, '', 'is-curve');
     });
     // Fan nodes (right column). Curves bind to a fan by its sysfs pwm
     // path (e.g. /sys/class/hwmon/hwmon9/pwm4); rendering that raw path
@@ -1893,6 +1907,28 @@
     });
 
     if (meta) meta.textContent = sensorList.length + ' sensors · ' + curves.length + ' curves · ' + fanList.length + ' fans';
+  }
+  // findInventoryGPUTemp scans the hardware inventory for an enumerated GPU
+  // temperature, used as the hero fallback when the status payload (configured
+  // sensors only) carries no GPU temp (#1507). A chip is treated as a GPU when
+  // its bus is nvml or its family name looks like a GPU (covers hwmon-backed
+  // amdgpu). Returns the first temp sensor's value, or null when no GPU is
+  // enumerated (the hero then correctly stays "—").
+  function findInventoryGPUTemp() {
+    var inv = aliveState && aliveState.inventory;
+    if (!inv || !Array.isArray(inv.chips)) return null;
+    for (var i = 0; i < inv.chips.length; i++) {
+      var chip = inv.chips[i] || {};
+      var isGPU = (chip.bus === 'nvml') || looksLikeGPU(chip.name || '');
+      if (!isGPU) continue;
+      var ss = chip.sensors || [];
+      for (var j = 0; j < ss.length; j++) {
+        if (ss[j] && ss[j].kind === 'temp' && typeof ss[j].value === 'number') {
+          return ss[j].value;
+        }
+      }
+    }
+    return null;
   }
   function aliveCurvePath(x1, y1, x2, y2) {
     var midX = (x1 + x2) / 2;

@@ -174,3 +174,33 @@ func TestDoctorReportWithRemediation(t *testing.T) {
 		t.Errorf("unknown-class remediation = %q, want the diag bundle", rem1[0].ActionURL)
 	}
 }
+
+// TestDoctorReportSkipsBundleOnOKFacts binds #1510: all-clear (OK) facts get
+// no diagnostic-bundle escalation card — there's nothing to escalate on a
+// healthy finding, so offering it reads as noise to a first-time operator.
+// Non-OK facts still carry the bundle (covered by TestDoctorReportWithRemediation).
+func TestDoctorReportSkipsBundleOnOKFacts(t *testing.T) {
+	t.Parallel()
+	report := doctor.Report{
+		Schema:    "1",
+		Generated: time.Unix(1700000000, 0).UTC(),
+		Severity:  doctor.SeverityOK,
+		Facts: []doctor.Fact{
+			{Detector: "all_clear", Class: recovery.ClassUnknown, Title: "everything fine", Severity: doctor.SeverityOK},
+			{Detector: "warn", Class: recovery.ClassUnknown, Title: "a warning", Severity: doctor.SeverityWarning},
+		},
+	}
+
+	view := doctorReportWithRemediation(report)
+
+	// OK fact: bundle stripped → no remediation at all (ClassUnknown's only
+	// entry was the bundle).
+	if got := len(view.Facts[0].Remediation); got != 0 {
+		t.Errorf("OK fact should carry no remediation, got %d: %+v", got, view.Facts[0].Remediation)
+	}
+	// Warning fact: bundle retained.
+	rem := view.Facts[1].Remediation
+	if len(rem) != 1 || rem[0].ActionURL != recovery.DiagnosticBundleActionURL {
+		t.Errorf("warning fact should keep the diag bundle, got %+v", rem)
+	}
+}

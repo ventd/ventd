@@ -23,6 +23,29 @@
 
 package recovery
 
+// DiagnosticBundleActionURL is the ActionURL of the generic "send
+// diagnostic bundle" escalation card RemediationFor appends to every class.
+// Surfaces that render remediation on non-actionable (all-clear) findings
+// strip this entry — offering an escalation affordance on a healthy fact
+// reads as noise to a first-time operator (#1510). Exported so callers
+// identify the card without string-matching the literal.
+const DiagnosticBundleActionURL = "/api/diag/bundle"
+
+// WithoutDiagnosticBundle returns rems with the generic diagnostic-bundle
+// escalation card removed, preserving order and any class-specific cards.
+// Used by the doctor surface for OK-severity facts, where there is nothing
+// to escalate (#1510). The input slice is not mutated.
+func WithoutDiagnosticBundle(rems []Remediation) []Remediation {
+	out := make([]Remediation, 0, len(rems))
+	for _, r := range rems {
+		if r.Kind == KindActionPost && r.ActionURL == DiagnosticBundleActionURL {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // RemediationKind discriminates the UI render mode.
 type RemediationKind string
 
@@ -93,7 +116,7 @@ func RemediationFor(class FailureClass) []Remediation {
 		Label:       "Send diagnostic bundle to maintainers",
 		Description: "Generates a redacted bundle (hostnames, IPs, MACs replaced with stable tokens) you can share with the project maintainers for help.",
 		Kind:        KindActionPost,
-		ActionURL:   "/api/diag/bundle",
+		ActionURL:   DiagnosticBundleActionURL,
 	}
 
 	switch class {

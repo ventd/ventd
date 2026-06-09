@@ -222,7 +222,16 @@ func doctorReportWithRemediation(report doctor.Report) doctorReportView {
 		Facts:          make([]doctorFactView, len(report.Facts)),
 	}
 	for i, f := range report.Facts {
-		view.Facts[i] = doctorFactView{Fact: f, Remediation: recovery.RemediationFor(f.Class)}
+		rem := recovery.RemediationFor(f.Class)
+		// All-clear facts get no escalation affordance: the diagnostic-bundle
+		// card is appended to every class, but there's nothing to escalate on
+		// a healthy finding, so it reads as noise on an OK card (#1510). Any
+		// class-specific cards (unexpected on an OK fact, but possible) are
+		// preserved.
+		if f.Severity == doctor.SeverityOK {
+			rem = recovery.WithoutDiagnosticBundle(rem)
+		}
+		view.Facts[i] = doctorFactView{Fact: f, Remediation: rem}
 	}
 	return view
 }
